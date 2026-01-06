@@ -295,7 +295,7 @@ func TestAuthenticateAppRoleWithMockServer(t *testing.T) {
 						"lease_duration": 3600,
 					},
 				}
-				json.NewEncoder(w).Encode(response)
+				_ = json.NewEncoder(w).Encode(response)
 			},
 			wantErr: false,
 		},
@@ -313,7 +313,7 @@ func TestAuthenticateAppRoleWithMockServer(t *testing.T) {
 						"client_token": "s.test-approle-token",
 					},
 				}
-				json.NewEncoder(w).Encode(response)
+				_ = json.NewEncoder(w).Encode(response)
 			},
 			wantErr: false,
 		},
@@ -326,7 +326,7 @@ func TestAuthenticateAppRoleWithMockServer(t *testing.T) {
 				response := map[string]interface{}{
 					"data": map[string]interface{}{},
 				}
-				json.NewEncoder(w).Encode(response)
+				_ = json.NewEncoder(w).Encode(response)
 			},
 			wantErr: true,
 		},
@@ -340,7 +340,7 @@ func TestAuthenticateAppRoleWithMockServer(t *testing.T) {
 				response := map[string]interface{}{
 					"errors": []string{"invalid role or secret ID"},
 				}
-				json.NewEncoder(w).Encode(response)
+				_ = json.NewEncoder(w).Encode(response)
 			},
 			wantErr: true,
 		},
@@ -386,7 +386,7 @@ func TestIsHealthy(t *testing.T) {
 					"sealed":      false,
 					"version":     "1.13.0",
 				}
-				json.NewEncoder(w).Encode(response)
+				_ = json.NewEncoder(w).Encode(response)
 			},
 			wantHealthy: true,
 			wantErr:     false,
@@ -401,7 +401,7 @@ func TestIsHealthy(t *testing.T) {
 					"sealed":      true,
 					"version":     "1.13.0",
 				}
-				json.NewEncoder(w).Encode(response)
+				_ = json.NewEncoder(w).Encode(response)
 			},
 			wantHealthy: false,
 			wantErr:     false,
@@ -414,7 +414,7 @@ func TestIsHealthy(t *testing.T) {
 					"sealed":      true,
 					"version":     "1.13.0",
 				}
-				json.NewEncoder(w).Encode(response)
+				_ = json.NewEncoder(w).Encode(response)
 			},
 			wantHealthy: false,
 			wantErr:     false,
@@ -467,7 +467,7 @@ func TestGetVersion(t *testing.T) {
 					"sealed":      false,
 					"version":     "1.15.2",
 				}
-				json.NewEncoder(w).Encode(response)
+				_ = json.NewEncoder(w).Encode(response)
 			},
 			wantVersion: "1.15.2",
 			wantErr:     false,
@@ -529,7 +529,7 @@ func TestKubernetesAuthRolePaths(t *testing.T) {
 						"bound_service_account_namespaces": []string{"*"},
 					},
 				}
-				json.NewEncoder(w).Encode(response)
+				_ = json.NewEncoder(w).Encode(response)
 			}))
 			defer server.Close()
 
@@ -623,7 +623,7 @@ func TestKubernetesAuthRoleExists(t *testing.T) {
 						"bound_service_account_names": []string{"*"},
 					},
 				}
-				json.NewEncoder(w).Encode(response)
+				_ = json.NewEncoder(w).Encode(response)
 			},
 			wantExists: true,
 			wantErr:    false,
@@ -665,7 +665,7 @@ func TestClientTimeout(t *testing.T) {
 	// Create a server that delays response
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(200 * time.Millisecond)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"initialized": true,
 			"sealed":      false,
 		})

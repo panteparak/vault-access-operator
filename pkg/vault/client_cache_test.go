@@ -379,24 +379,24 @@ func TestClientCacheConcurrentSetAndDelete(t *testing.T) {
 
 	// Half goroutines setting
 	for i := 0; i < numGoroutines; i++ {
-		go func(id int) {
+		go func() {
 			defer wg.Done()
 			for j := 0; j < numOperations; j++ {
 				connName := "conn" + string(rune('0'+j%10))
 				cache.Set(connName, createTestClient(t, "http://localhost:8200"))
 			}
-		}(i)
+		}()
 	}
 
 	// Half goroutines deleting
 	for i := 0; i < numGoroutines; i++ {
-		go func(id int) {
+		go func() {
 			defer wg.Done()
 			for j := 0; j < numOperations; j++ {
 				connName := "conn" + string(rune('0'+j%10))
 				cache.Delete(connName)
 			}
-		}(i)
+		}()
 	}
 
 	wg.Wait()

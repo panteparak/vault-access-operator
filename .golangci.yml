@@ -1,9 +1,6 @@
 version: "2"
-
 run:
   allow-parallel-runners: true
-  timeout: 5m
-
 linters:
   default: none
   enable:
@@ -13,8 +10,6 @@ linters:
     - ginkgolinter
     - goconst
     - gocyclo
-    - gofmt
-    - goimports
     - govet
     - ineffassign
     - lll
@@ -26,24 +21,43 @@ linters:
     - unconvert
     - unparam
     - unused
-
-linters-settings:
-  revive:
+  settings:
+    revive:
+      rules:
+        - name: comment-spacings
+        - name: import-shadowing
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
     rules:
-      - name: comment-spacings
-      - name: import-shadowing
-
-issues:
-  exclude-generated: lax
-  exclude-rules:
-    - path: api/
-      linters:
-        - lll
-    - path: internal/
-      linters:
-        - dupl
-        - lll
-  exclude-dirs:
-    - third_party
-    - builtin
-    - examples
+      - linters:
+          - lll
+        path: api/
+      - linters:
+          - dupl
+          - lll
+        path: internal/
+    paths:
+      - third_party
+      - builtin
+      - examples
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  exclusions:
+    generated: lax
+    paths:
+      - third_party
+      - builtin
+      - examples
+      - third_party$
+      - builtin$
+      - examples$
