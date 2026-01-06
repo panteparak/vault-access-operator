@@ -57,7 +57,12 @@ var _ = Describe("VaultClusterRole Controller", func() {
 								Namespace: "default",
 							},
 						},
-						Policies: []string{"default"},
+						Policies: []vaultv1alpha1.PolicyReference{
+							{
+								Kind: "VaultClusterPolicy",
+								Name: "default",
+							},
+						},
 					},
 				}
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
