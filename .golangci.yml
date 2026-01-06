@@ -1,9 +1,11 @@
+version: "2"
+
 run:
   allow-parallel-runners: true
   timeout: 5m
 
 linters:
-  disable-all: true
+  default: none
   enable:
     - copyloopvar
     - dupl
