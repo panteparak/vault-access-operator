@@ -1,0 +1,19 @@
+{{- if .Values.leaderElection.enabled }}
+---
+# Leader Election RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "vault-access-operator.leaderElectionRoleName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "vault-access-operator.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "vault-access-operator.leaderElectionRoleName" . }}
+subjects:
+- kind: ServiceAccount
+  name: {{ include "vault-access-operator.serviceAccountName" . }}
+  namespace: {{ .Release.Namespace }}
+{{- end }}

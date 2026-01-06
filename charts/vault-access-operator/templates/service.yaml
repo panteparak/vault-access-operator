@@ -1,0 +1,44 @@
+{{- if .Values.metrics.enabled }}
+---
+# Metrics Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "vault-access-operator.metricsServiceName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "vault-access-operator.labels" . | nindent 4 }}
+  {{- with .Values.metrics.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.metrics.service.type }}
+  ports:
+    - name: https
+      port: {{ .Values.metrics.service.port }}
+      targetPort: metrics
+      protocol: TCP
+  selector:
+    {{- include "vault-access-operator.selectorLabels" . | nindent 4 }}
+{{- end }}
+---
+{{- if .Values.webhook.enabled }}
+# Webhook Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "vault-access-operator.webhookServiceName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "vault-access-operator.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.webhook.service.type }}
+  ports:
+    - name: https
+      port: {{ .Values.webhook.service.port }}
+      targetPort: {{ .Values.webhook.service.targetPort }}
+      protocol: TCP
+  selector:
+    {{- include "vault-access-operator.selectorLabels" . | nindent 4 }}
+{{- end }}

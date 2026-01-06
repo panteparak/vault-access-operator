@@ -1,0 +1,28 @@
+apiVersion: v2
+name: vault-access-operator
+description: A Kubernetes operator for managing HashiCorp Vault access policies and roles
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+kubeVersion: ">=1.25.0-0"
+keywords:
+  - vault
+  - hashicorp
+  - secrets
+  - security
+  - operator
+  - kubernetes
+  - access-control
+  - policy
+  - rbac
+home: https://github.com/panteparak/vault-access-operator
+sources:
+  - https://github.com/panteparak/vault-access-operator
+maintainers:
+  - name: panteparak
+    url: https://github.com/panteparak
+annotations:
+  artifacthub.io/category: security
+  artifacthub.io/license: Apache-2.0
+  artifacthub.io/operator: "true"
+  artifacthub.io/operatorCapabilities: Seamless Upgrades

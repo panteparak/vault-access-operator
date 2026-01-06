@@ -1,0 +1,114 @@
+---
+# Manager ClusterRole - permissions for managing Vault resources
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "vault-access-operator.managerRoleName" . }}
+  labels:
+    {{- include "vault-access-operator.labels" . | nindent 4 }}
+rules:
+# Vault CRD resources
+- apiGroups:
+  - vault.platform.io
+  resources:
+  - vaultconnections
+  - vaultpolicies
+  - vaultclusterpolicies
+  - vaultroles
+  - vaultclusterroles
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+# Finalizers for Vault resources
+- apiGroups:
+  - vault.platform.io
+  resources:
+  - vaultconnections/finalizers
+  - vaultpolicies/finalizers
+  - vaultclusterpolicies/finalizers
+  - vaultroles/finalizers
+  - vaultclusterroles/finalizers
+  verbs:
+  - update
+# Status subresources
+- apiGroups:
+  - vault.platform.io
+  resources:
+  - vaultconnections/status
+  - vaultpolicies/status
+  - vaultclusterpolicies/status
+  - vaultroles/status
+  - vaultclusterroles/status
+  verbs:
+  - get
+  - patch
+  - update
+# Core resources - secrets for Vault authentication
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - get
+  - list
+  - watch
+# Events for recording reconciliation events
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+# Namespaces for namespace boundary enforcement
+- apiGroups:
+  - ""
+  resources:
+  - namespaces
+  verbs:
+  - get
+  - list
+  - watch
+---
+# Metrics Reader ClusterRole
+{{- if .Values.metrics.enabled }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "vault-access-operator.metricsReaderRoleName" . }}
+  labels:
+    {{- include "vault-access-operator.labels" . | nindent 4 }}
+rules:
+- nonResourceURLs:
+  - "/metrics"
+  verbs:
+  - get
+{{- end }}
+---
+# Metrics Auth ClusterRole
+{{- if and .Values.metrics.enabled .Values.metrics.secure }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "vault-access-operator.metricsAuthRoleName" . }}
+  labels:
+    {{- include "vault-access-operator.labels" . | nindent 4 }}
+rules:
+- apiGroups:
+  - authentication.k8s.io
+  resources:
+  - tokenreviews
+  verbs:
+  - create
+- apiGroups:
+  - authorization.k8s.io
+  resources:
+  - subjectaccessreviews
+  verbs:
+  - create
+{{- end }}

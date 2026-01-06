@@ -1,0 +1,8 @@
+## Append samples of your project ##
+resources:
+- vault_v1alpha1_vaultconnection.yaml
+- vault_v1alpha1_vaultclusterpolicy.yaml
+- vault_v1alpha1_vaultpolicy.yaml
+- vault_v1alpha1_vaultclusterrole.yaml
+- vault_v1alpha1_vaultrole.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples

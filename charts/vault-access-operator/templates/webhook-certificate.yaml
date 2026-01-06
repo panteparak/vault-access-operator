@@ -1,0 +1,48 @@
+{{- if and .Values.webhook.enabled .Values.webhook.certManager.enabled }}
+---
+# Certificate for webhook
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "vault-access-operator.webhookCertName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "vault-access-operator.labels" . | nindent 4 }}
+spec:
+  secretName: {{ include "vault-access-operator.webhookCertSecretName" . }}
+  dnsNames:
+    {{- include "vault-access-operator.webhookCertDNSNames" . | nindent 4 }}
+  {{- if .Values.webhook.certManager.issuerName }}
+  issuerRef:
+    name: {{ .Values.webhook.certManager.issuerName }}
+    {{- if .Values.webhook.certManager.issuerKind }}
+    kind: {{ .Values.webhook.certManager.issuerKind }}
+    {{- end }}
+    {{- if .Values.webhook.certManager.issuerGroup }}
+    group: {{ .Values.webhook.certManager.issuerGroup }}
+    {{- end }}
+  {{- else }}
+  # Self-signed issuer when no issuer is specified
+  issuerRef:
+    name: {{ include "vault-access-operator.fullname" . }}-selfsigned
+    kind: Issuer
+  {{- end }}
+  duration: {{ .Values.webhook.certManager.duration }}
+  renewBefore: {{ .Values.webhook.certManager.renewBefore }}
+  privateKey:
+    algorithm: RSA
+    size: 2048
+---
+{{- if not .Values.webhook.certManager.issuerName }}
+# Self-signed issuer for webhook certificate
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "vault-access-operator.fullname" . }}-selfsigned
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "vault-access-operator.labels" . | nindent 4 }}
+spec:
+  selfSigned: {}
+{{- end }}
+{{- end }}

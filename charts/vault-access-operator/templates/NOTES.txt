@@ -1,0 +1,80 @@
+Thank you for installing {{ .Chart.Name }}!
+
+Your release is named {{ .Release.Name }}.
+
+1. Get the application status:
+
+   kubectl get pods -n {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "vault-access-operator.name" . }},app.kubernetes.io/instance={{ .Release.Name }}"
+
+2. Check the operator logs:
+
+   kubectl logs -n {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "vault-access-operator.name" . }},app.kubernetes.io/instance={{ .Release.Name }}" -f
+
+3. Create a VaultConnection to connect to your Vault server:
+
+   apiVersion: vault.platform.io/v1alpha1
+   kind: VaultConnection
+   metadata:
+     name: my-vault
+   spec:
+     address: "https://vault.example.com:8200"
+     auth:
+       kubernetes:
+         role: "my-role"
+         mountPath: "kubernetes"
+
+4. Create a VaultPolicy to define access rules:
+
+   apiVersion: vault.platform.io/v1alpha1
+   kind: VaultPolicy
+   metadata:
+     name: my-policy
+     namespace: default
+   spec:
+     connectionRef: my-vault
+     rules:
+       - path: "secret/data/{{`{{namespace}}`}}/*"
+         capabilities:
+           - read
+           - list
+
+5. Create a VaultRole to bind policies to service accounts:
+
+   apiVersion: vault.platform.io/v1alpha1
+   kind: VaultRole
+   metadata:
+     name: my-role
+     namespace: default
+   spec:
+     connectionRef: my-vault
+     serviceAccounts:
+       - my-service-account
+     policies:
+       - name: my-policy
+
+{{- if .Values.metrics.enabled }}
+
+6. Metrics are available:
+   {{- if .Values.metrics.secure }}
+   - Secure metrics endpoint: https://{{ include "vault-access-operator.metricsServiceName" . }}.{{ .Release.Namespace }}.svc:{{ .Values.metrics.service.port }}/metrics
+   {{- else }}
+   - Metrics endpoint: http://{{ include "vault-access-operator.metricsServiceName" . }}.{{ .Release.Namespace }}.svc:{{ .Values.metrics.service.port }}/metrics
+   {{- end }}
+   {{- if .Values.serviceMonitor.enabled }}
+   - ServiceMonitor is enabled for Prometheus Operator
+   {{- end }}
+{{- end }}
+
+{{- if .Values.webhook.enabled }}
+
+7. Admission webhooks are enabled:
+   - VaultPolicy validation
+   - VaultClusterPolicy validation
+   - VaultRole validation
+   - VaultClusterRole validation
+   {{- if .Values.webhook.certManager.enabled }}
+   - Using cert-manager for webhook certificates
+   {{- end }}
+{{- end }}
+
+For more information, visit: https://github.com/panteparak/vault-access-operator

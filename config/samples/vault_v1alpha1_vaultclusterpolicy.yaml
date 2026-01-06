@@ -1,0 +1,9 @@
+apiVersion: vault.platform.io/v1alpha1
+kind: VaultClusterPolicy
+metadata:
+  labels:
+    app.kubernetes.io/name: vault-access-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: vaultclusterpolicy-sample
+spec:
+  # TODO(user): Add fields here

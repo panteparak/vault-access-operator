@@ -1,0 +1,46 @@
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: validating-webhook-configuration
+webhooks:
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /validate-vault-platform-io-v1alpha1-vaultclusterpolicy
+  failurePolicy: Fail
+  name: vvaultclusterpolicy.kb.io
+  rules:
+  - apiGroups:
+    - vault.platform.io
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - vaultclusterpolicies
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /validate-vault-platform-io-v1alpha1-vaultpolicy
+  failurePolicy: Fail
+  name: vvaultpolicy.kb.io
+  rules:
+  - apiGroups:
+    - vault.platform.io
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - vaultpolicies
+  sideEffects: None

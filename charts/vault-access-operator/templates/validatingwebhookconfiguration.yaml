@@ -1,0 +1,132 @@
+{{- if .Values.webhook.enabled }}
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: {{ include "vault-access-operator.fullname" . }}-validating
+  labels:
+    {{- include "vault-access-operator.labels" . | nindent 4 }}
+  {{- if .Values.webhook.certManager.enabled }}
+  annotations:
+    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "vault-access-operator.webhookCertName" . }}
+  {{- end }}
+webhooks:
+  # VaultPolicy validation webhook
+  - name: vvaultpolicy.kb.io
+    admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: {{ include "vault-access-operator.webhookServiceName" . }}
+        namespace: {{ .Release.Namespace }}
+        path: /validate-vault-platform-io-v1alpha1-vaultpolicy
+        port: {{ .Values.webhook.service.port }}
+      {{- if not .Values.webhook.certManager.enabled }}
+      caBundle: {{ .Values.webhook.caBundle | default "" | b64enc }}
+      {{- end }}
+    failurePolicy: {{ .Values.webhook.failurePolicy }}
+    matchPolicy: Equivalent
+    rules:
+      - apiGroups:
+          - vault.platform.io
+        apiVersions:
+          - v1alpha1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - vaultpolicies
+        scope: Namespaced
+    sideEffects: None
+    timeoutSeconds: {{ .Values.webhook.timeoutSeconds }}
+    reinvocationPolicy: {{ .Values.webhook.reinvocationPolicy }}
+
+  # VaultClusterPolicy validation webhook
+  - name: vvaultclusterpolicy.kb.io
+    admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: {{ include "vault-access-operator.webhookServiceName" . }}
+        namespace: {{ .Release.Namespace }}
+        path: /validate-vault-platform-io-v1alpha1-vaultclusterpolicy
+        port: {{ .Values.webhook.service.port }}
+      {{- if not .Values.webhook.certManager.enabled }}
+      caBundle: {{ .Values.webhook.caBundle | default "" | b64enc }}
+      {{- end }}
+    failurePolicy: {{ .Values.webhook.failurePolicy }}
+    matchPolicy: Equivalent
+    rules:
+      - apiGroups:
+          - vault.platform.io
+        apiVersions:
+          - v1alpha1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - vaultclusterpolicies
+        scope: Cluster
+    sideEffects: None
+    timeoutSeconds: {{ .Values.webhook.timeoutSeconds }}
+    reinvocationPolicy: {{ .Values.webhook.reinvocationPolicy }}
+
+  # VaultRole validation webhook
+  - name: vvaultrole.kb.io
+    admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: {{ include "vault-access-operator.webhookServiceName" . }}
+        namespace: {{ .Release.Namespace }}
+        path: /validate-vault-platform-io-v1alpha1-vaultrole
+        port: {{ .Values.webhook.service.port }}
+      {{- if not .Values.webhook.certManager.enabled }}
+      caBundle: {{ .Values.webhook.caBundle | default "" | b64enc }}
+      {{- end }}
+    failurePolicy: {{ .Values.webhook.failurePolicy }}
+    matchPolicy: Equivalent
+    rules:
+      - apiGroups:
+          - vault.platform.io
+        apiVersions:
+          - v1alpha1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - vaultroles
+        scope: Namespaced
+    sideEffects: None
+    timeoutSeconds: {{ .Values.webhook.timeoutSeconds }}
+    reinvocationPolicy: {{ .Values.webhook.reinvocationPolicy }}
+
+  # VaultClusterRole validation webhook
+  - name: vvaultclusterrole.kb.io
+    admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: {{ include "vault-access-operator.webhookServiceName" . }}
+        namespace: {{ .Release.Namespace }}
+        path: /validate-vault-platform-io-v1alpha1-vaultclusterrole
+        port: {{ .Values.webhook.service.port }}
+      {{- if not .Values.webhook.certManager.enabled }}
+      caBundle: {{ .Values.webhook.caBundle | default "" | b64enc }}
+      {{- end }}
+    failurePolicy: {{ .Values.webhook.failurePolicy }}
+    matchPolicy: Equivalent
+    rules:
+      - apiGroups:
+          - vault.platform.io
+        apiVersions:
+          - v1alpha1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - vaultclusterroles
+        scope: Cluster
+    sideEffects: None
+    timeoutSeconds: {{ .Values.webhook.timeoutSeconds }}
+    reinvocationPolicy: {{ .Values.webhook.reinvocationPolicy }}
+{{- end }}

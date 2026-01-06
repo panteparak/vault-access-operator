@@ -1,0 +1,251 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.18.0
+  name: vaultconnections.vault.platform.io
+spec:
+  group: vault.platform.io
+  names:
+    kind: VaultConnection
+    listKind: VaultConnectionList
+    plural: vaultconnections
+    singular: vaultconnection
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.address
+      name: Address
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.vaultVersion
+      name: Version
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: VaultConnection is the Schema for the vaultconnections API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: VaultConnectionSpec defines the desired state of VaultConnection.
+            properties:
+              address:
+                description: Address is the Vault server address (e.g., https://vault.example.com:8200)
+                pattern: ^https?://
+                type: string
+              auth:
+                description: Auth configuration for authenticating to Vault
+                properties:
+                  appRole:
+                    description: AppRole auth method configuration
+                    properties:
+                      mountPath:
+                        default: approle
+                        description: MountPath is the mount path of the AppRole auth
+                          method
+                        type: string
+                      roleId:
+                        description: RoleID is the AppRole role ID
+                        type: string
+                      secretIdRef:
+                        description: SecretIDRef references a secret containing the
+                          AppRole secret ID
+                        properties:
+                          key:
+                            description: Key in the secret to select
+                            type: string
+                          name:
+                            description: Name of the secret
+                            type: string
+                          namespace:
+                            description: Namespace of the secret. If not specified,
+                              uses the namespace of the referencing resource.
+                            type: string
+                        required:
+                        - key
+                        - name
+                        type: object
+                    required:
+                    - roleId
+                    - secretIdRef
+                    type: object
+                  kubernetes:
+                    description: Kubernetes auth method configuration
+                    properties:
+                      mountPath:
+                        default: kubernetes
+                        description: MountPath is the mount path of the Kubernetes
+                          auth method
+                        type: string
+                      role:
+                        description: Role is the Vault role to authenticate as
+                        type: string
+                      serviceAccountTokenPath:
+                        default: /var/run/secrets/kubernetes.io/serviceaccount/token
+                        description: ServiceAccountTokenPath is the path to the service
+                          account token
+                        type: string
+                    required:
+                    - role
+                    type: object
+                  token:
+                    description: Token auth method configuration
+                    properties:
+                      secretRef:
+                        description: SecretRef references a secret containing the
+                          Vault token
+                        properties:
+                          key:
+                            description: Key in the secret to select
+                            type: string
+                          name:
+                            description: Name of the secret
+                            type: string
+                          namespace:
+                            description: Namespace of the secret. If not specified,
+                              uses the namespace of the referencing resource.
+                            type: string
+                        required:
+                        - key
+                        - name
+                        type: object
+                    required:
+                    - secretRef
+                    type: object
+                type: object
+              defaults:
+                description: Defaults for various Vault paths
+                properties:
+                  authPath:
+                    default: auth/kubernetes
+                    description: AuthPath is the default path for auth methods
+                    type: string
+                  secretEnginePath:
+                    description: SecretEnginePath is the default path for secret engines
+                    type: string
+                  transitPath:
+                    description: TransitPath is the default path for the transit engine
+                    type: string
+                type: object
+              healthCheckInterval:
+                default: 30s
+                description: HealthCheckInterval defines how often to check Vault
+                  connectivity
+                type: string
+              tls:
+                description: TLS configuration for the Vault connection
+                properties:
+                  caSecretRef:
+                    description: CASecretRef references a secret containing the CA
+                      certificate
+                    properties:
+                      key:
+                        description: Key in the secret to select
+                        type: string
+                      name:
+                        description: Name of the secret
+                        type: string
+                      namespace:
+                        description: Namespace of the secret. If not specified, uses
+                          the namespace of the referencing resource.
+                        type: string
+                    required:
+                    - key
+                    - name
+                    type: object
+                  skipVerify:
+                    description: SkipVerify disables TLS certificate verification
+                    type: boolean
+                type: object
+            required:
+            - address
+            - auth
+            type: object
+          status:
+            description: VaultConnectionStatus defines the observed state of VaultConnection.
+            properties:
+              conditions:
+                description: Conditions represent the latest available observations
+                items:
+                  description: Condition represents a condition of a resource
+                  properties:
+                    lastTransitionTime:
+                      description: LastTransitionTime is the last time the condition
+                        transitioned
+                      format: date-time
+                      type: string
+                    message:
+                      description: Message is a human-readable explanation
+                      type: string
+                    observedGeneration:
+                      description: ObservedGeneration represents the generation observed
+                        by the controller
+                      format: int64
+                      type: integer
+                    reason:
+                      description: Reason for the condition's last transition
+                      type: string
+                    status:
+                      description: Status of the condition (True, False, Unknown)
+                      type: string
+                    type:
+                      description: Type of condition
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              lastHeartbeat:
+                description: LastHeartbeat is the time of the last successful health
+                  check
+                format: date-time
+                type: string
+              message:
+                description: Message provides additional information about the current
+                  state
+                type: string
+              phase:
+                description: Phase represents the current phase of the connection
+                enum:
+                - Pending
+                - Syncing
+                - Active
+                - Conflict
+                - Error
+                - Deleting
+                type: string
+              vaultVersion:
+                description: VaultVersion is the version of the connected Vault server
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

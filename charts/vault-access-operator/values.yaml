@@ -1,0 +1,236 @@
+# Default values for vault-access-operator.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# -- Number of replicas for the operator deployment
+replicaCount: 1
+
+image:
+  # -- Image repository
+  repository: ghcr.io/panteparak/vault-access-operator
+  # -- Image pull policy
+  pullPolicy: IfNotPresent
+  # -- Overrides the image tag whose default is the chart appVersion
+  tag: ""
+
+# -- Image pull secrets for private registries
+imagePullSecrets: []
+# - name: regcred
+
+# -- Override the name of the chart
+nameOverride: ""
+# -- Override the full name of the release
+fullnameOverride: ""
+
+serviceAccount:
+  # -- Specifies whether a service account should be created
+  create: true
+  # -- Annotations to add to the service account
+  annotations: {}
+  # -- The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+  # -- Automount service account token
+  automountServiceAccountToken: true
+
+# -- Annotations to add to the pod
+podAnnotations: {}
+
+# -- Labels to add to the pod
+podLabels: {}
+
+# -- Pod security context
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+# -- Container security context
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+
+# -- Resource limits and requests
+resources:
+  limits:
+    cpu: 500m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+# -- Node selector for pod scheduling
+nodeSelector: {}
+
+# -- Tolerations for pod scheduling
+tolerations: []
+
+# -- Affinity rules for pod scheduling
+affinity: {}
+
+# -- Priority class name for the pod
+priorityClassName: ""
+
+# Leader election configuration
+leaderElection:
+  # -- Enable leader election for controller manager
+  enabled: true
+  # -- Lease duration for leader election
+  leaseDuration: 15s
+  # -- Renew deadline for leader election
+  renewDeadline: 10s
+  # -- Retry period for leader election
+  retryPeriod: 2s
+
+# Metrics configuration
+metrics:
+  # -- Enable metrics endpoint
+  enabled: true
+  # -- Use secure (HTTPS) metrics endpoint
+  secure: true
+  # -- Metrics service port
+  port: 8443
+  service:
+    # -- Metrics service type
+    type: ClusterIP
+    # -- Metrics service port
+    port: 8443
+    # -- Annotations for the metrics service
+    annotations: {}
+
+# ServiceMonitor for Prometheus Operator
+serviceMonitor:
+  # -- Create ServiceMonitor resource
+  enabled: false
+  # -- Namespace for ServiceMonitor (defaults to release namespace)
+  namespace: ""
+  # -- Labels for ServiceMonitor
+  labels: {}
+  # -- Scrape interval
+  interval: 30s
+  # -- Scrape timeout
+  scrapeTimeout: 10s
+  # -- Metric relabelings
+  metricRelabelings: []
+  # -- Relabelings
+  relabelings: []
+  # -- Honor labels
+  honorLabels: false
+  # -- Additional endpoint configuration
+  additionalEndpoints: []
+
+# Health probe configuration
+healthProbe:
+  # -- Health probe bind address
+  bindAddress: ":8081"
+
+# Webhook configuration
+webhook:
+  # -- Enable admission webhooks
+  enabled: true
+  # -- Webhook service port
+  port: 9443
+  # -- Failure policy for webhooks (Fail or Ignore)
+  failurePolicy: Fail
+  # -- Timeout seconds for webhook calls
+  timeoutSeconds: 10
+  # -- Reinvocation policy (Never or IfNeeded)
+  reinvocationPolicy: Never
+  service:
+    # -- Webhook service type
+    type: ClusterIP
+    # -- Webhook service port
+    port: 443
+    # -- Target port for webhook service
+    targetPort: 9443
+  # Certificate management for webhooks
+  certManager:
+    # -- Use cert-manager for webhook certificates
+    enabled: true
+    # -- Issuer name for cert-manager
+    issuerName: ""
+    # -- Issuer kind (Issuer or ClusterIssuer)
+    issuerKind: ""
+    # -- Issuer group
+    issuerGroup: ""
+    # -- Certificate duration
+    duration: 8760h # 1 year
+    # -- Certificate renewal before expiry
+    renewBefore: 360h # 15 days
+  # Self-signed certificate generation (when certManager is disabled)
+  selfSigned:
+    # -- Generate self-signed certificates
+    enabled: false
+    # -- Certificate validity period in days
+    validityDays: 365
+
+# Vault connection defaults (optional)
+# These can be used as defaults for VaultConnection resources
+vaultConnection:
+  # -- Default Vault address (can be overridden per VaultConnection)
+  address: ""
+  # -- Default auth mount path
+  authPath: "auth/kubernetes"
+  # -- Default Kubernetes auth role
+  role: ""
+  # -- TLS configuration
+  tls:
+    # -- Skip TLS verification (not recommended for production)
+    skipVerify: false
+    # -- Secret name containing CA certificate
+    caSecretName: ""
+    # -- Key in secret containing CA certificate
+    caSecretKey: "ca.crt"
+
+# Logging configuration
+logging:
+  # -- Log level (debug, info, error)
+  level: info
+  # -- Development mode for logging
+  development: false
+  # -- Log encoder (json or console)
+  encoder: json
+  # -- Enable stack trace in logs
+  stacktraceLevel: error
+
+# Additional environment variables
+extraEnv: []
+# - name: MY_VAR
+#   value: "my-value"
+
+# Additional volume mounts
+extraVolumeMounts: []
+# - name: my-volume
+#   mountPath: /my/path
+
+# Additional volumes
+extraVolumes: []
+# - name: my-volume
+#   configMap:
+#     name: my-configmap
+
+# -- Additional arguments to pass to the operator
+extraArgs: []
+# - --some-flag=value
+
+# Network policy configuration
+networkPolicy:
+  # -- Enable network policy
+  enabled: false
+  # -- Ingress rules
+  ingress: []
+  # -- Egress rules
+  egress: []
+
+# Pod disruption budget configuration
+podDisruptionBudget:
+  # -- Enable pod disruption budget
+  enabled: false
+  # -- Minimum available pods
+  minAvailable: 1
+  # -- Maximum unavailable pods (alternative to minAvailable)
+  # maxUnavailable: 1
