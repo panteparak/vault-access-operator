@@ -52,12 +52,8 @@ var _ = Describe("VaultRole Controller", func() {
 						Namespace: "default",
 					},
 					Spec: vaultv1alpha1.VaultRoleSpec{
-						ConnectionRef: "test-connection",
-						ServiceAccounts: []vaultv1alpha1.ServiceAccountRef{
-							{
-								Name: "default",
-							},
-						},
+						ConnectionRef:   "test-connection",
+						ServiceAccounts: []string{"default"},
 					},
 				}
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
