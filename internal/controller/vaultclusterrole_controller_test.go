@@ -37,8 +37,7 @@ var _ = Describe("VaultClusterRole Controller", func() {
 		ctx := context.Background()
 
 		typeNamespacedName := types.NamespacedName{
-			Name:      resourceName,
-			Namespace: "default", // TODO(user):Modify as needed
+			Name: resourceName,
 		}
 		vaultclusterrole := &vaultv1alpha1.VaultClusterRole{}
 
@@ -48,10 +47,17 @@ var _ = Describe("VaultClusterRole Controller", func() {
 			if err != nil && errors.IsNotFound(err) {
 				resource := &vaultv1alpha1.VaultClusterRole{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      resourceName,
-						Namespace: "default",
+						Name: resourceName,
 					},
-					// TODO(user): Specify other spec details if needed.
+					Spec: vaultv1alpha1.VaultClusterRoleSpec{
+						ConnectionRef: "test-connection",
+						ServiceAccounts: []vaultv1alpha1.ServiceAccountRef{
+							{
+								Name:      "default",
+								Namespace: "default",
+							},
+						},
+					},
 				}
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
 			}

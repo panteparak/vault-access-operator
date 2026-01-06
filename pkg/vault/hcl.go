@@ -25,7 +25,7 @@ func GeneratePolicyHCL(rules []PolicyRule, namespace, name string) string {
 	var builder strings.Builder
 
 	// Add header comment
-	builder.WriteString(fmt.Sprintf("# Vault policy managed by vault-access-operator\n"))
+	builder.WriteString("# Vault policy managed by vault-access-operator\n")
 	if namespace != "" {
 		builder.WriteString(fmt.Sprintf("# Kubernetes resource: %s/%s\n", namespace, name))
 	} else {

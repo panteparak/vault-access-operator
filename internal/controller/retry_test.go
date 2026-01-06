@@ -24,11 +24,11 @@ import (
 
 func TestCalculateBackoff(t *testing.T) {
 	tests := []struct {
-		name           string
-		config         RetryConfig
-		retryCount     int
-		expectedMin    time.Duration
-		expectedMax    time.Duration
+		name             string
+		config           RetryConfig
+		retryCount       int
+		expectedMin      time.Duration
+		expectedMax      time.Duration
 		checkExponential bool
 	}{
 		{
@@ -105,8 +105,8 @@ func TestCalculateBackoff(t *testing.T) {
 				JitterFactor: 0.1, // +/- 10%
 				MaxRetries:   0,
 			},
-			retryCount:  1,                                    // Base delay = 20s
-			expectedMin: 18 * time.Second,                     // 20s - 10% = 18s
+			retryCount:  1,                                     // Base delay = 20s
+			expectedMin: 18 * time.Second,                      // 20s - 10% = 18s
 			expectedMax: 22*time.Second + 100*time.Millisecond, // 20s + 10% = 22s (with small buffer)
 		},
 		{
@@ -215,8 +215,8 @@ func TestCalculateBackoff_JitterDistribution(t *testing.T) {
 	}
 
 	// Verify that we see values across the jitter range
-	expectedMin := time.Duration(float64(baseDelay) * 0.9)  // -10%
-	expectedMax := time.Duration(float64(baseDelay) * 1.1)  // +10%
+	expectedMin := time.Duration(float64(baseDelay) * 0.9) // -10%
+	expectedMax := time.Duration(float64(baseDelay) * 1.1) // +10%
 
 	// With 1000 iterations, we should see values near both extremes
 	// Allow some margin for statistical variation
@@ -246,128 +246,128 @@ func TestShouldRetry(t *testing.T) {
 	}
 
 	tests := []struct {
-		name              string
-		err               error
-		currentRetryCount int
-		config            RetryConfig
-		expectedRequeue   bool
-		expectedGiveUp    bool
+		name               string
+		err                error
+		currentRetryCount  int
+		config             RetryConfig
+		expectedRequeue    bool
+		expectedGiveUp     bool
 		expectedRetryCount int
-		checkDelay        bool
-		expectedDelay     time.Duration
+		checkDelay         bool
+		expectedDelay      time.Duration
 	}{
 		{
-			name:              "nil error - no retry",
-			err:               nil,
-			currentRetryCount: 0,
-			config:            defaultConfig,
-			expectedRequeue:   false,
-			expectedGiveUp:    false,
+			name:               "nil error - no retry",
+			err:                nil,
+			currentRetryCount:  0,
+			config:             defaultConfig,
+			expectedRequeue:    false,
+			expectedGiveUp:     false,
 			expectedRetryCount: 0,
 		},
 		{
-			name:              "transient error - should retry",
-			err:               NewTransientError("temporary failure", nil),
-			currentRetryCount: 0,
-			config:            defaultConfig,
-			expectedRequeue:   true,
-			expectedGiveUp:    false,
+			name:               "transient error - should retry",
+			err:                NewTransientError("temporary failure", nil),
+			currentRetryCount:  0,
+			config:             defaultConfig,
+			expectedRequeue:    true,
+			expectedGiveUp:     false,
 			expectedRetryCount: 1,
-			checkDelay:        true,
-			expectedDelay:     5 * time.Second,
+			checkDelay:         true,
+			expectedDelay:      5 * time.Second,
 		},
 		{
-			name:              "connection not ready - should retry",
-			err:               NewConnectionNotReadyError("vault-conn", "initializing"),
-			currentRetryCount: 2,
-			config:            defaultConfig,
-			expectedRequeue:   true,
-			expectedGiveUp:    false,
+			name:               "connection not ready - should retry",
+			err:                NewConnectionNotReadyError("vault-conn", "initializing"),
+			currentRetryCount:  2,
+			config:             defaultConfig,
+			expectedRequeue:    true,
+			expectedGiveUp:     false,
 			expectedRetryCount: 3,
-			checkDelay:        true,
-			expectedDelay:     20 * time.Second, // 5s * 2^2
+			checkDelay:         true,
+			expectedDelay:      20 * time.Second, // 5s * 2^2
 		},
 		{
-			name:              "policy not found - should retry",
-			err:               NewPolicyNotFoundError("VaultPolicyBinding", "my-policy", "default"),
-			currentRetryCount: 1,
-			config:            defaultConfig,
-			expectedRequeue:   true,
-			expectedGiveUp:    false,
+			name:               "policy not found - should retry",
+			err:                NewPolicyNotFoundError("VaultPolicyBinding", "my-policy", "default"),
+			currentRetryCount:  1,
+			config:             defaultConfig,
+			expectedRequeue:    true,
+			expectedGiveUp:     false,
 			expectedRetryCount: 2,
-			checkDelay:        true,
-			expectedDelay:     10 * time.Second, // 5s * 2^1
+			checkDelay:         true,
+			expectedDelay:      10 * time.Second, // 5s * 2^1
 		},
 		{
-			name:              "conflict error - no retry (give up)",
-			err:               NewConflictError("policy", "my-policy", "already exists"),
-			currentRetryCount: 0,
-			config:            defaultConfig,
-			expectedRequeue:   false,
-			expectedGiveUp:    true,
+			name:               "conflict error - no retry (give up)",
+			err:                NewConflictError("policy", "my-policy", "already exists"),
+			currentRetryCount:  0,
+			config:             defaultConfig,
+			expectedRequeue:    false,
+			expectedGiveUp:     true,
 			expectedRetryCount: 0,
 		},
 		{
-			name:              "validation error - no retry (give up)",
-			err:               NewValidationError("spec.policies", "at least one policy required"),
-			currentRetryCount: 0,
-			config:            defaultConfig,
-			expectedRequeue:   false,
-			expectedGiveUp:    true,
+			name:               "validation error - no retry (give up)",
+			err:                NewValidationError("spec.policies", "at least one policy required"),
+			currentRetryCount:  0,
+			config:             defaultConfig,
+			expectedRequeue:    false,
+			expectedGiveUp:     true,
 			expectedRetryCount: 0,
 		},
 		{
-			name:              "max retries not exceeded - should retry",
-			err:               NewTransientError("temporary failure", nil),
-			currentRetryCount: 2,
-			config:            limitedConfig,
-			expectedRequeue:   true,
-			expectedGiveUp:    false,
+			name:               "max retries not exceeded - should retry",
+			err:                NewTransientError("temporary failure", nil),
+			currentRetryCount:  2,
+			config:             limitedConfig,
+			expectedRequeue:    true,
+			expectedGiveUp:     false,
 			expectedRetryCount: 3,
 		},
 		{
-			name:              "max retries exceeded - give up",
-			err:               NewTransientError("temporary failure", nil),
-			currentRetryCount: 3,
-			config:            limitedConfig,
-			expectedRequeue:   false,
-			expectedGiveUp:    true,
+			name:               "max retries exceeded - give up",
+			err:                NewTransientError("temporary failure", nil),
+			currentRetryCount:  3,
+			config:             limitedConfig,
+			expectedRequeue:    false,
+			expectedGiveUp:     true,
 			expectedRetryCount: 4,
 		},
 		{
-			name:              "error with timeout pattern - should retry",
-			err:               errors.New("operation timeout"),
-			currentRetryCount: 0,
-			config:            defaultConfig,
-			expectedRequeue:   true,
-			expectedGiveUp:    false,
+			name:               "error with timeout pattern - should retry",
+			err:                errors.New("operation timeout"),
+			currentRetryCount:  0,
+			config:             defaultConfig,
+			expectedRequeue:    true,
+			expectedGiveUp:     false,
 			expectedRetryCount: 1,
 		},
 		{
-			name:              "error with connection refused pattern - should retry",
-			err:               errors.New("dial tcp: connection refused"),
-			currentRetryCount: 0,
-			config:            defaultConfig,
-			expectedRequeue:   true,
-			expectedGiveUp:    false,
+			name:               "error with connection refused pattern - should retry",
+			err:                errors.New("dial tcp: connection refused"),
+			currentRetryCount:  0,
+			config:             defaultConfig,
+			expectedRequeue:    true,
+			expectedGiveUp:     false,
 			expectedRetryCount: 1,
 		},
 		{
-			name:              "error with rate limit pattern - should retry",
-			err:               errors.New("rate limit exceeded"),
-			currentRetryCount: 0,
-			config:            defaultConfig,
-			expectedRequeue:   true,
-			expectedGiveUp:    false,
+			name:               "error with rate limit pattern - should retry",
+			err:                errors.New("rate limit exceeded"),
+			currentRetryCount:  0,
+			config:             defaultConfig,
+			expectedRequeue:    true,
+			expectedGiveUp:     false,
 			expectedRetryCount: 1,
 		},
 		{
-			name:              "unknown error - no retry (give up)",
-			err:               errors.New("some unknown error"),
-			currentRetryCount: 0,
-			config:            defaultConfig,
-			expectedRequeue:   false,
-			expectedGiveUp:    true, // Non-retryable errors cause give up
+			name:               "unknown error - no retry (give up)",
+			err:                errors.New("some unknown error"),
+			currentRetryCount:  0,
+			config:             defaultConfig,
+			expectedRequeue:    false,
+			expectedGiveUp:     true, // Non-retryable errors cause give up
 			expectedRetryCount: 0,
 		},
 	}

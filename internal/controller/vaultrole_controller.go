@@ -125,7 +125,7 @@ func (r *VaultRoleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	// Build the auth path
 	authPath := role.Spec.AuthPath
 	if authPath == "" {
-		authPath = "auth/kubernetes"
+		authPath = vault.DefaultKubernetesAuthPath
 	}
 
 	// Build role data for Vault

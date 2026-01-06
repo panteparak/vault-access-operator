@@ -302,7 +302,7 @@ func TestClientCacheConcurrentAccess(t *testing.T) {
 					client := createTestClient(t, "http://localhost:8200")
 					cache.Set(connName, client)
 				case 1:
-					cache.Get(connName) // Ignore error, may not exist
+					_, _ = cache.Get(connName) // Ignore error, may not exist
 				case 2:
 					cache.Has(connName)
 				case 3:
@@ -452,7 +452,7 @@ func BenchmarkClientCacheGet(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		cache.Get("conn")
+		_, _ = cache.Get("conn")
 	}
 }
 
@@ -464,7 +464,7 @@ func BenchmarkClientCacheGetOrCreate(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		cache.GetOrCreate("conn", factory)
+		_, _ = cache.GetOrCreate("conn", factory)
 	}
 }
 
@@ -480,7 +480,7 @@ func BenchmarkClientCacheConcurrent(b *testing.B) {
 			case 0:
 				cache.Set(connName, client)
 			case 1:
-				cache.Get(connName)
+				_, _ = cache.Get(connName)
 			case 2:
 				cache.Has(connName)
 			case 3:

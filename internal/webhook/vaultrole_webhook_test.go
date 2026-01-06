@@ -898,7 +898,6 @@ func TestValidatePolicyReference(t *testing.T) {
 		name                  string
 		ref                   vaultv1alpha1.PolicyReference
 		index                 int
-		defaultNamespace      string
 		allowDefaultNamespace bool
 		wantErr               bool
 		errContains           string
@@ -911,7 +910,6 @@ func TestValidatePolicyReference(t *testing.T) {
 				Namespace: "my-namespace",
 			},
 			index:                 0,
-			defaultNamespace:      "",
 			allowDefaultNamespace: false,
 			wantErr:               false,
 		},
@@ -922,7 +920,6 @@ func TestValidatePolicyReference(t *testing.T) {
 				Name: "my-policy",
 			},
 			index:                 0,
-			defaultNamespace:      "default",
 			allowDefaultNamespace: true,
 			wantErr:               false,
 		},
@@ -933,7 +930,6 @@ func TestValidatePolicyReference(t *testing.T) {
 				Name: "shared-policy",
 			},
 			index:                 0,
-			defaultNamespace:      "",
 			allowDefaultNamespace: false,
 			wantErr:               false,
 		},
@@ -944,7 +940,6 @@ func TestValidatePolicyReference(t *testing.T) {
 				Name: "my-policy",
 			},
 			index:                 0,
-			defaultNamespace:      "",
 			allowDefaultNamespace: false,
 			wantErr:               true,
 			errContains:           "must be specified for VaultPolicy references in VaultClusterRole",
@@ -957,7 +952,6 @@ func TestValidatePolicyReference(t *testing.T) {
 				Namespace: "some-namespace",
 			},
 			index:                 0,
-			defaultNamespace:      "",
 			allowDefaultNamespace: false,
 			wantErr:               true,
 			errContains:           "must not be specified for VaultClusterPolicy",
@@ -969,7 +963,6 @@ func TestValidatePolicyReference(t *testing.T) {
 				Name: "my-policy",
 			},
 			index:                 0,
-			defaultNamespace:      "",
 			allowDefaultNamespace: false,
 			wantErr:               true,
 			errContains:           "must be VaultPolicy or VaultClusterPolicy",
@@ -981,7 +974,6 @@ func TestValidatePolicyReference(t *testing.T) {
 				Name: "",
 			},
 			index:                 0,
-			defaultNamespace:      "",
 			allowDefaultNamespace: true,
 			wantErr:               true,
 			errContains:           "name: must not be empty",
@@ -990,7 +982,7 @@ func TestValidatePolicyReference(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validatePolicyReference(tt.ref, tt.index, tt.defaultNamespace, tt.allowDefaultNamespace)
+			err := validatePolicyReference(tt.ref, tt.index, tt.allowDefaultNamespace)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("validatePolicyReference() error = %v, wantErr %v", err, tt.wantErr)
 				return

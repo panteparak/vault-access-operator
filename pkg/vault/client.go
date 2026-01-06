@@ -11,6 +11,9 @@ import (
 	"github.com/hashicorp/vault/api"
 )
 
+// DefaultKubernetesAuthPath is the default path for Kubernetes auth in Vault
+const DefaultKubernetesAuthPath = "auth/kubernetes"
+
 // Client wraps the Vault API client with additional metadata
 type Client struct {
 	*api.Client
@@ -20,9 +23,9 @@ type Client struct {
 
 // ClientConfig holds configuration for creating a Vault client
 type ClientConfig struct {
-	Address    string
-	TLSConfig  *TLSConfig
-	Timeout    time.Duration
+	Address   string
+	TLSConfig *TLSConfig
+	Timeout   time.Duration
 }
 
 // TLSConfig holds TLS configuration for Vault client
@@ -206,9 +209,11 @@ func (c *Client) PolicyExists(ctx context.Context, name string) (bool, error) {
 }
 
 // WriteKubernetesAuthRole writes a Kubernetes auth role to Vault
-func (c *Client) WriteKubernetesAuthRole(ctx context.Context, authPath, roleName string, data map[string]interface{}) error {
+func (c *Client) WriteKubernetesAuthRole(
+	ctx context.Context, authPath, roleName string, data map[string]interface{},
+) error {
 	if authPath == "" {
-		authPath = "auth/kubernetes"
+		authPath = DefaultKubernetesAuthPath
 	}
 	path := fmt.Sprintf("%s/role/%s", authPath, roleName)
 	_, err := c.Logical().WriteWithContext(ctx, path, data)
@@ -216,9 +221,11 @@ func (c *Client) WriteKubernetesAuthRole(ctx context.Context, authPath, roleName
 }
 
 // ReadKubernetesAuthRole reads a Kubernetes auth role from Vault
-func (c *Client) ReadKubernetesAuthRole(ctx context.Context, authPath, roleName string) (map[string]interface{}, error) {
+func (c *Client) ReadKubernetesAuthRole(
+	ctx context.Context, authPath, roleName string,
+) (map[string]interface{}, error) {
 	if authPath == "" {
-		authPath = "auth/kubernetes"
+		authPath = DefaultKubernetesAuthPath
 	}
 	path := fmt.Sprintf("%s/role/%s", authPath, roleName)
 	secret, err := c.Logical().ReadWithContext(ctx, path)
@@ -234,7 +241,7 @@ func (c *Client) ReadKubernetesAuthRole(ctx context.Context, authPath, roleName 
 // DeleteKubernetesAuthRole deletes a Kubernetes auth role from Vault
 func (c *Client) DeleteKubernetesAuthRole(ctx context.Context, authPath, roleName string) error {
 	if authPath == "" {
-		authPath = "auth/kubernetes"
+		authPath = DefaultKubernetesAuthPath
 	}
 	path := fmt.Sprintf("%s/role/%s", authPath, roleName)
 	_, err := c.Logical().DeleteWithContext(ctx, path)

@@ -51,7 +51,15 @@ var _ = Describe("VaultPolicy Controller", func() {
 						Name:      resourceName,
 						Namespace: "default",
 					},
-					// TODO(user): Specify other spec details if needed.
+					Spec: vaultv1alpha1.VaultPolicySpec{
+						ConnectionRef: "test-connection",
+						Rules: []vaultv1alpha1.PolicyRule{
+							{
+								Path:         "secret/data/{{namespace}}/*",
+								Capabilities: []vaultv1alpha1.Capability{vaultv1alpha1.CapabilityRead},
+							},
+						},
+					},
 				}
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
 			}

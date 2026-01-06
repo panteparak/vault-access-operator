@@ -51,7 +51,10 @@ var _ = Describe("VaultConnection Controller", func() {
 						Name:      resourceName,
 						Namespace: "default",
 					},
-					// TODO(user): Specify other spec details if needed.
+					Spec: vaultv1alpha1.VaultConnectionSpec{
+						Address:  "https://vault.example.com:8200",
+						AuthPath: "auth/kubernetes",
+					},
 				}
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
 			}

@@ -105,7 +105,7 @@ func (v *VaultRoleValidator) validate(role *vaultv1alpha1.VaultRole) (admission.
 	}
 
 	for i, policy := range role.Spec.Policies {
-		if err := validatePolicyReference(policy, i, role.Namespace, true); err != nil {
+		if err := validatePolicyReference(policy, i, true); err != nil {
 			errs = append(errs, err.Error())
 		}
 	}
@@ -167,7 +167,7 @@ func (v *VaultClusterRoleValidator) validate(role *vaultv1alpha1.VaultClusterRol
 
 	for i, policy := range role.Spec.Policies {
 		// For VaultClusterRole, VaultPolicy references must have namespace specified
-		if err := validatePolicyReference(policy, i, "", false); err != nil {
+		if err := validatePolicyReference(policy, i, false); err != nil {
 			errs = append(errs, err.Error())
 		}
 	}
@@ -180,11 +180,13 @@ func (v *VaultClusterRoleValidator) validate(role *vaultv1alpha1.VaultClusterRol
 }
 
 // validatePolicyReference validates a PolicyReference
-// defaultNamespace is used for VaultPolicy references when namespace is not specified (only for VaultRole)
 // allowDefaultNamespace indicates whether namespace can be omitted for VaultPolicy references
-func validatePolicyReference(ref vaultv1alpha1.PolicyReference, index int, defaultNamespace string, allowDefaultNamespace bool) error {
+func validatePolicyReference(ref vaultv1alpha1.PolicyReference, index int, allowDefaultNamespace bool) error {
 	// Validate kind
-	if ref.Kind != "VaultPolicy" && ref.Kind != "VaultClusterPolicy" {
+	switch ref.Kind {
+	case "VaultPolicy", "VaultClusterPolicy":
+		// Valid kinds
+	default:
 		return fmt.Errorf("policies[%d].kind: must be VaultPolicy or VaultClusterPolicy (got %q)", index, ref.Kind)
 	}
 
@@ -194,13 +196,14 @@ func validatePolicyReference(ref vaultv1alpha1.PolicyReference, index int, defau
 	}
 
 	// Validate namespace based on kind
-	if ref.Kind == "VaultPolicy" {
+	switch ref.Kind {
+	case "VaultPolicy":
 		if ref.Namespace == "" && !allowDefaultNamespace {
 			return fmt.Errorf("policies[%d].namespace: must be specified for VaultPolicy references in VaultClusterRole", index)
 		}
 		// Note: When namespace is empty and allowDefaultNamespace is true (VaultRole case),
 		// the controller will default to the VaultRole's namespace
-	} else if ref.Kind == "VaultClusterPolicy" {
+	case "VaultClusterPolicy":
 		// VaultClusterPolicy is cluster-scoped, namespace should not be specified
 		if ref.Namespace != "" {
 			return fmt.Errorf("policies[%d].namespace: must not be specified for VaultClusterPolicy references", index)

@@ -215,12 +215,12 @@ func TestAuthenticateKubernetesWithMockServer(t *testing.T) {
 				}
 				response := map[string]interface{}{
 					"auth": map[string]interface{}{
-						"client_token": "s.test-token-12345",
-						"policies":     []string{"default"},
+						"client_token":   "s.test-token-12345",
+						"policies":       []string{"default"},
 						"lease_duration": 3600,
 					},
 				}
-				json.NewEncoder(w).Encode(response)
+				_ = json.NewEncoder(w).Encode(response)
 			},
 			wantErr: false,
 		},
@@ -230,7 +230,7 @@ func TestAuthenticateKubernetesWithMockServer(t *testing.T) {
 				response := map[string]interface{}{
 					"data": map[string]interface{}{},
 				}
-				json.NewEncoder(w).Encode(response)
+				_ = json.NewEncoder(w).Encode(response)
 			},
 			wantErr: true,
 		},
@@ -241,7 +241,7 @@ func TestAuthenticateKubernetesWithMockServer(t *testing.T) {
 				response := map[string]interface{}{
 					"errors": []string{"permission denied"},
 				}
-				json.NewEncoder(w).Encode(response)
+				_ = json.NewEncoder(w).Encode(response)
 			},
 			wantErr: true,
 		},

@@ -37,8 +37,7 @@ var _ = Describe("VaultClusterPolicy Controller", func() {
 		ctx := context.Background()
 
 		typeNamespacedName := types.NamespacedName{
-			Name:      resourceName,
-			Namespace: "default", // TODO(user):Modify as needed
+			Name: resourceName,
 		}
 		vaultclusterpolicy := &vaultv1alpha1.VaultClusterPolicy{}
 
@@ -48,10 +47,17 @@ var _ = Describe("VaultClusterPolicy Controller", func() {
 			if err != nil && errors.IsNotFound(err) {
 				resource := &vaultv1alpha1.VaultClusterPolicy{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      resourceName,
-						Namespace: "default",
+						Name: resourceName,
 					},
-					// TODO(user): Specify other spec details if needed.
+					Spec: vaultv1alpha1.VaultClusterPolicySpec{
+						ConnectionRef: "test-connection",
+						Rules: []vaultv1alpha1.PolicyRule{
+							{
+								Path:         "secret/data/*",
+								Capabilities: []vaultv1alpha1.Capability{vaultv1alpha1.CapabilityRead},
+							},
+						},
+					},
 				}
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
 			}
