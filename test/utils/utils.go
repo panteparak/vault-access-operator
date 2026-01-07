@@ -313,7 +313,10 @@ func PatchValidatingWebhookCABundle(webhookName string, caBundle []byte) error {
 	caBundleB64 := base64.StdEncoding.EncodeToString(caBundle)
 
 	// Patch each webhook in the configuration with the CA bundle
-	patchJSON := fmt.Sprintf(`[{"op": "replace", "path": "/webhooks/0/clientConfig/caBundle", "value": "%s"},{"op": "replace", "path": "/webhooks/1/clientConfig/caBundle", "value": "%s"}]`, caBundleB64, caBundleB64)
+	patchJSON := fmt.Sprintf(
+		`[{"op": "replace", "path": "/webhooks/0/clientConfig/caBundle", "value": "%s"},`+
+			`{"op": "replace", "path": "/webhooks/1/clientConfig/caBundle", "value": "%s"}]`,
+		caBundleB64, caBundleB64)
 
 	cmd := exec.Command("kubectl", "patch", "validatingwebhookconfiguration", webhookName,
 		"--type=json", "-p", patchJSON)
