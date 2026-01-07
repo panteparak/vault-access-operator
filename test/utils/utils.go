@@ -19,10 +19,18 @@ package utils
 import (
 	"bufio"
 	"bytes"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/base64"
+	"encoding/pem"
 	"fmt"
+	"math/big"
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2" // nolint:revive,staticcheck
 )
@@ -163,6 +171,158 @@ func IsCertManagerCRDsInstalled() bool {
 	}
 
 	return false
+}
+
+// TLSCertificates holds the generated certificate and key in PEM format
+type TLSCertificates struct {
+	CertPEM   []byte
+	KeyPEM    []byte
+	CACertPEM []byte
+}
+
+// GenerateSelfSignedCert generates a self-signed TLS certificate for webhook testing.
+// It creates a CA certificate and a server certificate signed by that CA.
+// The dnsNames should include the webhook service DNS names (e.g., "webhook-service.namespace.svc").
+func GenerateSelfSignedCert(dnsNames []string) (*TLSCertificates, error) {
+	// Generate CA private key
+	caKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate CA key: %w", err)
+	}
+
+	// Create CA certificate template
+	caTemplate := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject: pkix.Name{
+			Organization: []string{"Vault Access Operator E2E Test CA"},
+			CommonName:   "e2e-test-ca",
+		},
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().Add(24 * time.Hour), // Valid for 24 hours
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+		MaxPathLen:            1,
+	}
+
+	// Self-sign the CA certificate
+	caCertDER, err := x509.CreateCertificate(rand.Reader, caTemplate, caTemplate, &caKey.PublicKey, caKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create CA certificate: %w", err)
+	}
+
+	// Parse the CA certificate for signing the server cert
+	caCert, err := x509.ParseCertificate(caCertDER)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse CA certificate: %w", err)
+	}
+
+	// Generate server private key
+	serverKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate server key: %w", err)
+	}
+
+	// Create server certificate template
+	serverTemplate := &x509.Certificate{
+		SerialNumber: big.NewInt(2),
+		Subject: pkix.Name{
+			Organization: []string{"Vault Access Operator E2E Test"},
+			CommonName:   dnsNames[0],
+		},
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().Add(24 * time.Hour), // Valid for 24 hours
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+		DNSNames:              dnsNames,
+	}
+
+	// Sign server certificate with CA
+	serverCertDER, err := x509.CreateCertificate(rand.Reader, serverTemplate, caCert, &serverKey.PublicKey, caKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create server certificate: %w", err)
+	}
+
+	// Encode CA certificate to PEM
+	caCertPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: caCertDER,
+	})
+
+	// Encode server certificate to PEM
+	serverCertPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: serverCertDER,
+	})
+
+	// Encode server private key to PEM
+	serverKeyPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: x509.MarshalPKCS1PrivateKey(serverKey),
+	})
+
+	return &TLSCertificates{
+		CertPEM:   serverCertPEM,
+		KeyPEM:    serverKeyPEM,
+		CACertPEM: caCertPEM,
+	}, nil
+}
+
+// CreateWebhookTLSSecret creates a Kubernetes TLS secret for webhook certificates.
+// This is used for e2e tests to avoid requiring cert-manager.
+func CreateWebhookTLSSecret(namespace, secretName string, certs *TLSCertificates) error {
+	// Encode cert and key to base64 for kubectl
+	certB64 := base64.StdEncoding.EncodeToString(certs.CertPEM)
+	keyB64 := base64.StdEncoding.EncodeToString(certs.KeyPEM)
+
+	// Create secret manifest
+	secretManifest := fmt.Sprintf(`apiVersion: v1
+kind: Secret
+metadata:
+  name: %s
+  namespace: %s
+type: kubernetes.io/tls
+data:
+  tls.crt: %s
+  tls.key: %s
+`, secretName, namespace, certB64, keyB64)
+
+	// Apply the secret using kubectl
+	cmd := exec.Command("kubectl", "apply", "-f", "-")
+	cmd.Stdin = strings.NewReader(secretManifest)
+	_, err := Run(cmd)
+	if err != nil {
+		return fmt.Errorf("failed to create webhook TLS secret: %w", err)
+	}
+
+	return nil
+}
+
+// DeleteWebhookTLSSecret deletes the webhook TLS secret.
+func DeleteWebhookTLSSecret(namespace, secretName string) {
+	cmd := exec.Command("kubectl", "delete", "secret", secretName, "-n", namespace, "--ignore-not-found=true")
+	if _, err := Run(cmd); err != nil {
+		warnError(err)
+	}
+}
+
+// PatchValidatingWebhookCABundle patches a ValidatingWebhookConfiguration with the CA bundle.
+// This is needed when using self-signed certs instead of cert-manager's CA injection.
+func PatchValidatingWebhookCABundle(webhookName string, caBundle []byte) error {
+	caBundleB64 := base64.StdEncoding.EncodeToString(caBundle)
+
+	// Patch each webhook in the configuration with the CA bundle
+	patchJSON := fmt.Sprintf(`[{"op": "replace", "path": "/webhooks/0/clientConfig/caBundle", "value": "%s"},{"op": "replace", "path": "/webhooks/1/clientConfig/caBundle", "value": "%s"}]`, caBundleB64, caBundleB64)
+
+	cmd := exec.Command("kubectl", "patch", "validatingwebhookconfiguration", webhookName,
+		"--type=json", "-p", patchJSON)
+	_, err := Run(cmd)
+	if err != nil {
+		return fmt.Errorf("failed to patch ValidatingWebhookConfiguration with CA bundle: %w", err)
+	}
+
+	return nil
 }
 
 // LoadImageToKindClusterWithName loads a local docker image to the kind cluster
