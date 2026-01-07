@@ -52,8 +52,11 @@ spec:
             {{- else }}
             - --leader-elect=false
             {{- end }}
-            {{- if and .Values.webhook.enabled .Values.webhook.certManager.enabled }}
+            {{- if .Values.webhook.enabled }}
+            - --enable-webhooks=true
+            {{- if .Values.webhook.certManager.enabled }}
             - --webhook-cert-path=/tmp/k8s-webhook-server/serving-certs
+            {{- end }}
             {{- end }}
             {{- with .Values.extraArgs }}
             {{- toYaml . | nindent 12 }}

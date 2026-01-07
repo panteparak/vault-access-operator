@@ -65,6 +65,7 @@ func main() {
 	var probeAddr string
 	var secureMetrics bool
 	var enableHTTP2 bool
+	var enableWebhooks bool
 	var tlsOpts []func(*tls.Config)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
@@ -83,6 +84,8 @@ func main() {
 	flag.StringVar(&metricsCertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
+	flag.BoolVar(&enableWebhooks, "enable-webhooks", false,
+		"If set, admission webhooks will be enabled. Requires webhook certificates to be configured.")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -109,31 +112,38 @@ func main() {
 	// Create watchers for metrics and webhooks certificates
 	var metricsCertWatcher, webhookCertWatcher *certwatcher.CertWatcher
 
-	// Initial webhook TLS options
-	webhookTLSOpts := tlsOpts
+	// Initialize webhook server only if webhooks are enabled
+	var webhookServer webhook.Server
+	if enableWebhooks {
+		// Initial webhook TLS options
+		webhookTLSOpts := tlsOpts
 
-	if len(webhookCertPath) > 0 {
-		setupLog.Info("Initializing webhook certificate watcher using provided certificates",
-			"webhook-cert-path", webhookCertPath, "webhook-cert-name", webhookCertName, "webhook-cert-key", webhookCertKey)
+		if len(webhookCertPath) > 0 {
+			setupLog.Info("Initializing webhook certificate watcher using provided certificates",
+				"webhook-cert-path", webhookCertPath, "webhook-cert-name", webhookCertName, "webhook-cert-key", webhookCertKey)
 
-		var err error
-		webhookCertWatcher, err = certwatcher.New(
-			filepath.Join(webhookCertPath, webhookCertName),
-			filepath.Join(webhookCertPath, webhookCertKey),
-		)
-		if err != nil {
-			setupLog.Error(err, "Failed to initialize webhook certificate watcher")
-			os.Exit(1)
+			var err error
+			webhookCertWatcher, err = certwatcher.New(
+				filepath.Join(webhookCertPath, webhookCertName),
+				filepath.Join(webhookCertPath, webhookCertKey),
+			)
+			if err != nil {
+				setupLog.Error(err, "Failed to initialize webhook certificate watcher")
+				os.Exit(1)
+			}
+
+			webhookTLSOpts = append(webhookTLSOpts, func(config *tls.Config) {
+				config.GetCertificate = webhookCertWatcher.GetCertificate
+			})
 		}
 
-		webhookTLSOpts = append(webhookTLSOpts, func(config *tls.Config) {
-			config.GetCertificate = webhookCertWatcher.GetCertificate
+		webhookServer = webhook.NewServer(webhook.Options{
+			TLSOpts: webhookTLSOpts,
 		})
+		setupLog.Info("Webhooks enabled")
+	} else {
+		setupLog.Info("Webhooks disabled")
 	}
-
-	webhookServer := webhook.NewServer(webhook.Options{
-		TLSOpts: webhookTLSOpts,
-	})
 
 	// Metrics endpoint is enabled in 'config/default/kustomization.yaml'. The Metrics options configure the server.
 	// More info:
@@ -249,22 +259,24 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Setup webhooks
-	if err := vaultwebhook.SetupVaultPolicyWebhookWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create webhook", "webhook", "VaultPolicy")
-		os.Exit(1)
-	}
-	if err := vaultwebhook.SetupVaultClusterPolicyWebhookWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create webhook", "webhook", "VaultClusterPolicy")
-		os.Exit(1)
-	}
-	if err := (&vaultwebhook.VaultRoleValidator{}).SetupWebhookWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create webhook", "webhook", "VaultRole")
-		os.Exit(1)
-	}
-	if err := (&vaultwebhook.VaultClusterRoleValidator{}).SetupWebhookWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create webhook", "webhook", "VaultClusterRole")
-		os.Exit(1)
+	// Setup webhooks only if enabled
+	if enableWebhooks {
+		if err := vaultwebhook.SetupVaultPolicyWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "VaultPolicy")
+			os.Exit(1)
+		}
+		if err := vaultwebhook.SetupVaultClusterPolicyWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "VaultClusterPolicy")
+			os.Exit(1)
+		}
+		if err := (&vaultwebhook.VaultRoleValidator{}).SetupWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "VaultRole")
+			os.Exit(1)
+		}
+		if err := (&vaultwebhook.VaultClusterRoleValidator{}).SetupWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "VaultClusterRole")
+			os.Exit(1)
+		}
 	}
 	// +kubebuilder:scaffold:builder
 
