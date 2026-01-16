@@ -218,24 +218,12 @@ jobs:
         run: |
           # Create operator policy for bootstrap and token lifecycle tests
           kubectl exec -n vault vault-0 -- vault policy write vault-access-operator - <<'EOF'
-          path "sys/policies/acl/*" {
-            capabilities = ["create", "read", "update", "delete", "list"]
-          }
-          path "auth/kubernetes/role/*" {
-            capabilities = ["create", "read", "update", "delete", "list"]
-          }
-          path "auth/kubernetes/config" {
-            capabilities = ["create", "read", "update", "delete", "list"]
-          }
-          path "sys/auth" {
-            capabilities = ["read"]
-          }
-          path "sys/auth/*" {
-            capabilities = ["sudo", "create", "read", "update", "delete", "list"]
-          }
-          path "sys/mounts" {
-            capabilities = ["read"]
-          }
+          path "sys/policies/acl/*" { capabilities = ["create", "read", "update", "delete", "list"] }
+          path "auth/kubernetes/role/*" { capabilities = ["create", "read", "update", "delete", "list"] }
+          path "auth/kubernetes/config" { capabilities = ["create", "read", "update", "delete", "list"] }
+          path "sys/auth" { capabilities = ["read"] }
+          path "sys/auth/*" { capabilities = ["sudo", "create", "read", "update", "delete", "list"] }
+          path "sys/mounts" { capabilities = ["read"] }
           EOF
           echo "Vault operator policy created successfully"
 
