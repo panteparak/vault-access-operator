@@ -41,6 +41,12 @@ linters:
           - dupl
           - lll
         path: internal/
+      - linters:
+          - dupl
+        path: features/
+      - linters:
+          - dupl
+        path: shared/
     paths:
       - third_party
       - builtin

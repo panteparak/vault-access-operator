@@ -92,22 +92,65 @@ spec:
                     - roleId
                     - secretIdRef
                     type: object
+                  bootstrap:
+                    description: |-
+                      Bootstrap enables one-time setup of Kubernetes auth.
+                      After bootstrap succeeds, the operator uses Kubernetes auth exclusively.
+                    properties:
+                      autoRevoke:
+                        default: true
+                        description: AutoRevoke revokes the bootstrap token after
+                          successful setup.
+                        type: boolean
+                      secretRef:
+                        description: |-
+                          SecretRef references a secret containing the bootstrap Vault token.
+                          This token should have permissions to enable and configure auth methods.
+                        properties:
+                          key:
+                            description: Key in the secret to select
+                            type: string
+                          name:
+                            description: Name of the secret
+                            type: string
+                          namespace:
+                            description: Namespace of the secret. If not specified,
+                              uses the namespace of the referencing resource.
+                            type: string
+                        required:
+                        - key
+                        - name
+                        type: object
+                    required:
+                    - secretRef
+                    type: object
                   kubernetes:
                     description: Kubernetes auth method configuration
                     properties:
-                      mountPath:
+                      authPath:
                         default: kubernetes
-                        description: MountPath is the mount path of the Kubernetes
-                          auth method
+                        description: |-
+                          AuthPath is the Vault auth mount path (default: "kubernetes").
+                          Use a custom path if the Kubernetes auth method is mounted elsewhere.
                         type: string
                       role:
-                        description: Role is the Vault role to authenticate as
+                        description: |-
+                          Role is the Vault role to authenticate as.
+                          This is the Vault role (not K8s role) created in Vault's Kubernetes auth config.
                         type: string
-                      serviceAccountTokenPath:
-                        default: /var/run/secrets/kubernetes.io/serviceaccount/token
-                        description: ServiceAccountTokenPath is the path to the service
-                          account token
+                      tokenDuration:
+                        default: 1h
+                        description: |-
+                          TokenDuration is the requested service account token lifetime.
+                          Uses Kubernetes TokenRequest API for short-lived tokens.
                         type: string
+                      tokenReviewerRotation:
+                        default: true
+                        description: |-
+                          TokenReviewerRotation enables automatic token_reviewer_jwt rotation.
+                          IMPORTANT: When disabled, you must manually manage token_reviewer_jwt
+                          or all Kubernetes auth will fail when the JWT expires.
+                        type: boolean
                     required:
                     - role
                     type: object
@@ -187,6 +230,44 @@ spec:
           status:
             description: VaultConnectionStatus defines the observed state of VaultConnection.
             properties:
+              authStatus:
+                description: AuthStatus contains authentication-related status information
+                properties:
+                  authMethod:
+                    description: AuthMethod is the currently active authentication
+                      method
+                    type: string
+                  bootstrapComplete:
+                    description: BootstrapComplete indicates if bootstrap has been
+                      completed
+                    type: boolean
+                  bootstrapCompletedAt:
+                    description: BootstrapCompletedAt is when bootstrap was completed
+                    format: date-time
+                    type: string
+                  tokenExpiration:
+                    description: TokenExpiration is when the current Vault token expires
+                    format: date-time
+                    type: string
+                  tokenLastRenewed:
+                    description: TokenLastRenewed is when the token was last renewed
+                    format: date-time
+                    type: string
+                  tokenRenewalCount:
+                    description: TokenRenewalCount is how many times the token has
+                      been renewed
+                    type: integer
+                  tokenReviewerExpiration:
+                    description: TokenReviewerExpiration is when the token_reviewer_jwt
+                      expires
+                    format: date-time
+                    type: string
+                  tokenReviewerLastRefresh:
+                    description: TokenReviewerLastRefresh is when token_reviewer_jwt
+                      was last refreshed
+                    format: date-time
+                    type: string
+                type: object
               conditions:
                 description: Conditions represent the latest available observations
                 items:

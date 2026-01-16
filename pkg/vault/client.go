@@ -113,7 +113,8 @@ func (c *Client) GetVersion(ctx context.Context) (string, error) {
 	return health.Version, nil
 }
 
-// AuthenticateKubernetes authenticates using the Kubernetes auth method
+// AuthenticateKubernetes authenticates using the Kubernetes auth method.
+// It reads the JWT from the specified tokenPath (file system).
 func (c *Client) AuthenticateKubernetes(ctx context.Context, role, mountPath, tokenPath string) error {
 	if mountPath == "" {
 		mountPath = "kubernetes"
@@ -127,10 +128,21 @@ func (c *Client) AuthenticateKubernetes(ctx context.Context, role, mountPath, to
 		return fmt.Errorf("failed to read service account token: %w", err)
 	}
 
+	return c.AuthenticateKubernetesWithToken(ctx, role, mountPath, string(jwt))
+}
+
+// AuthenticateKubernetesWithToken authenticates using the Kubernetes auth method.
+// Unlike AuthenticateKubernetes, this method accepts the JWT token directly,
+// which is useful when using the TokenRequest API or other token sources.
+func (c *Client) AuthenticateKubernetesWithToken(ctx context.Context, role, mountPath, jwt string) error {
+	if mountPath == "" {
+		mountPath = "kubernetes"
+	}
+
 	path := fmt.Sprintf("auth/%s/login", mountPath)
 	secret, err := c.Logical().WriteWithContext(ctx, path, map[string]interface{}{
 		"role": role,
-		"jwt":  string(jwt),
+		"jwt":  jwt,
 	})
 	if err != nil {
 		return fmt.Errorf("kubernetes auth failed: %w", err)
@@ -255,4 +267,64 @@ func (c *Client) KubernetesAuthRoleExists(ctx context.Context, authPath, roleNam
 		return false, err
 	}
 	return data != nil, nil
+}
+
+// ============================================================================
+// VaultBootstrapClient interface methods
+// ============================================================================
+
+// EnableAuth enables an auth method at the given path.
+// This is used during bootstrap to enable the Kubernetes auth method.
+func (c *Client) EnableAuth(ctx context.Context, path, methodType string) error {
+	return c.Sys().EnableAuthWithOptionsWithContext(ctx, path, &api.EnableAuthOptions{
+		Type: methodType,
+	})
+}
+
+// IsAuthEnabled checks if an auth method is enabled at the given path.
+func (c *Client) IsAuthEnabled(ctx context.Context, path string) (bool, error) {
+	auths, err := c.Sys().ListAuthWithContext(ctx)
+	if err != nil {
+		return false, fmt.Errorf("failed to list auth methods: %w", err)
+	}
+
+	// Auth paths in Vault end with a slash
+	pathWithSlash := path + "/"
+	_, exists := auths[pathWithSlash]
+	return exists, nil
+}
+
+// WriteKubernetesAuthConfig writes the Kubernetes auth configuration.
+// This configures the kubernetes_host, kubernetes_ca_cert, and token_reviewer_jwt.
+func (c *Client) WriteKubernetesAuthConfig(ctx context.Context, mountPath string, config map[string]interface{}) error {
+	path := fmt.Sprintf("auth/%s/config", mountPath)
+	_, err := c.Logical().WriteWithContext(ctx, path, config)
+	if err != nil {
+		return fmt.Errorf("failed to write kubernetes auth config: %w", err)
+	}
+	return nil
+}
+
+// WriteKubernetesRole creates or updates a Kubernetes auth role.
+// This is used during bootstrap to create the operator's role.
+func (c *Client) WriteKubernetesRole(
+	ctx context.Context, mountPath, roleName string, config map[string]interface{},
+) error {
+	path := fmt.Sprintf("auth/%s/role/%s", mountPath, roleName)
+	_, err := c.Logical().WriteWithContext(ctx, path, config)
+	if err != nil {
+		return fmt.Errorf("failed to write kubernetes role: %w", err)
+	}
+	return nil
+}
+
+// RevokeToken revokes the specified token.
+func (c *Client) RevokeToken(ctx context.Context, token string) error {
+	return c.Auth().Token().RevokeTreeWithContext(ctx, token)
+}
+
+// RevokeSelf revokes the current token.
+// This is typically called after bootstrap to revoke the bootstrap token.
+func (c *Client) RevokeSelf(ctx context.Context) error {
+	return c.Auth().Token().RevokeSelfWithContext(ctx, "")
 }

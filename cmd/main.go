@@ -28,6 +28,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
@@ -38,9 +39,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
-	"github.com/panteparak/vault-access-operator/internal/controller"
+	"github.com/panteparak/vault-access-operator/features/connection"
+	"github.com/panteparak/vault-access-operator/features/policy"
+	"github.com/panteparak/vault-access-operator/features/role"
 	vaultwebhook "github.com/panteparak/vault-access-operator/internal/webhook"
-	"github.com/panteparak/vault-access-operator/pkg/vault"
+	"github.com/panteparak/vault-access-operator/shared/events"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -214,50 +217,63 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Initialize the shared Vault client cache
-	clientCache := vault.NewClientCache()
-	setupLog.Info("Initialized Vault client cache")
+	// Initialize the shared event bus for inter-feature communication
+	eventBus := events.NewEventBus(setupLog.WithName("eventbus"))
+	setupLog.Info("Initialized event bus")
 
-	if err := (&controller.VaultConnectionReconciler{
-		Client:      mgr.GetClient(),
-		Scheme:      mgr.GetScheme(),
-		ClientCache: clientCache,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "VaultConnection")
+	// Create Kubernetes clientset for TokenRequest API
+	restConfig := ctrl.GetConfigOrDie()
+	k8sClientset, err := kubernetes.NewForConfig(restConfig)
+	if err != nil {
+		setupLog.Error(err, "unable to create kubernetes clientset")
 		os.Exit(1)
 	}
-	if err := (&controller.VaultClusterPolicyReconciler{
-		Client:      mgr.GetClient(),
-		Scheme:      mgr.GetScheme(),
-		ClientCache: clientCache,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "VaultClusterPolicy")
+	setupLog.Info("Created Kubernetes clientset for TokenRequest API")
+
+	// Initialize features using Feature-Driven Design
+	// Each feature is a self-contained vertical slice with its own controller, handler, and domain logic
+
+	// Connection feature manages VaultConnection resources and provides the shared ClientCache
+	connFeature := connection.New(connection.Config{
+		EventBus:     eventBus,
+		K8sClient:    mgr.GetClient(),
+		K8sClientset: k8sClientset,
+		Scheme:       mgr.GetScheme(),
+		Log:          setupLog,
+	})
+	if err := connFeature.SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to setup feature", "feature", "Connection")
 		os.Exit(1)
 	}
-	if err := (&controller.VaultPolicyReconciler{
-		Client:      mgr.GetClient(),
-		Scheme:      mgr.GetScheme(),
-		ClientCache: clientCache,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "VaultPolicy")
+	setupLog.Info("Setup Connection feature")
+
+	// Policy feature manages VaultPolicy and VaultClusterPolicy resources
+	policyFeature := policy.New(
+		eventBus,
+		connFeature.ClientCache,
+		mgr.GetClient(),
+		mgr.GetScheme(),
+		setupLog,
+	)
+	if err := policyFeature.SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to setup feature", "feature", "Policy")
 		os.Exit(1)
 	}
-	if err := (&controller.VaultClusterRoleReconciler{
-		Client:      mgr.GetClient(),
-		Scheme:      mgr.GetScheme(),
-		ClientCache: clientCache,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "VaultClusterRole")
+	setupLog.Info("Setup Policy feature")
+
+	// Role feature manages VaultRole and VaultClusterRole resources
+	roleFeature := role.New(
+		eventBus,
+		connFeature.ClientCache,
+		mgr.GetClient(),
+		mgr.GetScheme(),
+		setupLog,
+	)
+	if err := roleFeature.SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to setup feature", "feature", "Role")
 		os.Exit(1)
 	}
-	if err := (&controller.VaultRoleReconciler{
-		Client:      mgr.GetClient(),
-		Scheme:      mgr.GetScheme(),
-		ClientCache: clientCache,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "VaultRole")
-		os.Exit(1)
-	}
+	setupLog.Info("Setup Role feature")
 
 	// Setup webhooks only if enabled
 	if enableWebhooks {

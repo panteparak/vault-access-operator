@@ -56,8 +56,14 @@ type TLSConfig struct {
 	CASecretRef *SecretKeySelector `json:"caSecretRef,omitempty"`
 }
 
-// AuthConfig defines authentication settings for Vault
+// AuthConfig defines authentication settings for Vault.
+// Supports bootstrap (one-time setup), Kubernetes, Token, and AppRole auth.
 type AuthConfig struct {
+	// Bootstrap enables one-time setup of Kubernetes auth.
+	// After bootstrap succeeds, the operator uses Kubernetes auth exclusively.
+	// +optional
+	Bootstrap *BootstrapAuth `json:"bootstrap,omitempty"`
+
 	// Kubernetes auth method configuration
 	// +optional
 	Kubernetes *KubernetesAuth `json:"kubernetes,omitempty"`
@@ -71,21 +77,46 @@ type AuthConfig struct {
 	AppRole *AppRoleAuth `json:"appRole,omitempty"`
 }
 
-// KubernetesAuth defines Kubernetes auth method settings
+// BootstrapAuth configures one-time bootstrap authentication.
+// Use this when Vault's Kubernetes auth method needs to be set up initially.
+type BootstrapAuth struct {
+	// SecretRef references a secret containing the bootstrap Vault token.
+	// This token should have permissions to enable and configure auth methods.
+	// +kubebuilder:validation:Required
+	SecretRef SecretKeySelector `json:"secretRef"`
+
+	// AutoRevoke revokes the bootstrap token after successful setup.
+	// +kubebuilder:default=true
+	// +optional
+	AutoRevoke *bool `json:"autoRevoke,omitempty"`
+}
+
+// KubernetesAuth defines Kubernetes auth method settings.
+// Only the Role field is required - everything else uses smart defaults.
 type KubernetesAuth struct {
-	// Role is the Vault role to authenticate as
+	// Role is the Vault role to authenticate as.
+	// This is the Vault role (not K8s role) created in Vault's Kubernetes auth config.
 	// +kubebuilder:validation:Required
 	Role string `json:"role"`
 
-	// MountPath is the mount path of the Kubernetes auth method
+	// AuthPath is the Vault auth mount path (default: "kubernetes").
+	// Use a custom path if the Kubernetes auth method is mounted elsewhere.
 	// +kubebuilder:default="kubernetes"
 	// +optional
-	MountPath string `json:"mountPath,omitempty"`
+	AuthPath string `json:"authPath,omitempty"`
 
-	// ServiceAccountTokenPath is the path to the service account token
-	// +kubebuilder:default="/var/run/secrets/kubernetes.io/serviceaccount/token"
+	// TokenDuration is the requested service account token lifetime.
+	// Uses Kubernetes TokenRequest API for short-lived tokens.
+	// +kubebuilder:default="1h"
 	// +optional
-	ServiceAccountTokenPath string `json:"serviceAccountTokenPath,omitempty"`
+	TokenDuration metav1.Duration `json:"tokenDuration,omitempty"`
+
+	// TokenReviewerRotation enables automatic token_reviewer_jwt rotation.
+	// IMPORTANT: When disabled, you must manually manage token_reviewer_jwt
+	// or all Kubernetes auth will fail when the JWT expires.
+	// +kubebuilder:default=true
+	// +optional
+	TokenReviewerRotation *bool `json:"tokenReviewerRotation,omitempty"`
 }
 
 // TokenAuth defines token auth method settings
@@ -148,6 +179,45 @@ type VaultConnectionStatus struct {
 	// Message provides additional information about the current state
 	// +optional
 	Message string `json:"message,omitempty"`
+
+	// AuthStatus contains authentication-related status information
+	// +optional
+	AuthStatus *AuthStatus `json:"authStatus,omitempty"`
+}
+
+// AuthStatus contains authentication-related status information.
+type AuthStatus struct {
+	// BootstrapComplete indicates if bootstrap has been completed
+	// +optional
+	BootstrapComplete bool `json:"bootstrapComplete,omitempty"`
+
+	// BootstrapCompletedAt is when bootstrap was completed
+	// +optional
+	BootstrapCompletedAt *metav1.Time `json:"bootstrapCompletedAt,omitempty"`
+
+	// AuthMethod is the currently active authentication method
+	// +optional
+	AuthMethod string `json:"authMethod,omitempty"`
+
+	// TokenExpiration is when the current Vault token expires
+	// +optional
+	TokenExpiration *metav1.Time `json:"tokenExpiration,omitempty"`
+
+	// TokenLastRenewed is when the token was last renewed
+	// +optional
+	TokenLastRenewed *metav1.Time `json:"tokenLastRenewed,omitempty"`
+
+	// TokenRenewalCount is how many times the token has been renewed
+	// +optional
+	TokenRenewalCount int `json:"tokenRenewalCount,omitempty"`
+
+	// TokenReviewerExpiration is when the token_reviewer_jwt expires
+	// +optional
+	TokenReviewerExpiration *metav1.Time `json:"tokenReviewerExpiration,omitempty"`
+
+	// TokenReviewerLastRefresh is when token_reviewer_jwt was last refreshed
+	// +optional
+	TokenReviewerLastRefresh *metav1.Time `json:"tokenReviewerLastRefresh,omitempty"`
 }
 
 // +kubebuilder:object:root=true
