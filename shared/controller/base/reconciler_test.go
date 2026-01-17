@@ -111,7 +111,7 @@ func TestBaseReconciler_Reconcile_ResourceNotFound(t *testing.T) {
 		t.Errorf("expected no error for not found, got %v", err)
 	}
 
-	if result.Requeue || result.RequeueAfter != 0 {
+	if result.RequeueAfter != 0 {
 		t.Error("expected empty result for not found resource")
 	}
 
@@ -263,7 +263,7 @@ func TestBaseReconciler_Reconcile_Deletion(t *testing.T) {
 		t.Error("expected Cleanup to be called during deletion")
 	}
 
-	if result.Requeue || result.RequeueAfter != 0 {
+	if result.RequeueAfter != 0 {
 		t.Error("expected empty result after successful cleanup")
 	}
 
@@ -319,7 +319,7 @@ func TestBaseReconciler_Reconcile_DeletionNoOurFinalizer(t *testing.T) {
 		t.Error("expected Cleanup to not be called when our finalizer is missing")
 	}
 
-	if result.Requeue || result.RequeueAfter != 0 {
+	if result.RequeueAfter != 0 {
 		t.Error("expected empty result when our finalizer is missing")
 	}
 

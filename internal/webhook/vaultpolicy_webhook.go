@@ -103,8 +103,8 @@ func (v *VaultPolicyValidator) ValidateDelete(ctx context.Context, obj runtime.O
 
 // validateVaultPolicy validates a VaultPolicy resource
 func (v *VaultPolicyValidator) validateVaultPolicy(policy *vaultv1alpha1.VaultPolicy) (admission.Warnings, error) {
-	var allErrors []string
-	var warnings admission.Warnings
+	allErrors := make([]string, 0, len(policy.Spec.Rules))
+	warnings := make(admission.Warnings, 0, len(policy.Spec.Rules))
 
 	// Validate rules
 	for i, rule := range policy.Spec.Rules {
@@ -162,8 +162,8 @@ func (v *VaultClusterPolicyValidator) ValidateDelete(ctx context.Context, obj ru
 
 // validateVaultClusterPolicy validates a VaultClusterPolicy resource
 func (v *VaultClusterPolicyValidator) validateVaultClusterPolicy(policy *vaultv1alpha1.VaultClusterPolicy) (admission.Warnings, error) {
-	var allErrors []string
-	var warnings admission.Warnings
+	allErrors := make([]string, 0, len(policy.Spec.Rules))
+	warnings := make(admission.Warnings, 0, len(policy.Spec.Rules))
 
 	// Validate rules (namespace boundary enforcement is not applicable for cluster policies)
 	for i, rule := range policy.Spec.Rules {
