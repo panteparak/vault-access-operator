@@ -192,33 +192,65 @@ jobs:
         if: github.event_name != 'pull_request'
         run: docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.docker-build.outputs.image-tag }}
 
-      - name: Install Trivy
-        run: |
-          sudo apt-get install -y wget apt-transport-https gnupg lsb-release
-          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
-          echo deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main | sudo tee /etc/apt/sources.list.d/trivy.list
-          sudo apt-get update
-          sudo apt-get install -y trivy
-
+      # Generate SBOM (CycloneDX format)
       - name: Generate SBOM
-        run: |
-          trivy image --format cyclonedx --output sbom.json \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.docker-build.outputs.image-tag }}
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: 'image'
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.docker-build.outputs.image-tag }}
+          format: 'cyclonedx'
+          output: 'sbom.json'
 
-      - name: Scan SBOM for vulnerabilities (JSON - all)
-        run: |
-          trivy sbom sbom.json \
-            --format json \
-            --output trivy-results.json
+      # Scan for all vulnerabilities (JSON output)
+      - name: Scan for vulnerabilities (JSON - all)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: 'sbom'
+          scan-ref: 'sbom.json'
+          format: 'json'
+          output: 'trivy-results.json'
 
-      - name: Scan SBOM for vulnerabilities (HTML - MEDIUM+, ignore unfixed)
+      # Scan for MEDIUM+ vulnerabilities, ignore unfixed (table for summary)
+      - name: Scan for vulnerabilities (MEDIUM+, ignore unfixed)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: 'sbom'
+          scan-ref: 'sbom.json'
+          format: 'table'
+          output: 'trivy-report.txt'
+          severity: 'MEDIUM,HIGH,CRITICAL'
+          ignore-unfixed: true
+
+      # Download HTML template and generate report
+      - name: Download Trivy HTML template
         run: |
-          trivy sbom sbom.json \
-            --format template \
-            --template "@/usr/share/trivy/templates/html.tpl" \
-            --output trivy-report.html \
-            --severity MEDIUM,HIGH,CRITICAL \
-            --ignore-unfixed
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/html.tpl -o html.tpl
+
+      - name: Generate HTML report
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: 'sbom'
+          scan-ref: 'sbom.json'
+          format: 'template'
+          template: '@html.tpl'
+          output: 'trivy-report.html'
+          severity: 'MEDIUM,HIGH,CRITICAL'
+          ignore-unfixed: true
+
+      # Generate SARIF for GitHub Security tab
+      - name: Generate SARIF report
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: 'sbom'
+          scan-ref: 'sbom.json'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload SARIF to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-results.sarif'
+          category: 'trivy-container-scan'
 
       - name: Upload SBOM
         uses: actions/upload-artifact@v4
@@ -246,7 +278,9 @@ jobs:
           echo "## Security Scan Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Vulnerability Summary (MEDIUM+, fixable only)" >> $GITHUB_STEP_SUMMARY
-          trivy sbom sbom.json --severity MEDIUM,HIGH,CRITICAL --ignore-unfixed --format table >> $GITHUB_STEP_SUMMARY 2>&1 || true
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat trivy-report.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
 
   # ============================================================================
   # Stage 2: Gate
