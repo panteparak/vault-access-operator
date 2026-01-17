@@ -276,14 +276,44 @@ jobs:
       - name: Run E2E tests
         run: go test ./test/e2e/... -v -ginkgo.v -timeout=10m
 
-      - name: Debug on failure
+      - name: Collect debug logs
         if: failure()
         run: |
-          echo "=== Operator Logs ===" && kubectl logs -n vault-access-operator-system -l control-plane=controller-manager --tail=200 || true
-          echo "=== Vault Logs ===" && kubectl logs vault-0 -n vault --tail=50 || true
-          echo "=== CRD Status ===" && kubectl get vaultconnections,vaultpolicies,vaultclusterpolicies,vaultroles,vaultclusterroles -A || true
-          echo "=== Events ===" && kubectl get events -A --sort-by='.lastTimestamp' | tail -50 || true
-          echo "=== Pods ===" && kubectl get pods -A || true
+          mkdir -p /tmp/debug-logs
+          echo "=== Collecting debug information ==="
+
+          # Pod status
+          kubectl get pods -A -o wide > /tmp/debug-logs/pods.txt 2>&1 || true
+
+          # Vault logs and details
+          kubectl logs vault-0 -n vault --tail=500 > /tmp/debug-logs/vault-logs.txt 2>&1 || true
+          kubectl describe pod vault-0 -n vault > /tmp/debug-logs/vault-describe.txt 2>&1 || true
+          kubectl get events -n vault --sort-by='.lastTimestamp' > /tmp/debug-logs/vault-events.txt 2>&1 || true
+
+          # Operator logs and details
+          kubectl logs -n vault-access-operator-system -l control-plane=controller-manager --tail=500 > /tmp/debug-logs/operator-logs.txt 2>&1 || true
+          kubectl describe pods -n vault-access-operator-system > /tmp/debug-logs/operator-describe.txt 2>&1 || true
+          kubectl get events -n vault-access-operator-system --sort-by='.lastTimestamp' > /tmp/debug-logs/operator-events.txt 2>&1 || true
+
+          # CRD status
+          kubectl get vaultconnections,vaultpolicies,vaultclusterpolicies,vaultroles,vaultclusterroles -A -o yaml > /tmp/debug-logs/crd-status.yaml 2>&1 || true
+
+          # All events
+          kubectl get events -A --sort-by='.lastTimestamp' > /tmp/debug-logs/all-events.txt 2>&1 || true
+
+          # Node info
+          kubectl describe nodes > /tmp/debug-logs/nodes.txt 2>&1 || true
+
+          echo "=== Debug logs collected ==="
+          ls -la /tmp/debug-logs/
+
+      - name: Upload debug logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-logs-${{ matrix.install_method }}
+          path: /tmp/debug-logs/
+          retention-days: 7
 
       - name: Cleanup
         if: always()
