@@ -19,6 +19,24 @@ env:
 
 jobs:
   # ============================================================================
+  # Setup: Platform Matrix
+  # ============================================================================
+
+  setup:
+    name: Setup
+    runs-on: ubuntu-latest
+    outputs:
+      platforms: ${{ steps.platforms.outputs.matrix }}
+    steps:
+      - name: Set platform matrix
+        id: platforms
+        run: |
+          # Single source of truth for platforms
+          # Uncomment the second line and comment the first when ready for arm64
+          echo 'matrix=["linux/amd64"]' >> $GITHUB_OUTPUT
+          # echo 'matrix=["linux/amd64", "linux/arm64"]' >> $GITHUB_OUTPUT
+
+  # ============================================================================
   # Stage 1: Parallel Jobs
   # ============================================================================
 
@@ -127,11 +145,16 @@ jobs:
           echo "| Helm chart lint | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
 
   docker-build:
-    name: Docker Build
+    name: Docker Build (${{ matrix.platform }})
     runs-on: ubuntu-latest
+    needs: [setup]
     permissions:
       contents: read
       packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: ${{ fromJson(needs.setup.outputs.platforms) }}
     outputs:
       image-tag: sha-${{ steps.short-sha.outputs.sha }}
     steps:
@@ -140,6 +163,12 @@ jobs:
       - name: Get short SHA
         id: short-sha
         run: echo "sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Prepare platform vars
+        id: platform
+        run: |
+          platform="${{ matrix.platform }}"
+          echo "pair=${platform//\//-}" >> $GITHUB_OUTPUT  # linux/amd64 -> linux-amd64
 
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
@@ -150,76 +179,123 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-            type=sha,prefix=sha-,format=short
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-
-      # Push events: Build and push to registry
+      # Push events: Build and push platform-specific image
       - name: Build and push
         if: github.event_name != 'pull_request'
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64
+          platforms: ${{ matrix.platform }}
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=build
-          cache-to: type=gha,scope=build,mode=max
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ steps.short-sha.outputs.sha }}-${{ steps.platform.outputs.pair }}
+          cache-from: type=gha,scope=build-${{ steps.platform.outputs.pair }}
+          cache-to: type=gha,scope=build-${{ steps.platform.outputs.pair }},mode=max
 
-      # PRs: Build locally and save for e2e
+      # PRs: Build locally and save for e2e (amd64 only)
       - name: Build for PR
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && matrix.platform == 'linux/amd64'
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64
+          platforms: ${{ matrix.platform }}
           push: false
           load: true
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ steps.short-sha.outputs.sha }}
-          cache-from: type=gha,scope=build
-          cache-to: type=gha,scope=build,mode=max
+          cache-from: type=gha,scope=build-${{ steps.platform.outputs.pair }}
+          cache-to: type=gha,scope=build-${{ steps.platform.outputs.pair }},mode=max
 
       - name: Save image for PR
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && matrix.platform == 'linux/amd64'
         run: |
           docker save ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ steps.short-sha.outputs.sha }} \
             -o /tmp/operator-image.tar
 
       - uses: actions/upload-artifact@v4
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && matrix.platform == 'linux/amd64'
         with:
           name: operator-image
           path: /tmp/operator-image.tar
           retention-days: 1
 
-  security-scan:
-    name: Security Scan
+  docker-manifest:
+    name: Docker Manifest
     runs-on: ubuntu-latest
-    needs: [docker-build]
+    needs: [setup, docker-build]
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Get short SHA
+        id: short-sha
+        run: echo "sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create and push manifest
+        run: |
+          # Build list of platform-specific images
+          IMAGES=""
+          for platform in $(echo '${{ needs.setup.outputs.platforms }}' | jq -r '.[]'); do
+            pair="${platform//\//-}"
+            IMAGES="$IMAGES ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ steps.short-sha.outputs.sha }}-${pair}"
+          done
+
+          # Create manifest list with multiple tags
+          docker buildx imagetools create \
+            -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ steps.short-sha.outputs.sha }} \
+            -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
+            $IMAGES
+
+      - name: Summary
+        run: |
+          echo "## 🐳 Docker Manifest" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Multi-platform manifest created:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Tag | Platforms |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----|-----------|" >> $GITHUB_STEP_SUMMARY
+          echo "| \`sha-${{ steps.short-sha.outputs.sha }}\` | ${{ needs.setup.outputs.platforms }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| \`latest\` | ${{ needs.setup.outputs.platforms }} |" >> $GITHUB_STEP_SUMMARY
+
+  security-scan:
+    name: Security Scan (${{ matrix.platform }})
+    runs-on: ubuntu-latest
+    needs: [setup, docker-build]
     permissions:
       contents: read
       packages: read
       security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: ${{ fromJson(needs.setup.outputs.platforms) }}
     steps:
       - uses: actions/checkout@v4
 
-      # For PRs: Load the image from artifact
+      - name: Get short SHA
+        id: short-sha
+        run: echo "sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Prepare platform vars
+        id: platform
+        run: |
+          platform="${{ matrix.platform }}"
+          echo "pair=${platform//\//-}" >> $GITHUB_OUTPUT  # linux/amd64 -> linux-amd64
+
+      # For PRs: Load the image from artifact (amd64 only)
       - uses: actions/download-artifact@v4
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && matrix.platform == 'linux/amd64'
         with:
           name: operator-image
           path: /tmp
 
       - name: Load image (PR)
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && matrix.platform == 'linux/amd64'
         run: docker load -i /tmp/operator-image.tar
 
       # For push events: Pull from registry
@@ -232,19 +308,39 @@ jobs:
 
       - name: Pull image (push)
         if: github.event_name != 'pull_request'
-        run: docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.docker-build.outputs.image-tag }}
+        run: docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ steps.short-sha.outputs.sha }}-${{ steps.platform.outputs.pair }}
+
+      - name: Set image ref
+        id: image
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ steps.short-sha.outputs.sha }}" >> $GITHUB_OUTPUT
+          else
+            echo "ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ steps.short-sha.outputs.sha }}-${{ steps.platform.outputs.pair }}" >> $GITHUB_OUTPUT
+          fi
+
+      # Skip non-amd64 scans for PRs (no image available)
+      - name: Skip scan for non-amd64 PR
+        if: github.event_name == 'pull_request' && matrix.platform != 'linux/amd64'
+        run: |
+          echo "Skipping security scan for ${{ matrix.platform }} on PR (only amd64 image available)"
+          echo "## ⏭️ Security Scan Skipped (${{ matrix.platform }})" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Non-amd64 scans are skipped for PRs (only amd64 image is built)." >> $GITHUB_STEP_SUMMARY
 
       # Generate SBOM (CycloneDX format)
       - name: Generate SBOM
+        if: github.event_name != 'pull_request' || matrix.platform == 'linux/amd64'
         uses: aquasecurity/trivy-action@0.28.0
         with:
           scan-type: 'image'
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.docker-build.outputs.image-tag }}
+          image-ref: ${{ steps.image.outputs.ref }}
           format: 'cyclonedx'
           output: 'sbom.json'
 
       # Scan for all vulnerabilities (JSON output)
       - name: Scan for vulnerabilities (JSON - all)
+        if: github.event_name != 'pull_request' || matrix.platform == 'linux/amd64'
         uses: aquasecurity/trivy-action@0.28.0
         with:
           scan-type: 'sbom'
@@ -255,6 +351,7 @@ jobs:
 
       # Scan for MEDIUM+ vulnerabilities, ignore unfixed (table for summary)
       - name: Scan for vulnerabilities (MEDIUM+, ignore unfixed)
+        if: github.event_name != 'pull_request' || matrix.platform == 'linux/amd64'
         uses: aquasecurity/trivy-action@0.28.0
         with:
           scan-type: 'sbom'
@@ -267,10 +364,12 @@ jobs:
 
       # Download HTML template and generate report
       - name: Download Trivy HTML template
+        if: github.event_name != 'pull_request' || matrix.platform == 'linux/amd64'
         run: |
           curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/html.tpl -o html.tpl
 
       - name: Generate HTML report
+        if: github.event_name != 'pull_request' || matrix.platform == 'linux/amd64'
         uses: aquasecurity/trivy-action@0.28.0
         with:
           scan-type: 'sbom'
@@ -284,6 +383,7 @@ jobs:
 
       # Generate SARIF for GitHub Security tab
       - name: Generate SARIF report
+        if: github.event_name != 'pull_request' || matrix.platform == 'linux/amd64'
         uses: aquasecurity/trivy-action@0.28.0
         with:
           scan-type: 'sbom'
@@ -293,43 +393,48 @@ jobs:
           cache: 'false'
 
       - name: Upload SARIF to GitHub Security
+        if: github.event_name != 'pull_request' || matrix.platform == 'linux/amd64'
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: 'trivy-results.sarif'
-          category: 'trivy-container-scan'
+          category: 'trivy-container-scan-${{ steps.platform.outputs.pair }}'
 
       - name: Upload SBOM
+        if: github.event_name != 'pull_request' || matrix.platform == 'linux/amd64'
         uses: actions/upload-artifact@v4
         with:
-          name: sbom
+          name: sbom-${{ steps.platform.outputs.pair }}
           path: sbom.json
           retention-days: 30
 
       - name: Upload vulnerability report (JSON)
+        if: github.event_name != 'pull_request' || matrix.platform == 'linux/amd64'
         uses: actions/upload-artifact@v4
         with:
-          name: trivy-results-json
+          name: trivy-results-json-${{ steps.platform.outputs.pair }}
           path: trivy-results.json
           retention-days: 30
 
       - name: Upload vulnerability report (HTML)
+        if: github.event_name != 'pull_request' || matrix.platform == 'linux/amd64'
         uses: actions/upload-artifact@v4
         with:
-          name: trivy-report-html
+          name: trivy-report-html-${{ steps.platform.outputs.pair }}
           path: trivy-report.html
           retention-days: 30
 
       - name: Summary
+        if: github.event_name != 'pull_request' || matrix.platform == 'linux/amd64'
         run: |
-          echo "## 🔒 Security Scan Results" >> $GITHUB_STEP_SUMMARY
+          echo "## 🔒 Security Scan Results (${{ matrix.platform }})" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Scan Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Artifact | Description |" >> $GITHUB_STEP_SUMMARY
           echo "|----------|-------------|" >> $GITHUB_STEP_SUMMARY
-          echo "| \`sbom.json\` | Software Bill of Materials (CycloneDX) |" >> $GITHUB_STEP_SUMMARY
-          echo "| \`trivy-results.json\` | All vulnerabilities (JSON) |" >> $GITHUB_STEP_SUMMARY
-          echo "| \`trivy-report.html\` | MEDIUM+ fixable vulnerabilities (HTML) |" >> $GITHUB_STEP_SUMMARY
+          echo "| \`sbom-${{ steps.platform.outputs.pair }}.json\` | Software Bill of Materials (CycloneDX) |" >> $GITHUB_STEP_SUMMARY
+          echo "| \`trivy-results-json-${{ steps.platform.outputs.pair }}.json\` | All vulnerabilities (JSON) |" >> $GITHUB_STEP_SUMMARY
+          echo "| \`trivy-report-html-${{ steps.platform.outputs.pair }}.html\` | MEDIUM+ fixable vulnerabilities (HTML) |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Vulnerability Counts" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -361,17 +466,23 @@ jobs:
   gate:
     name: Gate
     runs-on: ubuntu-latest
-    needs: [lint, unit-test, verify, docker-build]
+    needs: [lint, unit-test, verify, docker-build, docker-manifest]
     if: always()
     steps:
       - name: Check results
         run: |
-          echo "Results: lint=${{ needs.lint.result }} test=${{ needs.unit-test.result }} verify=${{ needs.verify.result }} docker=${{ needs.docker-build.result }}"
+          echo "Results: lint=${{ needs.lint.result }} test=${{ needs.unit-test.result }} verify=${{ needs.verify.result }} docker=${{ needs.docker-build.result }} manifest=${{ needs.docker-manifest.result }}"
           if [[ "${{ needs.lint.result }}" != "success" ]] || \
              [[ "${{ needs.unit-test.result }}" != "success" ]] || \
              [[ "${{ needs.verify.result }}" != "success" ]] || \
              [[ "${{ needs.docker-build.result }}" != "success" ]]; then
             echo "::error::One or more required jobs failed"
+            exit 1
+          fi
+          # docker-manifest is skipped for PRs, so check it only if it ran
+          if [[ "${{ needs.docker-manifest.result }}" != "success" ]] && \
+             [[ "${{ needs.docker-manifest.result }}" != "skipped" ]]; then
+            echo "::error::docker-manifest job failed"
             exit 1
           fi
 
@@ -386,6 +497,9 @@ jobs:
           echo "| Unit Tests | ${{ needs.unit-test.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Verify | ${{ needs.verify.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Docker Build | ${{ needs.docker-build.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          if [[ "${{ needs.docker-manifest.result }}" != "skipped" ]]; then
+            echo "| Docker Manifest | ${{ needs.docker-manifest.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          fi
 
   # ============================================================================
   # Stage 3: E2E Tests
