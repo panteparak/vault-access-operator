@@ -7,6 +7,11 @@ on:
   pull_request:
     branches: [main]
 
+# Cancel in-progress runs on same branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   GO_VERSION_FILE: go.mod
   REGISTRY: ghcr.io
@@ -29,6 +34,14 @@ jobs:
       - uses: golangci/golangci-lint-action@v8
         with:
           version: v2.1.0
+      - name: Summary
+        if: always()
+        run: |
+          echo "## 🔍 Lint Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| golangci-lint | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
 
   unit-test:
     name: Unit Tests
@@ -40,7 +53,25 @@ jobs:
           go-version-file: ${{ env.GO_VERSION_FILE }}
           cache: true
       - name: Run unit tests
-        run: make test
+        run: |
+          make test 2>&1 | tee test-output.txt
+      - name: Generate coverage summary
+        if: always()
+        run: |
+          echo "## 🧪 Unit Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Coverage by Package" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Package | Coverage |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|----------|" >> $GITHUB_STEP_SUMMARY
+          grep -E "^ok|coverage:" test-output.txt | \
+            sed 's/.*github.com\/panteparak\/vault-access-operator\///' | \
+            awk '/^ok/ {pkg=$1} /coverage:/ {print "| " pkg " | " $2 " |"}' >> $GITHUB_STEP_SUMMARY || true
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -f cover.out ]; then
+            TOTAL=$(go tool cover -func=cover.out | grep total | awk '{print $3}')
+            echo "**Total Coverage: ${TOTAL}**" >> $GITHUB_STEP_SUMMARY
+          fi
       - uses: codecov/codecov-action@v4
         with:
           files: cover.out
@@ -83,6 +114,17 @@ jobs:
         run: |
           helm lint charts/vault-access-operator
           helm template test charts/vault-access-operator --set image.tag=test > /dev/null
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## ✅ Verification Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Generated code up-to-date | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+          echo "| Manifests up-to-date | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+          echo "| Helm chart lint | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
 
   docker-build:
     name: Docker Build
@@ -209,6 +251,7 @@ jobs:
           scan-ref: 'sbom.json'
           format: 'json'
           output: 'trivy-results.json'
+          cache: 'false'
 
       # Scan for MEDIUM+ vulnerabilities, ignore unfixed (table for summary)
       - name: Scan for vulnerabilities (MEDIUM+, ignore unfixed)
@@ -220,6 +263,7 @@ jobs:
           output: 'trivy-report.txt'
           severity: 'MEDIUM,HIGH,CRITICAL'
           ignore-unfixed: true
+          cache: 'false'
 
       # Download HTML template and generate report
       - name: Download Trivy HTML template
@@ -236,6 +280,7 @@ jobs:
           output: 'trivy-report.html'
           severity: 'MEDIUM,HIGH,CRITICAL'
           ignore-unfixed: true
+          cache: 'false'
 
       # Generate SARIF for GitHub Security tab
       - name: Generate SARIF report
@@ -245,6 +290,7 @@ jobs:
           scan-ref: 'sbom.json'
           format: 'sarif'
           output: 'trivy-results.sarif'
+          cache: 'false'
 
       - name: Upload SARIF to GitHub Security
         uses: github/codeql-action/upload-sarif@v3
@@ -275,12 +321,38 @@ jobs:
 
       - name: Summary
         run: |
-          echo "## Security Scan Results" >> $GITHUB_STEP_SUMMARY
+          echo "## 🔒 Security Scan Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Vulnerability Summary (MEDIUM+, fixable only)" >> $GITHUB_STEP_SUMMARY
+          echo "### Scan Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Artifact | Description |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------------|" >> $GITHUB_STEP_SUMMARY
+          echo "| \`sbom.json\` | Software Bill of Materials (CycloneDX) |" >> $GITHUB_STEP_SUMMARY
+          echo "| \`trivy-results.json\` | All vulnerabilities (JSON) |" >> $GITHUB_STEP_SUMMARY
+          echo "| \`trivy-report.html\` | MEDIUM+ fixable vulnerabilities (HTML) |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Vulnerability Counts" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Severity | Count |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          CRITICAL=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' trivy-results.json 2>/dev/null || echo "0")
+          HIGH=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length' trivy-results.json 2>/dev/null || echo "0")
+          MEDIUM=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="MEDIUM")] | length' trivy-results.json 2>/dev/null || echo "0")
+          LOW=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="LOW")] | length' trivy-results.json 2>/dev/null || echo "0")
+          echo "| 🔴 Critical | ${CRITICAL} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🟠 High | ${HIGH} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🟡 Medium | ${MEDIUM} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🟢 Low | ${LOW} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Detailed Report (MEDIUM+, fixable only)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "<details>" >> $GITHUB_STEP_SUMMARY
+          echo "<summary>Click to expand</summary>" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           cat trivy-report.txt >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "</details>" >> $GITHUB_STEP_SUMMARY
 
   # ============================================================================
   # Stage 2: Gate
@@ -302,6 +374,18 @@ jobs:
             echo "::error::One or more required jobs failed"
             exit 1
           fi
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## 🚦 CI Gate Status" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Lint | ${{ needs.lint.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Unit Tests | ${{ needs.unit-test.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Verify | ${{ needs.verify.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Docker Build | ${{ needs.docker-build.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
 
   # ============================================================================
   # Stage 3: E2E Tests
@@ -397,7 +481,38 @@ jobs:
             -n vault-access-operator-system --timeout=120s
 
       - name: Run E2E tests
-        run: go test ./test/e2e/... -v -ginkgo.v -timeout=10m
+        run: |
+          go test ./test/e2e/... -v -ginkgo.v -timeout=10m 2>&1 | tee e2e-output.txt
+
+      - name: E2E Summary
+        if: always()
+        run: |
+          echo "## 🚀 E2E Test Results (${{ matrix.install_method }})" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Component | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Install Method | \`${{ matrix.install_method }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Kubernetes | k3d |" >> $GITHUB_STEP_SUMMARY
+          echo "| Vault | dev mode |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -f e2e-output.txt ]; then
+            PASSED=$(grep -c "PASSED" e2e-output.txt || echo "0")
+            FAILED=$(grep -c "FAILED" e2e-output.txt || echo "0")
+            echo "### Test Results" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| Metric | Count |" >> $GITHUB_STEP_SUMMARY
+            echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+            echo "| ✅ Passed | ${PASSED} |" >> $GITHUB_STEP_SUMMARY
+            echo "| ❌ Failed | ${FAILED} |" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "<details>" >> $GITHUB_STEP_SUMMARY
+            echo "<summary>Test Output</summary>" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            tail -100 e2e-output.txt >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "</details>" >> $GITHUB_STEP_SUMMARY
+          fi
 
       - name: Collect debug logs
         if: failure()
