@@ -482,11 +482,11 @@ func main() {
     // Parse flags
     // Setup logger
     // Create manager
-    
+
     // Initialize Vault client cache
     clientCache := vault.NewClientCache()
     retryConfig := controllers.DefaultRetryConfig()
-    
+
     // Setup controllers
     if err := (&controllers.VaultConnectionReconciler{
         Client:      mgr.GetClient(),
@@ -497,17 +497,17 @@ func main() {
         setupLog.Error(err, "unable to create controller", "controller", "VaultConnection")
         os.Exit(1)
     }
-    
+
     // ... other controllers
-    
+
     // Setup webhooks
     if err := (&v1alpha1.VaultPolicy{}).SetupWebhookWithManager(mgr); err != nil {
         setupLog.Error(err, "unable to create webhook", "webhook", "VaultPolicy")
         os.Exit(1)
     }
-    
+
     // ... other webhooks
-    
+
     // Start manager
     if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
         setupLog.Error(err, "problem running manager")

@@ -37,4 +37,3 @@ resources:
 - vaultconnection_admin_role.yaml
 - vaultconnection_editor_role.yaml
 - vaultconnection_viewer_role.yaml
-

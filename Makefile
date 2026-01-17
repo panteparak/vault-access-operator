@@ -360,3 +360,18 @@ catalog-build: opm ## Build a catalog image.
 .PHONY: catalog-push
 catalog-push: ## Push a catalog image.
 	$(MAKE) docker-push IMG=$(CATALOG_IMG)
+
+##@ Pre-commit
+
+.PHONY: pre-commit-install
+pre-commit-install: ## Install pre-commit hooks
+	@command -v pre-commit >/dev/null 2>&1 || { echo "Installing pre-commit..."; pip install pre-commit; }
+	pre-commit install
+
+.PHONY: pre-commit-run
+pre-commit-run: ## Run pre-commit on all files
+	pre-commit run --all-files
+
+.PHONY: pre-commit-update
+pre-commit-update: ## Update pre-commit hooks to latest versions
+	pre-commit autoupdate
