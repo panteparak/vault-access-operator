@@ -202,11 +202,10 @@ jobs:
         id: short-sha
         run: echo "sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
 
-      - name: Setup kind
+      - name: Setup k3d
         run: |
-          curl -sLo ./kind https://kind.sigs.k8s.io/dl/latest/kind-linux-amd64
-          chmod +x ./kind && sudo mv ./kind /usr/local/bin/kind
-          kind create cluster --name e2e --wait 120s
+          curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash
+          k3d cluster create e2e --wait --timeout 120s
           kubectl wait --for=condition=Ready nodes --all --timeout=60s
 
       - name: Deploy Vault
@@ -242,8 +241,8 @@ jobs:
         if: github.event_name == 'pull_request'
         run: docker load -i /tmp/operator-image.tar
 
-      - name: Load image into kind
-        run: kind load docker-image ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ steps.short-sha.outputs.sha }} --name e2e
+      - name: Load image into k3d
+        run: k3d image import ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ steps.short-sha.outputs.sha }} --cluster e2e
 
       # Deploy operator
       - name: Deploy (kustomize)
@@ -317,7 +316,7 @@ jobs:
 
       - name: Cleanup
         if: always()
-        run: kind delete cluster --name e2e || true
+        run: k3d cluster delete e2e || true
 
   # ============================================================================
   # Stage 4: Success
