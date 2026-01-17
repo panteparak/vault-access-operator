@@ -158,6 +158,96 @@ jobs:
           path: /tmp/operator-image.tar
           retention-days: 1
 
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: [docker-build]
+    permissions:
+      contents: read
+      packages: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # For PRs: Load the image from artifact
+      - uses: actions/download-artifact@v4
+        if: github.event_name == 'pull_request'
+        with:
+          name: operator-image
+          path: /tmp
+
+      - name: Load image (PR)
+        if: github.event_name == 'pull_request'
+        run: docker load -i /tmp/operator-image.tar
+
+      # For push events: Pull from registry
+      - uses: docker/login-action@v3
+        if: github.event_name != 'pull_request'
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull image (push)
+        if: github.event_name != 'pull_request'
+        run: docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.docker-build.outputs.image-tag }}
+
+      - name: Install Trivy
+        run: |
+          sudo apt-get install -y wget apt-transport-https gnupg lsb-release
+          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
+          echo deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main | sudo tee /etc/apt/sources.list.d/trivy.list
+          sudo apt-get update
+          sudo apt-get install -y trivy
+
+      - name: Generate SBOM
+        run: |
+          trivy image --format cyclonedx --output sbom.json \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.docker-build.outputs.image-tag }}
+
+      - name: Scan SBOM for vulnerabilities (JSON - all)
+        run: |
+          trivy sbom sbom.json \
+            --format json \
+            --output trivy-results.json
+
+      - name: Scan SBOM for vulnerabilities (HTML - MEDIUM+, ignore unfixed)
+        run: |
+          trivy sbom sbom.json \
+            --format template \
+            --template "@/usr/share/trivy/templates/html.tpl" \
+            --output trivy-report.html \
+            --severity MEDIUM,HIGH,CRITICAL \
+            --ignore-unfixed
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.json
+          retention-days: 30
+
+      - name: Upload vulnerability report (JSON)
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-results-json
+          path: trivy-results.json
+          retention-days: 30
+
+      - name: Upload vulnerability report (HTML)
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-report-html
+          path: trivy-report.html
+          retention-days: 30
+
+      - name: Summary
+        run: |
+          echo "## Security Scan Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Vulnerability Summary (MEDIUM+, fixable only)" >> $GITHUB_STEP_SUMMARY
+          trivy sbom sbom.json --severity MEDIUM,HIGH,CRITICAL --ignore-unfixed --format table >> $GITHUB_STEP_SUMMARY 2>&1 || true
+
   # ============================================================================
   # Stage 2: Gate
   # ============================================================================
