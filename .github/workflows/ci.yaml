@@ -226,10 +226,6 @@ jobs:
       contents: read
       packages: write
     steps:
-      - name: Get short SHA
-        id: short-sha
-        run: echo "sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
-
       - uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
@@ -238,16 +234,18 @@ jobs:
 
       - name: Create and push manifest
         run: |
+          IMAGE_TAG="${{ needs.docker-build.outputs.image-tag }}"
+
           # Build list of platform-specific images
           IMAGES=""
           for platform in $(echo '${{ needs.setup.outputs.platforms }}' | jq -r '.[]'); do
             pair="${platform//\//-}"
-            IMAGES="$IMAGES ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ steps.short-sha.outputs.sha }}-${pair}"
+            IMAGES="$IMAGES ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${IMAGE_TAG}-${pair}"
           done
 
           # Create manifest list with multiple tags
           docker buildx imagetools create \
-            -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ steps.short-sha.outputs.sha }} \
+            -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${IMAGE_TAG} \
             -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
             $IMAGES
 
@@ -259,7 +257,7 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Tag | Platforms |" >> $GITHUB_STEP_SUMMARY
           echo "|-----|-----------|" >> $GITHUB_STEP_SUMMARY
-          echo "| \`sha-${{ steps.short-sha.outputs.sha }}\` | ${{ needs.setup.outputs.platforms }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| \`${{ needs.docker-build.outputs.image-tag }}\` | ${{ needs.setup.outputs.platforms }} |" >> $GITHUB_STEP_SUMMARY
           echo "| \`latest\` | ${{ needs.setup.outputs.platforms }} |" >> $GITHUB_STEP_SUMMARY
 
   security-scan:
