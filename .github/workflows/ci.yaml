@@ -531,7 +531,8 @@ jobs:
       - name: Deploy Vault
         run: |
           kubectl apply -f test/e2e/fixtures/vault.yaml
-          kubectl wait --for=condition=Ready pod/vault-0 -n vault --timeout=300s
+          # Wait for StatefulSet rollout (handles pod creation timing)
+          kubectl rollout status statefulset/vault -n vault --timeout=300s
 
       - name: Configure Vault for K8s auth tests
         run: |
