@@ -536,7 +536,8 @@ jobs:
       - name: Configure Vault for K8s auth tests
         run: |
           # Create operator policy for bootstrap and token lifecycle tests
-          kubectl exec -n vault vault-0 -- vault policy write vault-access-operator - <<'EOF'
+          # Note: -i flag is required to pass stdin (heredoc) to kubectl exec
+          kubectl exec -i -n vault vault-0 -- vault policy write vault-access-operator - <<'EOF'
           path "sys/policies/acl/*" { capabilities = ["create", "read", "update", "delete", "list"] }
           path "auth/kubernetes/role/*" { capabilities = ["create", "read", "update", "delete", "list"] }
           path "auth/kubernetes/config" { capabilities = ["create", "read", "update", "delete", "list"] }
