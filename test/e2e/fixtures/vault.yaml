@@ -62,6 +62,8 @@ spec:
               value: "http://127.0.0.1:8200"
             - name: VAULT_API_ADDR
               value: "http://127.0.0.1:8200"
+            - name: SKIP_SETCAP
+              value: "true"  # Skip runtime setcap; official image has it done at build time
           ports:
             - containerPort: 8200
               name: http
