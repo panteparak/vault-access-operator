@@ -1,0 +1,22 @@
+# VaultPolicy with both data and metadata paths
+# Used by: TC-VP03 (update policy test)
+#
+# Template variables:
+#   {{.Name}}          - Resource name
+#   {{.Namespace}}     - K8s namespace
+#   {{.ConnectionRef}} - VaultConnection reference name
+#   {{.Path}}          - Secret path (defaults to namespace name if not set)
+apiVersion: vault.platform.io/v1alpha1
+kind: VaultPolicy
+metadata:
+  name: {{.Name}}
+  namespace: {{.Namespace}}
+spec:
+  connectionRef: {{.ConnectionRef}}
+  rules:
+    - path: "secret/data/{{.Path}}/*"
+      capabilities: ["create", "read", "update", "delete", "list"]
+      description: "Full access to namespace secrets"
+    - path: "secret/metadata/{{.Path}}/*"
+      capabilities: ["read", "list"]
+      description: "Read metadata"

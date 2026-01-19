@@ -1,0 +1,33 @@
+# Basic VaultClusterRole for cross-namespace service account binding
+# Used by: TC-CR01, TC-CR02
+#
+# Template variables:
+#   {{.Name}}                - Resource name (cluster-scoped)
+#   {{.ConnectionRef}}       - VaultConnection reference name
+#   {{.ServiceAccount}}      - Service account name to bind
+#   {{.ServiceAccountNS}}    - Service account namespace
+#   {{.ClusterPolicyName}}   - VaultClusterPolicy name to reference
+#   {{.PolicyName}}          - VaultPolicy name to reference (optional)
+#   {{.PolicyNamespace}}     - VaultPolicy namespace (optional)
+#   {{.TokenTTL}}            - Token TTL (e.g., "1h")
+#   {{.TokenMaxTTL}}         - Token max TTL (e.g., "24h")
+apiVersion: vault.platform.io/v1alpha1
+kind: VaultClusterRole
+metadata:
+  name: {{.Name}}
+spec:
+  connectionRef: {{.ConnectionRef}}
+  authPath: "auth/kubernetes"
+  serviceAccounts:
+    - name: {{.ServiceAccount}}
+      namespace: {{.ServiceAccountNS}}
+  policies:
+    - kind: VaultClusterPolicy
+      name: {{.ClusterPolicyName}}
+{{- if .PolicyName}}
+    - kind: VaultPolicy
+      name: {{.PolicyName}}
+      namespace: {{.PolicyNamespace}}
+{{- end}}
+  tokenTTL: "{{.TokenTTL}}"
+  tokenMaxTTL: "{{.TokenMaxTTL}}"

@@ -1,0 +1,22 @@
+# VaultPolicy with namespace variable substitution
+# Used by: TC-VP02 (namespace substitution test)
+#
+# Template variables:
+#   {{.Name}}          - Resource name
+#   {{.Namespace}}     - K8s namespace
+#   {{.ConnectionRef}} - VaultConnection reference name
+#
+# Note: The literal "{{namespace}}" in the path is a Vault operator variable,
+# NOT a Go template variable. Use {{"{{"}}namespace{{"}}"}} to escape for Go templates.
+apiVersion: vault.platform.io/v1alpha1
+kind: VaultPolicy
+metadata:
+  name: {{.Name}}
+  namespace: {{.Namespace}}
+spec:
+  connectionRef: {{.ConnectionRef}}
+  enforceNamespaceBoundary: true
+  rules:
+    - path: 'secret/data/{{"{{"}}namespace{{"}}"}}/app/*'
+      capabilities: ["read", "list"]
+      description: "Namespace-scoped secret access"

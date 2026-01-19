@@ -1,0 +1,19 @@
+# VaultPolicy with deletionPolicy=Retain
+# Used by: TC-VP05 (retain policy on delete test)
+#
+# Template variables:
+#   {{.Name}}          - Resource name
+#   {{.Namespace}}     - K8s namespace
+#   {{.ConnectionRef}} - VaultConnection reference name
+#   {{.Path}}          - Secret path for the policy
+apiVersion: vault.platform.io/v1alpha1
+kind: VaultPolicy
+metadata:
+  name: {{.Name}}
+  namespace: {{.Namespace}}
+spec:
+  connectionRef: {{.ConnectionRef}}
+  deletionPolicy: Retain
+  rules:
+    - path: "secret/data/{{.Path}}/*"
+      capabilities: ["read"]

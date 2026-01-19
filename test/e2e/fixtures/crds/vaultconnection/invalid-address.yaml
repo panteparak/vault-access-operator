@@ -1,0 +1,21 @@
+# VaultConnection with invalid/unreachable address
+# Used by: TC-EH07 (negative test)
+#
+# Template variables:
+#   {{.Name}}           - Resource name
+#   {{.Namespace}}      - Target namespace (used in fake address)
+#   {{.TokenSecret}}    - Secret name containing the Vault token
+#   {{.TokenNamespace}} - Namespace of the token secret
+apiVersion: vault.platform.io/v1alpha1
+kind: VaultConnection
+metadata:
+  name: {{.Name}}
+spec:
+  address: http://vault-does-not-exist.{{.Namespace}}.svc.cluster.local:8200
+  auth:
+    token:
+      secretRef:
+        name: {{.TokenSecret}}
+        namespace: {{.TokenNamespace}}
+        key: token
+  healthCheckInterval: "5s"

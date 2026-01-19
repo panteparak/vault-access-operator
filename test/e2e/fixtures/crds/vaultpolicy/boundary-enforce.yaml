@@ -1,0 +1,22 @@
+# VaultPolicy with namespace boundary enforcement (violation test)
+# Used by: TC-EH03 (namespace boundary violation test)
+#
+# Template variables:
+#   {{.Name}}          - Resource name
+#   {{.Namespace}}     - K8s namespace
+#   {{.ConnectionRef}} - VaultConnection reference name
+#
+# Note: This policy intentionally violates namespace boundary by NOT using
+# the {{namespace}} variable. Used for negative testing.
+apiVersion: vault.platform.io/v1alpha1
+kind: VaultPolicy
+metadata:
+  name: {{.Name}}
+  namespace: {{.Namespace}}
+spec:
+  connectionRef: {{.ConnectionRef}}
+  enforceNamespaceBoundary: true
+  rules:
+    - path: "secret/data/global/*"
+      capabilities: ["read"]
+      description: "This path violates namespace boundary - no namespace variable"

@@ -1,0 +1,18 @@
+# Basic VaultClusterPolicy for shared secrets
+# Used by: TC-CP01, TC-CP02
+#
+# Template variables:
+#   {{.Name}}          - Resource name (cluster-scoped)
+#   {{.ConnectionRef}} - VaultConnection reference name
+apiVersion: vault.platform.io/v1alpha1
+kind: VaultClusterPolicy
+metadata:
+  name: {{.Name}}
+spec:
+  connectionRef: {{.ConnectionRef}}
+  rules:
+    - path: "secret/data/shared/*"
+      capabilities: ["read", "list"]
+      description: "Read shared secrets"
+    - path: "secret/metadata/shared/*"
+      capabilities: ["read", "list"]

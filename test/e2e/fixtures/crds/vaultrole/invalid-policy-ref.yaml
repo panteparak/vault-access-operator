@@ -1,0 +1,22 @@
+# VaultRole referencing non-existent policy
+# Used by: TC-EH02 (missing policy reference test)
+#
+# Template variables:
+#   {{.Name}}           - Resource name
+#   {{.Namespace}}      - K8s namespace
+#   {{.ConnectionRef}}  - VaultConnection reference name
+#   {{.ServiceAccount}} - Service account name to bind
+apiVersion: vault.platform.io/v1alpha1
+kind: VaultRole
+metadata:
+  name: {{.Name}}
+  namespace: {{.Namespace}}
+spec:
+  connectionRef: {{.ConnectionRef}}
+  serviceAccounts:
+    - {{.ServiceAccount}}
+  policies:
+    - kind: VaultPolicy
+      name: non-existent-policy
+      namespace: {{.Namespace}}
+  tokenTTL: "30m"

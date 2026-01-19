@@ -1,0 +1,16 @@
+# VaultPolicy with invalid connection reference
+# Used by: TC-EH01 (invalid connection ref test)
+#
+# Template variables:
+#   {{.Name}}          - Resource name
+#   {{.Namespace}}     - K8s namespace
+apiVersion: vault.platform.io/v1alpha1
+kind: VaultPolicy
+metadata:
+  name: {{.Name}}
+  namespace: {{.Namespace}}
+spec:
+  connectionRef: non-existent-connection
+  rules:
+    - path: "secret/data/test/*"
+      capabilities: ["read"]

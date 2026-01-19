@@ -1,0 +1,25 @@
+# Basic VaultRole for namespaced service account binding
+# Used by: TC-VR01, TC-VR02
+#
+# Template variables:
+#   {{.Name}}            - Resource name
+#   {{.Namespace}}       - K8s namespace
+#   {{.ConnectionRef}}   - VaultConnection reference name
+#   {{.ServiceAccount}}  - Service account name to bind
+#   {{.PolicyName}}      - VaultPolicy name to reference
+#   {{.PolicyNamespace}} - VaultPolicy namespace
+#   {{.TokenTTL}}        - Token TTL (e.g., "30m", "1h")
+apiVersion: vault.platform.io/v1alpha1
+kind: VaultRole
+metadata:
+  name: {{.Name}}
+  namespace: {{.Namespace}}
+spec:
+  connectionRef: {{.ConnectionRef}}
+  serviceAccounts:
+    - {{.ServiceAccount}}
+  policies:
+    - kind: VaultPolicy
+      name: {{.PolicyName}}
+      namespace: {{.PolicyNamespace}}
+  tokenTTL: "{{.TokenTTL}}"

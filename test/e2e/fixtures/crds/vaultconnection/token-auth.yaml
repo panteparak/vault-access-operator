@@ -1,0 +1,21 @@
+# VaultConnection with token authentication
+# Used by: TC-VC01, TC-VC02
+#
+# Template variables:
+#   {{.Name}}           - Resource name
+#   {{.VaultNamespace}} - Namespace where Vault is deployed
+#   {{.TokenSecret}}    - Secret name containing the Vault token
+#   {{.TokenNamespace}} - Namespace of the token secret
+apiVersion: vault.platform.io/v1alpha1
+kind: VaultConnection
+metadata:
+  name: {{.Name}}
+spec:
+  address: http://vault.{{.VaultNamespace}}.svc.cluster.local:8200
+  auth:
+    token:
+      secretRef:
+        name: {{.TokenSecret}}
+        namespace: {{.TokenNamespace}}
+        key: token
+  healthCheckInterval: "10s"
