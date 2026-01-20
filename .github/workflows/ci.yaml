@@ -637,6 +637,9 @@ jobs:
           mkdir -p /tmp/debug-logs
           echo "=== Collecting debug information ==="
 
+          # E2E test output
+          cp e2e-output.txt /tmp/debug-logs/e2e-output.txt 2>&1 || true
+
           # Pod status
           kubectl get pods -A -o wide > /tmp/debug-logs/pods.txt 2>&1 || true
 
@@ -658,6 +661,10 @@ jobs:
 
           # Node info
           kubectl describe nodes > /tmp/debug-logs/nodes.txt 2>&1 || true
+
+          # Storage (PVCs)
+          kubectl get pvc -A -o wide > /tmp/debug-logs/pvcs.txt 2>&1 || true
+          kubectl describe pvc -A > /tmp/debug-logs/pvcs-describe.txt 2>&1 || true
 
           echo "=== Debug logs collected ==="
           ls -la /tmp/debug-logs/
