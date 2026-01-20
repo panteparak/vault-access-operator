@@ -138,8 +138,6 @@ webhook:
   failurePolicy: Fail
   # -- Timeout seconds for webhook calls
   timeoutSeconds: 10
-  # -- Reinvocation policy (Never or IfNeeded)
-  reinvocationPolicy: Never
   service:
     # -- Webhook service type
     type: ClusterIP

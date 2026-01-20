@@ -38,7 +38,6 @@ webhooks:
         scope: Namespaced
     sideEffects: None
     timeoutSeconds: {{ .Values.webhook.timeoutSeconds }}
-    reinvocationPolicy: {{ .Values.webhook.reinvocationPolicy }}
 
   # VaultClusterPolicy validation webhook
   - name: vvaultclusterpolicy.kb.io
@@ -68,7 +67,6 @@ webhooks:
         scope: Cluster
     sideEffects: None
     timeoutSeconds: {{ .Values.webhook.timeoutSeconds }}
-    reinvocationPolicy: {{ .Values.webhook.reinvocationPolicy }}
 
   # VaultRole validation webhook
   - name: vvaultrole.kb.io
@@ -98,7 +96,6 @@ webhooks:
         scope: Namespaced
     sideEffects: None
     timeoutSeconds: {{ .Values.webhook.timeoutSeconds }}
-    reinvocationPolicy: {{ .Values.webhook.reinvocationPolicy }}
 
   # VaultClusterRole validation webhook
   - name: vvaultclusterrole.kb.io
@@ -128,5 +125,4 @@ webhooks:
         scope: Cluster
     sideEffects: None
     timeoutSeconds: {{ .Values.webhook.timeoutSeconds }}
-    reinvocationPolicy: {{ .Values.webhook.reinvocationPolicy }}
 {{- end }}

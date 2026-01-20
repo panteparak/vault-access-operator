@@ -589,8 +589,7 @@ jobs:
             --set image.repository=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }} \
             --set image.tag=sha-${{ steps.short-sha.outputs.sha }} \
             --set image.pullPolicy=IfNotPresent \
-            --set webhook.certManager.enabled=false \
-            --set webhook.selfSigned.enabled=true \
+            --set webhook.enabled=false \
             --wait --timeout 5m
 
       - name: Wait for operator
