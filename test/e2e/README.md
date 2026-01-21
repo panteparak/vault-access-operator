@@ -54,14 +54,15 @@ Tests follow the format: `TC-{Category}{Number}[-{Subcategory}]: {Description}`
 
 ### Token Lifecycle Tests
 
-| ID | Description | File |
-|----|-------------|------|
-| TC-LC01 | Bootstrap with token | `token_lifecycle_test.go` |
-| TC-LC02 | K8s auth setup | `token_lifecycle_test.go` |
-| TC-LC03 | Bootstrap idempotency | `token_lifecycle_test.go` |
-| TC-LC04 | Timestamp tracking | `token_lifecycle_test.go` |
-| TC-LC05 | Direct K8s auth | `token_lifecycle_test.go` |
-| TC-LC06 | AuthMethod verification | `token_lifecycle_test.go` |
+| ID | Description | File | Label |
+|----|-------------|------|-------|
+| TC-LC01 | Bootstrap with token | `token_lifecycle_test.go` | |
+| TC-LC02 | K8s auth setup | `token_lifecycle_test.go` | |
+| TC-LC03 | Bootstrap idempotency | `token_lifecycle_test.go` | |
+| TC-LC04 | Timestamp tracking | `token_lifecycle_test.go` | |
+| TC-LC05 | Direct K8s auth | `token_lifecycle_test.go` | |
+| TC-LC06 | AuthMethod verification | `token_lifecycle_test.go` | |
+| TC-LC07 | Token renewal on expiration | `token_lifecycle_test.go` | slow |
 
 ## Directory Structure
 
@@ -139,6 +140,19 @@ go test ./test/e2e/... -v -run "TC-AU"
 
 # Run a specific test
 go test ./test/e2e/... -v -run "TC-VP02"
+```
+
+### Skip Slow Tests
+
+Some tests are labeled `slow` because they require waiting for token expiration (~90+ seconds).
+Skip these in quick CI runs:
+
+```bash
+# Skip slow tests
+go test ./test/e2e/... -v -ginkgo.label-filter '!slow'
+
+# Run only slow tests
+go test ./test/e2e/... -v -ginkgo.label-filter 'slow'
 ```
 
 ### Local Development Mode

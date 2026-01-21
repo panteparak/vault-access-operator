@@ -101,8 +101,18 @@ path "sys/mounts" {
 			"--ignore-not-found", "--timeout=60s")
 		_, _ = utils.Run(cmd)
 
-		// Wait for finalizers
-		time.Sleep(5 * time.Second)
+		// Wait for VaultConnections to be fully deleted (finalizers complete)
+		Eventually(func(g Gomega) {
+			cmd := exec.Command("kubectl", "get", "vaultconnection", bootstrapConnectionName)
+			_, err := utils.Run(cmd)
+			g.Expect(err).To(HaveOccurred(), "VaultConnection should be deleted")
+		}, 60*time.Second, 2*time.Second).Should(Succeed())
+
+		Eventually(func(g Gomega) {
+			cmd := exec.Command("kubectl", "get", "vaultconnection", k8sAuthConnectionName)
+			_, err := utils.Run(cmd)
+			g.Expect(err).To(HaveOccurred(), "VaultConnection should be deleted")
+		}, 60*time.Second, 2*time.Second).Should(Succeed())
 
 		// Clean up Vault resources created during bootstrap
 		By("cleaning up Vault auth method and role")
@@ -216,12 +226,17 @@ spec:
 		})
 
 		It("should not re-bootstrap on subsequent reconciles", func() {
-			By("getting current bootstrapCompletedAt timestamp")
+			By("getting current bootstrapCompletedAt timestamp and resourceVersion")
 			cmd := exec.Command("kubectl", "get", "vaultconnection", bootstrapConnectionName,
 				"-o", "jsonpath={.status.authStatus.bootstrapCompletedAt}")
 			originalTimestamp, err := utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(originalTimestamp).NotTo(BeEmpty())
+
+			cmd = exec.Command("kubectl", "get", "vaultconnection", bootstrapConnectionName,
+				"-o", "jsonpath={.metadata.resourceVersion}")
+			originalResourceVersion, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
 
 			By("triggering reconciliation via annotation")
 			cmd = exec.Command("kubectl", "annotate", "vaultconnection", bootstrapConnectionName,
@@ -229,8 +244,15 @@ spec:
 			_, err = utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred())
 
-			// Wait for reconciliation
-			time.Sleep(10 * time.Second)
+			// Wait for reconciliation to complete by checking resourceVersion changed
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "vaultconnection", bootstrapConnectionName,
+					"-o", "jsonpath={.metadata.resourceVersion}")
+				newResourceVersion, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(newResourceVersion).NotTo(Equal(originalResourceVersion),
+					"resourceVersion should change after annotation")
+			}, 30*time.Second, 2*time.Second).Should(Succeed())
 
 			By("verifying bootstrapCompletedAt timestamp hasn't changed")
 			cmd = exec.Command("kubectl", "get", "vaultconnection", bootstrapConnectionName,
@@ -343,84 +365,81 @@ spec:
 		})
 	})
 
-	// Context("Token Lifecycle - Renewal", func() {
-	// 	// STRETCH GOAL: Test token renewal with short durations
-	// 	// This requires waiting for ~75% of TTL to pass (e.g., ~100s for 2m TTL)
-	// 	// which makes it slow for CI. Enable if needed for thorough testing.
-	//
-	// 	const renewalConnectionName = "e2e-renewal-conn"
-	//
-	// 	It("should renew token when approaching expiration", func() {
-	// 		By("creating VaultConnection with short token duration (2m)")
-	// 		connectionYAML := fmt.Sprintf(`
-	// apiVersion: vault.platform.io/v1alpha1
-	// kind: VaultConnection
-	// metadata:
-	//   name: %s
-	// spec:
-	//   address: http://vault.%s.svc.cluster.local:8200
-	//   auth:
-	//     kubernetes:
-	//       role: %s
-	//       authPath: kubernetes
-	//       tokenDuration: 2m
-	//   healthCheckInterval: "10s"
-	// `, renewalConnectionName, vaultNamespace, operatorRole)
-	//
-	// 		cmd := exec.Command("kubectl", "apply", "-f", "-")
-	// 		cmd.Stdin = stringReader(connectionYAML)
-	// 		_, err := utils.Run(cmd)
-	// 		Expect(err).NotTo(HaveOccurred())
-	//
-	// 		By("waiting for VaultConnection to become Active")
-	// 		verifyConnectionActive := func(g Gomega) {
-	// 			cmd := exec.Command("kubectl", "get", "vaultconnection", renewalConnectionName,
-	// 				"-o", "jsonpath={.status.phase}")
-	// 			output, err := utils.Run(cmd)
-	// 			g.Expect(err).NotTo(HaveOccurred())
-	// 			g.Expect(output).To(Equal("Active"))
-	// 		}
-	// 		Eventually(verifyConnectionActive).Should(Succeed())
-	//
-	// 		By("getting initial tokenLastRenewed timestamp")
-	// 		cmd = exec.Command("kubectl", "get", "vaultconnection", renewalConnectionName,
-	// 			"-o", "jsonpath={.status.authStatus.tokenLastRenewed}")
-	// 		initialRenewed, err := utils.Run(cmd)
-	// 		Expect(err).NotTo(HaveOccurred())
-	//
-	// 		By("waiting for token renewal (approximately 100 seconds for 2m TTL)")
-	// 		// Token renewal happens at ~75% of TTL, so for 2m = 120s, renewal at ~90s
-	// 		time.Sleep(100 * time.Second)
-	//
-	// 		By("verifying tokenRenewalCount has increased")
-	// 		verifyRenewalCount := func(g Gomega) {
-	// 			cmd := exec.Command("kubectl", "get", "vaultconnection", renewalConnectionName,
-	// 				"-o", "jsonpath={.status.authStatus.tokenRenewalCount}")
-	// 			output, err := utils.Run(cmd)
-	// 			g.Expect(err).NotTo(HaveOccurred())
-	// 			g.Expect(output).NotTo(Equal("0"), "Expected token to have been renewed")
-	// 		}
-	// 		Eventually(verifyRenewalCount, 30*time.Second, 5*time.Second).Should(Succeed())
-	//
-	// 		By("verifying tokenLastRenewed has been updated")
-	// 		cmd = exec.Command("kubectl", "get", "vaultconnection", renewalConnectionName,
-	// 			"-o", "jsonpath={.status.authStatus.tokenLastRenewed}")
-	// 		newRenewed, err := utils.Run(cmd)
-	// 		Expect(err).NotTo(HaveOccurred())
-	// 		Expect(newRenewed).NotTo(Equal(initialRenewed),
-	// 			"tokenLastRenewed should have been updated after renewal")
-	//
-	// 		By("verifying connection is still Active after renewal")
-	// 		cmd = exec.Command("kubectl", "get", "vaultconnection", renewalConnectionName,
-	// 			"-o", "jsonpath={.status.phase}")
-	// 		output, err := utils.Run(cmd)
-	// 		Expect(err).NotTo(HaveOccurred())
-	// 		Expect(output).To(Equal("Active"))
-	//
-	// 		By("cleaning up renewal test connection")
-	// 		cmd = exec.Command("kubectl", "delete", "vaultconnection", renewalConnectionName,
-	// 			"--ignore-not-found")
-	// 		_, _ = utils.Run(cmd)
-	// 	})
-	// })
+	// Token renewal tests are labeled "slow" because they require waiting for token
+	// expiration threshold (~90s for 2m TTL). Skip with: --label-filter '!slow'
+	Context("Token Lifecycle - Renewal", Label("slow"), func() {
+		const renewalConnectionName = "e2e-renewal-conn"
+
+		AfterEach(func() {
+			By("cleaning up renewal test connection")
+			cmd := exec.Command("kubectl", "delete", "vaultconnection", renewalConnectionName,
+				"--ignore-not-found", "--timeout=30s")
+			_, _ = utils.Run(cmd)
+		})
+
+		It("TC-LC07: Renew token when approaching expiration", Label("slow"), func() {
+			By("creating VaultConnection with short token duration (2m)")
+			connectionYAML := fmt.Sprintf(`
+apiVersion: vault.platform.io/v1alpha1
+kind: VaultConnection
+metadata:
+  name: %s
+spec:
+  address: http://vault.%s.svc.cluster.local:8200
+  auth:
+    kubernetes:
+      role: %s
+      authPath: kubernetes
+      tokenDuration: 2m
+  healthCheckInterval: "10s"
+`, renewalConnectionName, vaultNamespace, operatorRole)
+
+			cmd := exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = stringReader(connectionYAML)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("waiting for VaultConnection to become Active")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "vaultconnection", renewalConnectionName,
+					"-o", "jsonpath={.status.phase}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("Active"))
+			}, 2*time.Minute, 5*time.Second).Should(Succeed())
+
+			By("getting initial tokenLastRenewed timestamp")
+			cmd = exec.Command("kubectl", "get", "vaultconnection", renewalConnectionName,
+				"-o", "jsonpath={.status.authStatus.tokenLastRenewed}")
+			initialRenewed, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("waiting for token renewal (happens at ~75% of 2m TTL = ~90s)")
+			// Token renewal happens at ~75% of TTL, so for 2m = 120s, renewal at ~90s
+			// Use Eventually with 3m timeout to allow for timing variations
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "vaultconnection", renewalConnectionName,
+					"-o", "jsonpath={.status.authStatus.tokenRenewalCount}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).NotTo(Equal(""), "Expected tokenRenewalCount to be set")
+				g.Expect(output).NotTo(Equal("0"), "Expected token to have been renewed")
+			}, 3*time.Minute, 10*time.Second).Should(Succeed())
+
+			By("verifying tokenLastRenewed has been updated")
+			cmd = exec.Command("kubectl", "get", "vaultconnection", renewalConnectionName,
+				"-o", "jsonpath={.status.authStatus.tokenLastRenewed}")
+			newRenewed, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(newRenewed).NotTo(Equal(initialRenewed),
+				"tokenLastRenewed should have been updated after renewal")
+
+			By("verifying connection is still Active after renewal")
+			cmd = exec.Command("kubectl", "get", "vaultconnection", renewalConnectionName,
+				"-o", "jsonpath={.status.phase}")
+			output, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(Equal("Active"))
+		})
+	})
 })

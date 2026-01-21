@@ -119,4 +119,102 @@ spec:
 				"Policy should include list capability")
 		})
 	})
+
+	Context("TC-CP: VaultClusterPolicy Error Handling", func() {
+		It("TC-CP03: Handle invalid connection reference", func() {
+			invalidConnPolicyName := "tc-cp03-invalid-conn"
+
+			By("creating VaultClusterPolicy with non-existent connection")
+			policyYAML := fmt.Sprintf(`
+apiVersion: vault.platform.io/v1alpha1
+kind: VaultClusterPolicy
+metadata:
+  name: %s
+spec:
+  connectionRef: non-existent-connection
+  rules:
+    - path: "secret/data/cluster/*"
+      capabilities: ["read"]
+`, invalidConnPolicyName)
+
+			cmd := exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = stringReader(policyYAML)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying VaultClusterPolicy enters Error or Pending phase")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "vaultclusterpolicy", invalidConnPolicyName,
+					"-o", "jsonpath={.status.phase}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Or(Equal("Error"), Equal("Pending")),
+					"VaultClusterPolicy should be in Error or Pending phase")
+			}, 30*time.Second, 2*time.Second).Should(Succeed())
+
+			By("verifying status message indicates connection issue")
+			cmd = exec.Command("kubectl", "get", "vaultclusterpolicy", invalidConnPolicyName,
+				"-o", "jsonpath={.status.message}")
+			output, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			// Message should indicate connection not found or similar
+			if output != "" {
+				Expect(output).To(Or(
+					ContainSubstring("not found"),
+					ContainSubstring("connection"),
+					ContainSubstring("Not Found"),
+				))
+			}
+
+			By("cleaning up invalid connection cluster policy")
+			cmd = exec.Command("kubectl", "delete", "vaultclusterpolicy", invalidConnPolicyName,
+				"--ignore-not-found", "--timeout=30s")
+			_, _ = utils.Run(cmd)
+		})
+
+		It("TC-CP04: Handle empty rules in VaultClusterPolicy", func() {
+			emptyRulesPolicyName := "tc-cp04-empty-rules"
+
+			By("creating VaultClusterPolicy with empty rules")
+			policyYAML := fmt.Sprintf(`
+apiVersion: vault.platform.io/v1alpha1
+kind: VaultClusterPolicy
+metadata:
+  name: %s
+spec:
+  connectionRef: %s
+  rules: []
+`, emptyRulesPolicyName, sharedVaultConnectionName)
+
+			cmd := exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = stringReader(policyYAML)
+			output, err := utils.Run(cmd)
+
+			// Webhook should reject empty rules, or it should result in error state
+			if err != nil {
+				By("webhook rejected empty rules (expected behavior)")
+				Expect(output).To(Or(
+					ContainSubstring("rules"),
+					ContainSubstring("empty"),
+					ContainSubstring("required"),
+					ContainSubstring("at least"),
+				))
+			} else {
+				By("policy created, checking status")
+				Eventually(func(g Gomega) {
+					cmd := exec.Command("kubectl", "get", "vaultclusterpolicy", emptyRulesPolicyName,
+						"-o", "jsonpath={.status.phase}")
+					output, err := utils.Run(cmd)
+					g.Expect(err).NotTo(HaveOccurred())
+					// Empty rules might be accepted or result in error
+					g.Expect(output).To(Or(Equal("Error"), Equal("Active")))
+				}, 30*time.Second, 2*time.Second).Should(Succeed())
+
+				By("cleaning up empty rules cluster policy")
+				cmd = exec.Command("kubectl", "delete", "vaultclusterpolicy", emptyRulesPolicyName,
+					"--ignore-not-found", "--timeout=30s")
+				_, _ = utils.Run(cmd)
+			}
+		})
+	})
 })

@@ -24,6 +24,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/onsi/gomega/types"
 
 	"github.com/panteparak/vault-access-operator/test/utils"
 )
@@ -267,6 +268,87 @@ spec:
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(exists).To(BeFalse(), "Role should be removed from Vault after deletion")
 			}, 30*time.Second, 2*time.Second).Should(Succeed())
+		})
+	})
+
+	Context("TC-CR: VaultClusterRole Error Handling", func() {
+		// verifyClusterRoleError is a helper to test VaultClusterRole error scenarios
+		verifyClusterRoleError := func(roleName, roleYAML string, expectedMsgPatterns []string) {
+			cmd := exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = stringReader(roleYAML)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying VaultClusterRole enters Error or Pending phase")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "vaultclusterrole", roleName,
+					"-o", "jsonpath={.status.phase}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Or(Equal("Error"), Equal("Pending")))
+			}, 30*time.Second, 2*time.Second).Should(Succeed())
+
+			By("verifying status message indicates the issue")
+			cmd = exec.Command("kubectl", "get", "vaultclusterrole", roleName,
+				"-o", "jsonpath={.status.message}")
+			output, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			if output != "" {
+				matchers := make([]types.GomegaMatcher, len(expectedMsgPatterns))
+				for i, pattern := range expectedMsgPatterns {
+					matchers[i] = ContainSubstring(pattern)
+				}
+				Expect(output).To(Or(matchers...))
+			}
+
+			By("cleaning up cluster role")
+			cmd = exec.Command("kubectl", "delete", "vaultclusterrole", roleName,
+				"--ignore-not-found", "--timeout=30s")
+			_, _ = utils.Run(cmd)
+		}
+
+		It("TC-CR04: Handle invalid connection reference", func() {
+			roleName := "tc-cr04-invalid-conn"
+			By("creating VaultClusterRole with non-existent connection")
+			roleYAML := fmt.Sprintf(`
+apiVersion: vault.platform.io/v1alpha1
+kind: VaultClusterRole
+metadata:
+  name: %s
+spec:
+  connectionRef: non-existent-connection
+  authPath: "auth/kubernetes"
+  serviceAccounts:
+    - name: %s
+      namespace: %s
+  policies:
+    - kind: VaultClusterPolicy
+      name: %s
+  tokenTTL: "1h"
+`, roleName, clusterRoleSAName, testNamespace, clusterRolePolicyName)
+			verifyClusterRoleError(roleName, roleYAML, []string{"not found", "connection", "Not Found"})
+		})
+
+		It("TC-CR05: Handle missing policy reference", func() {
+			roleName := "tc-cr05-missing-policy"
+			By("creating VaultClusterRole referencing non-existent policy")
+			roleYAML := fmt.Sprintf(`
+apiVersion: vault.platform.io/v1alpha1
+kind: VaultClusterRole
+metadata:
+  name: %s
+spec:
+  connectionRef: %s
+  authPath: "auth/kubernetes"
+  serviceAccounts:
+    - name: %s
+      namespace: %s
+  policies:
+    - kind: VaultClusterPolicy
+      name: non-existent-cluster-policy
+  tokenTTL: "1h"
+`, roleName, sharedVaultConnectionName, clusterRoleSAName, testNamespace)
+			verifyClusterRoleError(roleName, roleYAML, []string{"not found", "policy", "Not Found"})
 		})
 	})
 })
