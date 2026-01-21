@@ -200,14 +200,14 @@ jobs:
           platforms: ${{ matrix.platform }}
           push: false
           load: true
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ steps.short-sha.outputs.sha }}
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ steps.short-sha.outputs.sha }}-${{ steps.platform.outputs.pair }}
           cache-from: type=gha,scope=build-${{ steps.platform.outputs.pair }}
           cache-to: type=gha,scope=build-${{ steps.platform.outputs.pair }},mode=max
 
       - name: Save image for PR
         if: github.event_name == 'pull_request' && matrix.platform == 'linux/amd64'
         run: |
-          docker save ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ steps.short-sha.outputs.sha }} \
+          docker save ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ steps.short-sha.outputs.sha }}-${{ steps.platform.outputs.pair }} \
             -o /tmp/operator-image.tar
 
       - uses: actions/upload-artifact@v4
@@ -311,11 +311,8 @@ jobs:
       - name: Set image ref
         id: image
         run: |
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            echo "ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ steps.short-sha.outputs.sha }}" >> $GITHUB_OUTPUT
-          else
-            echo "ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ steps.short-sha.outputs.sha }}-${{ steps.platform.outputs.pair }}" >> $GITHUB_OUTPUT
-          fi
+          # Both PR and push use platform-specific tags for consistency
+          echo "ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ steps.short-sha.outputs.sha }}-${{ steps.platform.outputs.pair }}" >> $GITHUB_OUTPUT
 
       # Skip non-amd64 scans for PRs (no image available)
       - name: Skip scan for non-amd64 PR
@@ -522,6 +519,18 @@ jobs:
         id: short-sha
         run: echo "sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
 
+      - name: Set image tag
+        id: image-tag
+        run: |
+          # E2E runs on amd64, so always use linux-amd64 platform tag
+          # For PRs: use platform-specific tag (only amd64 is built)
+          # For push: use manifest tag (works with multi-arch)
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "tag=sha-${{ steps.short-sha.outputs.sha }}-linux-amd64" >> $GITHUB_OUTPUT
+          else
+            echo "tag=sha-${{ steps.short-sha.outputs.sha }}" >> $GITHUB_OUTPUT
+          fi
+
       - name: Setup k3d
         run: |
           curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash
@@ -554,7 +563,7 @@ jobs:
       # Load operator image
       - name: Pull image (push)
         if: github.event_name != 'pull_request'
-        run: docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ steps.short-sha.outputs.sha }}
+        run: docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.image-tag.outputs.tag }}
 
       - uses: actions/download-artifact@v4
         if: github.event_name == 'pull_request'
@@ -567,14 +576,14 @@ jobs:
         run: docker load -i /tmp/operator-image.tar
 
       - name: Load image into k3d
-        run: k3d image import ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ steps.short-sha.outputs.sha }} --cluster e2e
+        run: k3d image import ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.image-tag.outputs.tag }} --cluster e2e
 
       # Deploy operator
       - name: Deploy (kustomize)
         if: matrix.install_method == 'kustomize'
         run: |
           make install
-          make deploy IMG=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ steps.short-sha.outputs.sha }}
+          make deploy IMG=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.image-tag.outputs.tag }}
 
       - uses: azure/setup-helm@v4
         if: matrix.install_method == 'helm'
@@ -587,7 +596,7 @@ jobs:
           helm install vault-access-operator ./charts/vault-access-operator \
             --namespace vault-access-operator-system --create-namespace \
             --set image.repository=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }} \
-            --set image.tag=sha-${{ steps.short-sha.outputs.sha }} \
+            --set image.tag=${{ steps.image-tag.outputs.tag }} \
             --set image.pullPolicy=IfNotPresent \
             --set webhook.enabled=false \
             --wait --timeout 5m
