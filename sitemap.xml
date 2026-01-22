@@ -5,7 +5,15 @@
          <lastmod>2026-01-22</lastmod>
     </url>
     <url>
-         <loc>https://panteparak.github.io/vault-access-operator/crd-reference/</loc>
+         <loc>https://panteparak.github.io/vault-access-operator/api-reference/</loc>
+         <lastmod>2026-01-22</lastmod>
+    </url>
+    <url>
+         <loc>https://panteparak.github.io/vault-access-operator/configuration/</loc>
+         <lastmod>2026-01-22</lastmod>
+    </url>
+    <url>
+         <loc>https://panteparak.github.io/vault-access-operator/examples/</loc>
          <lastmod>2026-01-22</lastmod>
     </url>
     <url>
@@ -13,47 +21,7 @@
          <lastmod>2026-01-22</lastmod>
     </url>
     <url>
-         <loc>https://panteparak.github.io/vault-access-operator/installation/</loc>
-         <lastmod>2026-01-22</lastmod>
-    </url>
-    <url>
-         <loc>https://panteparak.github.io/vault-access-operator/quickstart/</loc>
-         <lastmod>2026-01-22</lastmod>
-    </url>
-    <url>
          <loc>https://panteparak.github.io/vault-access-operator/troubleshooting/</loc>
-         <lastmod>2026-01-22</lastmod>
-    </url>
-    <url>
-         <loc>https://panteparak.github.io/vault-access-operator/api-reference/</loc>
-         <lastmod>2026-01-22</lastmod>
-    </url>
-    <url>
-         <loc>https://panteparak.github.io/vault-access-operator/api-reference/vaultclusterpolicy/</loc>
-         <lastmod>2026-01-22</lastmod>
-    </url>
-    <url>
-         <loc>https://panteparak.github.io/vault-access-operator/api-reference/vaultclusterrole/</loc>
-         <lastmod>2026-01-22</lastmod>
-    </url>
-    <url>
-         <loc>https://panteparak.github.io/vault-access-operator/api-reference/vaultconnection/</loc>
-         <lastmod>2026-01-22</lastmod>
-    </url>
-    <url>
-         <loc>https://panteparak.github.io/vault-access-operator/api-reference/vaultpolicy/</loc>
-         <lastmod>2026-01-22</lastmod>
-    </url>
-    <url>
-         <loc>https://panteparak.github.io/vault-access-operator/api-reference/vaultrole/</loc>
-         <lastmod>2026-01-22</lastmod>
-    </url>
-    <url>
-         <loc>https://panteparak.github.io/vault-access-operator/configuration/examples/</loc>
-         <lastmod>2026-01-22</lastmod>
-    </url>
-    <url>
-         <loc>https://panteparak.github.io/vault-access-operator/configuration/helm-values/</loc>
          <lastmod>2026-01-22</lastmod>
     </url>
 </urlset>
