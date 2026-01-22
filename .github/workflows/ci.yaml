@@ -6,6 +6,8 @@ on:
     tags: ['v*']
   pull_request:
     branches: [main]
+  workflow_call:
+    # Allow this workflow to be called by other workflows (e.g., release.yaml)
 
 # Cancel in-progress runs on same branch
 concurrency:
