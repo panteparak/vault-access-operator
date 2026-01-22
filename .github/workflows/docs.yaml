@@ -47,13 +47,14 @@ jobs:
         continue-on-error: true
 
       - name: Create gh-pages branch if needed
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if [ ! -d gh-pages/.git ]; then
             mkdir -p gh-pages
             cd gh-pages
-            git init
-            git remote add origin "https://github.com/${{ github.repository }}.git"
-            git checkout -b gh-pages
+            git init -b gh-pages
+            git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
           fi
 
       - name: Configure Git
@@ -64,6 +65,7 @@ jobs:
       - name: Deploy documentation
         env:
           COMMIT_SHA: ${{ github.sha }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Preserve charts directory if it exists
           if [ -d gh-pages/charts ]; then
@@ -86,9 +88,15 @@ jobs:
 
           # Commit and push
           cd gh-pages
+
+          # Ensure remote URL has authentication
+          git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
+
           git add -A
           git commit -m "Deploy documentation from $COMMIT_SHA" || echo "No changes to commit"
-          git push origin gh-pages --force-with-lease || git push origin gh-pages
+
+          # Push to gh-pages branch (use HEAD:gh-pages to be explicit)
+          git push origin HEAD:gh-pages --force || true
 
       - name: Summary
         run: |

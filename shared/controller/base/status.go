@@ -89,8 +89,9 @@ func (s *StatusManager[T]) Error(ctx context.Context, resource T, reconcileErr e
 }
 
 // Requeue returns a result that requeues immediately without error.
+// Uses a minimal RequeueAfter duration for immediate requeue.
 func (s *StatusManager[T]) Requeue() (ctrl.Result, error) {
-	return ctrl.Result{Requeue: true}, nil
+	return ctrl.Result{RequeueAfter: time.Millisecond}, nil
 }
 
 // RequeueAfter returns a result that requeues after the specified duration.

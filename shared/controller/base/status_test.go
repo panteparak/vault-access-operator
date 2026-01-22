@@ -235,12 +235,8 @@ func TestStatusManager_Requeue(t *testing.T) {
 		t.Errorf("expected no error, got %v", err)
 	}
 
-	if !result.Requeue {
-		t.Error("expected Requeue to be true")
-	}
-
-	if result.RequeueAfter != 0 {
-		t.Errorf("expected RequeueAfter 0, got %v", result.RequeueAfter)
+	if result.RequeueAfter == 0 {
+		t.Error("expected RequeueAfter to be non-zero for immediate requeue")
 	}
 }
 
@@ -271,12 +267,8 @@ func TestStatusManager_Done(t *testing.T) {
 		t.Errorf("expected no error, got %v", err)
 	}
 
-	if result.Requeue {
-		t.Error("expected Requeue to be false")
-	}
-
 	if result.RequeueAfter != 0 {
-		t.Errorf("expected RequeueAfter 0, got %v", result.RequeueAfter)
+		t.Errorf("expected RequeueAfter 0 (no requeue), got %v", result.RequeueAfter)
 	}
 }
 

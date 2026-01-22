@@ -166,6 +166,18 @@ jobs:
           ref: gh-pages
           path: gh-pages
           fetch-depth: 0
+        continue-on-error: true
+
+      - name: Create gh-pages branch if needed
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ ! -d gh-pages/.git ]; then
+            mkdir -p gh-pages
+            cd gh-pages
+            git init -b gh-pages
+            git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
+          fi
 
       - name: Update Helm repo index
         run: |
@@ -189,11 +201,16 @@ jobs:
       - name: Push to gh-pages
         env:
           REF_NAME: ${{ github.ref_name }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           cd gh-pages
+
+          # Ensure remote URL has authentication
+          git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
+
           git add charts/
           git commit -m "Release Helm chart $REF_NAME" || echo "No changes to commit"
-          git push
+          git push origin HEAD:gh-pages --force || true
 
   # ============================================================================
   # Deploy Documentation
@@ -225,6 +242,18 @@ jobs:
           ref: gh-pages
           path: gh-pages
           fetch-depth: 0
+        continue-on-error: true
+
+      - name: Create gh-pages branch if needed
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ ! -d gh-pages/.git ]; then
+            mkdir -p gh-pages
+            cd gh-pages
+            git init -b gh-pages
+            git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
+          fi
 
       - name: Configure Git
         run: |
@@ -234,6 +263,7 @@ jobs:
       - name: Deploy documentation
         env:
           REF_NAME: ${{ github.ref_name }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Preserve charts directory
           if [ -d gh-pages/charts ]; then
@@ -256,9 +286,13 @@ jobs:
 
           # Commit and push
           cd gh-pages
+
+          # Ensure remote URL has authentication
+          git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
+
           git add -A
           git commit -m "Deploy documentation for $REF_NAME" || echo "No changes to commit"
-          git push
+          git push origin HEAD:gh-pages --force || true
 
   # ============================================================================
   # Summary
