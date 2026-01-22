@@ -2,42 +2,6 @@
 
 A Kubernetes operator for managing HashiCorp Vault access policies and Kubernetes authentication roles declaratively through Custom Resource Definitions (CRDs).
 
-<div class="grid cards" markdown>
-
--   :material-rocket-launch:{ .lg .middle } __Get Started in 5 Minutes__
-
-    ---
-
-    Install the operator and create your first VaultConnection, VaultPolicy, and VaultRole.
-
-    [:octicons-arrow-right-24: Quick Start](quickstart.md)
-
--   :material-cog:{ .lg .middle } __Configuration Reference__
-
-    ---
-
-    Complete Helm chart configuration options and example values files.
-
-    [:octicons-arrow-right-24: Configuration](configuration/helm-values.md)
-
--   :material-book-open-variant:{ .lg .middle } __API Reference__
-
-    ---
-
-    Detailed documentation for all Custom Resource Definitions.
-
-    [:octicons-arrow-right-24: API Reference](api-reference/index.md)
-
--   :material-lifebuoy:{ .lg .middle } __Troubleshooting__
-
-    ---
-
-    Common issues, debugging techniques, and solutions.
-
-    [:octicons-arrow-right-24: Troubleshooting](troubleshooting.md)
-
-</div>
-
 ## Overview
 
 The Vault Access Operator enables platform teams to manage Vault policies and Kubernetes authentication roles using native Kubernetes resources. It provides a GitOps-friendly approach to Vault access management, allowing teams to version control their Vault configurations alongside their application deployments.
@@ -60,10 +24,7 @@ The Vault Access Operator enables platform teams to manage Vault policies and Ku
 === "Helm (Recommended)"
 
     ```bash
-    # Add the Helm repository
     helm repo add vault-access-operator https://panteparak.github.io/vault-access-operator/charts
-
-    # Install the operator
     helm install vault-access-operator vault-access-operator/vault-access-operator \
       --namespace vault-access-operator-system \
       --create-namespace
@@ -75,16 +36,7 @@ The Vault Access Operator enables platform teams to manage Vault policies and Ku
     kubectl apply -f https://raw.githubusercontent.com/panteparak/vault-access-operator/main/dist/install.yaml
     ```
 
-=== "From Source"
-
-    ```bash
-    git clone https://github.com/panteparak/vault-access-operator.git
-    cd vault-access-operator
-    make install
-    make deploy IMG=ghcr.io/panteparak/vault-access-operator:latest
-    ```
-
-For detailed installation instructions, see the [Installation Guide](installation.md).
+For detailed installation instructions, see the [Getting Started](getting-started.md) guide.
 
 ## Custom Resource Definitions
 
@@ -92,41 +44,11 @@ The operator provides five CRDs for managing Vault access:
 
 | CRD | Scope | Description |
 |-----|-------|-------------|
-| [VaultConnection](api-reference/vaultconnection.md) | Cluster | Establishes connection to Vault server |
-| [VaultClusterPolicy](api-reference/vaultclusterpolicy.md) | Cluster | Manages cluster-wide Vault policies |
-| [VaultPolicy](api-reference/vaultpolicy.md) | Namespaced | Manages namespace-scoped Vault policies |
-| [VaultClusterRole](api-reference/vaultclusterrole.md) | Cluster | Manages cluster-wide Kubernetes auth roles |
-| [VaultRole](api-reference/vaultrole.md) | Namespaced | Manages namespace-scoped Kubernetes auth roles |
-
-## Architecture
-
-```mermaid
-graph TB
-    subgraph Kubernetes
-        VC[VaultConnection]
-        VCP[VaultClusterPolicy]
-        VP[VaultPolicy]
-        VCR[VaultClusterRole]
-        VR[VaultRole]
-        OP[Vault Access Operator]
-    end
-
-    subgraph Vault
-        CONN[Connection]
-        POL[Policies]
-        ROLE[K8s Auth Roles]
-    end
-
-    VC --> OP
-    VCP --> OP
-    VP --> OP
-    VCR --> OP
-    VR --> OP
-
-    OP --> CONN
-    OP --> POL
-    OP --> ROLE
-```
+| [VaultConnection](api-reference.md#vaultconnection) | Cluster | Establishes connection to Vault server |
+| [VaultClusterPolicy](api-reference.md#vaultclusterpolicy) | Cluster | Manages cluster-wide Vault policies |
+| [VaultPolicy](api-reference.md#vaultpolicy) | Namespaced | Manages namespace-scoped Vault policies |
+| [VaultClusterRole](api-reference.md#vaultclusterrole) | Cluster | Manages cluster-wide Kubernetes auth roles |
+| [VaultRole](api-reference.md#vaultrole) | Namespaced | Manages namespace-scoped Kubernetes auth roles |
 
 ## Prerequisites
 
@@ -135,11 +57,18 @@ graph TB
 - cert-manager (for webhook certificates, optional)
 - kubectl configured to access your cluster
 
+## Documentation
+
+- [Getting Started](getting-started.md) - Installation and quick start guide
+- [Configuration](configuration.md) - Helm chart configuration options
+- [API Reference](api-reference.md) - Detailed CRD documentation
+- [Examples](examples.md) - CRD usage examples
+- [Troubleshooting](troubleshooting.md) - Common issues and solutions
+
 ## Community
 
 - [GitHub Repository](https://github.com/panteparak/vault-access-operator)
 - [Issue Tracker](https://github.com/panteparak/vault-access-operator/issues)
-- [Contributing Guide](https://github.com/panteparak/vault-access-operator/blob/main/CONTRIBUTING.md)
 
 ## License
 

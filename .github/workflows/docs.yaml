@@ -1,107 +1,38 @@
-name: Deploy Docs
+name: Docs Hotfix
 
 on:
   push:
     branches: [main]
-    paths:
-      - 'docs/**'
-      - 'mkdocs.yml'
-  workflow_dispatch:
-
-# Cancel in-progress runs
-concurrency:
-  group: docs-${{ github.ref }}
-  cancel-in-progress: true
-
-permissions:
-  contents: write
-  pages: write
-  id-token: write
+    paths: ['docs/**', 'mkdocs.yml']
 
 jobs:
   deploy:
-    name: Deploy Documentation
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.x'
+      - run: pip install mkdocs-material
+      - run: mkdocs build
 
-      - name: Install MkDocs
-        run: |
-          pip install mkdocs-material mkdocs-minify-plugin
-
-      - name: Build documentation
-        run: mkdocs build
-
-      - name: Checkout gh-pages
-        uses: actions/checkout@v4
-        with:
-          ref: gh-pages
-          path: gh-pages
-          fetch-depth: 0
-        continue-on-error: true
-
-      - name: Create gh-pages branch if needed
+      - name: Deploy to gh-pages
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if [ ! -d gh-pages/.git ]; then
-            mkdir -p gh-pages
-            cd gh-pages
-            git init -b gh-pages
+          git clone --branch gh-pages --single-branch \
+            "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git" gh-pages 2>/dev/null || {
+            mkdir gh-pages && cd gh-pages && git init -b gh-pages
             git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
-          fi
-
-      - name: Configure Git
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-
-      - name: Deploy documentation
-        env:
-          COMMIT_SHA: ${{ github.sha }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          # Preserve charts directory if it exists
-          if [ -d gh-pages/charts ]; then
-            cp -r gh-pages/charts /tmp/charts-backup
-          fi
-
-          # Copy new docs (excluding git and charts)
-          rsync -av --delete \
-            --exclude='.git' \
-            --exclude='charts' \
-            site/ gh-pages/
-
-          # Restore charts directory
-          if [ -d /tmp/charts-backup ]; then
-            cp -r /tmp/charts-backup gh-pages/charts
-          fi
-
-          # Ensure .nojekyll exists (required for GitHub Pages)
+          }
+          [ -d gh-pages/charts ] && cp -r gh-pages/charts /tmp/charts-backup
+          rsync -av --delete --exclude='.git' --exclude='charts' site/ gh-pages/
+          [ -d /tmp/charts-backup ] && cp -r /tmp/charts-backup gh-pages/charts
           touch gh-pages/.nojekyll
-
-          # Commit and push
           cd gh-pages
-
-          # Ensure remote URL has authentication
-          git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
-
-          git add -A
-          git commit -m "Deploy documentation from $COMMIT_SHA" || echo "No changes to commit"
-
-          # Push to gh-pages branch (use HEAD:gh-pages to be explicit)
-          git push origin HEAD:gh-pages --force || true
-
-      - name: Summary
-        run: |
-          echo "## Documentation Deployed" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Documentation has been deployed to GitHub Pages." >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**URL:** https://panteparak.github.io/vault-access-operator/" >> $GITHUB_STEP_SUMMARY
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A && git commit -m "Docs hotfix from ${GITHUB_SHA:0:7}" || true
+          git push origin gh-pages --force

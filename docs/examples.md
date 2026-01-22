@@ -1,217 +1,12 @@
-# Configuration Examples
+# Examples
 
-This page provides complete example configurations for various deployment scenarios.
-
-## Helm Values Examples
-
-### Minimal Installation
-
-The simplest configuration to get started:
-
-```yaml
-# values-minimal.yaml
-replicaCount: 1
-
-webhook:
-  certManager:
-    enabled: true
-
-logging:
-  level: info
-```
-
-Install with:
-
-```bash
-helm install vault-access-operator vault-access-operator/vault-access-operator \
-  --namespace vault-access-operator-system \
-  --create-namespace \
-  -f values-minimal.yaml
-```
-
-### Production High Availability
-
-A production-ready configuration with high availability:
-
-```yaml
-# values-production.yaml
-replicaCount: 3
-
-resources:
-  limits:
-    cpu: "1"
-    memory: 512Mi
-  requests:
-    cpu: 250m
-    memory: 256Mi
-
-# Ensure pods spread across nodes
-affinity:
-  podAntiAffinity:
-    preferredDuringSchedulingIgnoredDuringExecution:
-      - weight: 100
-        podAffinityTerm:
-          labelSelector:
-            matchLabels:
-              app.kubernetes.io/name: vault-access-operator
-          topologyKey: kubernetes.io/hostname
-
-# Pod disruption budget for safe updates
-podDisruptionBudget:
-  enabled: true
-  minAvailable: 2
-
-# Priority class for critical workloads
-priorityClassName: system-cluster-critical
-
-# Leader election tuning
-leaderElection:
-  enabled: true
-  leaseDuration: 15s
-  renewDeadline: 10s
-  retryPeriod: 2s
-
-# Production logging
-logging:
-  level: info
-  development: false
-  encoder: json
-  stacktraceLevel: error
-
-# Webhook configuration
-webhook:
-  enabled: true
-  failurePolicy: Fail
-  certManager:
-    enabled: true
-    duration: 8760h
-    renewBefore: 720h
-
-# Metrics for observability
-metrics:
-  enabled: true
-  secure: true
-
-serviceMonitor:
-  enabled: true
-  interval: 30s
-```
-
-### With Prometheus Monitoring
-
-Configuration for Prometheus Operator integration:
-
-```yaml
-# values-monitoring.yaml
-metrics:
-  enabled: true
-  secure: true
-  port: 8443
-  service:
-    type: ClusterIP
-    port: 8443
-    annotations:
-      prometheus.io/scrape: "true"
-      prometheus.io/port: "8443"
-
-serviceMonitor:
-  enabled: true
-  namespace: monitoring
-  labels:
-    release: prometheus
-  interval: 30s
-  scrapeTimeout: 10s
-  metricRelabelings:
-    - sourceLabels: [__name__]
-      regex: "controller_runtime_.*"
-      action: keep
-  relabelings:
-    - sourceLabels: [__meta_kubernetes_pod_node_name]
-      targetLabel: node
-```
-
-### Without cert-manager
-
-If you're not using cert-manager, you can disable webhooks or use self-signed certificates:
-
-=== "Disable Webhooks"
-
-    ```yaml
-    # values-no-webhooks.yaml
-    webhook:
-      enabled: false
-    ```
-
-=== "Self-signed Certificates"
-
-    ```yaml
-    # values-self-signed.yaml
-    webhook:
-      enabled: true
-      certManager:
-        enabled: false
-      selfSigned:
-        enabled: true
-        validityDays: 365
-    ```
-
-### Air-gapped Environment
-
-For environments without internet access:
-
-```yaml
-# values-airgapped.yaml
-image:
-  repository: internal-registry.example.com/vault-access-operator
-  pullPolicy: IfNotPresent
-  tag: "v0.1.0"
-
-imagePullSecrets:
-  - name: internal-registry-creds
-
-# Pre-provisioned TLS certificates
-webhook:
-  certManager:
-    enabled: false
-  selfSigned:
-    enabled: true
-```
-
-### Development/Testing
-
-For local development or testing:
-
-```yaml
-# values-dev.yaml
-replicaCount: 1
-
-logging:
-  level: debug
-  development: true
-  encoder: console
-
-resources:
-  limits:
-    cpu: 200m
-    memory: 128Mi
-  requests:
-    cpu: 50m
-    memory: 64Mi
-
-webhook:
-  enabled: true
-  failurePolicy: Ignore  # Don't block on webhook failures
-  certManager:
-    enabled: true
-```
+This page provides complete CRD examples for various deployment scenarios.
 
 ---
 
-## CRD Examples
+## VaultConnection Examples
 
-### VaultConnection Examples
-
-#### Basic Kubernetes Auth
+### Basic Kubernetes Auth
 
 ```yaml
 apiVersion: vault.platform.io/v1alpha1
@@ -226,7 +21,7 @@ spec:
   healthCheckInterval: 30s
 ```
 
-#### With TLS CA Certificate
+### With TLS CA Certificate
 
 ```yaml
 apiVersion: vault.platform.io/v1alpha1
@@ -245,11 +40,11 @@ spec:
       name: vault-ca-cert
       namespace: vault-access-operator-system
       key: ca.crt
-  defaults:
-    authPath: auth/kubernetes
 ```
 
-#### Bootstrap with Token
+### Bootstrap with Token
+
+Use a one-time token to bootstrap Kubernetes auth:
 
 ```yaml
 apiVersion: vault.platform.io/v1alpha1
@@ -269,7 +64,7 @@ spec:
       role: vault-access-operator
 ```
 
-#### AppRole Authentication
+### AppRole Authentication
 
 ```yaml
 apiVersion: vault.platform.io/v1alpha1
@@ -288,9 +83,11 @@ spec:
       mountPath: approle
 ```
 
-### VaultPolicy Examples
+---
 
-#### Simple Read Policy
+## VaultPolicy Examples
+
+### Simple Read Policy
 
 ```yaml
 apiVersion: vault.platform.io/v1alpha1
@@ -306,7 +103,7 @@ spec:
       description: "Read application secrets"
 ```
 
-#### Full CRUD Access
+### Full CRUD Access
 
 ```yaml
 apiVersion: vault.platform.io/v1alpha1
@@ -316,8 +113,6 @@ metadata:
   namespace: my-app
 spec:
   connectionRef: vault-primary
-  conflictPolicy: Fail
-  deletionPolicy: Delete
   enforceNamespaceBoundary: true
   rules:
     - path: "secret/data/{{namespace}}/*"
@@ -328,7 +123,7 @@ spec:
       description: "Manage secret metadata"
 ```
 
-#### Transit Encryption Policy
+### Transit Encryption Policy
 
 ```yaml
 apiVersion: vault.platform.io/v1alpha1
@@ -347,9 +142,29 @@ spec:
       description: "Decrypt data"
 ```
 
-### VaultClusterPolicy Examples
+### Retain on Delete
 
-#### Shared Secrets Reader
+Keep the policy in Vault when the Kubernetes resource is deleted:
+
+```yaml
+apiVersion: vault.platform.io/v1alpha1
+kind: VaultPolicy
+metadata:
+  name: persistent-policy
+  namespace: my-app
+spec:
+  connectionRef: vault-primary
+  deletionPolicy: Retain
+  rules:
+    - path: "secret/data/{{namespace}}/*"
+      capabilities: [read]
+```
+
+---
+
+## VaultClusterPolicy Examples
+
+### Shared Secrets Reader
 
 ```yaml
 apiVersion: vault.platform.io/v1alpha1
@@ -358,8 +173,6 @@ metadata:
   name: shared-secrets-reader
 spec:
   connectionRef: vault-primary
-  conflictPolicy: Fail
-  deletionPolicy: Delete
   rules:
     - path: "secret/data/shared/*"
       capabilities: [read, list]
@@ -369,7 +182,7 @@ spec:
       description: "Read global config"
 ```
 
-#### Platform Admin Policy
+### Platform Admin Policy
 
 ```yaml
 apiVersion: vault.platform.io/v1alpha1
@@ -387,9 +200,47 @@ spec:
       capabilities: [read, list]
 ```
 
-### VaultRole Examples
+### CI/CD Pipeline Secrets
 
-#### Basic Application Role
+```yaml
+apiVersion: vault.platform.io/v1alpha1
+kind: VaultClusterPolicy
+metadata:
+  name: cicd-secrets
+spec:
+  connectionRef: vault-primary
+  rules:
+    - path: "secret/data/cicd/*"
+      capabilities: [read, list]
+      description: "Read CI/CD secrets"
+    - path: "secret/data/docker-registry"
+      capabilities: [read]
+      description: "Docker registry credentials"
+```
+
+### PKI Certificate Issuer
+
+```yaml
+apiVersion: vault.platform.io/v1alpha1
+kind: VaultClusterPolicy
+metadata:
+  name: pki-issuer
+spec:
+  connectionRef: vault-primary
+  rules:
+    - path: "pki/issue/internal"
+      capabilities: [create, update]
+      description: "Issue internal certificates"
+    - path: "pki/ca/pem"
+      capabilities: [read]
+      description: "Read CA certificate"
+```
+
+---
+
+## VaultRole Examples
+
+### Basic Application Role
 
 ```yaml
 apiVersion: vault.platform.io/v1alpha1
@@ -401,7 +252,6 @@ spec:
   connectionRef: vault-primary
   serviceAccounts:
     - default
-    - app-sa
   policies:
     - kind: VaultPolicy
       name: app-secrets
@@ -409,13 +259,35 @@ spec:
   tokenMaxTTL: 4h
 ```
 
-#### Role with Mixed Policies
+### Multiple Service Accounts
 
 ```yaml
 apiVersion: vault.platform.io/v1alpha1
 kind: VaultRole
 metadata:
-  name: app-with-shared
+  name: backend-services
+  namespace: my-app
+spec:
+  connectionRef: vault-primary
+  serviceAccounts:
+    - api-server
+    - worker
+    - scheduler
+  policies:
+    - kind: VaultPolicy
+      name: backend-secrets
+  tokenTTL: 30m
+```
+
+### Mixed Policy Types
+
+Combine namespace-scoped and cluster-wide policies:
+
+```yaml
+apiVersion: vault.platform.io/v1alpha1
+kind: VaultRole
+metadata:
+  name: full-access
   namespace: my-app
 spec:
   connectionRef: vault-primary
@@ -425,15 +297,36 @@ spec:
     - kind: VaultPolicy
       name: app-secrets
     - kind: VaultClusterPolicy
-      name: shared-secrets-reader
-  tokenTTL: 30m
-  tokenMaxTTL: 2h
-  deletionPolicy: Delete
+      name: shared-config-reader
+    - kind: VaultClusterPolicy
+      name: database-readonly
+  tokenTTL: 1h
 ```
 
-### VaultClusterRole Examples
+### Short-lived Tokens for Batch Jobs
 
-#### Platform Services Role
+```yaml
+apiVersion: vault.platform.io/v1alpha1
+kind: VaultRole
+metadata:
+  name: batch-job
+  namespace: batch
+spec:
+  connectionRef: vault-primary
+  serviceAccounts:
+    - batch-runner
+  policies:
+    - kind: VaultPolicy
+      name: batch-secrets
+  tokenTTL: 5m
+  tokenMaxTTL: 15m
+```
+
+---
+
+## VaultClusterRole Examples
+
+### Platform Services Role
 
 ```yaml
 apiVersion: vault.platform.io/v1alpha1
@@ -442,12 +335,13 @@ metadata:
   name: platform-services
 spec:
   connectionRef: vault-primary
-  authPath: auth/kubernetes
   serviceAccounts:
     - name: platform-controller
       namespace: platform-system
     - name: monitoring-agent
       namespace: monitoring
+    - name: logging-collector
+      namespace: logging
   policies:
     - kind: VaultClusterPolicy
       name: shared-secrets-reader
@@ -455,7 +349,7 @@ spec:
   tokenMaxTTL: 24h
 ```
 
-#### CI/CD Pipeline Role
+### CI/CD Pipeline Role
 
 ```yaml
 apiVersion: vault.platform.io/v1alpha1
@@ -469,19 +363,57 @@ spec:
       namespace: tekton-pipelines
     - name: argo-workflow
       namespace: argo
+    - name: github-actions-runner
+      namespace: actions-runner-system
   policies:
     - kind: VaultClusterPolicy
       name: cicd-secrets
   tokenTTL: 15m
   tokenMaxTTL: 1h
-  conflictPolicy: Adopt
+```
+
+### Ingress Controller Role
+
+```yaml
+apiVersion: vault.platform.io/v1alpha1
+kind: VaultClusterRole
+metadata:
+  name: ingress-controller
+spec:
+  connectionRef: vault-primary
+  serviceAccounts:
+    - name: nginx-ingress-controller
+      namespace: ingress-nginx
+  policies:
+    - kind: VaultClusterPolicy
+      name: pki-issuer
+  tokenTTL: 30m
+```
+
+### External Secrets Operator Role
+
+```yaml
+apiVersion: vault.platform.io/v1alpha1
+kind: VaultClusterRole
+metadata:
+  name: external-secrets
+spec:
+  connectionRef: vault-primary
+  serviceAccounts:
+    - name: external-secrets
+      namespace: external-secrets
+  policies:
+    - kind: VaultClusterPolicy
+      name: secrets-reader-all
+  tokenTTL: 1h
+  tokenMaxTTL: 4h
 ```
 
 ---
 
 ## Complete Application Setup
 
-Here's a complete example for setting up Vault access for a microservices application:
+A complete example for setting up Vault access for a microservices application:
 
 ```yaml
 ---
@@ -560,3 +492,12 @@ spec:
             - name: VAULT_AUTH_ROLE
               value: "production-api-service"
 ```
+
+---
+
+## Next Steps
+
+- [Getting Started](getting-started.md) - Installation guide
+- [API Reference](api-reference.md) - CRD field documentation
+- [Configuration](configuration.md) - Helm chart options
+- [Troubleshooting](troubleshooting.md) - Common issues
