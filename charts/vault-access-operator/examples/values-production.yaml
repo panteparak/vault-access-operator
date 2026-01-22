@@ -1,0 +1,79 @@
+# Production values for Vault Access Operator
+# This configuration provides high availability and production-ready settings.
+#
+# Prerequisites:
+#   - cert-manager installed for webhook certificates
+#   - Sufficient cluster resources for 3 replicas
+#
+# Install with:
+#   helm install vault-access-operator vault-access-operator/vault-access-operator \
+#     --namespace vault-access-operator-system \
+#     --create-namespace \
+#     -f values-production.yaml
+
+# Run 3 replicas for high availability
+replicaCount: 3
+
+# Production-grade resource allocation
+resources:
+  limits:
+    cpu: "1"
+    memory: 512Mi
+  requests:
+    cpu: 250m
+    memory: 256Mi
+
+# Spread pods across nodes for resilience
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: vault-access-operator
+          topologyKey: kubernetes.io/hostname
+
+# Ensure minimum availability during updates
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 2
+
+# Use system-cluster-critical priority class
+priorityClassName: system-cluster-critical
+
+# Fine-tuned leader election settings
+leaderElection:
+  enabled: true
+  leaseDuration: 15s
+  renewDeadline: 10s
+  retryPeriod: 2s
+
+# Production logging: JSON format, no debug noise
+logging:
+  level: info
+  development: false
+  encoder: json
+  stacktraceLevel: error
+
+# Webhook configuration
+webhook:
+  enabled: true
+  failurePolicy: Fail
+  timeoutSeconds: 10
+  certManager:
+    enabled: true
+    duration: 8760h    # 1 year
+    renewBefore: 720h  # 30 days
+
+# Enable metrics for observability
+metrics:
+  enabled: true
+  secure: true
+
+# Enable ServiceMonitor if using Prometheus Operator
+serviceMonitor:
+  enabled: true
+  interval: 30s
+  labels:
+    release: prometheus

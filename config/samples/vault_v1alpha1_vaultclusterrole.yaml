@@ -4,6 +4,35 @@ metadata:
   labels:
     app.kubernetes.io/name: vault-access-operator
     app.kubernetes.io/managed-by: kustomize
-  name: vaultclusterrole-sample
+  name: platform-services
 spec:
-  # TODO(user): Add fields here
+  # Reference to the VaultConnection to use
+  connectionRef: vault-primary
+
+  # Path where Kubernetes auth is mounted
+  authPath: auth/kubernetes
+
+  # How to handle conflicts with existing Vault roles
+  conflictPolicy: Fail
+
+  # What happens when this resource is deleted
+  deletionPolicy: Delete
+
+  # Service accounts that can authenticate with this role
+  # (includes namespace since this is cluster-scoped)
+  serviceAccounts:
+    - name: platform-controller
+      namespace: platform-system
+    - name: monitoring-agent
+      namespace: monitoring
+    - name: logging-collector
+      namespace: logging
+
+  # Policies to attach to this role
+  policies:
+    - kind: VaultClusterPolicy
+      name: shared-secrets-reader
+
+  # Token TTL settings
+  tokenTTL: 1h
+  tokenMaxTTL: 24h

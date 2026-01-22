@@ -4,6 +4,30 @@ metadata:
   labels:
     app.kubernetes.io/name: vault-access-operator
     app.kubernetes.io/managed-by: kustomize
-  name: vaultclusterpolicy-sample
+  name: shared-secrets-reader
 spec:
-  # TODO(user): Add fields here
+  # Reference to the VaultConnection to use
+  connectionRef: vault-primary
+
+  # How to handle conflicts with existing Vault policies
+  conflictPolicy: Fail
+
+  # What happens when this resource is deleted
+  deletionPolicy: Delete
+
+  # Policy rules
+  rules:
+    # Read access to shared configuration
+    - path: "secret/data/shared/*"
+      capabilities: [read, list]
+      description: "Read shared configuration secrets"
+
+    # Read access to global config
+    - path: "secret/data/global/config"
+      capabilities: [read]
+      description: "Read global configuration"
+
+    # Read access to shared metadata
+    - path: "secret/metadata/shared/*"
+      capabilities: [read, list]
+      description: "Read shared secret metadata"

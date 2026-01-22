@@ -1,0 +1,99 @@
+name: Deploy Docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+  workflow_dispatch:
+
+# Cancel in-progress runs
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  deploy:
+    name: Deploy Documentation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install MkDocs
+        run: |
+          pip install mkdocs-material mkdocs-minify-plugin
+
+      - name: Build documentation
+        run: mkdocs build
+
+      - name: Checkout gh-pages
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: gh-pages
+          fetch-depth: 0
+        continue-on-error: true
+
+      - name: Create gh-pages branch if needed
+        run: |
+          if [ ! -d gh-pages/.git ]; then
+            mkdir -p gh-pages
+            cd gh-pages
+            git init
+            git remote add origin "https://github.com/${{ github.repository }}.git"
+            git checkout -b gh-pages
+          fi
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Deploy documentation
+        env:
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          # Preserve charts directory if it exists
+          if [ -d gh-pages/charts ]; then
+            cp -r gh-pages/charts /tmp/charts-backup
+          fi
+
+          # Copy new docs (excluding git and charts)
+          rsync -av --delete \
+            --exclude='.git' \
+            --exclude='charts' \
+            site/ gh-pages/
+
+          # Restore charts directory
+          if [ -d /tmp/charts-backup ]; then
+            cp -r /tmp/charts-backup gh-pages/charts
+          fi
+
+          # Ensure .nojekyll exists (required for GitHub Pages)
+          touch gh-pages/.nojekyll
+
+          # Commit and push
+          cd gh-pages
+          git add -A
+          git commit -m "Deploy documentation from $COMMIT_SHA" || echo "No changes to commit"
+          git push origin gh-pages --force-with-lease || git push origin gh-pages
+
+      - name: Summary
+        run: |
+          echo "## Documentation Deployed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Documentation has been deployed to GitHub Pages." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**URL:** https://panteparak.github.io/vault-access-operator/" >> $GITHUB_STEP_SUMMARY

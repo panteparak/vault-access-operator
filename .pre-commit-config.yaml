@@ -11,8 +11,8 @@ repos:
       - id: end-of-file-fixer
       - id: check-yaml
         args: [--allow-multiple-documents]
-        # Exclude Helm templates and test fixtures that use Go template syntax
-        exclude: ^(charts/|test/e2e/fixtures/crds/)
+        # Exclude Helm templates, test fixtures, and MkDocs (uses Python tags)
+        exclude: ^(charts/|test/e2e/fixtures/crds/|mkdocs\.yml)
       - id: check-merge-conflict
       - id: check-added-large-files
 

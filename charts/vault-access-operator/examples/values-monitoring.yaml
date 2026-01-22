@@ -1,0 +1,64 @@
+# Monitoring-focused values for Vault Access Operator
+# This configuration emphasizes observability with Prometheus integration.
+#
+# Prerequisites:
+#   - Prometheus Operator installed
+#   - cert-manager installed for webhook certificates
+#
+# Install with:
+#   helm install vault-access-operator vault-access-operator/vault-access-operator \
+#     --namespace vault-access-operator-system \
+#     --create-namespace \
+#     -f values-monitoring.yaml
+
+replicaCount: 1
+
+# Enable secure metrics endpoint
+metrics:
+  enabled: true
+  secure: true
+  port: 8443
+  service:
+    type: ClusterIP
+    port: 8443
+    annotations:
+      prometheus.io/scrape: "true"
+      prometheus.io/port: "8443"
+      prometheus.io/scheme: "https"
+
+# ServiceMonitor for Prometheus Operator
+serviceMonitor:
+  enabled: true
+  namespace: ""  # Uses release namespace by default
+  labels:
+    release: prometheus  # Match your Prometheus Operator selector
+  interval: 30s
+  scrapeTimeout: 10s
+  # Keep controller-runtime metrics
+  metricRelabelings:
+    - sourceLabels: [__name__]
+      regex: "(controller_runtime_.*|workqueue_.*|go_.*|process_.*)"
+      action: keep
+  relabelings:
+    - sourceLabels: [__meta_kubernetes_pod_node_name]
+      targetLabel: node
+    - sourceLabels: [__meta_kubernetes_namespace]
+      targetLabel: namespace
+
+# Debug-level logging for troubleshooting (change to info for production)
+logging:
+  level: info
+  development: false
+  encoder: json
+  stacktraceLevel: error
+
+# Webhooks with cert-manager
+webhook:
+  enabled: true
+  certManager:
+    enabled: true
+
+# Add Prometheus annotations to pods
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8443"

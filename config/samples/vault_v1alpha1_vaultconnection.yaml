@@ -4,6 +4,33 @@ metadata:
   labels:
     app.kubernetes.io/name: vault-access-operator
     app.kubernetes.io/managed-by: kustomize
-  name: vaultconnection-sample
+  name: vault-primary
 spec:
-  # TODO(user): Add fields here
+  # Vault server address
+  address: https://vault.example.com:8200
+
+  # Authentication configuration
+  auth:
+    # Kubernetes auth method (recommended)
+    kubernetes:
+      # Vault role that the operator will use to authenticate
+      role: vault-access-operator
+      # Path where Kubernetes auth is mounted (default: kubernetes)
+      authPath: kubernetes
+
+  # TLS configuration
+  tls:
+    # Skip TLS verification (set to false in production)
+    skipVerify: false
+    # Reference to CA certificate secret (optional)
+    # caSecretRef:
+    #   name: vault-ca-cert
+    #   namespace: vault-access-operator-system
+    #   key: ca.crt
+
+  # Default paths for Vault operations
+  defaults:
+    authPath: auth/kubernetes
+
+  # How often to check Vault connectivity
+  healthCheckInterval: 30s

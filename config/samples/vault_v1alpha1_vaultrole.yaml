@@ -4,6 +4,34 @@ metadata:
   labels:
     app.kubernetes.io/name: vault-access-operator
     app.kubernetes.io/managed-by: kustomize
-  name: vaultrole-sample
+  name: app-role
+  namespace: default
 spec:
-  # TODO(user): Add fields here
+  # Reference to the VaultConnection to use
+  connectionRef: vault-primary
+
+  # How to handle conflicts with existing Vault roles
+  conflictPolicy: Fail
+
+  # What happens when this resource is deleted
+  deletionPolicy: Delete
+
+  # Service accounts that can authenticate with this role
+  # (must be in the same namespace as this VaultRole)
+  serviceAccounts:
+    - default
+    - app-service-account
+
+  # Policies to attach to this role
+  policies:
+    # Namespace-scoped policy
+    - kind: VaultPolicy
+      name: app-secrets
+
+    # Cluster-wide policy
+    - kind: VaultClusterPolicy
+      name: shared-secrets-reader
+
+  # Token TTL settings
+  tokenTTL: 1h
+  tokenMaxTTL: 4h

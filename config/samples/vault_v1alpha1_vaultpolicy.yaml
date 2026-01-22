@@ -4,6 +4,39 @@ metadata:
   labels:
     app.kubernetes.io/name: vault-access-operator
     app.kubernetes.io/managed-by: kustomize
-  name: vaultpolicy-sample
+  name: app-secrets
+  namespace: default
 spec:
-  # TODO(user): Add fields here
+  # Reference to the VaultConnection to use
+  connectionRef: vault-primary
+
+  # How to handle conflicts with existing Vault policies
+  # - Fail: Fail if policy already exists (default)
+  # - Adopt: Take over management of existing policy
+  conflictPolicy: Fail
+
+  # What happens when this resource is deleted
+  # - Delete: Remove policy from Vault (default)
+  # - Retain: Keep policy in Vault
+  deletionPolicy: Delete
+
+  # Enforce that all paths contain {{namespace}}
+  # This prevents namespace-scoped policies from accessing other namespaces
+  enforceNamespaceBoundary: false
+
+  # Policy rules
+  rules:
+    # Read access to secrets in this namespace
+    - path: "secret/data/{{namespace}}/*"
+      capabilities: [read, list]
+      description: "Read secrets for this namespace"
+
+    # Full access to application-specific secrets
+    - path: "secret/data/{{namespace}}/{{name}}/*"
+      capabilities: [create, read, update, delete, list]
+      description: "Full access to app-specific secrets"
+
+    # Read secret metadata
+    - path: "secret/metadata/{{namespace}}/*"
+      capabilities: [read, list]
+      description: "Read secret metadata"

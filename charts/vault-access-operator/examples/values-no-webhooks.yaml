@@ -1,0 +1,25 @@
+# Values without webhooks for Vault Access Operator
+# Use this when you cannot install cert-manager or don't need validation webhooks.
+#
+# Note: Without webhooks, invalid resources will be accepted by the API server
+# and will fail during reconciliation instead of at admission time.
+#
+# Install with:
+#   helm install vault-access-operator vault-access-operator/vault-access-operator \
+#     --namespace vault-access-operator-system \
+#     --create-namespace \
+#     -f values-no-webhooks.yaml
+
+replicaCount: 1
+
+# Disable webhooks entirely
+webhook:
+  enabled: false
+
+# Standard logging
+logging:
+  level: info
+
+# Enable metrics
+metrics:
+  enabled: true

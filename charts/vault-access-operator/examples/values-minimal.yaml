@@ -1,0 +1,24 @@
+# Minimal values for Vault Access Operator
+# This is the simplest configuration to get started.
+#
+# Install with:
+#   helm install vault-access-operator vault-access-operator/vault-access-operator \
+#     --namespace vault-access-operator-system \
+#     --create-namespace \
+#     -f values-minimal.yaml
+
+replicaCount: 1
+
+# Default logging level
+logging:
+  level: info
+
+# Enable webhooks with cert-manager
+webhook:
+  enabled: true
+  certManager:
+    enabled: true
+
+# Enable metrics
+metrics:
+  enabled: true

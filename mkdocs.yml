@@ -1,0 +1,102 @@
+# MkDocs configuration for Vault Access Operator documentation
+# Preview: mkdocs serve
+# Build: mkdocs build
+
+site_name: Vault Access Operator
+site_description: A Kubernetes operator for managing HashiCorp Vault access policies and roles
+site_url: https://panteparak.github.io/vault-access-operator/
+repo_url: https://github.com/panteparak/vault-access-operator
+repo_name: panteparak/vault-access-operator
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  palette:
+    # Light mode
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    # Dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - navigation.footer
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+    - content.action.edit
+  icon:
+    repo: fontawesome/brands/github
+
+plugins:
+  - search:
+      separator: '[\s\-,:!=\[\]()"`/]+|\.(?!\d)|&[lg]t;|(?!\b)(?=[A-Z][a-z])'
+  - minify:
+      minify_html: true
+
+markdown_extensions:
+  # Code highlighting
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  # Tabs for code examples
+  - pymdownx.tabbed:
+      alternate_style: true
+  # Admonitions (notes, warnings, tips)
+  - admonition
+  - pymdownx.details
+  # Formatting
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  # Task lists
+  - def_list
+  - pymdownx.tasklist:
+      custom_checkbox: true
+
+nav:
+  - Home: index.md
+  - Getting Started:
+      - Installation: installation.md
+      - Quick Start: quickstart.md
+  - Configuration:
+      - Helm Chart Values: configuration/helm-values.md
+      - Examples: configuration/examples.md
+  - API Reference:
+      - Overview: api-reference/index.md
+      - VaultConnection: api-reference/vaultconnection.md
+      - VaultPolicy: api-reference/vaultpolicy.md
+      - VaultClusterPolicy: api-reference/vaultclusterpolicy.md
+      - VaultRole: api-reference/vaultrole.md
+      - VaultClusterRole: api-reference/vaultclusterrole.md
+  - Troubleshooting: troubleshooting.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/panteparak/vault-access-operator
+  generator: false
+
+copyright: Copyright &copy; 2024-2026 Vault Access Operator Contributors
