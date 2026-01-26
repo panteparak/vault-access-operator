@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"strings"
 
-	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
@@ -35,45 +34,35 @@ type VaultRoleValidator struct{}
 type VaultClusterRoleValidator struct{}
 
 // Ensure interfaces are implemented
-var _ admission.CustomValidator = &VaultRoleValidator{}
-var _ admission.CustomValidator = &VaultClusterRoleValidator{}
+var _ admission.Validator[*vaultv1alpha1.VaultRole] = &VaultRoleValidator{}
+var _ admission.Validator[*vaultv1alpha1.VaultClusterRole] = &VaultClusterRoleValidator{}
 
 // SetupWebhookWithManager sets up the VaultRole webhook with the manager
 func (v *VaultRoleValidator) SetupWebhookWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewWebhookManagedBy(mgr).
-		For(&vaultv1alpha1.VaultRole{}).
+	return ctrl.NewWebhookManagedBy(mgr, &vaultv1alpha1.VaultRole{}).
 		WithValidator(v).
 		Complete()
 }
 
 // SetupWebhookWithManager sets up the VaultClusterRole webhook with the manager
 func (v *VaultClusterRoleValidator) SetupWebhookWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewWebhookManagedBy(mgr).
-		For(&vaultv1alpha1.VaultClusterRole{}).
+	return ctrl.NewWebhookManagedBy(mgr, &vaultv1alpha1.VaultClusterRole{}).
 		WithValidator(v).
 		Complete()
 }
 
-// ValidateCreate implements admission.CustomValidator for VaultRole
-func (v *VaultRoleValidator) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
-	role, ok := obj.(*vaultv1alpha1.VaultRole)
-	if !ok {
-		return nil, fmt.Errorf("expected VaultRole but got %T", obj)
-	}
+// ValidateCreate implements admission.Validator for VaultRole
+func (v *VaultRoleValidator) ValidateCreate(ctx context.Context, role *vaultv1alpha1.VaultRole) (admission.Warnings, error) {
 	return v.validate(role)
 }
 
-// ValidateUpdate implements admission.CustomValidator for VaultRole
-func (v *VaultRoleValidator) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
-	role, ok := newObj.(*vaultv1alpha1.VaultRole)
-	if !ok {
-		return nil, fmt.Errorf("expected VaultRole but got %T", newObj)
-	}
+// ValidateUpdate implements admission.Validator for VaultRole
+func (v *VaultRoleValidator) ValidateUpdate(ctx context.Context, oldRole, role *vaultv1alpha1.VaultRole) (admission.Warnings, error) {
 	return v.validate(role)
 }
 
-// ValidateDelete implements admission.CustomValidator for VaultRole
-func (v *VaultRoleValidator) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+// ValidateDelete implements admission.Validator for VaultRole
+func (v *VaultRoleValidator) ValidateDelete(ctx context.Context, role *vaultv1alpha1.VaultRole) (admission.Warnings, error) {
 	// No validation needed for delete
 	return nil, nil
 }
@@ -117,26 +106,18 @@ func (v *VaultRoleValidator) validate(role *vaultv1alpha1.VaultRole) (admission.
 	return nil, nil
 }
 
-// ValidateCreate implements admission.CustomValidator for VaultClusterRole
-func (v *VaultClusterRoleValidator) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
-	role, ok := obj.(*vaultv1alpha1.VaultClusterRole)
-	if !ok {
-		return nil, fmt.Errorf("expected VaultClusterRole but got %T", obj)
-	}
+// ValidateCreate implements admission.Validator for VaultClusterRole
+func (v *VaultClusterRoleValidator) ValidateCreate(ctx context.Context, role *vaultv1alpha1.VaultClusterRole) (admission.Warnings, error) {
 	return v.validate(role)
 }
 
-// ValidateUpdate implements admission.CustomValidator for VaultClusterRole
-func (v *VaultClusterRoleValidator) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
-	role, ok := newObj.(*vaultv1alpha1.VaultClusterRole)
-	if !ok {
-		return nil, fmt.Errorf("expected VaultClusterRole but got %T", newObj)
-	}
+// ValidateUpdate implements admission.Validator for VaultClusterRole
+func (v *VaultClusterRoleValidator) ValidateUpdate(ctx context.Context, oldRole, role *vaultv1alpha1.VaultClusterRole) (admission.Warnings, error) {
 	return v.validate(role)
 }
 
-// ValidateDelete implements admission.CustomValidator for VaultClusterRole
-func (v *VaultClusterRoleValidator) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+// ValidateDelete implements admission.Validator for VaultClusterRole
+func (v *VaultClusterRoleValidator) ValidateDelete(ctx context.Context, role *vaultv1alpha1.VaultClusterRole) (admission.Warnings, error) {
 	// No validation needed for delete
 	return nil, nil
 }

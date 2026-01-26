@@ -89,6 +89,38 @@ kubectl get crds | grep vault.platform.io
 
 Before creating resources, configure Vault to allow the operator to manage policies and roles.
 
+!!! warning "Security Notice: Never Use Root Token"
+    The operator should **never** use the Vault root token in production. Always use a dedicated service account with the minimum required permissions as described below.
+
+### Principle of Least Privilege
+
+The Vault Access Operator follows the **Principle of Least Privilege**—it only requests the minimum permissions necessary to perform its job. Understanding these permissions helps you:
+
+1. **Audit** what the operator can and cannot do
+2. **Trust** that secrets are not directly accessible to the operator
+3. **Comply** with security requirements in regulated environments
+
+#### What the Operator Needs
+
+| Path | Capabilities | Purpose |
+|------|--------------|---------|
+| `sys/policies/acl/*` | create, read, update, delete, list | Manage Vault policies |
+| `sys/policies/acl` | list | List existing policies |
+| `auth/kubernetes/role/*` | create, read, update, delete, list | Manage Kubernetes auth roles |
+| `auth/kubernetes/role` | list | List existing roles |
+| `auth/kubernetes/config` | read, update | Configure Kubernetes auth method |
+| `sys/health` | read | Health checks for connection status |
+
+#### What the Operator Does NOT Need
+
+| Path | Reason |
+|------|--------|
+| `secret/*` | The operator manages **access** to secrets, not the secrets themselves |
+| `sys/seal`, `sys/unseal` | Administrative operations only |
+| `sys/init` | Vault initialization is out of scope |
+| `identity/*` | Entity/alias management not required |
+| Root capability | Never required for normal operation |
+
 ### Create Operator Policy
 
 ```bash
@@ -109,12 +141,37 @@ path "auth/kubernetes/role" {
   capabilities = ["list"]
 }
 
+# Configure Kubernetes auth method (optional, for initial setup)
+path "auth/kubernetes/config" {
+  capabilities = ["create", "read", "update", "delete"]
+}
+
+# Enable/disable auth methods (optional, for bootstrapping)
+path "sys/auth" {
+  capabilities = ["read"]
+}
+path "sys/auth/*" {
+  capabilities = ["sudo", "create", "read", "update", "delete", "list"]
+}
+
 # Health check
 path "sys/health" {
   capabilities = ["read"]
 }
 EOF
 ```
+
+!!! tip "Verify Token Capabilities"
+    You can verify what a token can access using:
+    ```bash
+    # Check capabilities on a specific path
+    vault token capabilities <token> sys/policies/acl/test
+    # Expected: create, delete, list, read, update
+
+    # Verify secrets are denied
+    vault token capabilities <token> secret/data/test
+    # Expected: deny
+    ```
 
 ### Create Kubernetes Auth Role
 

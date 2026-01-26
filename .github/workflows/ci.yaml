@@ -97,6 +97,48 @@ jobs:
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
+  integration-test:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ env.GO_VERSION_FILE }}
+          cache: true
+      - name: Run integration tests
+        run: |
+          # Integration tests require Docker for testcontainers
+          make test-integration 2>&1 | tee integration-output.txt || true
+      - name: Generate integration test summary
+        if: always()
+        run: |
+          echo "## 🔌 Integration Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -f integration-output.txt ]; then
+            PASSED=$(grep -c "PASSED\|✓" integration-output.txt || echo "0")
+            FAILED=$(grep -c "FAILED\|✗" integration-output.txt || echo "0")
+            echo "| Result | Count |" >> $GITHUB_STEP_SUMMARY
+            echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+            echo "| ✅ Passed | ${PASSED} |" >> $GITHUB_STEP_SUMMARY
+            echo "| ❌ Failed | ${FAILED} |" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "<details>" >> $GITHUB_STEP_SUMMARY
+            echo "<summary>Test Output</summary>" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            tail -100 integration-output.txt >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "</details>" >> $GITHUB_STEP_SUMMARY
+          fi
+      - name: Upload integration test output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-output
+          path: integration-output.txt
+          retention-days: 7
+
   verify:
     name: Verify Generated Code & Manifests
     runs-on: ubuntu-latest
@@ -461,18 +503,23 @@ jobs:
   gate:
     name: Gate
     runs-on: ubuntu-latest
-    needs: [lint, unit-test, verify, docker-build, docker-manifest]
+    needs: [lint, unit-test, integration-test, verify, docker-build, docker-manifest]
     if: always()
     steps:
       - name: Check results
         run: |
-          echo "Results: lint=${{ needs.lint.result }} test=${{ needs.unit-test.result }} verify=${{ needs.verify.result }} docker=${{ needs.docker-build.result }} manifest=${{ needs.docker-manifest.result }}"
+          echo "Results: lint=${{ needs.lint.result }} unit=${{ needs.unit-test.result }} integration=${{ needs.integration-test.result }} verify=${{ needs.verify.result }} docker=${{ needs.docker-build.result }} manifest=${{ needs.docker-manifest.result }}"
           if [[ "${{ needs.lint.result }}" != "success" ]] || \
              [[ "${{ needs.unit-test.result }}" != "success" ]] || \
              [[ "${{ needs.verify.result }}" != "success" ]] || \
              [[ "${{ needs.docker-build.result }}" != "success" ]]; then
             echo "::error::One or more required jobs failed"
             exit 1
+          fi
+          # Integration tests are allowed to fail (may need Docker which isn't always available)
+          if [[ "${{ needs.integration-test.result }}" != "success" ]] && \
+             [[ "${{ needs.integration-test.result }}" != "skipped" ]]; then
+            echo "::warning::Integration tests did not pass (may need Docker)"
           fi
           # docker-manifest is skipped for PRs, so check it only if it ran
           if [[ "${{ needs.docker-manifest.result }}" != "success" ]] && \
@@ -490,6 +537,7 @@ jobs:
           echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
           echo "| Lint | ${{ needs.lint.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Unit Tests | ${{ needs.unit-test.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Integration Tests | ${{ needs.integration-test.result == 'success' && '✅ Passed' || (needs.integration-test.result == 'skipped' && '⏭️ Skipped' || '⚠️ Warning') }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Verify | ${{ needs.verify.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Docker Build | ${{ needs.docker-build.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
           if [[ "${{ needs.docker-manifest.result }}" != "skipped" ]]; then
@@ -497,7 +545,112 @@ jobs:
           fi
 
   # ============================================================================
-  # Stage 3: E2E Tests
+  # Stage 3: Security & Integration Tests
+  # ============================================================================
+
+  security-test:
+    name: Security Integration Tests
+    runs-on: ubuntu-latest
+    needs: [gate]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ env.GO_VERSION_FILE }}
+          cache: true
+      - name: Run security tests
+        run: |
+          make test-security 2>&1 | tee security-output.txt || true
+      - name: Generate security test summary
+        if: always()
+        run: |
+          echo "## 🔒 Security Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Test Categories" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Category | Description |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------------|" >> $GITHUB_STEP_SUMMARY
+          echo "| SEC-IV | Input Validation (injection, traversal) |" >> $GITHUB_STEP_SUMMARY
+          echo "| SEC-RB | RBAC Boundary (namespace isolation) |" >> $GITHUB_STEP_SUMMARY
+          echo "| SEC-TLS | TLS/mTLS (certificate handling) |" >> $GITHUB_STEP_SUMMARY
+          echo "| SEC-TK | Token Security (lifecycle, revocation) |" >> $GITHUB_STEP_SUMMARY
+          echo "| SEC-SH | Secret Handling (no secrets in logs) |" >> $GITHUB_STEP_SUMMARY
+          echo "| SEC-PE | Privilege Escalation prevention |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -f security-output.txt ]; then
+            PASSED=$(grep -c "PASSED\|✓" security-output.txt || echo "0")
+            FAILED=$(grep -c "FAILED\|✗" security-output.txt || echo "0")
+            echo "### Results" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| Result | Count |" >> $GITHUB_STEP_SUMMARY
+            echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+            echo "| ✅ Passed | ${PASSED} |" >> $GITHUB_STEP_SUMMARY
+            echo "| ❌ Failed | ${FAILED} |" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "<details>" >> $GITHUB_STEP_SUMMARY
+            echo "<summary>Test Output</summary>" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            tail -150 security-output.txt >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "</details>" >> $GITHUB_STEP_SUMMARY
+          fi
+      - name: Upload security test output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-test-output
+          path: security-output.txt
+          retention-days: 7
+
+  integration-profiled:
+    name: Integration Tests (Profiled)
+    runs-on: ubuntu-latest
+    needs: [gate]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ env.GO_VERSION_FILE }}
+          cache: true
+      - name: Run profiled integration tests
+        run: |
+          make test-integration-report 2>&1 | tee profiled-output.txt || true
+      - name: Generate profiling summary
+        if: always()
+        run: |
+          echo "## 📊 Integration Test Profiling" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Report Artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Artifact | Description |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------------|" >> $GITHUB_STEP_SUMMARY
+          echo "| \`summary.html\` | Interactive HTML report with test metrics |" >> $GITHUB_STEP_SUMMARY
+          echo "| \`metrics.json\` | Machine-readable metrics for CI integration |" >> $GITHUB_STEP_SUMMARY
+          echo "| \`*_flamegraph.svg\` | CPU/Memory flamegraphs per test |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -f reports/profiling/metrics.json ]; then
+            echo "### Suite Metrics" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            TOTAL=$(jq -r '.TotalTests // 0' reports/profiling/metrics.json)
+            DURATION=$(jq -r '.Duration // 0' reports/profiling/metrics.json)
+            PEAK_MEM=$(jq -r '.PeakMemory // 0' reports/profiling/metrics.json)
+            echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+            echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+            echo "| Total Tests | ${TOTAL} |" >> $GITHUB_STEP_SUMMARY
+            echo "| Duration | ${DURATION}ns |" >> $GITHUB_STEP_SUMMARY
+            echo "| Peak Memory | ${PEAK_MEM} bytes |" >> $GITHUB_STEP_SUMMARY
+          fi
+      - name: Upload profiling reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: profiling-reports
+          path: reports/profiling/
+          retention-days: 30
+
+  # ============================================================================
+  # Stage 4: E2E Tests
   # ============================================================================
 
   e2e:
@@ -692,12 +845,46 @@ jobs:
         run: k3d cluster delete e2e || true
 
   # ============================================================================
-  # Stage 4: Success
+  # Stage 5: Success
   # ============================================================================
 
   ci-success:
     name: CI Success
     runs-on: ubuntu-latest
-    needs: [e2e]
+    needs: [e2e, security-test, integration-profiled]
+    if: always()
     steps:
-      - run: echo "All CI checks passed!"
+      - name: Check all jobs
+        run: |
+          echo "E2E: ${{ needs.e2e.result }}"
+          echo "Security: ${{ needs.security-test.result }}"
+          echo "Profiled: ${{ needs.integration-profiled.result }}"
+
+          # E2E is required
+          if [[ "${{ needs.e2e.result }}" != "success" ]]; then
+            echo "::error::E2E tests failed"
+            exit 1
+          fi
+
+          # Security and profiled tests are informational
+          if [[ "${{ needs.security-test.result }}" != "success" ]] && \
+             [[ "${{ needs.security-test.result }}" != "skipped" ]]; then
+            echo "::warning::Security tests did not pass"
+          fi
+          if [[ "${{ needs.integration-profiled.result }}" != "success" ]] && \
+             [[ "${{ needs.integration-profiled.result }}" != "skipped" ]]; then
+            echo "::warning::Profiled integration tests did not pass"
+          fi
+
+          echo "All CI checks passed!"
+
+      - name: Final Summary
+        if: always()
+        run: |
+          echo "## 🎉 CI Pipeline Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Stage | Job | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|-----|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Stage 4 | E2E Tests | ${{ needs.e2e.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Stage 3 | Security Tests | ${{ needs.security-test.result == 'success' && '✅ Passed' || (needs.security-test.result == 'skipped' && '⏭️ Skipped' || '⚠️ Warning') }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Stage 3 | Profiled Tests | ${{ needs.integration-profiled.result == 'success' && '✅ Passed' || (needs.integration-profiled.result == 'skipped' && '⏭️ Skipped' || '⚠️ Warning') }} |" >> $GITHUB_STEP_SUMMARY

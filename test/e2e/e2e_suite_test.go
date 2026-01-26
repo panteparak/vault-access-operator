@@ -17,6 +17,7 @@ limitations under the License.
 package e2e
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os/exec"
@@ -42,7 +43,48 @@ const (
 
 	// sharedVaultTokenSecretName is the secret containing the Vault token
 	sharedVaultTokenSecretName = "vault-token"
+
+	// operatorPolicyName is the Vault policy for the operator
+	operatorPolicyName = "vault-access-operator"
 )
+
+// operatorPolicyHCL defines the minimum permissions required for the operator.
+// This follows the Principle of Least Privilege - only granting what's needed.
+const operatorPolicyHCL = `
+# Policy management - operator needs to create/update/delete policies
+path "sys/policies/acl/*" {
+  capabilities = ["create", "read", "update", "delete", "list"]
+}
+path "sys/policies/acl" {
+  capabilities = ["list"]
+}
+
+# Kubernetes auth role management
+path "auth/kubernetes/role/*" {
+  capabilities = ["create", "read", "update", "delete", "list"]
+}
+path "auth/kubernetes/role" {
+  capabilities = ["list"]
+}
+
+# Kubernetes auth configuration (for initial setup)
+path "auth/kubernetes/config" {
+  capabilities = ["create", "read", "update", "delete"]
+}
+
+# Auth method management (enable/disable kubernetes auth)
+path "sys/auth" {
+  capabilities = ["read"]
+}
+path "sys/auth/*" {
+  capabilities = ["sudo", "create", "read", "update", "delete", "list"]
+}
+
+# Health checks
+path "sys/health" {
+  capabilities = ["read"]
+}
+`
 
 var (
 	// projectImage is the name of the image which will be build and loaded
@@ -111,10 +153,31 @@ func setupSharedTestInfrastructure() {
 		g.Expect(output).To(Equal("Running"))
 	}, 2*time.Minute, 5*time.Second).Should(Succeed())
 
-	By("creating Vault token secret for shared VaultConnection")
+	// Wait for Vault API to be accessible (pod Running doesn't mean API is ready)
+	By("waiting for Vault API to be accessible")
+	Eventually(func(g Gomega) {
+		cmd := exec.Command("kubectl", "exec", "-n", vaultNamespace, "vault-0", "--",
+			"vault", "status", "-format=json")
+		_, err := utils.Run(cmd)
+		g.Expect(err).NotTo(HaveOccurred())
+	}, 1*time.Minute, 5*time.Second).Should(Succeed())
+
+	// Create operator policy with least-privilege permissions
+	// This demonstrates proper Vault security practices - never use root token in production
+	By("creating operator policy with least-privilege permissions")
+	err = createOperatorPolicy()
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to create operator policy")
+
+	// Create operator token (non-root) with the operator policy
+	By("creating operator token (non-root)")
+	operatorToken, err := getOperatorToken()
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to create operator token")
+	ExpectWithOffset(1, operatorToken).NotTo(BeEmpty(), "Operator token should not be empty")
+
+	By("creating Vault token secret for shared VaultConnection (using operator token, not root)")
 	cmd = exec.Command("kubectl", "create", "secret", "generic", sharedVaultTokenSecretName,
 		"-n", testNamespace,
-		"--from-literal=token=root")
+		"--from-literal=token="+operatorToken)
 	_, _ = utils.Run(cmd) // Ignore error if already exists
 
 	By("creating shared VaultConnection for tests")
@@ -185,4 +248,46 @@ func (r *stringReaderImpl) Read(p []byte) (n int, err error) {
 	n = copy(p, r.data[r.pos:])
 	r.pos += n
 	return n, nil
+}
+
+// createOperatorPolicy creates the operator policy in Vault using kubectl exec.
+// This policy provides the minimum permissions required for the operator to function.
+func createOperatorPolicy() error {
+	// Write the policy to Vault using heredoc via kubectl exec
+	// The policy is written to stdin of the vault policy write command
+	cmd := exec.Command("kubectl", "exec", "-n", vaultNamespace, "vault-0", "--",
+		"vault", "policy", "write", operatorPolicyName, "-")
+	cmd.Stdin = stringReader(operatorPolicyHCL)
+	_, err := utils.Run(cmd)
+	return err
+}
+
+// getOperatorToken creates a new operator token with the operator policy.
+// Returns the token string or an error if token creation fails.
+func getOperatorToken() (string, error) {
+	cmd := exec.Command("kubectl", "exec", "-n", vaultNamespace, "vault-0", "--",
+		"vault", "token", "create",
+		"-policy="+operatorPolicyName,
+		"-ttl=24h",
+		"-format=json")
+	output, err := utils.Run(cmd)
+	if err != nil {
+		return "", fmt.Errorf("failed to create operator token: %w", err)
+	}
+
+	// Parse the JSON response to extract the client_token
+	var tokenResp struct {
+		Auth struct {
+			ClientToken string `json:"client_token"`
+		} `json:"auth"`
+	}
+	if err := json.Unmarshal([]byte(output), &tokenResp); err != nil {
+		return "", fmt.Errorf("failed to parse token response: %w", err)
+	}
+
+	if tokenResp.Auth.ClientToken == "" {
+		return "", fmt.Errorf("empty token in response")
+	}
+
+	return tokenResp.Auth.ClientToken, nil
 }

@@ -996,48 +996,5 @@ func TestValidatePolicyReference(t *testing.T) {
 	}
 }
 
-func TestVaultRoleValidator_TypeCasting(t *testing.T) {
-	// Test that the validator correctly handles type casting errors
-	v := &VaultRoleValidator{}
-
-	// Test with wrong type for ValidateCreate
-	_, err := v.ValidateCreate(context.Background(), &vaultv1alpha1.VaultPolicy{})
-	if err == nil {
-		t.Error("ValidateCreate() expected error for wrong type, got nil")
-	}
-	if !strings.Contains(err.Error(), "expected VaultRole") {
-		t.Errorf("ValidateCreate() error = %v, want error containing 'expected VaultRole'", err)
-	}
-
-	// Test with wrong type for ValidateUpdate
-	_, err = v.ValidateUpdate(context.Background(), &vaultv1alpha1.VaultPolicy{}, &vaultv1alpha1.VaultPolicy{})
-	if err == nil {
-		t.Error("ValidateUpdate() expected error for wrong type, got nil")
-	}
-	if !strings.Contains(err.Error(), "expected VaultRole") {
-		t.Errorf("ValidateUpdate() error = %v, want error containing 'expected VaultRole'", err)
-	}
-}
-
-func TestVaultClusterRoleValidator_TypeCasting(t *testing.T) {
-	// Test that the validator correctly handles type casting errors
-	v := &VaultClusterRoleValidator{}
-
-	// Test with wrong type for ValidateCreate
-	_, err := v.ValidateCreate(context.Background(), &vaultv1alpha1.VaultPolicy{})
-	if err == nil {
-		t.Error("ValidateCreate() expected error for wrong type, got nil")
-	}
-	if !strings.Contains(err.Error(), "expected VaultClusterRole") {
-		t.Errorf("ValidateCreate() error = %v, want error containing 'expected VaultClusterRole'", err)
-	}
-
-	// Test with wrong type for ValidateUpdate
-	_, err = v.ValidateUpdate(context.Background(), &vaultv1alpha1.VaultPolicy{}, &vaultv1alpha1.VaultPolicy{})
-	if err == nil {
-		t.Error("ValidateUpdate() expected error for wrong type, got nil")
-	}
-	if !strings.Contains(err.Error(), "expected VaultClusterRole") {
-		t.Errorf("ValidateUpdate() error = %v, want error containing 'expected VaultClusterRole'", err)
-	}
-}
+// NOTE: Type casting tests removed - with Go generics in controller-runtime v0.23.0,
+// type safety is now enforced at compile time, making runtime type assertion tests obsolete.

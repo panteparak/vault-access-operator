@@ -153,6 +153,48 @@ lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 lint-config: golangci-lint ## Verify golangci-lint linter configuration
 	$(GOLANGCI_LINT) config verify
 
+##@ Integration Tests (testcontainers-go)
+
+INTEGRATION_TIMEOUT ?= 10m
+PROFILING_OUTPUT ?= reports/profiling
+
+.PHONY: test-integration
+test-integration: manifests generate setup-envtest ## Run integration tests with testcontainers-go
+	@echo "Running integration tests..."
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test ./test/integration/... -v -timeout $(INTEGRATION_TIMEOUT)
+
+.PHONY: test-integration-parallel
+test-integration-parallel: manifests generate setup-envtest ## Run integration tests with Ginkgo parallelism
+	@echo "Running integration tests with Ginkgo parallelism..."
+	@command -v ginkgo >/dev/null 2>&1 || go install github.com/onsi/ginkgo/v2/ginkgo@latest
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" ginkgo -v -p --timeout=$(INTEGRATION_TIMEOUT) ./test/integration/...
+
+.PHONY: test-security
+test-security: manifests generate setup-envtest ## Run security-focused integration tests
+	@echo "Running security tests..."
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test ./test/integration/security/... -v -timeout $(INTEGRATION_TIMEOUT) --ginkgo.label-filter="security"
+
+.PHONY: test-integration-profiled
+test-integration-profiled: manifests generate setup-envtest ## Run integration tests with CPU/memory profiling
+	@echo "Running integration tests with profiling..."
+	@mkdir -p $(PROFILING_OUTPUT)
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" INTEGRATION_PROFILING=true go test ./test/integration/... -v -timeout $(INTEGRATION_TIMEOUT)
+
+.PHONY: test-integration-report
+test-integration-report: test-integration-profiled ## Run profiled tests and generate HTML report
+	@echo "Opening profiling report..."
+	@if [ -f $(PROFILING_OUTPUT)/summary.html ]; then \
+		echo "Report available at: $(PROFILING_OUTPUT)/summary.html"; \
+	else \
+		echo "No report generated. Check test output for errors."; \
+	fi
+
+.PHONY: testcontainers-cleanup
+testcontainers-cleanup: ## Clean up orphaned testcontainers
+	@echo "Cleaning up testcontainers..."
+	@docker ps -a --filter "label=org.testcontainers" -q | xargs -r docker rm -f || true
+	@docker network ls --filter "label=org.testcontainers" -q | xargs -r docker network rm || true
+
 ##@ Build
 
 .PHONY: build

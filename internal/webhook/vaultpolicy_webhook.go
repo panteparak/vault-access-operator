@@ -22,10 +22,8 @@ import (
 	"regexp"
 	"strings"
 
-	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
@@ -51,52 +49,39 @@ var pathPattern = regexp.MustCompile(`^[a-zA-Z0-9/_*{}\-+]+$`)
 // namespaceVarPattern matches the {{namespace}} variable in paths
 const namespaceVar = "{{namespace}}"
 
-// VaultPolicyValidator implements admission.CustomValidator for VaultPolicy
+// VaultPolicyValidator implements admission.Validator for VaultPolicy
 type VaultPolicyValidator struct{}
 
-// VaultClusterPolicyValidator implements admission.CustomValidator for VaultClusterPolicy
+// VaultClusterPolicyValidator implements admission.Validator for VaultClusterPolicy
 type VaultClusterPolicyValidator struct{}
 
 // Ensure interfaces are implemented
-var _ webhook.CustomValidator = &VaultPolicyValidator{}
-var _ webhook.CustomValidator = &VaultClusterPolicyValidator{}
+var _ admission.Validator[*vaultv1alpha1.VaultPolicy] = &VaultPolicyValidator{}
+var _ admission.Validator[*vaultv1alpha1.VaultClusterPolicy] = &VaultClusterPolicyValidator{}
 
 // +kubebuilder:webhook:path=/validate-vault-platform-io-v1alpha1-vaultpolicy,mutating=false,failurePolicy=fail,sideEffects=None,groups=vault.platform.io,resources=vaultpolicies,verbs=create;update,versions=v1alpha1,name=vvaultpolicy.kb.io,admissionReviewVersions=v1
 
 // SetupVaultPolicyWebhookWithManager sets up the VaultPolicy webhook with the manager
 func SetupVaultPolicyWebhookWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewWebhookManagedBy(mgr).
-		For(&vaultv1alpha1.VaultPolicy{}).
+	return ctrl.NewWebhookManagedBy(mgr, &vaultv1alpha1.VaultPolicy{}).
 		WithValidator(&VaultPolicyValidator{}).
 		Complete()
 }
 
-// ValidateCreate implements webhook.CustomValidator
-func (v *VaultPolicyValidator) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
-	policy, ok := obj.(*vaultv1alpha1.VaultPolicy)
-	if !ok {
-		return nil, fmt.Errorf("expected VaultPolicy but got %T", obj)
-	}
-
+// ValidateCreate implements admission.Validator
+func (v *VaultPolicyValidator) ValidateCreate(ctx context.Context, policy *vaultv1alpha1.VaultPolicy) (admission.Warnings, error) {
 	vaultpolicylog.Info("validating VaultPolicy create", "name", policy.Name, "namespace", policy.Namespace)
-
 	return v.validateVaultPolicy(policy)
 }
 
-// ValidateUpdate implements webhook.CustomValidator
-func (v *VaultPolicyValidator) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
-	policy, ok := newObj.(*vaultv1alpha1.VaultPolicy)
-	if !ok {
-		return nil, fmt.Errorf("expected VaultPolicy but got %T", newObj)
-	}
-
+// ValidateUpdate implements admission.Validator
+func (v *VaultPolicyValidator) ValidateUpdate(ctx context.Context, oldPolicy, policy *vaultv1alpha1.VaultPolicy) (admission.Warnings, error) {
 	vaultpolicylog.Info("validating VaultPolicy update", "name", policy.Name, "namespace", policy.Namespace)
-
 	return v.validateVaultPolicy(policy)
 }
 
-// ValidateDelete implements webhook.CustomValidator
-func (v *VaultPolicyValidator) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+// ValidateDelete implements admission.Validator
+func (v *VaultPolicyValidator) ValidateDelete(ctx context.Context, policy *vaultv1alpha1.VaultPolicy) (admission.Warnings, error) {
 	// No validation needed for delete
 	return nil, nil
 }
@@ -124,38 +109,25 @@ func (v *VaultPolicyValidator) validateVaultPolicy(policy *vaultv1alpha1.VaultPo
 
 // SetupVaultClusterPolicyWebhookWithManager sets up the VaultClusterPolicy webhook with the manager
 func SetupVaultClusterPolicyWebhookWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewWebhookManagedBy(mgr).
-		For(&vaultv1alpha1.VaultClusterPolicy{}).
+	return ctrl.NewWebhookManagedBy(mgr, &vaultv1alpha1.VaultClusterPolicy{}).
 		WithValidator(&VaultClusterPolicyValidator{}).
 		Complete()
 }
 
-// ValidateCreate implements webhook.CustomValidator
-func (v *VaultClusterPolicyValidator) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
-	policy, ok := obj.(*vaultv1alpha1.VaultClusterPolicy)
-	if !ok {
-		return nil, fmt.Errorf("expected VaultClusterPolicy but got %T", obj)
-	}
-
+// ValidateCreate implements admission.Validator
+func (v *VaultClusterPolicyValidator) ValidateCreate(ctx context.Context, policy *vaultv1alpha1.VaultClusterPolicy) (admission.Warnings, error) {
 	vaultpolicylog.Info("validating VaultClusterPolicy create", "name", policy.Name)
-
 	return v.validateVaultClusterPolicy(policy)
 }
 
-// ValidateUpdate implements webhook.CustomValidator
-func (v *VaultClusterPolicyValidator) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
-	policy, ok := newObj.(*vaultv1alpha1.VaultClusterPolicy)
-	if !ok {
-		return nil, fmt.Errorf("expected VaultClusterPolicy but got %T", newObj)
-	}
-
+// ValidateUpdate implements admission.Validator
+func (v *VaultClusterPolicyValidator) ValidateUpdate(ctx context.Context, oldPolicy, policy *vaultv1alpha1.VaultClusterPolicy) (admission.Warnings, error) {
 	vaultpolicylog.Info("validating VaultClusterPolicy update", "name", policy.Name)
-
 	return v.validateVaultClusterPolicy(policy)
 }
 
-// ValidateDelete implements webhook.CustomValidator
-func (v *VaultClusterPolicyValidator) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+// ValidateDelete implements admission.Validator
+func (v *VaultClusterPolicyValidator) ValidateDelete(ctx context.Context, policy *vaultv1alpha1.VaultClusterPolicy) (admission.Warnings, error) {
 	// No validation needed for delete
 	return nil, nil
 }
