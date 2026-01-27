@@ -281,7 +281,8 @@ func (r *stringReaderImpl) Read(p []byte) (n int, err error) {
 func createOperatorPolicy() error {
 	// Write the policy to Vault using heredoc via kubectl exec
 	// The policy is written to stdin of the vault policy write command
-	cmd := exec.Command("kubectl", "exec", "-n", vaultNamespace, "vault-0", "--",
+	// Note: -i flag is required to pass stdin to the pod
+	cmd := exec.Command("kubectl", "exec", "-i", "-n", vaultNamespace, "vault-0", "--",
 		"vault", "policy", "write", operatorPolicyName, "-")
 	cmd.Stdin = stringReader(operatorPolicyHCL)
 	_, err := utils.Run(cmd)
