@@ -328,16 +328,44 @@ func PatchValidatingWebhookCABundle(webhookName string, caBundle []byte) error {
 	return nil
 }
 
-// LoadImageToKindClusterWithName loads a local docker image to the kind cluster
-func LoadImageToKindClusterWithName(name string) error {
-	cluster := "kind"
-	if v, ok := os.LookupEnv("KIND_CLUSTER"); ok {
-		cluster = v
+// LoadImageToCluster loads a local docker image to the Kubernetes cluster.
+// Supports both k3d (default) and Kind via E2E_CLUSTER_TOOL environment variable.
+// Cluster name can be set via E2E_CLUSTER_NAME (default: "e2e" for k3d, "kind" for Kind).
+func LoadImageToCluster(imageName string) error {
+	clusterTool := os.Getenv("E2E_CLUSTER_TOOL")
+	if clusterTool == "" {
+		clusterTool = "k3d" // Default to k3d (matches CI)
 	}
-	kindOptions := []string{"load", "docker-image", name, "--name", cluster}
-	cmd := exec.Command("kind", kindOptions...)
-	_, err := Run(cmd)
-	return err
+
+	clusterName := os.Getenv("E2E_CLUSTER_NAME")
+
+	switch clusterTool {
+	case "k3d":
+		if clusterName == "" {
+			clusterName = "e2e"
+		}
+		cmd := exec.Command("k3d", "image", "import", imageName, "--cluster", clusterName)
+		_, err := Run(cmd)
+		return err
+	case "kind":
+		if clusterName == "" {
+			clusterName = "kind"
+		}
+		cmd := exec.Command("kind", "load", "docker-image", imageName, "--name", clusterName)
+		_, err := Run(cmd)
+		return err
+	default:
+		return fmt.Errorf("unsupported cluster tool: %s (supported: k3d, kind)", clusterTool)
+	}
+}
+
+// LoadImageToKindClusterWithName is deprecated, use LoadImageToCluster instead.
+// Kept for backwards compatibility.
+func LoadImageToKindClusterWithName(name string) error {
+	// Force Kind for backwards compatibility with existing calls
+	_ = os.Setenv("E2E_CLUSTER_TOOL", "kind")
+	defer func() { _ = os.Unsetenv("E2E_CLUSTER_TOOL") }()
+	return LoadImageToCluster(name)
 }
 
 // GetNonEmptyLines converts given command output string into individual objects

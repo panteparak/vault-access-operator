@@ -211,7 +211,7 @@ path "sys/policies/acl/*" {
 })
 
 var _ = Describe("TC-AU05: OIDC-style JWT Authentication", Ordered, func() {
-	// This test uses Kind's built-in OIDC issuer discovery to test OIDC-style authentication
+	// This test uses Kubernetes' built-in OIDC issuer discovery to test OIDC-style authentication
 	// without requiring an external OIDC provider like Dex or Keycloak
 
 	const (
@@ -234,7 +234,7 @@ var _ = Describe("TC-AU05: OIDC-style JWT Authentication", Ordered, func() {
 		_, _ = utils.RunVaultCommand("delete", fmt.Sprintf("auth/jwt/role/%s", oidcRoleName))
 	})
 
-	Context("TC-AU05: OIDC with Kind's built-in OIDC issuer", func() {
+	Context("TC-AU05: OIDC with Kubernetes built-in OIDC issuer", func() {
 		It("TC-AU05-01: should discover OIDC configuration from Kubernetes API", func() {
 			By("fetching OIDC discovery document")
 			cmd := exec.Command("kubectl", "get", "--raw", "/.well-known/openid-configuration")

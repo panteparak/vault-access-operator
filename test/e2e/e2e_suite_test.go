@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"testing"
 	"time"
@@ -89,12 +90,29 @@ path "sys/health" {
 var (
 	// projectImage is the name of the image which will be build and loaded
 	// with the code source changes to be tested.
+	// Can be overridden via E2E_IMAGE environment variable.
 	projectImage = "example.com/vault-access-operator:v0.0.1"
+
+	// skipBuild skips building the image (useful when image is pre-built in CI).
+	// Set E2E_SKIP_BUILD=true to skip.
+	skipBuild = os.Getenv("E2E_SKIP_BUILD") == "true"
+
+	// skipImageLoad skips loading image to cluster (useful when image is pre-loaded by CI).
+	// Set E2E_SKIP_IMAGE_LOAD=true to skip.
+	skipImageLoad = os.Getenv("E2E_SKIP_IMAGE_LOAD") == "true"
 )
 
+func init() {
+	// Allow overriding image via environment variable
+	if img := os.Getenv("E2E_IMAGE"); img != "" {
+		projectImage = img
+	}
+}
+
 // TestE2E runs the end-to-end (e2e) test suite for the project. These tests execute in an isolated,
-// temporary environment to validate project changes with the purposed to be used in CI jobs.
-// The default setup requires Kind and builds/loads the Manager Docker image locally.
+// temporary environment to validate project changes with the purpose to be used in CI jobs.
+// The default setup uses k3d and builds/loads the Manager Docker image locally.
+// In CI, E2E_SKIP_BUILD and E2E_SKIP_IMAGE_LOAD are set to use pre-built images.
 // Note: Webhooks use self-signed TLS certificates instead of cert-manager.
 func TestE2E(t *testing.T) {
 	RegisterFailHandler(Fail)
@@ -103,16 +121,24 @@ func TestE2E(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
-	By("building the manager(Operator) image")
-	cmd := exec.Command("make", "docker-build", fmt.Sprintf("IMG=%s", projectImage))
-	_, err := utils.Run(cmd)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the manager(Operator) image")
+	By(fmt.Sprintf("using image: %s (skipBuild=%v, skipImageLoad=%v)", projectImage, skipBuild, skipImageLoad))
 
-	// TODO(user): If you want to change the e2e test vendor from Kind, ensure the image is
-	// built and available before running the tests. Also, remove the following block.
-	By("loading the manager(Operator) image on Kind")
-	err = utils.LoadImageToKindClusterWithName(projectImage)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the manager(Operator) image into Kind")
+	if !skipBuild {
+		By("building the manager(Operator) image")
+		cmd := exec.Command("make", "docker-build", fmt.Sprintf("IMG=%s", projectImage))
+		_, err := utils.Run(cmd)
+		ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the manager(Operator) image")
+	} else {
+		By("skipping image build (E2E_SKIP_BUILD=true)")
+	}
+
+	if !skipImageLoad {
+		By("loading the manager(Operator) image into cluster")
+		err := utils.LoadImageToCluster(projectImage)
+		ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the manager(Operator) image into cluster")
+	} else {
+		By("skipping image load (E2E_SKIP_IMAGE_LOAD=true)")
+	}
 
 	// Set default timeouts for all tests
 	SetDefaultEventuallyTimeout(2 * time.Minute)

@@ -1,0 +1,183 @@
+name: Cleanup Container Images
+
+on:
+  schedule:
+    # Run daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (no deletions)'
+        required: false
+        default: 'false'
+        type: boolean
+      keep_count:
+        description: 'Number of SHA images to keep'
+        required: false
+        default: '10'
+        type: string
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  cleanup:
+    name: Cleanup Old Images
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+      - name: Cleanup old container images
+        uses: actions/github-script@v7
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
+          KEEP_COUNT: ${{ inputs.keep_count }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const dryRun = process.env.DRY_RUN === 'true';
+            const keepCount = parseInt(process.env.KEEP_COUNT || '10', 10);
+
+            console.log(`Configuration: dry_run=${dryRun}, keep_count=${keepCount}`);
+
+            // Get package versions
+            const owner = context.repo.owner;
+            const packageName = context.repo.repo;
+
+            console.log(`Fetching versions for ${owner}/${packageName}...`);
+
+            let allVersions = [];
+            let page = 1;
+            const perPage = 100;
+
+            // Paginate through all versions
+            while (true) {
+              const response = await github.rest.packages.getAllPackageVersionsForPackageOwnedByOrg({
+                package_type: 'container',
+                package_name: packageName,
+                org: owner,
+                page: page,
+                per_page: perPage,
+                state: 'active'
+              }).catch(async (err) => {
+                // Try user endpoint if org endpoint fails
+                if (err.status === 404) {
+                  return github.rest.packages.getAllPackageVersionsForPackageOwnedByUser({
+                    package_type: 'container',
+                    package_name: packageName,
+                    username: owner,
+                    page: page,
+                    per_page: perPage,
+                    state: 'active'
+                  });
+                }
+                throw err;
+              });
+
+              if (response.data.length === 0) break;
+              allVersions = allVersions.concat(response.data);
+              if (response.data.length < perPage) break;
+              page++;
+            }
+
+            console.log(`Found ${allVersions.length} total versions`);
+
+            // Categorize versions
+            const semverPattern = /^v?\d+\.\d+\.\d+(-[\w.]+)?$/;
+            const shaPattern = /^sha-[a-f0-9]+(-linux-(amd64|arm64))?$/;
+
+            const semverVersions = [];
+            const shaVersions = [];
+            const otherVersions = [];
+
+            for (const version of allVersions) {
+              const tags = version.metadata?.container?.tags || [];
+
+              // Check if any tag is semver
+              const hasSemver = tags.some(tag => semverPattern.test(tag));
+              // Check if all tags are SHA-based
+              const allSha = tags.length > 0 && tags.every(tag => shaPattern.test(tag) || tag === 'latest');
+
+              if (hasSemver) {
+                semverVersions.push({ ...version, tags });
+              } else if (allSha || tags.length === 0) {
+                shaVersions.push({ ...version, tags });
+              } else {
+                otherVersions.push({ ...version, tags });
+              }
+            }
+
+            console.log(`\nCategorized versions:`);
+            console.log(`  - Semver (kept): ${semverVersions.length}`);
+            console.log(`  - SHA-based: ${shaVersions.length}`);
+            console.log(`  - Other (kept): ${otherVersions.length}`);
+
+            // Sort SHA versions by created_at (newest first)
+            shaVersions.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+            // Determine which SHA versions to delete
+            const shaToKeep = shaVersions.slice(0, keepCount);
+            const shaToDelete = shaVersions.slice(keepCount);
+
+            console.log(`\nSHA versions to keep: ${shaToKeep.length}`);
+            shaToKeep.forEach(v => {
+              console.log(`  ✓ ${v.id} - ${v.tags.join(', ') || '(untagged)'} - ${v.created_at}`);
+            });
+
+            console.log(`\nSHA versions to delete: ${shaToDelete.length}`);
+            shaToDelete.forEach(v => {
+              console.log(`  ✗ ${v.id} - ${v.tags.join(', ') || '(untagged)'} - ${v.created_at}`);
+            });
+
+            if (dryRun) {
+              console.log('\n🔍 DRY RUN - No deletions performed');
+              return;
+            }
+
+            // Delete old SHA versions
+            let deleted = 0;
+            let failed = 0;
+
+            for (const version of shaToDelete) {
+              try {
+                await github.rest.packages.deletePackageVersionForOrg({
+                  package_type: 'container',
+                  package_name: packageName,
+                  org: owner,
+                  package_version_id: version.id
+                }).catch(async (err) => {
+                  if (err.status === 404) {
+                    return github.rest.packages.deletePackageVersionForUser({
+                      package_type: 'container',
+                      package_name: packageName,
+                      username: owner,
+                      package_version_id: version.id
+                    });
+                  }
+                  throw err;
+                });
+                deleted++;
+                console.log(`Deleted: ${version.id} (${version.tags.join(', ') || 'untagged'})`);
+              } catch (err) {
+                failed++;
+                console.error(`Failed to delete ${version.id}: ${err.message}`);
+              }
+            }
+
+            console.log(`\n✅ Cleanup complete: ${deleted} deleted, ${failed} failed`);
+
+      - name: Summary
+        if: always()
+        env:
+          DRY_RUN: ${{ inputs.dry_run || 'false' }}
+          KEEP_COUNT: ${{ inputs.keep_count || '10' }}
+        run: |
+          echo "## 🧹 Image Cleanup Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Setting | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Dry Run | \`${DRY_RUN}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Keep Count | \`${KEEP_COUNT}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "See job logs for detailed results." >> $GITHUB_STEP_SUMMARY
