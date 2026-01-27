@@ -381,6 +381,16 @@ func RunVaultCommand(args ...string) (string, error) {
 	return Run(cmd)
 }
 
+// RunVaultCommandWithToken executes a vault CLI command with a specific token
+// This is useful for testing operations with a non-root token
+func RunVaultCommandWithToken(token string, args ...string) (string, error) {
+	// Set the VAULT_TOKEN environment variable for the command
+	cmdArgs := []string{"exec", "-n", VaultNamespace, VaultPod, "--",
+		"sh", "-c", fmt.Sprintf("VAULT_TOKEN=%s vault %s", token, strings.Join(args, " "))}
+	cmd := exec.Command("kubectl", cmdArgs...)
+	return Run(cmd)
+}
+
 // ReadVaultPolicy reads a policy from Vault and returns the HCL content
 func ReadVaultPolicy(policyName string) (string, error) {
 	return RunVaultCommand("policy", "read", policyName)
@@ -480,7 +490,8 @@ func ReadVaultSecret(path string) (string, error) {
 
 // WriteVaultSecret writes a secret to the KV v2 secrets engine
 func WriteVaultSecret(path string, data map[string]string) error {
-	args := []string{"kv", "put", path}
+	args := make([]string, 0, 3+len(data))
+	args = append(args, "kv", "put", path)
 	for k, v := range data {
 		args = append(args, fmt.Sprintf("%s=%s", k, v))
 	}

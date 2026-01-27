@@ -8,6 +8,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.7
 	github.com/aws/aws-sdk-go-v2/service/sts v1.41.6
 	github.com/go-logr/logr v1.4.3
+	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/hashicorp/vault/api v1.22.0
 	github.com/onsi/ginkgo/v2 v2.27.5
 	github.com/onsi/gomega v1.39.0
