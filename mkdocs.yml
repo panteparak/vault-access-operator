@@ -55,6 +55,7 @@ nav:
   - Configuration: configuration.md
   - API Reference: api-reference.md
   - Examples: examples.md
+  - Webhooks: webhooks.md
   - Troubleshooting: troubleshooting.md
 
 extra:

@@ -30,6 +30,7 @@ import (
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/pkg/vault"
+	"github.com/panteparak/vault-access-operator/pkg/vault/auth"
 	"github.com/panteparak/vault-access-operator/pkg/vault/bootstrap"
 	"github.com/panteparak/vault-access-operator/pkg/vault/token"
 	"github.com/panteparak/vault-access-operator/shared/controller/base"
@@ -402,11 +403,11 @@ func (h *Handler) authenticate(
 	vaultClient *vault.Client,
 	conn *vaultv1alpha1.VaultConnection,
 ) error {
-	auth := conn.Spec.Auth
+	authCfg := conn.Spec.Auth
 
 	// Kubernetes auth - uses TokenProvider for token acquisition
-	if auth.Kubernetes != nil {
-		authPath := auth.Kubernetes.AuthPath
+	if authCfg.Kubernetes != nil {
+		authPath := authCfg.Kubernetes.AuthPath
 		if authPath == "" {
 			authPath = defaultKubernetesAuthPath
 		}
@@ -417,12 +418,12 @@ func (h *Handler) authenticate(
 			return fmt.Errorf("failed to get service account token: %w", err)
 		}
 
-		return vaultClient.AuthenticateKubernetesWithToken(ctx, auth.Kubernetes.Role, authPath, tokenInfo.Token)
+		return vaultClient.AuthenticateKubernetesWithToken(ctx, authCfg.Kubernetes.Role, authPath, tokenInfo.Token)
 	}
 
 	// Token auth
-	if auth.Token != nil {
-		tokenValue, err := h.getSecretData(ctx, &auth.Token.SecretRef)
+	if authCfg.Token != nil {
+		tokenValue, err := h.getSecretData(ctx, &authCfg.Token.SecretRef)
 		if err != nil {
 			return fmt.Errorf("failed to get token from secret: %w", err)
 		}
@@ -430,16 +431,68 @@ func (h *Handler) authenticate(
 	}
 
 	// AppRole auth
-	if auth.AppRole != nil {
-		secretID, err := h.getSecretData(ctx, &auth.AppRole.SecretIDRef)
+	if authCfg.AppRole != nil {
+		secretID, err := h.getSecretData(ctx, &authCfg.AppRole.SecretIDRef)
 		if err != nil {
 			return fmt.Errorf("failed to get secret ID from secret: %w", err)
 		}
-		mountPath := auth.AppRole.MountPath
+		mountPath := authCfg.AppRole.MountPath
 		if mountPath == "" {
 			mountPath = "approle"
 		}
-		return vaultClient.AuthenticateAppRole(ctx, auth.AppRole.RoleID, secretID, mountPath)
+		return vaultClient.AuthenticateAppRole(ctx, authCfg.AppRole.RoleID, secretID, mountPath)
+	}
+
+	// JWT auth
+	if authCfg.JWT != nil {
+		jwt, err := h.getJWTToken(ctx, authCfg.JWT)
+		if err != nil {
+			return fmt.Errorf("failed to get JWT: %w", err)
+		}
+		authPath := authCfg.JWT.AuthPath
+		if authPath == "" {
+			authPath = "jwt"
+		}
+		return vaultClient.AuthenticateJWT(ctx, authCfg.JWT.Role, authPath, jwt)
+	}
+
+	// OIDC auth (workload identity)
+	if authCfg.OIDC != nil {
+		jwt, err := h.getOIDCToken(ctx, authCfg.OIDC)
+		if err != nil {
+			return fmt.Errorf("failed to get OIDC token: %w", err)
+		}
+		authPath := authCfg.OIDC.AuthPath
+		if authPath == "" {
+			authPath = "oidc"
+		}
+		return vaultClient.AuthenticateOIDC(ctx, authCfg.OIDC.Role, authPath, jwt)
+	}
+
+	// AWS IAM auth
+	if authCfg.AWS != nil {
+		loginData, err := h.getAWSLoginData(ctx, authCfg.AWS)
+		if err != nil {
+			return fmt.Errorf("failed to generate AWS login data: %w", err)
+		}
+		authPath := authCfg.AWS.AuthPath
+		if authPath == "" {
+			authPath = "aws"
+		}
+		return vaultClient.AuthenticateAWS(ctx, authCfg.AWS.Role, authPath, loginData)
+	}
+
+	// GCP IAM auth
+	if authCfg.GCP != nil {
+		signedJWT, err := h.getGCPSignedJWT(ctx, authCfg.GCP)
+		if err != nil {
+			return fmt.Errorf("failed to generate GCP signed JWT: %w", err)
+		}
+		authPath := authCfg.GCP.AuthPath
+		if authPath == "" {
+			authPath = "gcp"
+		}
+		return vaultClient.AuthenticateGCP(ctx, authCfg.GCP.Role, authPath, signedJWT)
 	}
 
 	return fmt.Errorf("no authentication method configured")
@@ -566,6 +619,158 @@ func (h *Handler) setCondition(
 	if !found {
 		conn.Status.Conditions = append(conn.Status.Conditions, condition)
 	}
+}
+
+// getJWTToken retrieves a JWT for the JWT auth method.
+// Uses either a secret reference or the TokenRequest API.
+func (h *Handler) getJWTToken(ctx context.Context, jwtCfg *vaultv1alpha1.JWTAuth) (string, error) {
+	// If a JWT secret is provided, use it
+	if jwtCfg.JWTSecretRef != nil {
+		return h.getSecretData(ctx, jwtCfg.JWTSecretRef)
+	}
+
+	// Otherwise, use TokenRequest API to generate a short-lived token
+	if h.tokenProvider == nil {
+		return "", fmt.Errorf("token provider not configured for JWT auth")
+	}
+
+	// Determine duration
+	duration := token.DefaultTokenDuration
+	if jwtCfg.TokenDuration.Duration > 0 {
+		duration = jwtCfg.TokenDuration.Duration
+	}
+
+	// Determine audiences
+	audiences := jwtCfg.Audiences
+	if len(audiences) == 0 {
+		audiences = []string{"vault"}
+	}
+
+	// Get token from operator's service account
+	saName := getOperatorServiceAccountName()
+	saNamespace := getOperatorNamespace()
+
+	tokenInfo, err := h.tokenProvider.GetToken(ctx, token.GetTokenOptions{
+		ServiceAccount: token.ServiceAccountRef{
+			Name:      saName,
+			Namespace: saNamespace,
+		},
+		Duration:  duration,
+		Audiences: audiences,
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to get JWT from TokenRequest: %w", err)
+	}
+
+	return tokenInfo.Token, nil
+}
+
+// getOIDCToken retrieves a JWT for the OIDC auth method.
+// Uses the TokenRequest API with OIDC-specific audience configuration.
+func (h *Handler) getOIDCToken(ctx context.Context, oidcCfg *vaultv1alpha1.OIDCAuth) (string, error) {
+	// If a JWT secret is provided, use it
+	if oidcCfg.JWTSecretRef != nil {
+		return h.getSecretData(ctx, oidcCfg.JWTSecretRef)
+	}
+
+	// Check if we should use service account token
+	useServiceAccountToken := true
+	if oidcCfg.UseServiceAccountToken != nil {
+		useServiceAccountToken = *oidcCfg.UseServiceAccountToken
+	}
+
+	if !useServiceAccountToken {
+		return "", fmt.Errorf("OIDC auth requires either jwtSecretRef or useServiceAccountToken=true")
+	}
+
+	// Use TokenRequest API to generate a short-lived token
+	if h.tokenProvider == nil {
+		return "", fmt.Errorf("token provider not configured for OIDC auth")
+	}
+
+	// Determine duration
+	duration := token.DefaultTokenDuration
+	if oidcCfg.TokenDuration.Duration > 0 {
+		duration = oidcCfg.TokenDuration.Duration
+	}
+
+	// Determine audiences - for OIDC, use the provider URL if no audiences specified
+	audiences := oidcCfg.Audiences
+	if len(audiences) == 0 && oidcCfg.ProviderURL != "" {
+		audiences = []string{oidcCfg.ProviderURL}
+	}
+	if len(audiences) == 0 {
+		audiences = []string{"vault"}
+	}
+
+	// Get token from operator's service account
+	saName := getOperatorServiceAccountName()
+	saNamespace := getOperatorNamespace()
+
+	tokenInfo, err := h.tokenProvider.GetToken(ctx, token.GetTokenOptions{
+		ServiceAccount: token.ServiceAccountRef{
+			Name:      saName,
+			Namespace: saNamespace,
+		},
+		Duration:  duration,
+		Audiences: audiences,
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to get OIDC token from TokenRequest: %w", err)
+	}
+
+	return tokenInfo.Token, nil
+}
+
+// getAWSLoginData generates AWS IAM login data for Vault authentication.
+func (h *Handler) getAWSLoginData(ctx context.Context, awsCfg *vaultv1alpha1.AWSAuth) (map[string]interface{}, error) {
+	opts := auth.AWSAuthOptions{
+		Region:                 awsCfg.Region,
+		STSEndpoint:            awsCfg.STSEndpoint,
+		IAMServerIDHeaderValue: awsCfg.IAMServerIDHeaderValue,
+		Role:                   awsCfg.Role,
+	}
+
+	return auth.GenerateAWSIAMLoginData(ctx, opts)
+}
+
+// getGCPSignedJWT generates a GCP-signed JWT for Vault authentication.
+func (h *Handler) getGCPSignedJWT(ctx context.Context, gcpCfg *vaultv1alpha1.GCPAuth) (string, error) {
+	// Get credentials JSON if provided
+	var credentialsJSON []byte
+	if gcpCfg.CredentialsSecretRef != nil {
+		creds, err := h.getSecretData(ctx, gcpCfg.CredentialsSecretRef)
+		if err != nil {
+			return "", fmt.Errorf("failed to get GCP credentials from secret: %w", err)
+		}
+		credentialsJSON = []byte(creds)
+	}
+
+	opts := auth.GCPAuthOptions{
+		AuthType:            gcpCfg.AuthType,
+		ServiceAccountEmail: gcpCfg.ServiceAccountEmail,
+		Role:                gcpCfg.Role,
+		CredentialsJSON:     credentialsJSON,
+	}
+
+	// Use IAM auth type by default
+	if opts.AuthType == "" || opts.AuthType == "iam" {
+		return auth.GenerateGCPIAMJWT(ctx, opts)
+	}
+
+	// For GCE auth type, generate login data with identity token
+	loginData, err := auth.GenerateGCPGCELoginData(ctx, opts)
+	if err != nil {
+		return "", err
+	}
+
+	// GCE auth returns the JWT in the login data
+	jwt, ok := loginData["jwt"].(string)
+	if !ok {
+		return "", fmt.Errorf("GCE login data missing JWT")
+	}
+
+	return jwt, nil
 }
 
 // Ensure Handler implements FeatureHandler interface.

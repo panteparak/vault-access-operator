@@ -185,6 +185,115 @@ vault write auth/kubernetes/role/vault-access-operator \
 
 ---
 
+## Choosing an Authentication Method
+
+The operator supports multiple authentication methods. Choose based on your environment:
+
+| Method | Best For | Prerequisites |
+|--------|----------|---------------|
+| **Kubernetes** | Standard K8s deployments | Vault K8s auth configured |
+| **JWT** | External identity providers | JWT auth mount in Vault |
+| **OIDC** | EKS, AKS, GKE workload identity | OIDC provider configured in Vault |
+| **AWS** | EKS with IRSA | IAM role with trust policy |
+| **GCP** | GKE with Workload Identity | GCP SA with IAM bindings |
+| **Token** | Development/testing | Vault token available |
+| **AppRole** | Machine-to-machine | AppRole credentials |
+| **Bootstrap** | Initial setup | Privileged token |
+
+### When to Use Each Method
+
+**Kubernetes Auth** (Recommended for most cases)
+
+- Works with any Kubernetes cluster
+- Automatic token rotation via TokenRequest API
+- No external dependencies beyond Vault
+
+```yaml
+auth:
+  kubernetes:
+    role: vault-access-operator
+```
+
+**OIDC Auth** (Recommended for cloud providers)
+
+- **EKS**: Use OIDC issuer URL from `aws eks describe-cluster`
+- **GKE**: Use Workload Identity federation
+- **AKS**: Use Azure AD integration
+
+```yaml
+auth:
+  oidc:
+    role: eks-workload-role
+    providerURL: https://oidc.eks.us-west-2.amazonaws.com/id/CLUSTER_ID
+```
+
+**AWS Auth** (EKS-specific)
+
+- Uses IRSA (IAM Roles for Service Accounts)
+- Requires IAM role with trust policy for the service account
+- Auto-detects region and credentials from environment
+
+```yaml
+auth:
+  aws:
+    role: eks-iam-role
+    authType: iam
+```
+
+**GCP Auth** (GKE-specific)
+
+- Uses Workload Identity for automatic credential management
+- Requires GCP service account binding to K8s service account
+- Auto-detects credentials from metadata server
+
+```yaml
+auth:
+  gcp:
+    role: gke-workload-role
+    authType: iam
+```
+
+---
+
+## Token Lifecycle Management
+
+The operator automatically manages Vault token lifecycle:
+
+1. **Initial Authentication** - Obtains Vault token using configured auth method
+2. **Token Renewal** - Renews token before expiration (default: 75% of TTL)
+3. **Re-authentication** - Falls back to full re-auth if renewal fails
+4. **Token Reviewer Rotation** - Automatically rotates token_reviewer_jwt for K8s auth
+
+### Monitoring Token Status
+
+Check token status in VaultConnection:
+
+```bash
+kubectl get vaultconnection my-connection -o jsonpath='{.status.authStatus}'
+```
+
+Key fields:
+
+- `tokenExpiration` - When current token expires
+- `tokenLastRenewed` - Last renewal time
+- `tokenRenewalCount` - Total renewals since last full auth
+- `tokenReviewerExpiration` - token_reviewer_jwt expiration (K8s auth only)
+
+### Token Reviewer JWT Rotation
+
+!!! warning "Important for Kubernetes Auth"
+    The `token_reviewer_jwt` is used by Vault to verify service account tokens.
+    If it expires and isn't rotated, all Kubernetes authentication will fail.
+
+The operator automatically rotates this JWT when `tokenReviewerRotation: true` (default).
+You can monitor the rotation status via:
+
+```bash
+kubectl get vaultconnection my-connection -o jsonpath='{.status.authStatus.tokenReviewerExpiration}'
+```
+
+---
+
 ## Quick Start: Create Your First Resources
 
 ### Step 1: Create a VaultConnection

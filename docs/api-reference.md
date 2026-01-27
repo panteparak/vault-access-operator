@@ -104,6 +104,88 @@ spec:
 |-------|------|---------|-------------|
 | `role` | string | **Required** | Vault role to authenticate as |
 | `authPath` | string | `kubernetes` | Mount path of Kubernetes auth method |
+| `tokenDuration` | duration | `1h` | Requested SA token lifetime (uses TokenRequest API) |
+| `tokenReviewerRotation` | bool | `true` | Enable automatic token_reviewer_jwt rotation |
+
+#### TokenAuth
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `secretRef` | SecretKeySelector | **Required** | Reference to secret containing Vault token |
+
+#### AppRoleAuth
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `roleId` | string | **Required** | AppRole role ID |
+| `secretIdRef` | SecretKeySelector | **Required** | Reference to secret containing AppRole secret ID |
+| `mountPath` | string | `approle` | Mount path of AppRole auth method |
+
+#### JWTAuth
+
+Configures JWT authentication with external identity providers. Use this for generic JWT-based authentication from any identity provider (Cognito, Auth0, Okta, etc.).
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `role` | string | **Required** | Vault role configured for JWT auth |
+| `authPath` | string | `jwt` | Auth method mount path |
+| `jwtSecretRef` | SecretKeySelector | - | Reference to secret containing JWT. If not provided, uses TokenRequest API |
+| `audiences` | []string | `["vault"]` | Token audiences (maps to `aud` claim) |
+| `tokenDuration` | duration | `1h` | Requested token lifetime |
+| `expectedIssuer` | string | - | Expected `iss` claim value (for pre-flight validation) |
+| `expectedAudience` | string | - | Expected `aud` claim value (for pre-flight validation) |
+| `userClaim` | string | `sub` | Claim to use for Vault entity alias |
+| `groupsClaim` | string | - | Claim containing group membership |
+| `claimsToPass` | []string | - | Claims to include in auth response metadata |
+
+#### OIDCAuth
+
+Configures OIDC authentication for workload identity federation. Supports EKS OIDC, Azure AD, GKE, and any OpenID Connect provider.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `role` | string | **Required** | Vault role configured for OIDC auth |
+| `authPath` | string | `oidc` | Auth method mount path |
+| `providerURL` | string | - | OIDC provider URL (issuer). Examples: `https://oidc.eks.us-west-2.amazonaws.com/id/EXAMPLE` |
+| `useServiceAccountToken` | bool | `true` | Use K8s service account token for OIDC auth |
+| `audiences` | []string | `[providerURL]` | Token audiences |
+| `tokenDuration` | duration | `1h` | Requested token lifetime |
+| `jwtSecretRef` | SecretKeySelector | - | Pre-obtained JWT (alternative to SA token) |
+| `userClaim` | string | - | Claim to use for Vault entity alias |
+| `groupsClaim` | string | - | Claim containing group membership |
+| `scopes` | []string | - | OIDC scopes (for browser-based flows) |
+
+#### AWSAuth
+
+Configures AWS IAM authentication for EKS workloads using IRSA (IAM Roles for Service Accounts) or EC2 instance profiles.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `role` | string | **Required** | Vault role configured for AWS auth |
+| `authPath` | string | `aws` | Auth method mount path |
+| `authType` | string | `iam` | Auth type: `iam` (recommended) or `ec2` |
+| `region` | string | auto-detect | AWS region |
+| `stsEndpoint` | string | - | Custom STS endpoint (for private endpoints) |
+| `iamServerIdHeaderValue` | string | - | X-Vault-AWS-IAM-Server-ID header value |
+
+#### GCPAuth
+
+Configures GCP IAM authentication for GKE workloads using Workload Identity or service account keys.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `role` | string | **Required** | Vault role configured for GCP auth |
+| `authPath` | string | `gcp` | Auth method mount path |
+| `authType` | string | `iam` | Auth type: `iam` (recommended) or `gce` |
+| `serviceAccountEmail` | string | auto-detect | GCP service account email |
+| `credentialsSecretRef` | SecretKeySelector | - | GCP credentials JSON (for non-Workload Identity) |
+
+#### BootstrapAuth
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `secretRef` | SecretKeySelector | **Required** | Reference to secret containing bootstrap token |
+| `autoRevoke` | bool | `true` | Revoke bootstrap token after successful setup |
 
 #### TLSConfig
 
@@ -112,6 +194,16 @@ spec:
 | `skipVerify` | bool | `false` | Skip TLS verification (not recommended) |
 | `caSecretRef` | SecretKeySelector | - | Reference to CA certificate secret |
 
+### ConnectionDefaults
+
+Optional default paths for Vault operations.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `secretEnginePath` | string | - | Default path for secret engines |
+| `transitPath` | string | - | Default path for transit engine |
+| `authPath` | string | `auth/kubernetes` | Default path for auth methods |
+
 ### Status Fields
 
 | Field | Type | Description |
@@ -119,6 +211,24 @@ spec:
 | `phase` | string | `Pending`, `Active`, `Error` |
 | `vaultVersion` | string | Version of connected Vault server |
 | `lastHeartbeat` | time | Time of last successful health check |
+| `authStatus` | AuthStatus | Authentication-related status information |
+| `conditions` | []Condition | Detailed state conditions |
+| `message` | string | Additional status information |
+
+### AuthStatus
+
+Authentication-specific status information.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `bootstrapComplete` | bool | Whether bootstrap has completed |
+| `bootstrapCompletedAt` | time | When bootstrap completed |
+| `authMethod` | string | Currently active auth method |
+| `tokenExpiration` | time | Current Vault token expiration |
+| `tokenLastRenewed` | time | When token was last renewed |
+| `tokenRenewalCount` | int | Number of token renewals |
+| `tokenReviewerExpiration` | time | When token_reviewer_jwt expires (K8s auth only) |
+| `tokenReviewerLastRefresh` | time | When token_reviewer_jwt was last refreshed |
 
 ### kubectl Output
 

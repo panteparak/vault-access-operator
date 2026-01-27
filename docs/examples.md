@@ -83,6 +83,163 @@ spec:
       mountPath: approle
 ```
 
+### JWT Auth with TokenRequest API
+
+Use short-lived Kubernetes service account tokens for JWT authentication:
+
+```yaml
+apiVersion: vault.platform.io/v1alpha1
+kind: VaultConnection
+metadata:
+  name: jwt-tokenrequest
+spec:
+  address: https://vault.example.com:8200
+  auth:
+    jwt:
+      role: my-jwt-role
+      audiences: ["vault"]
+      tokenDuration: 30m
+      userClaim: sub
+      groupsClaim: groups
+```
+
+### JWT Auth with External Provider (AWS Cognito)
+
+```yaml
+apiVersion: vault.platform.io/v1alpha1
+kind: VaultConnection
+metadata:
+  name: jwt-cognito
+spec:
+  address: https://vault.example.com:8200
+  auth:
+    jwt:
+      role: cognito-role
+      jwtSecretRef:
+        name: cognito-token
+        namespace: vault-access-operator-system
+        key: id_token
+      expectedIssuer: "https://cognito-idp.us-west-2.amazonaws.com/us-west-2_EXAMPLE"
+      expectedAudience: "client-id"
+      userClaim: "cognito:username"
+      groupsClaim: "cognito:groups"
+```
+
+### OIDC Auth for EKS (Workload Identity)
+
+```yaml
+apiVersion: vault.platform.io/v1alpha1
+kind: VaultConnection
+metadata:
+  name: eks-oidc
+spec:
+  address: https://vault.example.com:8200
+  auth:
+    oidc:
+      role: eks-workload-role
+      providerURL: https://oidc.eks.us-west-2.amazonaws.com/id/EXAMPLED539D4633E53DE1B716D3041E
+      audiences: ["sts.amazonaws.com"]
+      tokenDuration: 1h
+```
+
+### OIDC Auth for Azure AD
+
+```yaml
+apiVersion: vault.platform.io/v1alpha1
+kind: VaultConnection
+metadata:
+  name: azure-oidc
+spec:
+  address: https://vault.example.com:8200
+  auth:
+    oidc:
+      role: azure-role
+      providerURL: https://login.microsoftonline.com/TENANT-ID/v2.0
+      jwtSecretRef:
+        name: azure-token
+        namespace: vault-access-operator-system
+        key: access_token
+      userClaim: preferred_username
+      groupsClaim: groups
+```
+
+### AWS IAM Auth (EKS with IRSA)
+
+For EKS workloads using IAM Roles for Service Accounts:
+
+```yaml
+apiVersion: vault.platform.io/v1alpha1
+kind: VaultConnection
+metadata:
+  name: aws-iam
+spec:
+  address: https://vault.example.com:8200
+  auth:
+    aws:
+      role: eks-iam-role
+      authType: iam
+      region: us-west-2
+```
+
+### AWS IAM Auth with Custom STS Endpoint
+
+For VPC endpoints or private clusters:
+
+```yaml
+apiVersion: vault.platform.io/v1alpha1
+kind: VaultConnection
+metadata:
+  name: aws-iam-private
+spec:
+  address: https://vault.internal:8200
+  auth:
+    aws:
+      role: eks-iam-role
+      authType: iam
+      region: us-west-2
+      stsEndpoint: https://sts.us-west-2.amazonaws.com
+      iamServerIdHeaderValue: vault.example.com
+```
+
+### GCP IAM Auth (GKE with Workload Identity)
+
+For GKE workloads using Workload Identity:
+
+```yaml
+apiVersion: vault.platform.io/v1alpha1
+kind: VaultConnection
+metadata:
+  name: gcp-iam
+spec:
+  address: https://vault.example.com:8200
+  auth:
+    gcp:
+      role: gke-workload-role
+      authType: iam
+      serviceAccountEmail: vault-auth@my-project.iam.gserviceaccount.com
+```
+
+### GCP Auth with Service Account Key
+
+For environments without Workload Identity:
+
+```yaml
+apiVersion: vault.platform.io/v1alpha1
+kind: VaultConnection
+metadata:
+  name: gcp-sa-key
+spec:
+  address: https://vault.example.com:8200
+  auth:
+    gcp:
+      role: gcp-role
+      authType: iam
+      credentialsSecretRef:
+        name: gcp-credentials
+        namespace: vault-access-operator-system
+        key: credentials.json
+```
+
 ---
 
 ## VaultPolicy Examples
