@@ -182,26 +182,33 @@
 
 ## Summary Table
 
-| Test File | Current E2E | Keep E2E | Move to Integration |
-|-----------|-------------|----------|---------------------|
-| tc_connection_test.go | 2 | 2 | 0 |
-| tc_policy_test.go | 5 | 3 | 2 |
-| tc_cluster_policy_test.go | 4 | 2 | 2 |
-| tc_role_test.go | 3 | 3 | 0 |
-| tc_cluster_role_test.go | 5 | 3 | 2 |
-| tc_conflict_test.go | 3 | 2 | 1 |
-| tc_error_test.go | 6 | 2 | 4 |
-| tc_auth_test.go | 5 | 5 | 0 |
-| tc_jwt_auth_test.go | 7 | 5 | 2 |
-| token_lifecycle_test.go | 13 | 6 | 7 |
-| operator_token_test.go | 10 | 0 | 10 |
-| **TOTAL** | **63** | **33** | **30** |
+| Test File | Current E2E | Keep E2E | Move to Integration | Status |
+|-----------|-------------|----------|---------------------|--------|
+| tc_connection_test.go | 2 | 2 | 0 | - |
+| tc_policy_test.go | 5 | 3 | 2 | Pending |
+| tc_cluster_policy_test.go | 4 | 2 | 2 | Pending |
+| tc_role_test.go | 3 | 3 | 0 | - |
+| tc_cluster_role_test.go | 5 | 3 | 2 | Pending |
+| tc_conflict_test.go | 3 | 2 | 1 | Pending |
+| tc_error_test.go | 6 | 2 | 4 | Pending |
+| tc_auth_test.go | 5 | 5 | 0 | - |
+| tc_jwt_auth_test.go | 7 | 5 | 2 | Pending |
+| token_lifecycle_test.go | 13 | 6 | 7 | Pending |
+| operator_token_test.go | 10 | 0 | 10 | **✅ DONE** |
+| **TOTAL** | **63** | **33** | **30** | 10 done |
+
+## Completed Migrations
+
+### operator_token_test.go (10 tests) ✅
+- **Location**: `test/integration/permissions/operator_token_test.go`
+- **New infrastructure**: Added `WithVaultOnly()` option for Vault-only tests
+- **Test time**: ~5.7 seconds (vs ~30s+ for E2E setup)
 
 ## Recommended Actions
 
-1. **Move operator_token_test.go entirely** to `test/integration/permissions/`
+1. ~~**Move operator_token_test.go entirely** to `test/integration/permissions/`~~ ✅ DONE
 2. **Create `test/integration/error/`** for error handling tests
-3. **Create `test/integration/validation/`** for validation tests
+3. **Create `test/integration/validation/`** for validation tests (some exist in security/)
 4. **Consolidate token_lifecycle status checks** - many are duplicates
 5. **Keep K8s auth tests in E2E** - TokenReview API requires real K8s
 
