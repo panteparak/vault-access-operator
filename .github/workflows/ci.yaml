@@ -51,7 +51,7 @@ jobs:
           cache: true
       - uses: golangci/golangci-lint-action@v8
         with:
-          version: v2.1.0
+          version: v2.8.0
       - name: Summary
         if: always()
         run: |
