@@ -72,6 +72,7 @@ jobs:
           cache: true
       - name: Run unit tests
         run: |
+          set -o pipefail
           make test 2>&1 | tee test-output.txt
       - name: Generate coverage summary
         if: always()
@@ -762,6 +763,7 @@ jobs:
 
       - name: Run E2E tests
         run: |
+          set -o pipefail
           go test ./test/e2e/... -v -ginkgo.v -timeout=10m 2>&1 | tee e2e-output.txt
 
       - name: E2E Summary
