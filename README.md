@@ -1,37 +1,19 @@
-<p align="center">
-  <img src="docs/assets/logo.svg" alt="Vault Access Operator" width="200" />
-</p>
+# Vault Access Operator
 
-<h1 align="center">Vault Access Operator</h1>
+![Vault Access Operator](docs/assets/logo.svg)
 
-<p align="center">
-  <strong>Kubernetes-native management of HashiCorp Vault policies and authentication roles</strong>
-</p>
+**Kubernetes-native management of HashiCorp Vault policies and authentication roles**
 
-<p align="center">
-  <a href="https://github.com/panteparak/vault-access-operator/actions/workflows/ci.yaml">
-    <img src="https://github.com/panteparak/vault-access-operator/actions/workflows/ci.yaml/badge.svg" alt="CI Status" />
-  </a>
-  <a href="https://github.com/panteparak/vault-access-operator/releases">
-    <img src="https://img.shields.io/github/v/release/panteparak/vault-access-operator?include_prereleases" alt="Release" />
-  </a>
-  <a href="https://goreportcard.com/report/github.com/panteparak/vault-access-operator">
-    <img src="https://goreportcard.com/badge/github.com/panteparak/vault-access-operator" alt="Go Report Card" />
-  </a>
-  <a href="https://pkg.go.dev/github.com/panteparak/vault-access-operator">
-    <img src="https://pkg.go.dev/badge/github.com/panteparak/vault-access-operator.svg" alt="Go Reference" />
-  </a>
-  <a href="LICENSE">
-    <img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License" />
-  </a>
-</p>
+[![CI Status](https://github.com/panteparak/vault-access-operator/actions/workflows/ci.yaml/badge.svg)](https://github.com/panteparak/vault-access-operator/actions/workflows/ci.yaml)
+[![Release](https://img.shields.io/github/v/release/panteparak/vault-access-operator?include_prereleases)](https://github.com/panteparak/vault-access-operator/releases)
+[![Go Report Card](https://goreportcard.com/badge/github.com/panteparak/vault-access-operator)](https://goreportcard.com/report/github.com/panteparak/vault-access-operator)
+[![Go Reference](https://pkg.go.dev/badge/github.com/panteparak/vault-access-operator.svg)](https://pkg.go.dev/github.com/panteparak/vault-access-operator)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
-<p align="center">
-  <a href="https://panteparak.github.io/vault-access-operator/">Documentation</a> |
-  <a href="https://panteparak.github.io/vault-access-operator/getting-started/">Getting Started</a> |
-  <a href="https://panteparak.github.io/vault-access-operator/examples/">Examples</a> |
-  <a href="https://github.com/panteparak/vault-access-operator/releases">Releases</a>
-</p>
+[Documentation](https://panteparak.github.io/vault-access-operator/) |
+[Getting Started](https://panteparak.github.io/vault-access-operator/getting-started/) |
+[Examples](https://panteparak.github.io/vault-access-operator/examples/) |
+[Releases](https://github.com/panteparak/vault-access-operator/releases)
 
 ---
 
@@ -209,8 +191,7 @@ The operator supports multiple authentication methods to connect to Vault:
 | **Token** | Development/testing | Any |
 | **AppRole** | CI/CD pipelines | Any |
 
-<details>
-<summary><strong>AWS IAM (IRSA) Example</strong></summary>
+### AWS IAM (IRSA) Example
 
 ```yaml
 apiVersion: vault.platform.io/v1alpha1
@@ -226,10 +207,7 @@ spec:
       region: us-west-2
 ```
 
-</details>
-
-<details>
-<summary><strong>GCP Workload Identity Example</strong></summary>
+### GCP Workload Identity Example
 
 ```yaml
 apiVersion: vault.platform.io/v1alpha1
@@ -245,10 +223,7 @@ spec:
       serviceAccountEmail: vault-auth@project.iam.gserviceaccount.com
 ```
 
-</details>
-
-<details>
-<summary><strong>OIDC (EKS) Example</strong></summary>
+### OIDC (EKS) Example
 
 ```yaml
 apiVersion: vault.platform.io/v1alpha1
@@ -263,8 +238,6 @@ spec:
       providerURL: https://oidc.eks.us-west-2.amazonaws.com/id/CLUSTER_ID
       audiences: ["sts.amazonaws.com"]
 ```
-
-</details>
 
 ## Documentation
 
@@ -393,6 +366,4 @@ Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for the f
 
 ---
 
-<p align="center">
-  Made with :heart: by the community
-</p>
+Made with love by the community
