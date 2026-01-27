@@ -9,15 +9,11 @@ import (
 	"context"
 	"os/exec"
 	"sync"
-
-	"github.com/panteparak/vault-access-operator/test/integration/profiling"
 )
 
 var (
 	// sharedTestEnv is the shared test environment
 	sharedTestEnv *TestEnvironment
-	// sharedProfiler is the shared profiler
-	sharedProfiler *profiling.Profiler
 	// sharedCtx is the shared context
 	sharedCtx context.Context
 	// sharedCancel is the shared cancel function
@@ -60,20 +56,6 @@ func GetCancel() context.CancelFunc {
 	sharedMu.RLock()
 	defer sharedMu.RUnlock()
 	return sharedCancel
-}
-
-// SetProfiler sets the shared profiler (called from suite_test.go)
-func SetProfiler(p *profiling.Profiler) {
-	sharedMu.Lock()
-	defer sharedMu.Unlock()
-	sharedProfiler = p
-}
-
-// GetProfiler returns the shared profiler (may be nil if disabled)
-func GetProfiler() *profiling.Profiler {
-	sharedMu.RLock()
-	defer sharedMu.RUnlock()
-	return sharedProfiler
 }
 
 // CreateTestNamespace creates a unique namespace name for a test

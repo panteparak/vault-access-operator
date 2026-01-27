@@ -761,6 +761,12 @@ jobs:
         with:
           version: 'v3.14.0'
 
+      - name: Install CRDs (helm)
+        if: matrix.install_method == 'helm'
+        run: |
+          # Helm chart doesn't include CRDs, so install them separately
+          make install
+
       - name: Deploy (helm)
         if: matrix.install_method == 'helm'
         run: |
