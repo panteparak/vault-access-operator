@@ -55,6 +55,7 @@ type testEnvOptions struct {
 	setupVault         bool
 	startupTimeout     time.Duration
 	useExistingCluster bool
+	vaultOnly          bool // If true, skip envtest and only start Vault
 }
 
 func defaultTestEnvOptions() *testEnvOptions {
@@ -108,6 +109,14 @@ func WithExistingCluster() TestEnvOption {
 	}
 }
 
+// WithVaultOnly skips envtest and only starts Vault container.
+// Use this for tests that only need Vault (e.g., permission tests, policy tests).
+func WithVaultOnly() TestEnvOption {
+	return func(o *testEnvOptions) {
+		o.vaultOnly = true
+	}
+}
+
 // NewTestEnvironment creates a new test environment
 func NewTestEnvironment(opts ...TestEnvOption) *TestEnvironment {
 	options := defaultTestEnvOptions()
@@ -133,38 +142,47 @@ func (te *TestEnvironment) Start() error {
 		return fmt.Errorf("failed to add scheme: %w", err)
 	}
 
-	// Start envtest
-	te.TestEnv = &envtest.Environment{
-		CRDDirectoryPaths:     te.opts.crdPaths,
-		ErrorIfCRDPathMissing: true,
-		UseExistingCluster:    &te.opts.useExistingCluster,
-	}
+	// Start envtest only if not in vaultOnly mode
+	if !te.opts.vaultOnly {
+		te.TestEnv = &envtest.Environment{
+			CRDDirectoryPaths:     te.opts.crdPaths,
+			ErrorIfCRDPathMissing: true,
+			UseExistingCluster:    &te.opts.useExistingCluster,
+		}
 
-	cfg, err := te.TestEnv.Start()
-	if err != nil {
-		return fmt.Errorf("failed to start envtest: %w", err)
-	}
-	te.Config = cfg
+		cfg, err := te.TestEnv.Start()
+		if err != nil {
+			return fmt.Errorf("failed to start envtest: %w", err)
+		}
+		te.Config = cfg
 
-	// Create K8s client
-	k8sClient, err := client.New(cfg, client.Options{Scheme: scheme.Scheme})
-	if err != nil {
-		te.TestEnv.Stop() //nolint:errcheck
-		return fmt.Errorf("failed to create k8s client: %w", err)
+		// Create K8s client
+		k8sClient, err := client.New(cfg, client.Options{Scheme: scheme.Scheme})
+		if err != nil {
+			te.TestEnv.Stop() //nolint:errcheck
+			return fmt.Errorf("failed to create k8s client: %w", err)
+		}
+		te.K8sClient = k8sClient
 	}
-	te.K8sClient = k8sClient
 
 	// Start Vault container if enabled
 	if te.opts.setupVault {
 		if err := te.startVault(); err != nil {
-			te.TestEnv.Stop() //nolint:errcheck
+			if te.TestEnv != nil {
+				te.TestEnv.Stop() //nolint:errcheck
+			}
 			return fmt.Errorf("failed to start vault: %w", err)
 		}
 	}
 
+	k8sHost := ""
+	if te.Config != nil {
+		k8sHost = te.Config.Host
+	}
 	setupLog.Info("test environment started",
-		"k8s_host", cfg.Host,
+		"k8s_host", k8sHost,
 		"vault_address", te.VaultAddress(),
+		"vault_only", te.opts.vaultOnly,
 	)
 
 	return nil

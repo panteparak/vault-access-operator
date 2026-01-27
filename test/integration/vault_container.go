@@ -119,20 +119,45 @@ func WithPolicy(name, hcl string) VaultContainerOption {
 	}
 }
 
-// WithOperatorPolicy adds the standard operator management policy
+// WithOperatorPolicy adds the standard operator management policy.
+// This matches the E2E operatorPolicyHCL and follows Principle of Least Privilege.
 func WithOperatorPolicy() VaultContainerOption {
 	return WithPolicy("operator-policy", `
-# Policy management
+# Policy management - operator needs to create/update/delete policies
 path "sys/policies/acl/*" {
   capabilities = ["create", "read", "update", "delete", "list"]
+}
+path "sys/policies/acl" {
+  capabilities = ["list"]
 }
 
 # Kubernetes auth role management
 path "auth/kubernetes/role/*" {
   capabilities = ["create", "read", "update", "delete", "list"]
 }
+path "auth/kubernetes/role" {
+  capabilities = ["list"]
+}
 
-# Secret engine management for testing
+# Kubernetes auth configuration (for initial setup)
+path "auth/kubernetes/config" {
+  capabilities = ["create", "read", "update", "delete"]
+}
+
+# Auth method management (enable/disable kubernetes auth)
+path "sys/auth" {
+  capabilities = ["read"]
+}
+path "sys/auth/*" {
+  capabilities = ["sudo", "create", "read", "update", "delete", "list"]
+}
+
+# Health checks
+path "sys/health" {
+  capabilities = ["read"]
+}
+
+# Secret engine management for testing (not in production operator policy)
 path "secret/*" {
   capabilities = ["create", "read", "update", "delete", "list"]
 }
@@ -264,6 +289,26 @@ func (v *VaultTestContainer) Exec(ctx context.Context, cmd []string) (int, strin
 	fullCmd := append([]string{"vault"}, cmd...)
 
 	exitCode, reader, err := v.VaultContainer.Exec(ctx, fullCmd, exec.Multiplexed())
+	if err != nil {
+		return exitCode, "", fmt.Errorf("exec failed: %w", err)
+	}
+
+	var output string
+	if reader != nil {
+		data, err := io.ReadAll(reader)
+		if err != nil {
+			return exitCode, "", fmt.Errorf("failed to read exec output: %w", err)
+		}
+		output = string(data)
+	}
+
+	return exitCode, output, nil
+}
+
+// ExecRaw executes an arbitrary command inside the container (without prepending "vault").
+// Use this for shell commands or non-vault commands.
+func (v *VaultTestContainer) ExecRaw(ctx context.Context, cmd []string) (int, string, error) {
+	exitCode, reader, err := v.VaultContainer.Exec(ctx, cmd, exec.Multiplexed())
 	if err != nil {
 		return exitCode, "", fmt.Errorf("exec failed: %w", err)
 	}
