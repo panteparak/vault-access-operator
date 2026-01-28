@@ -786,7 +786,8 @@ jobs:
             --registry-config /tmp/k3d/registries.yaml \
             --k3s-arg "--disable=traefik@server:*" \
             --k3s-arg "--disable=servicelb@server:*" \
-            --k3s-arg "--disable=metrics-server@server:*"
+            --k3s-arg "--disable=metrics-server@server:*" \
+            --k3s-arg "--kube-apiserver-arg=service-account-issuer=https://kubernetes.default.svc@server:*"
           kubectl wait --for=condition=Ready nodes --all --timeout=60s
 
       - name: Deploy Vault
@@ -795,19 +796,54 @@ jobs:
           # Wait for StatefulSet rollout (handles pod creation timing)
           kubectl rollout status statefulset/vault -n vault --timeout=300s
 
-      - name: Configure Vault for K8s auth tests
+      - name: Configure Vault for E2E tests
         run: |
-          # Create operator policy for bootstrap and token lifecycle tests
+          # Create operator policy for E2E tests (supports both Kubernetes and JWT auth)
           # Note: -i flag is required to pass stdin (heredoc) to kubectl exec
           kubectl exec -i -n vault vault-0 -- vault policy write vault-access-operator - <<'EOF'
+          # Policy management
           path "sys/policies/acl/*" { capabilities = ["create", "read", "update", "delete", "list"] }
+          # Kubernetes auth
           path "auth/kubernetes/role/*" { capabilities = ["create", "read", "update", "delete", "list"] }
           path "auth/kubernetes/config" { capabilities = ["create", "read", "update", "delete", "list"] }
+          # JWT auth
+          path "auth/jwt/role/*" { capabilities = ["create", "read", "update", "delete", "list"] }
+          path "auth/jwt/config" { capabilities = ["create", "read", "update", "delete"] }
+          # Auth method management
           path "sys/auth" { capabilities = ["read"] }
           path "sys/auth/*" { capabilities = ["sudo", "create", "read", "update", "delete", "list"] }
           path "sys/mounts" { capabilities = ["read"] }
           EOF
           echo "Vault operator policy created successfully"
+
+          # Enable JWT auth method
+          kubectl exec -n vault vault-0 -- vault auth enable jwt || true
+          echo "JWT auth method enabled"
+
+          # Get OIDC configuration
+          OIDC_CONFIG=$(kubectl get --raw /.well-known/openid-configuration)
+          ISSUER=$(echo "$OIDC_CONFIG" | jq -r '.issuer')
+          echo "OIDC Issuer: $ISSUER"
+
+          # Try OIDC discovery first (works with internal issuer configured above)
+          # Get the Kubernetes CA cert for TLS verification
+          K8S_CA=$(kubectl get secret -n vault vault-token -o jsonpath='{.data.ca\.crt}' 2>/dev/null | base64 -d || \
+                   kubectl exec -n vault vault-0 -- cat /var/run/secrets/kubernetes.io/serviceaccount/ca.crt)
+
+          if kubectl exec -i -n vault vault-0 -- vault write auth/jwt/config \
+               oidc_discovery_url="$ISSUER" \
+               bound_issuer="$ISSUER" \
+               oidc_discovery_ca_pem="$K8S_CA" 2>/dev/null; then
+            echo "JWT auth configured with OIDC discovery"
+          else
+            echo "OIDC discovery failed, falling back to JWKS"
+            # Fall back to JWKS (always works, no network call from Vault)
+            JWKS=$(kubectl get --raw /openid/v1/jwks)
+            kubectl exec -n vault vault-0 -- vault write auth/jwt/config \
+              jwt_validation_pubkeys="$JWKS" \
+              bound_issuer="$ISSUER" || \
+            echo "Warning: JWT auth configuration failed (tests will skip JWT auth)"
+          fi
 
       # For PRs: Load image from artifact (not in registry yet)
       - uses: actions/download-artifact@v4

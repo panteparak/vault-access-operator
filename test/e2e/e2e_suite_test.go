@@ -73,7 +73,20 @@ path "auth/kubernetes/config" {
   capabilities = ["create", "read", "update", "delete"]
 }
 
-# Auth method management (enable/disable kubernetes auth)
+# JWT auth role management (for JWT auth tests)
+path "auth/jwt/role/*" {
+  capabilities = ["create", "read", "update", "delete", "list"]
+}
+path "auth/jwt/role" {
+  capabilities = ["list"]
+}
+
+# JWT auth configuration
+path "auth/jwt/config" {
+  capabilities = ["create", "read", "update", "delete"]
+}
+
+# Auth method management (enable/disable auth methods)
 path "sys/auth" {
   capabilities = ["read"]
 }
@@ -238,6 +251,18 @@ func setupSharedTestInfrastructure() {
 		g.Expect(err).NotTo(HaveOccurred())
 	}, 1*time.Minute, 5*time.Second).Should(Succeed())
 
+	// Enable and configure JWT auth for JWT auth tests
+	utils.TimedBy("enabling JWT auth method")
+	_, _ = utils.RunVaultCommand("auth", "enable", "jwt") // Ignore if already enabled
+
+	// Configure JWT auth using JWKS (works in k3d/kind without network access from Vault)
+	utils.TimedBy("configuring JWT auth with JWKS")
+	if err := configureJWTAuth(); err != nil {
+		// JWT auth is optional - log warning but continue
+		fmt.Fprintf(GinkgoWriter, "Warning: JWT auth configuration failed: %v\n", err)
+		fmt.Fprintf(GinkgoWriter, "JWT auth tests will be skipped\n")
+	}
+
 	// Create operator policy with least-privilege permissions
 	// This demonstrates proper Vault security practices - never use root token in production
 	utils.TimedBy("creating operator policy with least-privilege permissions")
@@ -367,4 +392,58 @@ func getOperatorToken() (string, error) {
 	}
 
 	return tokenResp.Auth.ClientToken, nil
+}
+
+// configureJWTAuth configures Vault's JWT auth method.
+// Tries OIDC discovery first (requires internal issuer), falls back to JWKS.
+func configureJWTAuth() error {
+	// Get OIDC configuration to find the issuer
+	cmd := exec.Command("kubectl", "get", "--raw", "/.well-known/openid-configuration")
+	output, err := utils.Run(cmd)
+	if err != nil {
+		return fmt.Errorf("failed to get OIDC config: %w", err)
+	}
+
+	var oidcConfig struct {
+		Issuer string `json:"issuer"`
+	}
+	if err := json.Unmarshal([]byte(output), &oidcConfig); err != nil {
+		return fmt.Errorf("failed to parse OIDC config: %w", err)
+	}
+
+	// Try OIDC discovery first (works if k3d configured with internal issuer)
+	// Get the Kubernetes CA cert for TLS verification
+	cmd = exec.Command("kubectl", "exec", "-n", vaultNamespace, "vault-0", "--",
+		"cat", "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")
+	caCert, err := utils.Run(cmd)
+	if err == nil && caCert != "" {
+		_, err = utils.RunVaultCommand("write", "auth/jwt/config",
+			fmt.Sprintf("oidc_discovery_url=%s", oidcConfig.Issuer),
+			fmt.Sprintf("bound_issuer=%s", oidcConfig.Issuer),
+			fmt.Sprintf("oidc_discovery_ca_pem=%s", caCert),
+		)
+		if err == nil {
+			fmt.Fprintf(GinkgoWriter, "JWT auth configured with OIDC discovery\n")
+			return nil
+		}
+		fmt.Fprintf(GinkgoWriter, "OIDC discovery failed (%v), falling back to JWKS\n", err)
+	}
+
+	// Fall back to JWKS (always works, no network call from Vault)
+	cmd = exec.Command("kubectl", "get", "--raw", "/openid/v1/jwks")
+	jwksOutput, err := utils.Run(cmd)
+	if err != nil {
+		return fmt.Errorf("failed to get JWKS: %w", err)
+	}
+
+	_, err = utils.RunVaultCommand("write", "auth/jwt/config",
+		fmt.Sprintf("jwt_validation_pubkeys=%s", jwksOutput),
+		fmt.Sprintf("bound_issuer=%s", oidcConfig.Issuer),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to configure JWT auth with JWKS: %w", err)
+	}
+
+	fmt.Fprintf(GinkgoWriter, "JWT auth configured with JWKS\n")
+	return nil
 }
