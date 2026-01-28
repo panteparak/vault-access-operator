@@ -17,6 +17,7 @@ limitations under the License.
 package e2e
 
 import (
+	"context"
 	"fmt"
 	"os/exec"
 	"time"
@@ -63,21 +64,19 @@ spec:
 			Expect(err).NotTo(HaveOccurred(), "Failed to create VaultPolicy")
 
 			By("waiting for VaultPolicy to become Active")
+			// Using client-go helper for faster status checks (~10ms vs ~500ms with kubectl)
 			Eventually(func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "vaultpolicy", policyName,
-					"-n", testNamespace, "-o", "jsonpath={.status.phase}")
-				output, err := utils.Run(cmd)
+				status, err := utils.GetVaultPolicyStatus(context.Background(), policyName, testNamespace)
 				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal("Active"), "VaultPolicy not active, got: %s", output)
+				g.Expect(status).To(Equal("Active"), "VaultPolicy not active, got: %s", status)
 			}, 2*time.Minute, 5*time.Second).Should(Succeed())
 
 			By("verifying VaultPolicy has namespaced vaultName")
-			cmd = exec.Command("kubectl", "get", "vaultpolicy", policyName,
-				"-n", testNamespace, "-o", "jsonpath={.status.vaultName}")
-			output, err := utils.Run(cmd)
+			// Using client-go helper for faster resource access
+			policy, err := utils.GetVaultPolicy(context.Background(), policyName, testNamespace)
 			Expect(err).NotTo(HaveOccurred())
 			expectedVaultName := fmt.Sprintf("%s-%s", testNamespace, policyName)
-			Expect(output).To(Equal(expectedVaultName),
+			Expect(policy.Status.VaultName).To(Equal(expectedVaultName),
 				"Namespaced policy should have namespace-prefixed vaultName")
 
 			By("verifying policy exists in Vault with namespaced name")

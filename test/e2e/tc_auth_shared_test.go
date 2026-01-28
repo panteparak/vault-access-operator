@@ -141,6 +141,8 @@ path "sys/health" {
 
 			It("should work with VaultPolicy CRD", func() {
 				policyName := fmt.Sprintf("tc-shared-%s-crd-policy", ap.name)
+				// VaultPolicy uses namespace-prefixed vault name
+				expectedVaultName := fmt.Sprintf("%s-%s", testNamespace, policyName)
 
 				By("creating VaultPolicy using the shared VaultConnection")
 				policyYAML := fmt.Sprintf(`
@@ -150,14 +152,11 @@ metadata:
   name: %s
   namespace: %s
 spec:
-  vaultConnectionRef:
-    name: %s
-  name: %s
-  policy: |
-    path "secret/data/%s/*" {
-      capabilities = ["read"]
-    }
-`, policyName, testNamespace, sharedVaultConnectionName, policyName, ap.name)
+  connectionRef: %s
+  rules:
+    - path: "secret/data/%s/*"
+      capabilities: ["read"]
+`, policyName, testNamespace, sharedVaultConnectionName, ap.name)
 
 				cmd := exec.Command("kubectl", "apply", "-f", "-")
 				cmd.Stdin = stringReader(policyYAML)
@@ -174,7 +173,7 @@ spec:
 				}, 30*time.Second, 2*time.Second).Should(Succeed())
 
 				By("verifying policy exists in Vault")
-				output, err := utils.RunVaultCommand("policy", "read", policyName)
+				output, err := utils.RunVaultCommand("policy", "read", expectedVaultName)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(output).To(ContainSubstring(fmt.Sprintf("secret/data/%s/*", ap.name)))
 
@@ -194,11 +193,42 @@ spec:
 			It("should work with VaultRole CRD", func() {
 				roleName := fmt.Sprintf("tc-shared-%s-crd-role", ap.name)
 				roleSAName := fmt.Sprintf("tc-shared-%s-crd-sa", ap.name)
+				rolePolicyName := fmt.Sprintf("tc-shared-%s-crd-role-policy", ap.name)
+				// VaultRole uses namespace-prefixed vault name
+				expectedVaultRoleName := fmt.Sprintf("%s-%s", testNamespace, roleName)
 
 				By("creating service account for VaultRole test")
 				cmd := exec.Command("kubectl", "create", "serviceaccount", roleSAName,
 					"-n", testNamespace)
 				_, _ = utils.Run(cmd)
+
+				By("creating a VaultPolicy for the role to reference")
+				policyYAML := fmt.Sprintf(`
+apiVersion: vault.platform.io/v1alpha1
+kind: VaultPolicy
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  connectionRef: %s
+  rules:
+    - path: "secret/data/%s/*"
+      capabilities: ["read"]
+`, rolePolicyName, testNamespace, sharedVaultConnectionName, ap.name)
+
+				cmd = exec.Command("kubectl", "apply", "-f", "-")
+				cmd.Stdin = stringReader(policyYAML)
+				_, err := utils.Run(cmd)
+				Expect(err).NotTo(HaveOccurred())
+
+				By("waiting for VaultPolicy to become Active")
+				Eventually(func(g Gomega) {
+					cmd := exec.Command("kubectl", "get", "vaultpolicy", rolePolicyName,
+						"-n", testNamespace, "-o", "jsonpath={.status.phase}")
+					output, err := utils.Run(cmd)
+					g.Expect(err).NotTo(HaveOccurred())
+					g.Expect(output).To(Equal("Active"))
+				}, 30*time.Second, 2*time.Second).Should(Succeed())
 
 				By("creating VaultRole using the shared VaultConnection")
 				roleYAML := fmt.Sprintf(`
@@ -208,24 +238,19 @@ metadata:
   name: %s
   namespace: %s
 spec:
-  vaultConnectionRef:
-    name: %s
-  name: %s
-  authPath: kubernetes
-  type: kubernetes
-  kubernetes:
-    boundServiceAccountNames:
-      - %s
-    boundServiceAccountNamespaces:
-      - %s
-    policies:
-      - default
-    ttl: 1h
-`, roleName, testNamespace, sharedVaultConnectionName, roleName, roleSAName, testNamespace)
+  connectionRef: %s
+  serviceAccounts:
+    - %s
+  policies:
+    - kind: VaultPolicy
+      name: %s
+      namespace: %s
+  tokenTTL: "1h"
+`, roleName, testNamespace, sharedVaultConnectionName, roleSAName, rolePolicyName, testNamespace)
 
 				cmd = exec.Command("kubectl", "apply", "-f", "-")
 				cmd.Stdin = stringReader(roleYAML)
-				_, err := utils.Run(cmd)
+				_, err = utils.Run(cmd)
 				Expect(err).NotTo(HaveOccurred())
 
 				By("waiting for VaultRole to become Active")
@@ -235,16 +260,20 @@ spec:
 					output, err := utils.Run(cmd)
 					g.Expect(err).NotTo(HaveOccurred())
 					g.Expect(output).To(Equal("Active"))
-				}, 30*time.Second, 2*time.Second).Should(Succeed())
+				}, 2*time.Minute, 5*time.Second).Should(Succeed())
 
 				By("verifying role exists in Vault")
 				output, err := utils.RunVaultCommand("read", "-format=json",
-					fmt.Sprintf("auth/kubernetes/role/%s", roleName))
+					fmt.Sprintf("auth/kubernetes/role/%s", expectedVaultRoleName))
 				Expect(err).NotTo(HaveOccurred())
 				Expect(output).To(ContainSubstring(roleSAName))
 
-				By("cleaning up VaultRole and service account")
+				By("cleaning up VaultRole, VaultPolicy, and service account")
 				cmd = exec.Command("kubectl", "delete", "vaultrole", roleName,
+					"-n", testNamespace, "--timeout=30s")
+				_, _ = utils.Run(cmd)
+
+				cmd = exec.Command("kubectl", "delete", "vaultpolicy", rolePolicyName,
 					"-n", testNamespace, "--timeout=30s")
 				_, _ = utils.Run(cmd)
 

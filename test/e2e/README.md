@@ -28,20 +28,33 @@ Tests follow the format: `TC-{Category}{Number}[-{Subcategory}]: {Description}`
 | TC-VC02 | Connection | Verify health check and version | `tc_connection_test.go` |
 | TC-CP01 | ClusterPolicy | Create and sync cluster policy | `tc_cluster_policy_test.go` |
 | TC-CP02 | ClusterPolicy | Verify HCL content in Vault | `tc_cluster_policy_test.go` |
+| TC-CP03-ERR | ClusterPolicy | Error on missing VaultConnection | `tc_cluster_policy_test.go` |
+| TC-CP04-ERR | ClusterPolicy | Error on empty policy rules | `tc_cluster_policy_test.go` |
 | TC-VP01 | Policy | Create namespaced policy | `tc_policy_test.go` |
 | TC-VP02 | Policy | Namespace variable substitution | `tc_policy_test.go` |
 | TC-VP03 | Policy | Update policy when spec changes | `tc_policy_test.go` |
 | TC-VP04-DEL | Policy | Handle deletion with finalizer | `tc_policy_test.go` |
 | TC-VP05-RET | Policy | Respect deletionPolicy=Retain | `tc_policy_test.go` |
 | TC-CR01 | ClusterRole | Create with multiple policies | `tc_cluster_role_test.go` |
-| TC-CR02 | ClusterRole | Verify role config in Vault | `tc_cluster_role_test.go` |
-| TC-CR03-DEL | ClusterRole | Deletion cleanup verification | `tc_cluster_role_test.go` |
+| TC-CR02 | ClusterRole | Mixed cluster and namespaced policies | `tc_cluster_role_test.go` |
+| TC-CR03 | ClusterRole | Token TTL/MaxTTL verification | `tc_cluster_role_test.go` |
+| TC-CR04-ERR | ClusterRole | Error on invalid connection | `tc_cluster_role_test.go` |
+| TC-CR05-ERR | ClusterRole | Error on missing policy reference | `tc_cluster_role_test.go` |
 | TC-VR01 | Role | Create namespaced role | `tc_role_test.go` |
 | TC-VR02 | Role | Verify role config in Vault | `tc_role_test.go` |
 | TC-VR03-DEL | Role | Deletion cleanup verification | `tc_role_test.go` |
-| TC-AU01 | Auth | SA JWT login success | `tc_auth_test.go` |
-| TC-AU02 | Auth | Reject unbound SA | `tc_auth_test.go` |
-| TC-AU03 | Auth | Reject invalid JWT | `tc_auth_test.go` |
+| TC-AU01-01 | Auth | SA JWT login success | `tc_auth_test.go` |
+| TC-AU01-02 | Auth | Reject unbound SA | `tc_auth_test.go` |
+| TC-AU01-03 | Auth | Reject invalid JWT | `tc_auth_test.go` |
+| TC-AU01-04 | Auth | Re-authenticate after token expiration | `tc_auth_test.go` |
+| TC-AU01-05 | Auth | Multiple SAs on same role | `tc_auth_test.go` |
+| TC-AU04-01 | JWT Auth | JWT method with SA token | `tc_jwt_auth_test.go` |
+| TC-AU04-02 | JWT Auth | Reject JWT wrong audience | `tc_jwt_auth_test.go` |
+| TC-AU04-03 | JWT Auth | Reject JWT wrong subject | `tc_jwt_auth_test.go` |
+| TC-AU05-01 | OIDC | Discover OIDC configuration | `tc_jwt_auth_test.go` |
+| TC-AU05-02 | OIDC | Auth with OIDC-discovered keys | `tc_jwt_auth_test.go` |
+| TC-AU05-03 | OIDC | Custom audiences via TokenRequest | `tc_jwt_auth_test.go` |
+| TC-AU-SHARED | Auth | Cross-auth method compatibility | `tc_auth_shared_test.go` |
 | TC-CF01-ADOPT | Conflict | Adopt existing policy | `tc_conflict_test.go` |
 | TC-CF02-FAIL | Conflict | Fail on existing policy | `tc_conflict_test.go` |
 | TC-CF03-NORM | Conflict | Normal (no conflict) | `tc_conflict_test.go` |
@@ -70,12 +83,15 @@ Tests follow the format: `TC-{Category}{Number}[-{Subcategory}]: {Description}`
 test/e2e/
 ├── README.md                      # This file
 ├── e2e_suite_test.go              # Suite setup, shared infrastructure
+├── auth_provider.go               # Auth provider abstraction for testing
 ├── tc_connection_test.go          # TC-VC* tests
 ├── tc_policy_test.go              # TC-VP* tests
 ├── tc_cluster_policy_test.go      # TC-CP* tests
 ├── tc_role_test.go                # TC-VR* tests
 ├── tc_cluster_role_test.go        # TC-CR* tests
-├── tc_auth_test.go                # TC-AU* tests
+├── tc_auth_test.go                # TC-AU01* tests (Kubernetes auth)
+├── tc_jwt_auth_test.go            # TC-AU04-06* tests (JWT/OIDC auth)
+├── tc_auth_shared_test.go         # TC-AU-SHARED tests (cross-auth)
 ├── tc_error_test.go               # TC-EH* tests
 ├── tc_conflict_test.go            # TC-CF* tests
 ├── token_lifecycle_test.go        # TC-LC* tests
