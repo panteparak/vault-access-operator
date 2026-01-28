@@ -176,8 +176,17 @@ jobs:
   verify:
     name: Verify Generated Code & Manifests
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Needed to push auto-generated changes
+    outputs:
+      crds-updated: ${{ steps.check-changes.outputs.crds-updated }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Need full history for push, and token with write access
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
       - uses: actions/setup-go@v5
         with:
           go-version-file: ${{ env.GO_VERSION_FILE }}
@@ -186,32 +195,56 @@ jobs:
         with:
           version: 'v3.14.0'
 
-      - name: Verify generated code
+      - name: Generate code and manifests
         run: |
           make generate
-          if [ -n "$(git status --porcelain)" ]; then
-            echo "::error::Generated code is out of date. Run 'make generate' and commit."
-            git diff
-            exit 1
-          fi
-
-      - name: Verify manifests
-        run: |
           make manifests
+          make helm-update-crds
+
+      - name: Check for changes
+        id: check-changes
+        run: |
           if [ -n "$(git status --porcelain)" ]; then
-            echo "::error::Manifests are out of date. Run 'make manifests' and commit."
-            git diff
-            exit 1
+            echo "changes=true" >> $GITHUB_OUTPUT
+            echo "::notice::Generated files have changes"
+            git status --porcelain
+          else
+            echo "changes=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Verify Helm CRDs match generated
-        run: |
-          make helm-update-crds
-          if [ -n "$(git status --porcelain charts/)" ]; then
-            echo "::error::Helm CRDs are out of date. Run 'make helm-update-crds' and commit."
-            git diff charts/
-            exit 1
+          # Specifically check if CRDs changed
+          if [ -n "$(git status --porcelain config/crd/bases/ charts/vault-access-operator/crds/)" ]; then
+            echo "crds-updated=true" >> $GITHUB_OUTPUT
+          else
+            echo "crds-updated=false" >> $GITHUB_OUTPUT
           fi
+
+      - name: Auto-commit generated changes
+        if: steps.check-changes.outputs.changes == 'true' && github.event_name == 'push'
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add -A
+          git commit -m "chore: auto-generate manifests and CRDs
+
+          Co-Authored-By: github-actions[bot] <github-actions[bot]@users.noreply.github.com>"
+          git push
+
+      - name: Fail on PR with uncommitted changes
+        if: steps.check-changes.outputs.changes == 'true' && github.event_name == 'pull_request'
+        run: |
+          echo "::error::Generated files are out of date. Run 'make generate manifests helm-update-crds' and commit."
+          git diff
+          exit 1
+
+      - name: Upload CRDs as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-crds
+          path: |
+            config/crd/bases/
+            charts/vault-access-operator/crds/
+          retention-days: 1
 
       - name: Lint Helm chart
         run: |
@@ -248,8 +281,8 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
           echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Generated code up-to-date | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
-          echo "| Manifests up-to-date | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+          echo "| Generated code | ${{ steps.check-changes.outputs.changes == 'true' && '🔄 Auto-committed' || '✅ Up-to-date' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| CRDs | ${{ steps.check-changes.outputs.crds-updated == 'true' && '🔄 Updated' || '✅ Up-to-date' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Helm chart lint | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
           echo "| Template comparison | ${{ steps.template-compare.outcome == 'success' && '✅ Passed' || '⚠️ Differences' }} |" >> $GITHUB_STEP_SUMMARY
 
@@ -754,9 +787,27 @@ jobs:
   e2e:
     name: E2E Tests
     runs-on: ubuntu-latest
-    needs: [gate]
+    needs: [gate, verify]
     steps:
       - uses: actions/checkout@v4
+
+      # Download generated CRDs from verify job to ensure we use latest
+      - name: Download generated CRDs
+        uses: actions/download-artifact@v4
+        with:
+          name: generated-crds
+          path: /tmp/generated-crds
+
+      - name: Copy CRDs to helm chart
+        run: |
+          # Copy CRDs from artifact to helm chart (in case verify auto-committed new ones)
+          echo "Copying generated CRDs to helm chart..."
+          cp -v /tmp/generated-crds/charts/vault-access-operator/crds/*.yaml \
+                ./charts/vault-access-operator/crds/ 2>/dev/null || \
+          cp -v /tmp/generated-crds/config/crd/bases/*.yaml \
+                ./charts/vault-access-operator/crds/
+          echo "CRDs copied successfully"
+          ls -la ./charts/vault-access-operator/crds/
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
