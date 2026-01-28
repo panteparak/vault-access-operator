@@ -178,6 +178,7 @@ func TestNewHandler(t *testing.T) {
 
 	if handler == nil {
 		t.Fatal("expected handler to be non-nil")
+		return // staticcheck: ensure no nil dereference warning
 	}
 
 	if handler.client == nil {
