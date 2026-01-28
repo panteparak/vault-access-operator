@@ -951,6 +951,26 @@ jobs:
             -l app.kubernetes.io/name=vault-access-operator \
             -n vault-access-operator-system --timeout=120s
 
+      - name: Verify deployment state
+        run: |
+          echo "=== Operator Pod Status ==="
+          kubectl get pods -n vault-access-operator-system -o wide
+
+          echo ""
+          echo "=== CRDs Installed ==="
+          kubectl get crds | grep vault || echo "No Vault CRDs found!"
+
+          echo ""
+          echo "=== Operator Logs (last 50 lines) ==="
+          kubectl logs -n vault-access-operator-system \
+            -l app.kubernetes.io/name=vault-access-operator \
+            --tail=50 || echo "Could not get operator logs"
+
+          echo ""
+          echo "=== Vault Status ==="
+          kubectl get pods -n vault -o wide
+          kubectl exec -n vault vault-0 -- vault status || echo "Vault not ready or not unsealed"
+
       - name: Run E2E tests
         env:
           E2E_IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.image-tag.outputs.tag }}
