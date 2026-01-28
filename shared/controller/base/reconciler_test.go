@@ -19,6 +19,7 @@ package base
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -27,6 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -494,3 +496,325 @@ func (m *secretMockHandler) Cleanup(_ context.Context, _ *corev1.Secret) error {
 
 var _ FeatureHandler[*corev1.Secret] = (*secretMockHandler)(nil)
 var _ client.Object = (*corev1.Secret)(nil)
+
+// Helper functions for EventRecorder tests
+
+// collectEvents drains all events from a FakeRecorder's channel.
+func collectEvents(recorder *record.FakeRecorder) []string {
+	var events []string
+	for {
+		select {
+		case event := <-recorder.Events:
+			events = append(events, event)
+		default:
+			return events
+		}
+	}
+}
+
+// containsEvent checks if any event contains the specified reason.
+func containsEvent(events []string, reason string) bool {
+	for _, e := range events {
+		if strings.Contains(e, reason) {
+			return true
+		}
+	}
+	return false
+}
+
+// EventRecorder Tests
+
+func TestBaseReconciler_EventRecording_Sync(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test",
+			Namespace: "default",
+		},
+	}
+
+	c := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(cm).
+		Build()
+
+	recorder := record.NewFakeRecorder(10)
+	logger := logr.Discard()
+
+	r := NewBaseReconciler[*corev1.ConfigMap](c, scheme, logger, "test.finalizer", nil, recorder)
+	handler := &mockHandler{}
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{
+			Name:      "test",
+			Namespace: "default",
+		},
+	}
+
+	_, err := r.Reconcile(context.Background(), req, handler, newConfigMap)
+	if err != nil {
+		t.Errorf("expected no error, got %v", err)
+	}
+
+	events := collectEvents(recorder)
+
+	if !containsEvent(events, EventReasonSyncing) {
+		t.Errorf("expected %s event, got events: %v", EventReasonSyncing, events)
+	}
+
+	if !containsEvent(events, EventReasonSynced) {
+		t.Errorf("expected %s event, got events: %v", EventReasonSynced, events)
+	}
+}
+
+func TestBaseReconciler_EventRecording_SyncError(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test",
+			Namespace: "default",
+		},
+	}
+
+	c := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(cm).
+		Build()
+
+	recorder := record.NewFakeRecorder(10)
+	logger := logr.Discard()
+
+	r := NewBaseReconciler[*corev1.ConfigMap](c, scheme, logger, "test.finalizer", nil, recorder)
+
+	syncErr := errors.New("sync failed")
+	handler := &mockHandler{
+		syncFunc: func(_ context.Context, _ *corev1.ConfigMap) error {
+			return syncErr
+		},
+	}
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{
+			Name:      "test",
+			Namespace: "default",
+		},
+	}
+
+	_, _ = r.Reconcile(context.Background(), req, handler, newConfigMap)
+
+	events := collectEvents(recorder)
+
+	if !containsEvent(events, EventReasonSyncing) {
+		t.Errorf("expected %s event, got events: %v", EventReasonSyncing, events)
+	}
+
+	if !containsEvent(events, EventReasonSyncFailed) {
+		t.Errorf("expected %s event, got events: %v", EventReasonSyncFailed, events)
+	}
+
+	// SyncFailed event should contain the error message
+	for _, e := range events {
+		if strings.Contains(e, EventReasonSyncFailed) {
+			if !strings.Contains(e, "sync failed") {
+				t.Errorf("expected SyncFailed event to contain error message, got: %s", e)
+			}
+		}
+	}
+}
+
+func TestBaseReconciler_EventRecording_Deletion(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+
+	now := metav1.NewTime(time.Now())
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "test",
+			Namespace:         "default",
+			DeletionTimestamp: &now,
+			Finalizers:        []string{"test.finalizer"},
+		},
+	}
+
+	c := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(cm).
+		Build()
+
+	recorder := record.NewFakeRecorder(10)
+	logger := logr.Discard()
+
+	r := NewBaseReconciler[*corev1.ConfigMap](c, scheme, logger, "test.finalizer", nil, recorder)
+	handler := &mockHandler{}
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{
+			Name:      "test",
+			Namespace: "default",
+		},
+	}
+
+	_, err := r.Reconcile(context.Background(), req, handler, newConfigMap)
+	if err != nil {
+		t.Errorf("expected no error, got %v", err)
+	}
+
+	events := collectEvents(recorder)
+
+	if !containsEvent(events, EventReasonDeleting) {
+		t.Errorf("expected %s event, got events: %v", EventReasonDeleting, events)
+	}
+
+	if !containsEvent(events, EventReasonDeleted) {
+		t.Errorf("expected %s event, got events: %v", EventReasonDeleted, events)
+	}
+}
+
+func TestBaseReconciler_EventRecording_DeletionError(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+
+	now := metav1.NewTime(time.Now())
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "test",
+			Namespace:         "default",
+			DeletionTimestamp: &now,
+			Finalizers:        []string{"test.finalizer"},
+		},
+	}
+
+	c := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(cm).
+		Build()
+
+	recorder := record.NewFakeRecorder(10)
+	logger := logr.Discard()
+
+	r := NewBaseReconciler[*corev1.ConfigMap](c, scheme, logger, "test.finalizer", nil, recorder)
+
+	cleanupErr := errors.New("cleanup failed")
+	handler := &mockHandler{
+		cleanupFunc: func(_ context.Context, _ *corev1.ConfigMap) error {
+			return cleanupErr
+		},
+	}
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{
+			Name:      "test",
+			Namespace: "default",
+		},
+	}
+
+	_, _ = r.Reconcile(context.Background(), req, handler, newConfigMap)
+
+	events := collectEvents(recorder)
+
+	if !containsEvent(events, EventReasonDeleting) {
+		t.Errorf("expected %s event, got events: %v", EventReasonDeleting, events)
+	}
+
+	if !containsEvent(events, EventReasonDeleteFailed) {
+		t.Errorf("expected %s event, got events: %v", EventReasonDeleteFailed, events)
+	}
+
+	// DeleteFailed event should contain the error message
+	for _, e := range events {
+		if strings.Contains(e, EventReasonDeleteFailed) {
+			if !strings.Contains(e, "cleanup failed") {
+				t.Errorf("expected DeleteFailed event to contain error message, got: %s", e)
+			}
+		}
+	}
+}
+
+func TestBaseReconciler_EventRecording_NilRecorder(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test",
+			Namespace: "default",
+		},
+	}
+
+	c := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(cm).
+		Build()
+
+	logger := logr.Discard()
+
+	// Pass nil recorder - should not panic
+	r := NewBaseReconciler[*corev1.ConfigMap](c, scheme, logger, "test.finalizer", nil, nil)
+	handler := &mockHandler{}
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{
+			Name:      "test",
+			Namespace: "default",
+		},
+	}
+
+	// This should not panic even with nil recorder
+	result, err := r.Reconcile(context.Background(), req, handler, newConfigMap)
+
+	if err != nil {
+		t.Errorf("expected no error with nil recorder, got %v", err)
+	}
+
+	if result.RequeueAfter != DefaultRequeueSuccess {
+		t.Errorf("expected RequeueAfter %v, got %v", DefaultRequeueSuccess, result.RequeueAfter)
+	}
+}
+
+func TestBaseReconciler_EventRecording_NilRecorder_Deletion(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+
+	now := metav1.NewTime(time.Now())
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "test",
+			Namespace:         "default",
+			DeletionTimestamp: &now,
+			Finalizers:        []string{"test.finalizer"},
+		},
+	}
+
+	c := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(cm).
+		Build()
+
+	logger := logr.Discard()
+
+	// Pass nil recorder - should not panic during deletion
+	r := NewBaseReconciler[*corev1.ConfigMap](c, scheme, logger, "test.finalizer", nil, nil)
+	handler := &mockHandler{}
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{
+			Name:      "test",
+			Namespace: "default",
+		},
+	}
+
+	// This should not panic even with nil recorder during deletion
+	result, err := r.Reconcile(context.Background(), req, handler, newConfigMap)
+
+	if err != nil {
+		t.Errorf("expected no error with nil recorder, got %v", err)
+	}
+
+	if result.RequeueAfter != 0 {
+		t.Error("expected empty result after successful cleanup")
+	}
+}

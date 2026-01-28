@@ -113,6 +113,21 @@ var (
 	// skipImageLoad skips loading image to cluster (useful when image is pre-loaded by CI).
 	// Set E2E_SKIP_IMAGE_LOAD=true to skip.
 	skipImageLoad = os.Getenv("E2E_SKIP_IMAGE_LOAD") == "true"
+
+	// isCI detects if running in a CI environment (GitHub Actions, GitLab CI, etc.)
+	isCI = os.Getenv("CI") == "true" || os.Getenv("GITHUB_ACTIONS") == "true"
+
+	// Default timeout values - CI environments get longer timeouts due to
+	// slower shared runners, network latency, and resource contention
+	defaultTimeout = func() time.Duration {
+		if isCI {
+			return 5 * time.Minute
+		}
+		return 3 * time.Minute
+	}()
+
+	// Polling interval for Eventually assertions
+	defaultPollingInterval = 2 * time.Second
 )
 
 func init() {
@@ -154,8 +169,12 @@ var _ = BeforeSuite(func() {
 	}
 
 	// Set default timeouts for all tests
-	SetDefaultEventuallyTimeout(2 * time.Minute)
-	SetDefaultEventuallyPollingInterval(2 * time.Second)
+	// CI environments get longer timeouts due to resource contention and network latency
+	SetDefaultEventuallyTimeout(defaultTimeout)
+	SetDefaultEventuallyPollingInterval(defaultPollingInterval)
+	if isCI {
+		utils.TimedBy(fmt.Sprintf("running in CI mode with extended timeouts (%v)", defaultTimeout))
+	}
 
 	// Setup shared test infrastructure
 	setupSharedTestInfrastructure()

@@ -131,7 +131,9 @@ path "sys/mounts" {
 		_, _ = utils.Run(cmd)
 	})
 
-	SetDefaultEventuallyTimeout(3 * time.Minute)
+	// Use CI-aware timeouts (defined in e2e_suite_test.go)
+	// Token lifecycle tests need slightly longer intervals for Vault operations
+	SetDefaultEventuallyTimeout(defaultTimeout)
 	SetDefaultEventuallyPollingInterval(3 * time.Second)
 
 	Context("Bootstrap Flow", func() {

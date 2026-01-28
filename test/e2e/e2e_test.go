@@ -156,8 +156,9 @@ var _ = Describe("Manager", Ordered, func() {
 		}
 	})
 
-	SetDefaultEventuallyTimeout(2 * time.Minute)
-	SetDefaultEventuallyPollingInterval(time.Second)
+	// Use CI-aware timeouts (defined in e2e_suite_test.go)
+	SetDefaultEventuallyTimeout(defaultTimeout)
+	SetDefaultEventuallyPollingInterval(defaultPollingInterval)
 
 	Context("Manager", func() {
 		It("should run successfully", func() {
