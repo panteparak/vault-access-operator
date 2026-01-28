@@ -23,6 +23,7 @@ import (
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -49,6 +50,7 @@ type ReconcilerConfig struct {
 	EventBus     *events.EventBus
 	K8sClientset kubernetes.Interface
 	Log          logr.Logger
+	Recorder     record.EventRecorder
 }
 
 // NewReconciler creates a new VaultConnection Reconciler.
@@ -81,6 +83,7 @@ func NewReconciler(cfg ReconcilerConfig) *Reconciler {
 		log.WithName("reconciler"),
 		vaultv1alpha1.FinalizerName,
 		nil, // Status is updated in the handler
+		cfg.Recorder,
 	)
 
 	// Configure requeue intervals

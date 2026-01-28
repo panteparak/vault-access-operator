@@ -52,6 +52,7 @@ jobs:
       - uses: golangci/golangci-lint-action@v8
         with:
           version: v2.8.0
+          args: --config=.golangci.yml
       - name: Summary
         if: always()
         run: |

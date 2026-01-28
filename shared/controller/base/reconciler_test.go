@@ -66,7 +66,7 @@ func TestNewBaseReconciler(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(scheme).Build()
 	logger := logr.Discard()
 
-	r := NewBaseReconciler[*corev1.ConfigMap](c, scheme, logger, "test.finalizer", nil)
+	r := NewBaseReconciler[*corev1.ConfigMap](c, scheme, logger, "test.finalizer", nil, nil)
 
 	if r == nil {
 		t.Fatal("expected BaseReconciler to be non-nil")
@@ -95,7 +95,7 @@ func TestBaseReconciler_Reconcile_ResourceNotFound(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(scheme).Build()
 	logger := logr.Discard()
 
-	r := NewBaseReconciler[*corev1.ConfigMap](c, scheme, logger, "test.finalizer", nil)
+	r := NewBaseReconciler[*corev1.ConfigMap](c, scheme, logger, "test.finalizer", nil, nil)
 	handler := &mockHandler{}
 
 	req := ctrl.Request{
@@ -137,7 +137,7 @@ func TestBaseReconciler_Reconcile_Success(t *testing.T) {
 		Build()
 
 	logger := logr.Discard()
-	r := NewBaseReconciler[*corev1.ConfigMap](c, scheme, logger, "test.finalizer", nil)
+	r := NewBaseReconciler[*corev1.ConfigMap](c, scheme, logger, "test.finalizer", nil, nil)
 
 	handler := &mockHandler{}
 
@@ -191,7 +191,7 @@ func TestBaseReconciler_Reconcile_SyncError(t *testing.T) {
 		Build()
 
 	logger := logr.Discard()
-	r := NewBaseReconciler[*corev1.ConfigMap](c, scheme, logger, "test.finalizer", nil)
+	r := NewBaseReconciler[*corev1.ConfigMap](c, scheme, logger, "test.finalizer", nil, nil)
 
 	syncErr := errors.New("sync failed")
 	handler := &mockHandler{
@@ -238,7 +238,7 @@ func TestBaseReconciler_Reconcile_Deletion(t *testing.T) {
 		Build()
 
 	logger := logr.Discard()
-	r := NewBaseReconciler[*corev1.ConfigMap](c, scheme, logger, "test.finalizer", nil)
+	r := NewBaseReconciler[*corev1.ConfigMap](c, scheme, logger, "test.finalizer", nil, nil)
 
 	handler := &mockHandler{}
 
@@ -298,7 +298,7 @@ func TestBaseReconciler_Reconcile_DeletionNoOurFinalizer(t *testing.T) {
 		Build()
 
 	logger := logr.Discard()
-	r := NewBaseReconciler[*corev1.ConfigMap](c, scheme, logger, "test.finalizer", nil)
+	r := NewBaseReconciler[*corev1.ConfigMap](c, scheme, logger, "test.finalizer", nil, nil)
 
 	handler := &mockHandler{}
 
@@ -351,7 +351,7 @@ func TestBaseReconciler_Reconcile_CleanupError(t *testing.T) {
 		Build()
 
 	logger := logr.Discard()
-	r := NewBaseReconciler[*corev1.ConfigMap](c, scheme, logger, "test.finalizer", nil)
+	r := NewBaseReconciler[*corev1.ConfigMap](c, scheme, logger, "test.finalizer", nil, nil)
 
 	cleanupErr := errors.New("cleanup failed")
 	handler := &mockHandler{
@@ -408,7 +408,7 @@ func TestBaseReconciler_WithStatusUpdater(t *testing.T) {
 	}
 
 	logger := logr.Discard()
-	r := NewBaseReconciler(c, scheme, logger, "test.finalizer", statusUpdater)
+	r := NewBaseReconciler(c, scheme, logger, "test.finalizer", statusUpdater, nil)
 
 	handler := &mockHandler{}
 
@@ -450,7 +450,7 @@ func TestBaseReconciler_GenericType(t *testing.T) {
 	logger := logr.Discard()
 
 	// Create reconciler for Secret type
-	r := NewBaseReconciler[*corev1.Secret](c, scheme, logger, "test.finalizer", nil)
+	r := NewBaseReconciler[*corev1.Secret](c, scheme, logger, "test.finalizer", nil, nil)
 
 	secretHandler := &secretMockHandler{}
 

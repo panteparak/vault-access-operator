@@ -22,6 +22,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -42,6 +43,7 @@ func NewClusterPolicyReconciler(
 	scheme *runtime.Scheme,
 	handler *Handler,
 	log logr.Logger,
+	recorder record.EventRecorder,
 ) *ClusterPolicyReconciler {
 	// Create base reconciler
 	baseReconciler := base.NewBaseReconciler[*vaultv1alpha1.VaultClusterPolicy](
@@ -50,6 +52,7 @@ func NewClusterPolicyReconciler(
 		log.WithName("vaultclusterpolicy"),
 		vaultv1alpha1.FinalizerName,
 		nil, // Status is updated in the handler
+		recorder,
 	)
 
 	// Configure requeue intervals

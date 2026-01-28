@@ -26,6 +26,7 @@ import (
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -57,6 +58,7 @@ type Config struct {
 	K8sClientset kubernetes.Interface
 	Scheme       *runtime.Scheme
 	Log          logr.Logger
+	Recorder     record.EventRecorder
 }
 
 // New creates a new Connection Feature with all dependencies wired together.
@@ -74,6 +76,7 @@ func New(cfg Config) *Feature {
 		EventBus:     cfg.EventBus,
 		K8sClientset: cfg.K8sClientset,
 		Log:          featureLog,
+		Recorder:     cfg.Recorder,
 	})
 
 	return &Feature{
