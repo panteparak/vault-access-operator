@@ -45,13 +45,29 @@ const metricsRoleBindingName = "vault-access-operator-metrics-binding"
 var _ = Describe("Manager", Ordered, func() {
 	var controllerPodName string
 
+	// operatorAlreadyDeployed tracks whether the operator was pre-deployed by CI
+	// If true, we skip setup and cleanup to avoid conflicts with other tests
+	var operatorAlreadyDeployed bool
+
 	// Before running the tests, set up the environment by creating the namespace,
 	// enforce the restricted security policy to the namespace, installing CRDs,
 	// and deploying the controller.
 	BeforeAll(func() {
+		// Check if operator is already deployed (CI deploys it before running tests)
+		By("checking if operator is already deployed")
+		cmd := exec.Command("kubectl", "get", "deployment", "-n", namespace,
+			"-l", "control-plane=controller-manager", "-o", "name")
+		output, err := utils.Run(cmd)
+		if err == nil && output != "" {
+			By("operator already deployed by CI, skipping setup")
+			operatorAlreadyDeployed = true
+			return
+		}
+
+		// Operator not deployed, set up from scratch (local development)
 		By("creating manager namespace")
-		cmd := exec.Command("kubectl", "create", "ns", namespace)
-		_, err := utils.Run(cmd)
+		cmd = exec.Command("kubectl", "create", "ns", namespace)
+		_, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to create namespace")
 
 		By("labeling the namespace to enforce the restricted security policy")
@@ -72,11 +88,17 @@ var _ = Describe("Manager", Ordered, func() {
 	})
 
 	// After all tests have been executed, clean up by undeploying the controller, uninstalling CRDs,
-	// and deleting the namespace.
+	// and deleting the namespace. Skip cleanup if operator was pre-deployed by CI.
 	AfterAll(func() {
 		By("cleaning up the curl pod for metrics")
-		cmd := exec.Command("kubectl", "delete", "pod", "curl-metrics", "-n", namespace)
+		cmd := exec.Command("kubectl", "delete", "pod", "curl-metrics", "-n", namespace, "--ignore-not-found")
 		_, _ = utils.Run(cmd)
+
+		// Skip cleanup if operator was pre-deployed by CI (other tests depend on it)
+		if operatorAlreadyDeployed {
+			By("skipping cleanup - operator was pre-deployed by CI")
+			return
+		}
 
 		By("undeploying the controller-manager")
 		cmd = exec.Command("make", "undeploy")

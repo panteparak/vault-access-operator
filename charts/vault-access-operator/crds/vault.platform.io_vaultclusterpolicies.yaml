@@ -1,0 +1,217 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.18.0
+  name: vaultclusterpolicies.vault.platform.io
+spec:
+  group: vault.platform.io
+  names:
+    kind: VaultClusterPolicy
+    listKind: VaultClusterPolicyList
+    plural: vaultclusterpolicies
+    shortNames:
+    - vcp
+    singular: vaultclusterpolicy
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.vaultName
+      name: Vault Name
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.rulesCount
+      name: Rules
+      type: integer
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: VaultClusterPolicy is the Schema for the vaultclusterpolicies
+          API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: VaultClusterPolicySpec defines the desired state of VaultClusterPolicy.
+            properties:
+              conflictPolicy:
+                default: Fail
+                description: ConflictPolicy defines how to handle conflicts with existing
+                  policies
+                enum:
+                - Fail
+                - Adopt
+                type: string
+              connectionRef:
+                description: ConnectionRef is the name of the VaultConnection to use
+                type: string
+              deletionPolicy:
+                default: Delete
+                description: DeletionPolicy defines what happens when the resource
+                  is deleted
+                enum:
+                - Delete
+                - Retain
+                type: string
+              rules:
+                description: Rules defines the policy rules
+                items:
+                  description: PolicyRule defines a single policy rule for Vault
+                  properties:
+                    capabilities:
+                      description: Capabilities to grant on this path
+                      items:
+                        description: Capability represents a Vault policy capability
+                        enum:
+                        - create
+                        - read
+                        - update
+                        - delete
+                        - list
+                        - sudo
+                        - deny
+                        type: string
+                      minItems: 1
+                      type: array
+                    description:
+                      description: Description of this rule
+                      type: string
+                    parameters:
+                      description: Parameters for fine-grained control
+                      properties:
+                        allowed:
+                          description: Allowed parameter values
+                          items:
+                            type: string
+                          type: array
+                        denied:
+                          description: Denied parameter values
+                          items:
+                            type: string
+                          type: array
+                        required:
+                          description: Required parameters
+                          items:
+                            type: string
+                          type: array
+                      type: object
+                    path:
+                      description: Path in Vault to apply the rule to
+                      pattern: ^[a-zA-Z0-9/_*{}+-]+$
+                      type: string
+                  required:
+                  - capabilities
+                  - path
+                  type: object
+                minItems: 1
+                type: array
+            required:
+            - connectionRef
+            - rules
+            type: object
+          status:
+            description: VaultClusterPolicyStatus defines the observed state of VaultClusterPolicy.
+            properties:
+              conditions:
+                description: Conditions represent the latest available observations
+                items:
+                  description: Condition represents a condition of a resource
+                  properties:
+                    lastTransitionTime:
+                      description: LastTransitionTime is the last time the condition
+                        transitioned
+                      format: date-time
+                      type: string
+                    message:
+                      description: Message is a human-readable explanation
+                      type: string
+                    observedGeneration:
+                      description: ObservedGeneration represents the generation observed
+                        by the controller
+                      format: int64
+                      type: integer
+                    reason:
+                      description: Reason for the condition's last transition
+                      type: string
+                    status:
+                      description: Status of the condition (True, False, Unknown)
+                      type: string
+                    type:
+                      description: Type of condition
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              lastAppliedHash:
+                description: LastAppliedHash is the hash of the last applied spec
+                type: string
+              lastAttemptAt:
+                description: LastAttemptAt is the time of the last sync attempt
+                format: date-time
+                type: string
+              lastSyncedAt:
+                description: LastSyncedAt is the time of the last successful sync
+                format: date-time
+                type: string
+              managed:
+                description: Managed indicates whether this policy is managed by the
+                  operator
+                type: boolean
+              message:
+                description: Message provides additional information about the current
+                  state
+                type: string
+              nextRetryAt:
+                description: NextRetryAt is the time of the next retry attempt
+                format: date-time
+                type: string
+              phase:
+                description: Phase represents the current phase of the policy
+                enum:
+                - Pending
+                - Syncing
+                - Active
+                - Conflict
+                - Error
+                - Deleting
+                type: string
+              retryCount:
+                description: RetryCount is the number of retry attempts
+                type: integer
+              rulesCount:
+                description: RulesCount is the number of rules in the policy
+                type: integer
+              vaultName:
+                description: VaultName is the name of the policy in Vault
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

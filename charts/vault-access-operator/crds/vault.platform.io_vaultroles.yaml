@@ -1,0 +1,215 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.18.0
+  name: vaultroles.vault.platform.io
+spec:
+  group: vault.platform.io
+  names:
+    kind: VaultRole
+    listKind: VaultRoleList
+    plural: vaultroles
+    shortNames:
+    - vr
+    singular: vaultrole
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.vaultRoleName
+      name: Vault Role
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.resolvedPolicies
+      name: Policies
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: VaultRole is the Schema for the vaultroles API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: VaultRoleSpec defines the desired state of VaultRole.
+            properties:
+              authPath:
+                description: AuthPath is the mount path of the Kubernetes auth method
+                  in Vault
+                type: string
+              conflictPolicy:
+                default: Fail
+                description: ConflictPolicy defines how to handle conflicts with existing
+                  roles
+                enum:
+                - Fail
+                - Adopt
+                type: string
+              connectionRef:
+                description: ConnectionRef is the name of the VaultConnection to use
+                type: string
+              deletionPolicy:
+                default: Delete
+                description: DeletionPolicy defines what happens when the resource
+                  is deleted
+                enum:
+                - Delete
+                - Retain
+                type: string
+              policies:
+                description: Policies defines which policies to attach to this role
+                items:
+                  description: PolicyReference defines a reference to a VaultPolicy
+                    or VaultClusterPolicy
+                  properties:
+                    kind:
+                      description: Kind of the policy (VaultPolicy or VaultClusterPolicy)
+                      enum:
+                      - VaultPolicy
+                      - VaultClusterPolicy
+                      type: string
+                    name:
+                      description: Name of the policy
+                      type: string
+                    namespace:
+                      description: Namespace of the policy (only for VaultPolicy,
+                        defaults to the namespace of the referencing resource)
+                      type: string
+                  required:
+                  - kind
+                  - name
+                  type: object
+                minItems: 1
+                type: array
+              serviceAccounts:
+                description: ServiceAccounts defines which service accounts can use
+                  this role (names only, in same namespace)
+                items:
+                  type: string
+                minItems: 1
+                type: array
+              tokenMaxTTL:
+                description: TokenMaxTTL is the maximum TTL for tokens issued by this
+                  role
+                type: string
+              tokenTTL:
+                description: TokenTTL is the default TTL for tokens issued by this
+                  role
+                type: string
+            required:
+            - connectionRef
+            - policies
+            - serviceAccounts
+            type: object
+          status:
+            description: VaultRoleStatus defines the observed state of VaultRole.
+            properties:
+              boundServiceAccounts:
+                description: BoundServiceAccounts lists the service accounts bound
+                  to this role
+                items:
+                  type: string
+                type: array
+              conditions:
+                description: Conditions represent the latest available observations
+                items:
+                  description: Condition represents a condition of a resource
+                  properties:
+                    lastTransitionTime:
+                      description: LastTransitionTime is the last time the condition
+                        transitioned
+                      format: date-time
+                      type: string
+                    message:
+                      description: Message is a human-readable explanation
+                      type: string
+                    observedGeneration:
+                      description: ObservedGeneration represents the generation observed
+                        by the controller
+                      format: int64
+                      type: integer
+                    reason:
+                      description: Reason for the condition's last transition
+                      type: string
+                    status:
+                      description: Status of the condition (True, False, Unknown)
+                      type: string
+                    type:
+                      description: Type of condition
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              lastAttemptAt:
+                description: LastAttemptAt is the time of the last sync attempt
+                format: date-time
+                type: string
+              lastSyncedAt:
+                description: LastSyncedAt is the time of the last successful sync
+                format: date-time
+                type: string
+              managed:
+                description: Managed indicates whether this role is managed by the
+                  operator
+                type: boolean
+              message:
+                description: Message provides additional information about the current
+                  state
+                type: string
+              nextRetryAt:
+                description: NextRetryAt is the time of the next retry attempt
+                format: date-time
+                type: string
+              phase:
+                description: Phase represents the current phase of the role
+                enum:
+                - Pending
+                - Syncing
+                - Active
+                - Conflict
+                - Error
+                - Deleting
+                type: string
+              resolvedPolicies:
+                description: ResolvedPolicies lists the resolved Vault policy names
+                items:
+                  type: string
+                type: array
+              retryCount:
+                description: RetryCount is the number of retry attempts
+                type: integer
+              vaultRoleName:
+                description: VaultRoleName is the name of the role in Vault (namespace-name
+                  format)
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

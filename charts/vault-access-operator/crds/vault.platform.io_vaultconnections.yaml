@@ -1,0 +1,571 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.18.0
+  name: vaultconnections.vault.platform.io
+spec:
+  group: vault.platform.io
+  names:
+    kind: VaultConnection
+    listKind: VaultConnectionList
+    plural: vaultconnections
+    singular: vaultconnection
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.address
+      name: Address
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.vaultVersion
+      name: Version
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: VaultConnection is the Schema for the vaultconnections API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: VaultConnectionSpec defines the desired state of VaultConnection.
+            properties:
+              address:
+                description: Address is the Vault server address (e.g., https://vault.example.com:8200)
+                pattern: ^https?://
+                type: string
+              auth:
+                description: Auth configuration for authenticating to Vault
+                properties:
+                  appRole:
+                    description: AppRole auth method configuration
+                    properties:
+                      mountPath:
+                        default: approle
+                        description: MountPath is the mount path of the AppRole auth
+                          method
+                        type: string
+                      roleId:
+                        description: RoleID is the AppRole role ID
+                        type: string
+                      secretIdRef:
+                        description: SecretIDRef references a secret containing the
+                          AppRole secret ID
+                        properties:
+                          key:
+                            description: Key in the secret to select
+                            type: string
+                          name:
+                            description: Name of the secret
+                            type: string
+                          namespace:
+                            description: Namespace of the secret. If not specified,
+                              uses the namespace of the referencing resource.
+                            type: string
+                        required:
+                        - key
+                        - name
+                        type: object
+                    required:
+                    - roleId
+                    - secretIdRef
+                    type: object
+                  aws:
+                    description: AWS auth method configuration for AWS IAM authentication
+                      (EKS/IRSA)
+                    properties:
+                      authPath:
+                        default: aws
+                        description: 'AuthPath is the mount path for AWS auth (default:
+                          "aws")'
+                        type: string
+                      authType:
+                        default: iam
+                        description: 'AuthType is the AWS auth method type: "iam"
+                          or "ec2"'
+                        enum:
+                        - iam
+                        - ec2
+                        type: string
+                      iamServerIdHeaderValue:
+                        description: |-
+                          IAMServerIDHeaderValue sets the X-Vault-AWS-IAM-Server-ID header
+                          for additional security. Must match the server_id_header_value
+                          configured in Vault's AWS auth backend.
+                        type: string
+                      region:
+                        description: Region is the AWS region (auto-detected if not
+                          specified)
+                        type: string
+                      role:
+                        description: Role is the Vault role configured for AWS auth
+                        type: string
+                      stsEndpoint:
+                        description: STSEndpoint overrides the default STS endpoint
+                        type: string
+                    required:
+                    - role
+                    type: object
+                  bootstrap:
+                    description: |-
+                      Bootstrap enables one-time setup of Kubernetes auth.
+                      After bootstrap succeeds, the operator uses Kubernetes auth exclusively.
+                    properties:
+                      autoRevoke:
+                        default: true
+                        description: AutoRevoke revokes the bootstrap token after
+                          successful setup.
+                        type: boolean
+                      secretRef:
+                        description: |-
+                          SecretRef references a secret containing the bootstrap Vault token.
+                          This token should have permissions to enable and configure auth methods.
+                        properties:
+                          key:
+                            description: Key in the secret to select
+                            type: string
+                          name:
+                            description: Name of the secret
+                            type: string
+                          namespace:
+                            description: Namespace of the secret. If not specified,
+                              uses the namespace of the referencing resource.
+                            type: string
+                        required:
+                        - key
+                        - name
+                        type: object
+                    required:
+                    - secretRef
+                    type: object
+                  gcp:
+                    description: GCP auth method configuration for GCP IAM authentication
+                      (GKE Workload Identity)
+                    properties:
+                      authPath:
+                        default: gcp
+                        description: 'AuthPath is the mount path for GCP auth (default:
+                          "gcp")'
+                        type: string
+                      authType:
+                        default: iam
+                        description: 'AuthType is the GCP auth method type: "iam"
+                          or "gce"'
+                        enum:
+                        - iam
+                        - gce
+                        type: string
+                      credentialsSecretRef:
+                        description: |-
+                          CredentialsSecretRef references a secret containing GCP credentials JSON.
+                          If not specified, uses Workload Identity or Application Default Credentials.
+                        properties:
+                          key:
+                            description: Key in the secret to select
+                            type: string
+                          name:
+                            description: Name of the secret
+                            type: string
+                          namespace:
+                            description: Namespace of the secret. If not specified,
+                              uses the namespace of the referencing resource.
+                            type: string
+                        required:
+                        - key
+                        - name
+                        type: object
+                      role:
+                        description: Role is the Vault role configured for GCP auth
+                        type: string
+                      serviceAccountEmail:
+                        description: |-
+                          ServiceAccountEmail is the GCP service account email.
+                          If not specified, uses the default service account from metadata server.
+                        type: string
+                    required:
+                    - role
+                    type: object
+                  jwt:
+                    description: JWT auth method configuration for external identity
+                      providers
+                    properties:
+                      audiences:
+                        description: |-
+                          Audiences is the list of audiences to include in the token request.
+                          Maps to the 'aud' claim in the generated JWT.
+                          If not specified, defaults to ["vault"].
+                        items:
+                          type: string
+                        type: array
+                      authPath:
+                        default: jwt
+                        description: 'AuthPath is the mount path for JWT auth (default:
+                          "jwt")'
+                        type: string
+                      claimsToPass:
+                        description: |-
+                          ClaimsToPass is a list of JWT claims to include in the auth response metadata.
+                          Useful for passing identity information to policies via identity templating.
+                        items:
+                          type: string
+                        type: array
+                      expectedAudience:
+                        description: |-
+                          ExpectedAudience is the expected 'aud' claim value for validation.
+                          Used for documentation and pre-flight checks.
+                          Vault validates this against bound_audiences in the auth config.
+                        type: string
+                      expectedIssuer:
+                        description: |-
+                          ExpectedIssuer is the expected 'iss' claim value.
+                          Used for documentation and validation at the operator level.
+                          Vault validates this against bound_issuer in the auth config.
+                        type: string
+                      groupsClaim:
+                        description: |-
+                          GroupsClaim specifies which claim contains group membership.
+                          Common values: "groups", "roles", "cognito:groups".
+                          This must match the groups_claim in the Vault role configuration.
+                        type: string
+                      jwtSecretRef:
+                        description: |-
+                          JWTSecretRef references a secret containing the JWT token.
+                          If not provided, uses the mounted service account token via TokenRequest API.
+                        properties:
+                          key:
+                            description: Key in the secret to select
+                            type: string
+                          name:
+                            description: Name of the secret
+                            type: string
+                          namespace:
+                            description: Namespace of the secret. If not specified,
+                              uses the namespace of the referencing resource.
+                            type: string
+                        required:
+                        - key
+                        - name
+                        type: object
+                      role:
+                        description: Role is the Vault role configured for JWT auth
+                        type: string
+                      tokenDuration:
+                        default: 1h
+                        description: |-
+                          TokenDuration is the requested service account token lifetime.
+                          Controls the 'exp' claim in the generated JWT.
+                        type: string
+                      userClaim:
+                        description: |-
+                          UserClaim specifies which claim to use for the Vault entity alias.
+                          Common values: "sub", "email", "name". Vault default is "sub".
+                          This must match the user_claim in the Vault role configuration.
+                        type: string
+                    required:
+                    - role
+                    type: object
+                  kubernetes:
+                    description: Kubernetes auth method configuration
+                    properties:
+                      authPath:
+                        default: kubernetes
+                        description: |-
+                          AuthPath is the Vault auth mount path (default: "kubernetes").
+                          Use a custom path if the Kubernetes auth method is mounted elsewhere.
+                        type: string
+                      role:
+                        description: |-
+                          Role is the Vault role to authenticate as.
+                          This is the Vault role (not K8s role) created in Vault's Kubernetes auth config.
+                        type: string
+                      tokenDuration:
+                        default: 1h
+                        description: |-
+                          TokenDuration is the requested service account token lifetime.
+                          Uses Kubernetes TokenRequest API for short-lived tokens.
+                        type: string
+                      tokenReviewerRotation:
+                        default: true
+                        description: |-
+                          TokenReviewerRotation enables automatic token_reviewer_jwt rotation.
+                          IMPORTANT: When disabled, you must manually manage token_reviewer_jwt
+                          or all Kubernetes auth will fail when the JWT expires.
+                        type: boolean
+                    required:
+                    - role
+                    type: object
+                  oidc:
+                    description: OIDC auth method configuration for OpenID Connect
+                      providers (e.g., EKS OIDC)
+                    properties:
+                      audiences:
+                        description: |-
+                          Audiences is the list of audiences to include in the token request.
+                          For OIDC, this should match the client_id configured in Vault's OIDC auth.
+                          Default: uses the ProviderURL as the audience if not specified.
+                        items:
+                          type: string
+                        type: array
+                      authPath:
+                        default: oidc
+                        description: 'AuthPath is the mount path for OIDC auth (default:
+                          "oidc")'
+                        type: string
+                      groupsClaim:
+                        description: GroupsClaim specifies which claim contains group
+                          membership.
+                        type: string
+                      jwtSecretRef:
+                        description: |-
+                          JWTSecretRef references a secret containing a pre-obtained JWT.
+                          Use this instead of SA token when you have an external OIDC token.
+                        properties:
+                          key:
+                            description: Key in the secret to select
+                            type: string
+                          name:
+                            description: Name of the secret
+                            type: string
+                          namespace:
+                            description: Namespace of the secret. If not specified,
+                              uses the namespace of the referencing resource.
+                            type: string
+                        required:
+                        - key
+                        - name
+                        type: object
+                      providerURL:
+                        description: |-
+                          ProviderURL is the OIDC provider URL for discovery.
+                          Format examples:
+                            - EKS: https://oidc.eks.<region>.amazonaws.com/id/<cluster-id>
+                            - GKE: https://container.googleapis.com/v1/projects/<project>/locations/<zone>/clusters/<name>
+                            - Azure AD: https://login.microsoftonline.com/<tenant>/v2.0
+                        type: string
+                      role:
+                        description: Role is the Vault role configured for OIDC auth
+                        type: string
+                      scopes:
+                        description: |-
+                          Scopes specifies the OIDC scopes to request (for browser-based OIDC flow).
+                          Not used when using SA token, but useful for documentation.
+                        items:
+                          type: string
+                        type: array
+                      tokenDuration:
+                        default: 1h
+                        description: TokenDuration is the requested service account
+                          token lifetime.
+                        type: string
+                      useServiceAccountToken:
+                        default: true
+                        description: |-
+                          UseServiceAccountToken uses the K8s SA token for OIDC auth.
+                          The SA token contains the OIDC issuer claim for verification.
+                        type: boolean
+                      userClaim:
+                        description: |-
+                          UserClaim specifies which claim to use for the Vault entity alias.
+                          Common values: "sub", "email", "preferred_username".
+                        type: string
+                    required:
+                    - role
+                    type: object
+                  token:
+                    description: Token auth method configuration
+                    properties:
+                      secretRef:
+                        description: SecretRef references a secret containing the
+                          Vault token
+                        properties:
+                          key:
+                            description: Key in the secret to select
+                            type: string
+                          name:
+                            description: Name of the secret
+                            type: string
+                          namespace:
+                            description: Namespace of the secret. If not specified,
+                              uses the namespace of the referencing resource.
+                            type: string
+                        required:
+                        - key
+                        - name
+                        type: object
+                    required:
+                    - secretRef
+                    type: object
+                type: object
+              defaults:
+                description: Defaults for various Vault paths
+                properties:
+                  authPath:
+                    default: auth/kubernetes
+                    description: AuthPath is the default path for auth methods
+                    type: string
+                  secretEnginePath:
+                    description: SecretEnginePath is the default path for secret engines
+                    type: string
+                  transitPath:
+                    description: TransitPath is the default path for the transit engine
+                    type: string
+                type: object
+              healthCheckInterval:
+                default: 30s
+                description: HealthCheckInterval defines how often to check Vault
+                  connectivity
+                type: string
+              tls:
+                description: TLS configuration for the Vault connection
+                properties:
+                  caSecretRef:
+                    description: CASecretRef references a secret containing the CA
+                      certificate
+                    properties:
+                      key:
+                        description: Key in the secret to select
+                        type: string
+                      name:
+                        description: Name of the secret
+                        type: string
+                      namespace:
+                        description: Namespace of the secret. If not specified, uses
+                          the namespace of the referencing resource.
+                        type: string
+                    required:
+                    - key
+                    - name
+                    type: object
+                  skipVerify:
+                    description: SkipVerify disables TLS certificate verification
+                    type: boolean
+                type: object
+            required:
+            - address
+            - auth
+            type: object
+          status:
+            description: VaultConnectionStatus defines the observed state of VaultConnection.
+            properties:
+              authStatus:
+                description: AuthStatus contains authentication-related status information
+                properties:
+                  authMethod:
+                    description: AuthMethod is the currently active authentication
+                      method
+                    type: string
+                  bootstrapComplete:
+                    description: BootstrapComplete indicates if bootstrap has been
+                      completed
+                    type: boolean
+                  bootstrapCompletedAt:
+                    description: BootstrapCompletedAt is when bootstrap was completed
+                    format: date-time
+                    type: string
+                  tokenExpiration:
+                    description: TokenExpiration is when the current Vault token expires
+                    format: date-time
+                    type: string
+                  tokenLastRenewed:
+                    description: TokenLastRenewed is when the token was last renewed
+                    format: date-time
+                    type: string
+                  tokenRenewalCount:
+                    description: TokenRenewalCount is how many times the token has
+                      been renewed
+                    type: integer
+                  tokenReviewerExpiration:
+                    description: TokenReviewerExpiration is when the token_reviewer_jwt
+                      expires
+                    format: date-time
+                    type: string
+                  tokenReviewerLastRefresh:
+                    description: TokenReviewerLastRefresh is when token_reviewer_jwt
+                      was last refreshed
+                    format: date-time
+                    type: string
+                type: object
+              conditions:
+                description: Conditions represent the latest available observations
+                items:
+                  description: Condition represents a condition of a resource
+                  properties:
+                    lastTransitionTime:
+                      description: LastTransitionTime is the last time the condition
+                        transitioned
+                      format: date-time
+                      type: string
+                    message:
+                      description: Message is a human-readable explanation
+                      type: string
+                    observedGeneration:
+                      description: ObservedGeneration represents the generation observed
+                        by the controller
+                      format: int64
+                      type: integer
+                    reason:
+                      description: Reason for the condition's last transition
+                      type: string
+                    status:
+                      description: Status of the condition (True, False, Unknown)
+                      type: string
+                    type:
+                      description: Type of condition
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              lastHeartbeat:
+                description: LastHeartbeat is the time of the last successful health
+                  check
+                format: date-time
+                type: string
+              message:
+                description: Message provides additional information about the current
+                  state
+                type: string
+              phase:
+                description: Phase represents the current phase of the connection
+                enum:
+                - Pending
+                - Syncing
+                - Active
+                - Conflict
+                - Error
+                - Deleting
+                type: string
+              vaultVersion:
+                description: VaultVersion is the version of the connected Vault server
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

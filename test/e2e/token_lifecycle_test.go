@@ -82,7 +82,8 @@ path "sys/mounts" {
 }
 `
 		// Use kubectl exec to create the policy in Vault
-		cmd = exec.Command("kubectl", "exec", "-n", vaultNamespace, "vault-0", "--",
+		// Note: -i flag is required to pass stdin to the pod
+		cmd = exec.Command("kubectl", "exec", "-i", "-n", vaultNamespace, "vault-0", "--",
 			"vault", "policy", "write", operatorPolicy, "-")
 		cmd.Stdin = stringReader(policyHCL)
 		_, err := utils.Run(cmd)

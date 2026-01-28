@@ -171,6 +171,15 @@ jobs:
             exit 1
           fi
 
+      - name: Verify Helm CRDs match generated
+        run: |
+          make helm-update-crds
+          if [ -n "$(git status --porcelain charts/)" ]; then
+            echo "::error::Helm CRDs are out of date. Run 'make helm-update-crds' and commit."
+            git diff charts/
+            exit 1
+          fi
+
       - name: Lint Helm chart
         run: |
           helm lint charts/vault-access-operator
@@ -760,12 +769,6 @@ jobs:
         if: matrix.install_method == 'helm'
         with:
           version: 'v3.14.0'
-
-      - name: Install CRDs (helm)
-        if: matrix.install_method == 'helm'
-        run: |
-          # Helm chart doesn't include CRDs, so install them separately
-          make install
 
       - name: Deploy (helm)
         if: matrix.install_method == 'helm'
