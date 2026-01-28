@@ -102,6 +102,13 @@ CHART_DIR ?= charts/vault-access-operator
 helm-update-crds: manifests ## Copy CRDs to Helm chart
 	cp config/crd/bases/*.yaml $(CHART_DIR)/crds/
 
+.PHONY: compare-templates
+compare-templates: ## Compare kustomize and helm template outputs
+	@./scripts/compare-templates.sh
+
+.PHONY: verify-templates
+verify-templates: manifests helm-update-crds compare-templates ## Full template verification
+
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
