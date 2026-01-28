@@ -11,10 +11,13 @@ package integration
 import (
 	"context"
 	"fmt"
+	"io"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
+	. "github.com/onsi/ginkgo/v2" //nolint:revive,staticcheck
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -328,4 +331,42 @@ func (te *TestEnvironment) WaitForVaultHealthy(timeout time.Duration) error {
 			}
 		}
 	}
+}
+
+// GetVaultLogs returns the last N lines of Vault container logs.
+// This is useful for debugging test failures.
+func (te *TestEnvironment) GetVaultLogs(ctx context.Context, lines int) (string, error) {
+	if te.VaultContainer == nil {
+		return "", fmt.Errorf("vault container not running")
+	}
+
+	// Get logs from the container
+	reader, err := te.VaultContainer.Logs(ctx)
+	if err != nil {
+		return "", fmt.Errorf("failed to get vault logs: %w", err)
+	}
+	defer reader.Close()
+
+	logs, err := io.ReadAll(reader)
+	if err != nil {
+		return "", fmt.Errorf("failed to read vault logs: %w", err)
+	}
+
+	// Return last N lines
+	allLines := strings.Split(string(logs), "\n")
+	if len(allLines) > lines {
+		allLines = allLines[len(allLines)-lines:]
+	}
+	return strings.Join(allLines, "\n"), nil
+}
+
+// DumpVaultLogs writes Vault container logs to GinkgoWriter.
+// Call this on test failure to capture debugging information.
+func (te *TestEnvironment) DumpVaultLogs(ctx context.Context) {
+	logs, err := te.GetVaultLogs(ctx, 100)
+	if err != nil {
+		fmt.Fprintf(GinkgoWriter, "Failed to get Vault logs: %v\n", err)
+		return
+	}
+	fmt.Fprintf(GinkgoWriter, "\n=== VAULT LOGS (last 100 lines) ===\n%s\n=== END VAULT LOGS ===\n", logs)
 }

@@ -110,25 +110,56 @@ jobs:
       - name: Run integration tests
         run: |
           # Integration tests require Docker for testcontainers
-          make test-integration 2>&1 | tee integration-output.txt || true
+          # Generate JSON report for detailed test case summary
+          go test ./test/integration/... -v -ginkgo.v -ginkgo.show-node-events \
+            -ginkgo.json-report=integration-report.json -timeout=10m 2>&1 | tee integration-output.txt || true
       - name: Generate integration test summary
         if: always()
         run: |
           echo "## 🔌 Integration Test Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          if [ -f integration-output.txt ]; then
-            PASSED=$(grep -c "PASSED\|✓" integration-output.txt || echo "0")
-            FAILED=$(grep -c "FAILED\|✗" integration-output.txt || echo "0")
-            echo "| Result | Count |" >> $GITHUB_STEP_SUMMARY
-            echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
-            echo "| ✅ Passed | ${PASSED} |" >> $GITHUB_STEP_SUMMARY
-            echo "| ❌ Failed | ${FAILED} |" >> $GITHUB_STEP_SUMMARY
+
+          # Generate test case table from JSON report
+          if [ -f integration-report.json ]; then
+            echo "### Test Cases" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| Status | Test Case | Duration |" >> $GITHUB_STEP_SUMMARY
+            echo "|--------|-----------|----------|" >> $GITHUB_STEP_SUMMARY
+
+            # Parse JSON and create table rows (skip skipped tests)
+            jq -r '
+              .[] | .SpecReports[]? |
+              select(.State != "skipped" and .State != "") |
+              (if .State == "passed" then "✅" elif .State == "failed" then "❌" else "⚠️" end) as $status |
+              (.LeafNodeText // .ContainerHierarchyTexts[-1] // "Unknown") as $name |
+              ((.RunTime / 1000000000 * 100 | floor) / 100) as $duration |
+              "| \($status) | \($name) | \($duration)s |"
+            ' integration-report.json >> $GITHUB_STEP_SUMMARY 2>/dev/null || true
+
+            echo "" >> $GITHUB_STEP_SUMMARY
+
+            # Summary counts
+            PASSED=$(jq '[.[] | .SpecReports[]? | select(.State == "passed")] | length' integration-report.json 2>/dev/null || echo "0")
+            FAILED=$(jq '[.[] | .SpecReports[]? | select(.State == "failed")] | length' integration-report.json 2>/dev/null || echo "0")
+            SKIPPED=$(jq '[.[] | .SpecReports[]? | select(.State == "skipped")] | length' integration-report.json 2>/dev/null || echo "0")
+
+            echo "### Summary" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| ✅ Passed | ❌ Failed | ⏭️ Skipped |" >> $GITHUB_STEP_SUMMARY
+            echo "|-----------|-----------|------------|" >> $GITHUB_STEP_SUMMARY
+            echo "| ${PASSED} | ${FAILED} | ${SKIPPED} |" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Show failure details if any
+          if [ -f integration-output.txt ] && grep -q "FAIL" integration-output.txt; then
+            echo "### ❌ Failure Details" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "<details>" >> $GITHUB_STEP_SUMMARY
-            echo "<summary>Test Output</summary>" >> $GITHUB_STEP_SUMMARY
+            echo "<summary>Click to expand failure logs</summary>" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
-            tail -100 integration-output.txt >> $GITHUB_STEP_SUMMARY
+            grep -B 5 -A 30 "FAIL\!" integration-output.txt >> $GITHUB_STEP_SUMMARY || tail -100 integration-output.txt >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
             echo "</details>" >> $GITHUB_STEP_SUMMARY
           fi
@@ -137,7 +168,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: integration-test-output
-          path: integration-output.txt
+          path: |
+            integration-output.txt
+            integration-report.json
           retention-days: 7
 
   verify:
@@ -570,7 +603,9 @@ jobs:
           cache: true
       - name: Run security tests
         run: |
-          make test-security 2>&1 | tee security-output.txt || true
+          # Generate JSON report for detailed test case summary
+          go test ./test/integration/security/... -v -ginkgo.v -ginkgo.show-node-events \
+            -ginkgo.json-report=security-report.json -timeout=10m 2>&1 | tee security-output.txt || true
       - name: Generate security test summary
         if: always()
         run: |
@@ -587,21 +622,48 @@ jobs:
           echo "| SEC-SH | Secret Handling (no secrets in logs) |" >> $GITHUB_STEP_SUMMARY
           echo "| SEC-PE | Privilege Escalation prevention |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          if [ -f security-output.txt ]; then
-            PASSED=$(grep -c "PASSED\|✓" security-output.txt || echo "0")
-            FAILED=$(grep -c "FAILED\|✗" security-output.txt || echo "0")
-            echo "### Results" >> $GITHUB_STEP_SUMMARY
+
+          # Generate test case table from JSON report
+          if [ -f security-report.json ]; then
+            echo "### Test Cases" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "| Result | Count |" >> $GITHUB_STEP_SUMMARY
-            echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
-            echo "| ✅ Passed | ${PASSED} |" >> $GITHUB_STEP_SUMMARY
-            echo "| ❌ Failed | ${FAILED} |" >> $GITHUB_STEP_SUMMARY
+            echo "| Status | Test Case | Duration |" >> $GITHUB_STEP_SUMMARY
+            echo "|--------|-----------|----------|" >> $GITHUB_STEP_SUMMARY
+
+            # Parse JSON and create table rows (skip skipped tests)
+            jq -r '
+              .[] | .SpecReports[]? |
+              select(.State != "skipped" and .State != "") |
+              (if .State == "passed" then "✅" elif .State == "failed" then "❌" else "⚠️" end) as $status |
+              (.LeafNodeText // .ContainerHierarchyTexts[-1] // "Unknown") as $name |
+              ((.RunTime / 1000000000 * 100 | floor) / 100) as $duration |
+              "| \($status) | \($name) | \($duration)s |"
+            ' security-report.json >> $GITHUB_STEP_SUMMARY 2>/dev/null || true
+
+            echo "" >> $GITHUB_STEP_SUMMARY
+
+            # Summary counts
+            PASSED=$(jq '[.[] | .SpecReports[]? | select(.State == "passed")] | length' security-report.json 2>/dev/null || echo "0")
+            FAILED=$(jq '[.[] | .SpecReports[]? | select(.State == "failed")] | length' security-report.json 2>/dev/null || echo "0")
+            SKIPPED=$(jq '[.[] | .SpecReports[]? | select(.State == "skipped")] | length' security-report.json 2>/dev/null || echo "0")
+
+            echo "### Summary" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| ✅ Passed | ❌ Failed | ⏭️ Skipped |" >> $GITHUB_STEP_SUMMARY
+            echo "|-----------|-----------|------------|" >> $GITHUB_STEP_SUMMARY
+            echo "| ${PASSED} | ${FAILED} | ${SKIPPED} |" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Show failure details if any
+          if [ -f security-output.txt ] && grep -q "FAIL" security-output.txt; then
+            echo "### ❌ Failure Details" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "<details>" >> $GITHUB_STEP_SUMMARY
-            echo "<summary>Test Output</summary>" >> $GITHUB_STEP_SUMMARY
+            echo "<summary>Click to expand failure logs</summary>" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
-            tail -150 security-output.txt >> $GITHUB_STEP_SUMMARY
+            grep -B 5 -A 30 "FAIL\!" security-output.txt >> $GITHUB_STEP_SUMMARY || tail -150 security-output.txt >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
             echo "</details>" >> $GITHUB_STEP_SUMMARY
           fi
@@ -610,7 +672,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: security-test-output
-          path: security-output.txt
+          path: |
+            security-output.txt
+            security-report.json
           retention-days: 7
 
   integration-profiled:
@@ -794,7 +858,9 @@ jobs:
           E2E_SKIP_IMAGE_LOAD: "true"
         run: |
           set -o pipefail
-          go test ./test/e2e/... -v -ginkgo.v -timeout=10m 2>&1 | tee e2e-output.txt
+          # Run tests with verbose output, timing, and JSON report for detailed summary
+          go test ./test/e2e/... -v -ginkgo.v -ginkgo.show-node-events \
+            -ginkgo.json-report=e2e-report.json -timeout=10m 2>&1 | tee e2e-output.txt
 
       - name: E2E Summary
         if: always()
@@ -807,21 +873,48 @@ jobs:
           echo "| Kubernetes | k3d |" >> $GITHUB_STEP_SUMMARY
           echo "| Vault | dev mode |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          if [ -f e2e-output.txt ]; then
-            PASSED=$(grep -c "PASSED" e2e-output.txt || echo "0")
-            FAILED=$(grep -c "FAILED" e2e-output.txt || echo "0")
-            echo "### Test Results" >> $GITHUB_STEP_SUMMARY
+
+          # Generate test case table from JSON report
+          if [ -f e2e-report.json ]; then
+            echo "### Test Cases" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "| Metric | Count |" >> $GITHUB_STEP_SUMMARY
-            echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
-            echo "| ✅ Passed | ${PASSED} |" >> $GITHUB_STEP_SUMMARY
-            echo "| ❌ Failed | ${FAILED} |" >> $GITHUB_STEP_SUMMARY
+            echo "| Status | Test Case | Duration |" >> $GITHUB_STEP_SUMMARY
+            echo "|--------|-----------|----------|" >> $GITHUB_STEP_SUMMARY
+
+            # Parse JSON and create table rows (skip skipped tests)
+            jq -r '
+              .[] | .SpecReports[]? |
+              select(.State != "skipped" and .State != "") |
+              (if .State == "passed" then "✅" elif .State == "failed" then "❌" else "⚠️" end) as $status |
+              (.LeafNodeText // .ContainerHierarchyTexts[-1] // "Unknown") as $name |
+              ((.RunTime / 1000000000 * 100 | floor) / 100) as $duration |
+              "| \($status) | \($name) | \($duration)s |"
+            ' e2e-report.json >> $GITHUB_STEP_SUMMARY 2>/dev/null || true
+
+            echo "" >> $GITHUB_STEP_SUMMARY
+
+            # Summary counts
+            PASSED=$(jq '[.[] | .SpecReports[]? | select(.State == "passed")] | length' e2e-report.json 2>/dev/null || echo "0")
+            FAILED=$(jq '[.[] | .SpecReports[]? | select(.State == "failed")] | length' e2e-report.json 2>/dev/null || echo "0")
+            SKIPPED=$(jq '[.[] | .SpecReports[]? | select(.State == "skipped")] | length' e2e-report.json 2>/dev/null || echo "0")
+
+            echo "### Summary" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| ✅ Passed | ❌ Failed | ⏭️ Skipped |" >> $GITHUB_STEP_SUMMARY
+            echo "|-----------|-----------|------------|" >> $GITHUB_STEP_SUMMARY
+            echo "| ${PASSED} | ${FAILED} | ${SKIPPED} |" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Extract failures with context
+          if [ -f e2e-output.txt ] && grep -q "FAIL" e2e-output.txt; then
+            echo "### ❌ Failure Details" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "<details>" >> $GITHUB_STEP_SUMMARY
-            echo "<summary>Test Output</summary>" >> $GITHUB_STEP_SUMMARY
+            echo "<summary>Click to expand failure logs</summary>" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
-            tail -100 e2e-output.txt >> $GITHUB_STEP_SUMMARY
+            grep -B 5 -A 30 "FAIL\!" e2e-output.txt >> $GITHUB_STEP_SUMMARY || tail -100 e2e-output.txt >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
             echo "</details>" >> $GITHUB_STEP_SUMMARY
           fi
