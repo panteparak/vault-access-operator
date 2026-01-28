@@ -100,6 +100,9 @@ path "sys/health" {
 }
 `
 
+// envTrue is the canonical string value for boolean environment variables.
+const envTrue = "true"
+
 var (
 	// projectImage is the name of the image which will be build and loaded
 	// with the code source changes to be tested.
@@ -108,14 +111,14 @@ var (
 
 	// skipBuild skips building the image (useful when image is pre-built in CI).
 	// Set E2E_SKIP_BUILD=true to skip.
-	skipBuild = os.Getenv("E2E_SKIP_BUILD") == "true"
+	skipBuild = os.Getenv("E2E_SKIP_BUILD") == envTrue
 
 	// skipImageLoad skips loading image to cluster (useful when image is pre-loaded by CI).
 	// Set E2E_SKIP_IMAGE_LOAD=true to skip.
-	skipImageLoad = os.Getenv("E2E_SKIP_IMAGE_LOAD") == "true"
+	skipImageLoad = os.Getenv("E2E_SKIP_IMAGE_LOAD") == envTrue
 
 	// isCI detects if running in a CI environment (GitHub Actions, GitLab CI, etc.)
-	isCI = os.Getenv("CI") == "true" || os.Getenv("GITHUB_ACTIONS") == "true"
+	isCI = os.Getenv("CI") == envTrue || os.Getenv("GITHUB_ACTIONS") == envTrue
 
 	// Default timeout values - CI environments get longer timeouts due to
 	// slower shared runners, network latency, and resource contention

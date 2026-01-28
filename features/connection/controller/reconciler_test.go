@@ -375,6 +375,7 @@ func TestNewReconciler(t *testing.T) {
 
 	if r == nil {
 		t.Fatal("expected Reconciler to be non-nil")
+		return
 	}
 
 	if r.base == nil {
@@ -407,6 +408,7 @@ func TestNewReconciler_WithNilClientset(t *testing.T) {
 
 	if r == nil {
 		t.Fatal("expected Reconciler to be non-nil even with nil clientset")
+		return
 	}
 
 	if r.handler == nil {

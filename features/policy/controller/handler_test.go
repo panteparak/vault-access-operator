@@ -203,6 +203,7 @@ func TestNewHandler_WithNilEventBus(t *testing.T) {
 
 	if handler == nil {
 		t.Fatal("expected handler to be non-nil")
+		return
 	}
 
 	if handler.eventBus != nil {
