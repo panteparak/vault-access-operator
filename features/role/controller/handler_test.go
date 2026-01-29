@@ -121,6 +121,7 @@ func TestNewHandler(t *testing.T) {
 
 	if handler == nil {
 		t.Fatal("expected handler to be non-nil")
+		return
 	}
 	if handler.client == nil {
 		t.Error("expected client to be set")
@@ -142,6 +143,7 @@ func TestNewHandler_WithNilEventBus(t *testing.T) {
 
 	if handler == nil {
 		t.Fatal("expected handler to be non-nil")
+		return
 	}
 	if handler.eventBus != nil {
 		t.Error("expected eventBus to be nil")
@@ -456,6 +458,7 @@ func TestHandleSyncError_ConflictError(t *testing.T) {
 	}
 	if readyCondition == nil {
 		t.Fatal("expected Ready condition to be set")
+		return
 	}
 	if readyCondition.Status != metav1.ConditionFalse {
 		t.Errorf("expected Ready condition status False, got %s", readyCondition.Status)
@@ -493,6 +496,7 @@ func TestHandleSyncError_DependencyError(t *testing.T) {
 	}
 	if readyCondition == nil {
 		t.Fatal("expected Ready condition to be set")
+		return
 	}
 	if readyCondition.Reason != vaultv1alpha1.ReasonConnectionNotReady {
 		t.Errorf("expected reason %s, got %s", vaultv1alpha1.ReasonConnectionNotReady, readyCondition.Reason)
@@ -527,6 +531,7 @@ func TestHandleSyncError_ValidationError(t *testing.T) {
 	}
 	if readyCondition == nil {
 		t.Fatal("expected Ready condition to be set")
+		return
 	}
 	if readyCondition.Reason != vaultv1alpha1.ReasonValidationFailed {
 		t.Errorf("expected reason %s, got %s", vaultv1alpha1.ReasonValidationFailed, readyCondition.Reason)
@@ -561,6 +566,7 @@ func TestHandleSyncError_GenericError(t *testing.T) {
 	}
 	if readyCondition == nil {
 		t.Fatal("expected Ready condition to be set")
+		return
 	}
 	if readyCondition.Reason != vaultv1alpha1.ReasonFailed {
 		t.Errorf("expected reason %s, got %s", vaultv1alpha1.ReasonFailed, readyCondition.Reason)
@@ -590,6 +596,7 @@ func TestHandleSyncError_SetsMessage(t *testing.T) {
 	}
 	if syncedCondition == nil {
 		t.Fatal("expected Synced condition to be set")
+		return
 	}
 	if syncedCondition.Status != metav1.ConditionFalse {
 		t.Errorf("expected Synced condition status False, got %s", syncedCondition.Status)
@@ -624,6 +631,7 @@ func TestHandleSyncError_TransientError(t *testing.T) {
 	}
 	if readyCondition == nil {
 		t.Fatal("expected Ready condition to be set")
+		return
 	}
 	// Transient errors should get ReasonFailed (not a specific reason for transient)
 	if readyCondition.Reason != vaultv1alpha1.ReasonFailed {

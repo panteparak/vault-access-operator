@@ -1054,6 +1054,7 @@ func TestNewVaultPolicyAdapter(t *testing.T) {
 
 	if adapter == nil {
 		t.Fatal("NewVaultPolicyAdapter returned nil")
+		return
 	}
 	if adapter.VaultPolicy != policy {
 		t.Error("NewVaultPolicyAdapter did not set the underlying VaultPolicy correctly")
@@ -1074,6 +1075,7 @@ func TestNewVaultClusterPolicyAdapter(t *testing.T) {
 
 	if adapter == nil {
 		t.Fatal("NewVaultClusterPolicyAdapter returned nil")
+		return
 	}
 	if adapter.VaultClusterPolicy != policy {
 		t.Error("NewVaultClusterPolicyAdapter did not set the underlying VaultClusterPolicy correctly")

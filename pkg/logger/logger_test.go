@@ -43,6 +43,7 @@ func TestNewReconcileLogger(t *testing.T) {
 
 	if logger == nil {
 		t.Fatal("expected logger to be non-nil")
+		return
 	}
 
 	if logger.startTime.IsZero() {

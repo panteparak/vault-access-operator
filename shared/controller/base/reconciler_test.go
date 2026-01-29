@@ -72,6 +72,7 @@ func TestNewBaseReconciler(t *testing.T) {
 
 	if r == nil {
 		t.Fatal("expected BaseReconciler to be non-nil")
+		return
 	}
 
 	if r.Client != c {

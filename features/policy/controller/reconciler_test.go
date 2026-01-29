@@ -464,6 +464,7 @@ func TestNewPolicyReconciler(t *testing.T) {
 
 	if r == nil {
 		t.Fatal("expected PolicyReconciler to be non-nil")
+		return
 	}
 
 	if r.base == nil {
@@ -489,6 +490,7 @@ func TestNewClusterPolicyReconciler(t *testing.T) {
 
 	if r == nil {
 		t.Fatal("expected ClusterPolicyReconciler to be non-nil")
+		return
 	}
 
 	if r.base == nil {

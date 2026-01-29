@@ -32,6 +32,7 @@ func TestNewEventBus(t *testing.T) {
 
 	if bus == nil {
 		t.Fatal("expected bus to be non-nil")
+		return
 	}
 
 	if bus.handlers == nil {

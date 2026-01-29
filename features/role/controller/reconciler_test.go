@@ -456,6 +456,7 @@ func TestNewRoleReconciler(t *testing.T) {
 
 	if r == nil {
 		t.Fatal("expected RoleReconciler to be non-nil")
+		return
 	}
 
 	if r.base == nil {
@@ -481,6 +482,7 @@ func TestNewClusterRoleReconciler(t *testing.T) {
 
 	if r == nil {
 		t.Fatal("expected ClusterRoleReconciler to be non-nil")
+		return
 	}
 
 	if r.base == nil {

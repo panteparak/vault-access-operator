@@ -36,6 +36,7 @@ func TestNewStatusManager(t *testing.T) {
 
 	if sm == nil {
 		t.Fatal("expected StatusManager to be non-nil")
+		return
 	}
 
 	if sm.requeueOnSuccess != DefaultRequeueSuccess {

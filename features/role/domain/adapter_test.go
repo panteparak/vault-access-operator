@@ -100,6 +100,7 @@ func TestNewVaultRoleAdapter(t *testing.T) {
 
 	if adapter == nil {
 		t.Fatal("expected adapter to be non-nil")
+		return
 	}
 
 	if adapter.VaultRole != role {
@@ -588,6 +589,7 @@ func TestNewVaultClusterRoleAdapter(t *testing.T) {
 
 	if adapter == nil {
 		t.Fatal("expected adapter to be non-nil")
+		return
 	}
 
 	if adapter.VaultClusterRole != role {
