@@ -240,7 +240,7 @@ func main() {
 		K8sClientset: k8sClientset,
 		Scheme:       mgr.GetScheme(),
 		Log:          setupLog,
-		Recorder:     mgr.GetEventRecorderFor("vaultconnection-controller"),
+		Recorder:     mgr.GetEventRecorderFor("vaultconnection-controller"), //nolint:staticcheck
 	})
 	if err := connFeature.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to setup feature", "feature", "Connection")
@@ -255,7 +255,7 @@ func main() {
 		mgr.GetClient(),
 		mgr.GetScheme(),
 		setupLog,
-		mgr.GetEventRecorderFor("vaultpolicy-controller"),
+		mgr.GetEventRecorderFor("vaultpolicy-controller"), //nolint:staticcheck
 	)
 	if err := policyFeature.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to setup feature", "feature", "Policy")
@@ -270,7 +270,7 @@ func main() {
 		mgr.GetClient(),
 		mgr.GetScheme(),
 		setupLog,
-		mgr.GetEventRecorderFor("vaultrole-controller"),
+		mgr.GetEventRecorderFor("vaultrole-controller"), //nolint:staticcheck
 	)
 	if err := roleFeature.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to setup feature", "feature", "Role")
