@@ -32,9 +32,7 @@ jobs:
         id: platforms
         run: |
           # Single source of truth for platforms
-          # Uncomment the second line and comment the first when ready for arm64
-          echo 'matrix=["linux/amd64"]' >> $GITHUB_OUTPUT
-          # echo 'matrix=["linux/amd64", "linux/arm64"]' >> $GITHUB_OUTPUT
+          echo 'matrix=["linux/amd64", "linux/arm64"]' >> $GITHUB_OUTPUT
 
   # ============================================================================
   # Stage 1: Parallel Jobs
