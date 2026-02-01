@@ -33,14 +33,15 @@ import (
 // namespace where the project is deployed in
 const namespace = "vault-access-operator-system"
 
-// serviceAccountName created for the project
-const serviceAccountName = "vault-access-operator-controller-manager"
-
-// metricsServiceName is the name of the metrics service of the project
-const metricsServiceName = "vault-access-operator-controller-manager-metrics-service"
-
 // metricsRoleBindingName is the name of the RBAC that will be created to allow get the metrics data
 const metricsRoleBindingName = "vault-access-operator-metrics-binding"
+
+// serviceAccountName and metricsServiceName differ between Helm and kustomize deployments.
+// Defaults are for kustomize (local dev); overridden in BeforeAll for Helm (CI).
+var (
+	serviceAccountName = "vault-access-operator-controller-manager"
+	metricsServiceName = "vault-access-operator-controller-manager-metrics-service"
+)
 
 var _ = Describe("Manager", Ordered, func() {
 	var controllerPodName string
@@ -61,6 +62,9 @@ var _ = Describe("Manager", Ordered, func() {
 		if err == nil && output != "" {
 			utils.TimedBy("operator already deployed by CI, skipping setup")
 			operatorAlreadyDeployed = true
+			// Helm uses different resource names than kustomize
+			serviceAccountName = "vault-access-operator"
+			metricsServiceName = "vault-access-operator-metrics"
 			return
 		}
 
@@ -179,7 +183,7 @@ var _ = Describe("Manager", Ordered, func() {
 				podNames := utils.GetNonEmptyLines(podOutput)
 				g.Expect(podNames).To(HaveLen(1), "expected 1 controller pod running")
 				controllerPodName = podNames[0]
-				g.Expect(controllerPodName).To(ContainSubstring("controller-manager"))
+				g.Expect(controllerPodName).To(ContainSubstring("vault-access-operator"))
 
 				// Validate the pod's status
 				cmd = exec.Command("kubectl", "get",

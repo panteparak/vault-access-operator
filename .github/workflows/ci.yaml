@@ -447,7 +447,7 @@ jobs:
 
       - name: Pull image (push)
         if: github.event_name != 'pull_request'
-        run: docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ steps.short-sha.outputs.sha }}-${{ steps.platform.outputs.pair }}
+        run: docker pull --platform ${{ matrix.platform }} ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ steps.short-sha.outputs.sha }}-${{ steps.platform.outputs.pair }}
 
       - name: Set image ref
         id: image
