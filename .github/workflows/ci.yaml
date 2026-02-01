@@ -868,51 +868,84 @@ jobs:
 
       - name: Configure Vault for E2E tests
         run: |
-          # Create operator policy for E2E tests (supports both Kubernetes and JWT auth)
+          # Create operator policy for E2E tests
+          # Mirrors operatorPolicyHCL in e2e_suite_test.go — keep in sync
           # Note: -i flag is required to pass stdin (heredoc) to kubectl exec
           kubectl exec -i -n vault vault-0 -- vault policy write vault-access-operator - <<'EOF'
           # Policy management
           path "sys/policies/acl/*" { capabilities = ["create", "read", "update", "delete", "list"] }
+          path "sys/policies/acl" { capabilities = ["list"] }
           # Kubernetes auth
           path "auth/kubernetes/role/*" { capabilities = ["create", "read", "update", "delete", "list"] }
-          path "auth/kubernetes/config" { capabilities = ["create", "read", "update", "delete", "list"] }
+          path "auth/kubernetes/role" { capabilities = ["list"] }
+          path "auth/kubernetes/config" { capabilities = ["create", "read", "update", "delete"] }
           # JWT auth
           path "auth/jwt/role/*" { capabilities = ["create", "read", "update", "delete", "list"] }
+          path "auth/jwt/role" { capabilities = ["list"] }
           path "auth/jwt/config" { capabilities = ["create", "read", "update", "delete"] }
+          # AppRole auth
+          path "auth/approle/*" { capabilities = ["create", "read", "update", "delete", "list", "sudo"] }
+          path "auth/approle" { capabilities = ["read"] }
+          # OIDC (JWT at oidc path) auth
+          path "auth/oidc/*" { capabilities = ["create", "read", "update", "delete", "list", "sudo"] }
+          path "auth/oidc" { capabilities = ["read"] }
           # Auth method management
           path "sys/auth" { capabilities = ["read"] }
           path "sys/auth/*" { capabilities = ["sudo", "create", "read", "update", "delete", "list"] }
+          # Health + mounts
           path "sys/mounts" { capabilities = ["read"] }
+          path "sys/health" { capabilities = ["read"] }
           EOF
           echo "Vault operator policy created successfully"
 
-          # Enable JWT auth method
+          # Enable auth methods for E2E tests
           kubectl exec -n vault vault-0 -- vault auth enable jwt || true
           echo "JWT auth method enabled"
 
-          # Get OIDC configuration
+          kubectl exec -n vault vault-0 -- vault auth enable approle || true
+          echo "AppRole auth method enabled"
+
+          kubectl exec -n vault vault-0 -- vault auth enable -path=oidc jwt || true
+          echo "OIDC (JWT at oidc path) auth method enabled"
+
+          # Get OIDC/JWKS configuration from the Kubernetes API
           OIDC_CONFIG=$(kubectl get --raw /.well-known/openid-configuration)
           ISSUER=$(echo "$OIDC_CONFIG" | jq -r '.issuer')
           echo "OIDC Issuer: $ISSUER"
 
-          # Try OIDC discovery first (works with internal issuer configured above)
           # Get the Kubernetes CA cert for TLS verification
           K8S_CA=$(kubectl get secret -n vault vault-token -o jsonpath='{.data.ca\.crt}' 2>/dev/null | base64 -d || \
                    kubectl exec -n vault vault-0 -- cat /var/run/secrets/kubernetes.io/serviceaccount/ca.crt)
 
+          # Pre-fetch JWKS so it's available as fallback for both JWT and OIDC config
+          JWKS=$(kubectl get --raw /openid/v1/jwks)
+
+          # Configure JWT auth — try OIDC discovery first, fall back to JWKS
           if kubectl exec -i -n vault vault-0 -- vault write auth/jwt/config \
                oidc_discovery_url="$ISSUER" \
                bound_issuer="$ISSUER" \
                oidc_discovery_ca_pem="$K8S_CA" 2>/dev/null; then
             echo "JWT auth configured with OIDC discovery"
           else
-            echo "OIDC discovery failed, falling back to JWKS"
-            # Fall back to JWKS (always works, no network call from Vault)
-            JWKS=$(kubectl get --raw /openid/v1/jwks)
+            echo "OIDC discovery failed for JWT, falling back to JWKS"
             kubectl exec -n vault vault-0 -- vault write auth/jwt/config \
               jwt_validation_pubkeys="$JWKS" \
               bound_issuer="$ISSUER" || \
             echo "Warning: JWT auth configuration failed (tests will skip JWT auth)"
+          fi
+
+          # Configure OIDC (JWT at oidc path) auth — same strategy
+          if kubectl exec -i -n vault vault-0 -- vault write auth/oidc/config \
+               oidc_discovery_url="$ISSUER" \
+               bound_issuer="$ISSUER" \
+               oidc_discovery_ca_pem="$K8S_CA" 2>/dev/null; then
+            echo "OIDC auth configured with OIDC discovery"
+          else
+            echo "OIDC discovery failed for OIDC path, falling back to JWKS"
+            kubectl exec -n vault vault-0 -- vault write auth/oidc/config \
+              jwt_validation_pubkeys="$JWKS" \
+              bound_issuer="$ISSUER" || \
+            echo "Warning: OIDC auth configuration failed (tests will skip OIDC auth)"
           fi
 
       # For PRs: Load image from artifact (not in registry yet)
