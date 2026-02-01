@@ -129,7 +129,7 @@ test: manifests generate fmt vet setup-envtest ## Run tests.
 # This target assumes a running cluster — see .github/workflows/ci.yaml for full setup.
 .PHONY: test-e2e
 test-e2e: manifests generate fmt vet ## Run E2E tests (requires running cluster with Vault + operator deployed)
-	go test ./test/e2e/ -v -ginkgo.v -timeout 10m
+	go test ./test/e2e/ -v -ginkgo.v -ginkgo.fail-fast -timeout 10m
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter

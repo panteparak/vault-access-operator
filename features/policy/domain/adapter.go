@@ -29,6 +29,11 @@ import (
 type PolicyAdapter interface {
 	client.Object
 
+	// GetObject returns the underlying Kubernetes API object (e.g. *VaultPolicy).
+	// Use this when passing to client.Status().Update() since the adapter wrapper
+	// type is not registered in the runtime scheme.
+	GetObject() client.Object
+
 	// GetConnectionRef returns the name of the VaultConnection to use
 	GetConnectionRef() string
 
@@ -83,6 +88,7 @@ func NewVaultPolicyAdapter(p *vaultv1alpha1.VaultPolicy) *VaultPolicyAdapter {
 	return &VaultPolicyAdapter{VaultPolicy: p}
 }
 
+func (a *VaultPolicyAdapter) GetObject() client.Object             { return a.VaultPolicy }
 func (a *VaultPolicyAdapter) GetConnectionRef() string             { return a.Spec.ConnectionRef }
 func (a *VaultPolicyAdapter) GetRules() []vaultv1alpha1.PolicyRule { return a.Spec.Rules }
 func (a *VaultPolicyAdapter) GetDeletionPolicy() vaultv1alpha1.DeletionPolicy {
@@ -127,6 +133,7 @@ func NewVaultClusterPolicyAdapter(p *vaultv1alpha1.VaultClusterPolicy) *VaultClu
 	return &VaultClusterPolicyAdapter{VaultClusterPolicy: p}
 }
 
+func (a *VaultClusterPolicyAdapter) GetObject() client.Object             { return a.VaultClusterPolicy }
 func (a *VaultClusterPolicyAdapter) GetConnectionRef() string             { return a.Spec.ConnectionRef }
 func (a *VaultClusterPolicyAdapter) GetRules() []vaultv1alpha1.PolicyRule { return a.Spec.Rules }
 func (a *VaultClusterPolicyAdapter) GetDeletionPolicy() vaultv1alpha1.DeletionPolicy {

@@ -29,6 +29,11 @@ import (
 type RoleAdapter interface {
 	client.Object
 
+	// GetObject returns the underlying Kubernetes API object (e.g. *VaultRole).
+	// Use this when passing to client.Status().Update() since the adapter wrapper
+	// type is not registered in the runtime scheme.
+	GetObject() client.Object
+
 	// GetConnectionRef returns the name of the VaultConnection to use
 	GetConnectionRef() string
 
@@ -93,6 +98,7 @@ func NewVaultRoleAdapter(r *vaultv1alpha1.VaultRole) *VaultRoleAdapter {
 	return &VaultRoleAdapter{VaultRole: r}
 }
 
+func (a *VaultRoleAdapter) GetObject() client.Object { return a.VaultRole }
 func (a *VaultRoleAdapter) GetConnectionRef() string { return a.Spec.ConnectionRef }
 func (a *VaultRoleAdapter) GetAuthPath() string      { return a.Spec.AuthPath }
 func (a *VaultRoleAdapter) GetConflictPolicy() vaultv1alpha1.ConflictPolicy {
@@ -151,6 +157,7 @@ func NewVaultClusterRoleAdapter(r *vaultv1alpha1.VaultClusterRole) *VaultCluster
 	return &VaultClusterRoleAdapter{VaultClusterRole: r}
 }
 
+func (a *VaultClusterRoleAdapter) GetObject() client.Object { return a.VaultClusterRole }
 func (a *VaultClusterRoleAdapter) GetConnectionRef() string { return a.Spec.ConnectionRef }
 func (a *VaultClusterRoleAdapter) GetAuthPath() string      { return a.Spec.AuthPath }
 func (a *VaultClusterRoleAdapter) GetConflictPolicy() vaultv1alpha1.ConflictPolicy {

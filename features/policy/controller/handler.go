@@ -65,7 +65,7 @@ func (h *Handler) SyncPolicy(ctx context.Context, adapter domain.PolicyAdapter) 
 	phase := adapter.GetPhase()
 	if phase != vaultv1alpha1.PhaseSyncing && phase != vaultv1alpha1.PhaseActive {
 		adapter.SetPhase(vaultv1alpha1.PhaseSyncing)
-		if err := h.client.Status().Update(ctx, adapter); err != nil {
+		if err := h.client.Status().Update(ctx, adapter.GetObject()); err != nil {
 			return fmt.Errorf("failed to update status to Syncing: %w", err)
 		}
 	}
@@ -130,7 +130,7 @@ func (h *Handler) SyncPolicy(ctx context.Context, adapter domain.PolicyAdapter) 
 	h.setCondition(adapter, vaultv1alpha1.ConditionTypeSynced, metav1.ConditionTrue,
 		vaultv1alpha1.ReasonSucceeded, "Policy synced successfully")
 
-	if err := h.client.Status().Update(ctx, adapter); err != nil {
+	if err := h.client.Status().Update(ctx, adapter.GetObject()); err != nil {
 		return fmt.Errorf("failed to update status to Active: %w", err)
 	}
 
@@ -156,7 +156,7 @@ func (h *Handler) CleanupPolicy(ctx context.Context, adapter domain.PolicyAdapte
 
 	// Update phase to Deleting
 	adapter.SetPhase(vaultv1alpha1.PhaseDeleting)
-	if err := h.client.Status().Update(ctx, adapter); err != nil {
+	if err := h.client.Status().Update(ctx, adapter.GetObject()); err != nil {
 		log.V(1).Info("failed to update status to Deleting (ignoring)", "error", err)
 	}
 
@@ -367,7 +367,7 @@ func (h *Handler) handleSyncError(ctx context.Context, adapter domain.PolicyAdap
 	h.setCondition(adapter, vaultv1alpha1.ConditionTypeSynced, metav1.ConditionFalse,
 		vaultv1alpha1.ReasonFailed, err.Error())
 
-	if updateErr := h.client.Status().Update(ctx, adapter); updateErr != nil {
+	if updateErr := h.client.Status().Update(ctx, adapter.GetObject()); updateErr != nil {
 		h.log.Error(updateErr, "failed to update error status")
 	}
 
