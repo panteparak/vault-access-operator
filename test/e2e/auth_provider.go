@@ -27,6 +27,13 @@ import (
 	"github.com/panteparak/vault-access-operator/test/utils"
 )
 
+const (
+	// vaultAuthSA is the ServiceAccount in the vault namespace with TokenReview permissions.
+	// Created by test/e2e/fixtures/vault.yaml along with the ClusterRoleBinding.
+	vaultAuthSA        = "vault-auth"
+	vaultAuthNamespace = "vault"
+)
+
 // AuthProvider abstracts different Vault authentication methods for testing.
 // This allows the same test cases to run against different auth backends.
 type AuthProvider interface {
@@ -121,9 +128,28 @@ func (p *KubernetesAuthProvider) Setup() (string, error) {
 		return "", fmt.Errorf("failed to enable kubernetes auth: %w", err)
 	}
 
-	ginkgo.By("configuring Kubernetes auth")
+	// Get a token for the vault-auth ServiceAccount (has TokenReview permissions)
+	ginkgo.By("getting token_reviewer_jwt from vault-auth service account")
+	reviewerJWT, err := utils.GetServiceAccountToken(vaultAuthNamespace, vaultAuthSA)
+	if err != nil {
+		return "", fmt.Errorf("failed to get vault-auth SA token: %w", err)
+	}
+	reviewerJWT = strings.TrimSpace(reviewerJWT)
+
+	// Get Kubernetes CA certificate from the vault pod's mounted SA
+	ginkgo.By("getting Kubernetes CA certificate")
+	cmd := exec.Command("kubectl", "exec", "-n", vaultAuthNamespace, "vault-0", "--",
+		"cat", "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")
+	caCert, err := utils.Run(cmd)
+	if err != nil {
+		return "", fmt.Errorf("failed to get Kubernetes CA cert: %w", err)
+	}
+
+	ginkgo.By("configuring Kubernetes auth with token reviewer and CA cert")
 	_, err = utils.RunVaultCommand("write", "auth/kubernetes/config",
 		"kubernetes_host=https://kubernetes.default.svc.cluster.local:443",
+		fmt.Sprintf("token_reviewer_jwt=%s", reviewerJWT),
+		fmt.Sprintf("kubernetes_ca_cert=%s", strings.TrimSpace(caCert)),
 	)
 	if err != nil {
 		return "", fmt.Errorf("failed to configure kubernetes auth: %w", err)
@@ -313,12 +339,302 @@ func (p *JWTAuthProvider) AuthPath() string {
 	return p.authPath
 }
 
+// AppRoleAuthProvider uses Vault's AppRole auth method.
+// AppRole uses role_id + secret_id pairs instead of Kubernetes service account tokens.
+// The provider maps the AuthProvider interface onto AppRole semantics:
+// GetToken() generates a secret_id, Login() combines stored role_id with the secret_id.
+type AppRoleAuthProvider struct {
+	authPath     string
+	roleIDs      map[string]string // roleName -> role_id
+	lastRoleName string            // tracks the last created role for GetToken()
+}
+
+func NewAppRoleAuthProvider() *AppRoleAuthProvider {
+	return &AppRoleAuthProvider{
+		authPath: "auth/approle",
+		roleIDs:  make(map[string]string),
+	}
+}
+
+func (p *AppRoleAuthProvider) Name() string {
+	return "approle"
+}
+
+func (p *AppRoleAuthProvider) Setup() (string, error) {
+	ginkgo.By("enabling AppRole auth method")
+	_, err := utils.RunVaultCommand("auth", "enable", "approle")
+	if err != nil && !strings.Contains(err.Error(), "already in use") {
+		return "", fmt.Errorf("failed to enable approle auth: %w", err)
+	}
+	return "", nil
+}
+
+func (p *AppRoleAuthProvider) GetToken(_, _ string) (string, error) {
+	// AppRole doesn't use K8s service accounts — generate a secret_id instead
+	if p.lastRoleName == "" {
+		return "", fmt.Errorf("no AppRole role has been created yet; call CreateRole first")
+	}
+	output, err := utils.GenerateAppRoleSecretID(p.authPath, p.lastRoleName)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate secret_id: %w", err)
+	}
+
+	var resp struct {
+		Data struct {
+			SecretID string `json:"secret_id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(output), &resp); err != nil {
+		return "", fmt.Errorf("failed to parse secret_id response: %w", err)
+	}
+	return resp.Data.SecretID, nil
+}
+
+func (p *AppRoleAuthProvider) Login(role, secretID string) (string, error) {
+	roleID, ok := p.roleIDs[role]
+	if !ok {
+		return "", fmt.Errorf("no role_id found for role %q; call CreateRole first", role)
+	}
+
+	output, err := utils.VaultLoginWithAppRole(p.authPath, roleID, secretID)
+	if err != nil {
+		return "", err
+	}
+
+	var resp struct {
+		Auth struct {
+			ClientToken string `json:"client_token"`
+		} `json:"auth"`
+	}
+	if err := json.Unmarshal([]byte(output), &resp); err != nil {
+		return "", fmt.Errorf("failed to parse AppRole login response: %w", err)
+	}
+	return resp.Auth.ClientToken, nil
+}
+
+func (p *AppRoleAuthProvider) CreateRole(
+	roleName, _, _ string, policies []string,
+) error {
+	// Create the AppRole role (ignores namespace/serviceAccount — AppRole doesn't use them)
+	args := []string{
+		"write", fmt.Sprintf("%s/role/%s", p.authPath, roleName),
+		fmt.Sprintf("policies=%s", strings.Join(policies, ",")),
+		"token_ttl=1h",
+	}
+	_, err := utils.RunVaultCommand(args...)
+	if err != nil {
+		return fmt.Errorf("failed to create AppRole role: %w", err)
+	}
+
+	// Read and store the role_id
+	output, err := utils.GetAppRoleRoleID(p.authPath, roleName)
+	if err != nil {
+		return fmt.Errorf("failed to read role_id: %w", err)
+	}
+
+	var resp struct {
+		Data struct {
+			RoleID string `json:"role_id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(output), &resp); err != nil {
+		return fmt.Errorf("failed to parse role_id response: %w", err)
+	}
+	p.roleIDs[roleName] = resp.Data.RoleID
+	p.lastRoleName = roleName
+
+	return nil
+}
+
+func (p *AppRoleAuthProvider) DeleteRole(roleName string) error {
+	delete(p.roleIDs, roleName)
+	_, err := utils.RunVaultCommand("delete", fmt.Sprintf("%s/role/%s", p.authPath, roleName))
+	return err
+}
+
+func (p *AppRoleAuthProvider) Cleanup() error {
+	// Don't disable approle auth - other tests may use it
+	return nil
+}
+
+func (p *AppRoleAuthProvider) AuthPath() string {
+	return p.authPath
+}
+
+// OIDCAuthProvider uses Vault's JWT auth method mounted at the "oidc" path.
+// Vault's native role_type="oidc" requires an interactive browser flow (unusable in CI).
+// Instead, we mount a JWT auth engine at path "oidc" and validate K8s SA tokens against
+// the cluster's built-in OIDC issuer. This mirrors real-world EKS/GKE/AKS behavior where
+// the cloud provider supplies an OIDC issuer for service account tokens.
+type OIDCAuthProvider struct {
+	authPath string
+	issuer   string
+}
+
+func NewOIDCAuthProvider() *OIDCAuthProvider {
+	return &OIDCAuthProvider{
+		authPath: "auth/oidc",
+	}
+}
+
+func (p *OIDCAuthProvider) Name() string {
+	return "oidc"
+}
+
+func (p *OIDCAuthProvider) Setup() (string, error) {
+	ginkgo.By("enabling OIDC auth method (JWT engine at oidc path)")
+	_, err := utils.RunVaultCommand("auth", "enable", "-path=oidc", "jwt")
+	if err != nil && !strings.Contains(err.Error(), "already in use") {
+		return "", fmt.Errorf("failed to enable oidc (jwt) auth: %w", err)
+	}
+
+	// Get OIDC configuration to find the issuer
+	ginkgo.By("getting Kubernetes OIDC configuration for OIDC auth")
+	cmd := exec.Command("kubectl", "get", "--raw", "/.well-known/openid-configuration")
+	output, err := utils.Run(cmd)
+	if err != nil {
+		return "Kubernetes OIDC discovery not available", nil
+	}
+
+	var oidcConfig struct {
+		Issuer string `json:"issuer"`
+	}
+	if err := json.Unmarshal([]byte(output), &oidcConfig); err != nil {
+		return fmt.Sprintf("failed to parse OIDC config: %v", err), nil
+	}
+	p.issuer = oidcConfig.Issuer
+
+	// Get JWKS directly from Kubernetes API
+	ginkgo.By("fetching JWKS from Kubernetes API for OIDC auth")
+	cmd = exec.Command("kubectl", "get", "--raw", "/openid/v1/jwks")
+	jwksOutput, err := utils.Run(cmd)
+	if err != nil {
+		return "failed to get JWKS from Kubernetes", nil
+	}
+
+	// Configure OIDC (JWT at oidc path) with JWKS directly
+	ginkgo.By("configuring OIDC auth with JWKS (bypassing OIDC discovery)")
+	_, err = utils.RunVaultCommand("write", "auth/oidc/config",
+		fmt.Sprintf("jwt_validation_pubkeys=%s", jwksOutput),
+		fmt.Sprintf("bound_issuer=%s", p.issuer),
+	)
+	if err != nil {
+		// Fall back to trying OIDC discovery
+		ginkgo.By("JWKS config failed for OIDC, trying OIDC discovery")
+		_, err = utils.RunVaultCommand("write", "auth/oidc/config",
+			fmt.Sprintf("oidc_discovery_url=%s", p.issuer),
+			fmt.Sprintf("bound_issuer=%s", p.issuer),
+		)
+		if err != nil {
+			if strings.Contains(err.Error(), "error checking oidc discovery URL") ||
+				strings.Contains(err.Error(), "fetching keys") ||
+				strings.Contains(err.Error(), "connection refused") ||
+				strings.Contains(err.Error(), "no such host") {
+				return fmt.Sprintf("Vault cannot reach OIDC/JWKS endpoint (%s)", p.issuer), nil
+			}
+			return "", fmt.Errorf("failed to configure OIDC auth: %w", err)
+		}
+	}
+
+	return "", nil
+}
+
+func (p *OIDCAuthProvider) GetToken(namespace, serviceAccount string) (string, error) {
+	return utils.GetServiceAccountToken(namespace, serviceAccount)
+}
+
+func (p *OIDCAuthProvider) Login(role, token string) (string, error) {
+	output, err := utils.VaultLoginWithJWT(p.authPath, role, token)
+	if err != nil {
+		return "", err
+	}
+
+	var resp struct {
+		Auth struct {
+			ClientToken string `json:"client_token"`
+		} `json:"auth"`
+	}
+	if err := json.Unmarshal([]byte(output), &resp); err != nil {
+		return "", fmt.Errorf("failed to parse OIDC login response: %w", err)
+	}
+	return resp.Auth.ClientToken, nil
+}
+
+func (p *OIDCAuthProvider) CreateRole(
+	roleName, namespace, serviceAccount string, policies []string,
+) error {
+	args := []string{
+		"write", fmt.Sprintf("auth/oidc/role/%s", roleName),
+		"role_type=jwt",
+		"bound_audiences=https://kubernetes.default.svc.cluster.local",
+		fmt.Sprintf("bound_subject=system:serviceaccount:%s:%s", namespace, serviceAccount),
+		"user_claim=sub",
+		fmt.Sprintf("policies=%s", strings.Join(policies, ",")),
+		"ttl=1h",
+	}
+	_, err := utils.RunVaultCommand(args...)
+	return err
+}
+
+func (p *OIDCAuthProvider) DeleteRole(roleName string) error {
+	_, err := utils.RunVaultCommand("delete", fmt.Sprintf("auth/oidc/role/%s", roleName))
+	return err
+}
+
+func (p *OIDCAuthProvider) Cleanup() error {
+	// Don't disable oidc auth - other tests may use it
+	return nil
+}
+
+func (p *OIDCAuthProvider) AuthPath() string {
+	return p.authPath
+}
+
+// configureVaultJWTAuthForTest configures Vault's JWT auth engine at the given mount path.
+// Uses JWKS directly first (works in k3d/kind), falls back to OIDC discovery.
+// Skips the test if neither method works. authLabel is used in log/skip messages
+// (e.g., "JWT" or "OIDC").
+func configureVaultJWTAuthForTest(authPath, authLabel, issuer string) {
+	ginkgo.By(fmt.Sprintf("fetching JWKS from Kubernetes API for %s auth", authLabel))
+	cmd := exec.Command("kubectl", "get", "--raw", "/openid/v1/jwks")
+	jwksOutput, err := utils.Run(cmd)
+	if err == nil && jwksOutput != "" {
+		ginkgo.By(fmt.Sprintf("configuring %s auth with JWKS (bypassing OIDC discovery)", authLabel))
+		_, err = utils.RunVaultCommand("write", fmt.Sprintf("%s/config", authPath),
+			fmt.Sprintf("jwt_validation_pubkeys=%s", jwksOutput),
+			fmt.Sprintf("bound_issuer=%s", issuer),
+		)
+		if err == nil {
+			return
+		}
+		ginkgo.By(fmt.Sprintf("JWKS config failed for %s (%v), trying OIDC discovery", authLabel, err))
+	}
+
+	ginkgo.By(fmt.Sprintf("configuring %s auth with OIDC discovery", authLabel))
+	_, err = utils.RunVaultCommand("write", fmt.Sprintf("%s/config", authPath),
+		fmt.Sprintf("oidc_discovery_url=%s", issuer),
+		"bound_issuer="+issuer,
+	)
+	if err != nil {
+		if strings.Contains(err.Error(), "error checking oidc discovery URL") ||
+			strings.Contains(err.Error(), "fetching keys") ||
+			strings.Contains(err.Error(), "connection refused") ||
+			strings.Contains(err.Error(), "no such host") {
+			ginkgo.Skip(fmt.Sprintf("Vault cannot reach OIDC discovery URL (%s) and JWKS config failed - "+
+				"skipping %s auth tests.", issuer, authLabel))
+		}
+		ginkgo.Fail(fmt.Sprintf("Unexpected error configuring %s auth: %v", authLabel, err))
+	}
+}
+
 // GetAvailableAuthProviders returns all auth providers that are available
 // in the current environment. Providers that can't be set up are skipped.
 func GetAvailableAuthProviders() []AuthProvider {
 	providers := []AuthProvider{
 		NewKubernetesAuthProvider(),
 		NewJWTAuthProvider(),
+		NewAppRoleAuthProvider(),
+		NewOIDCAuthProvider(),
 	}
 
 	var available []AuthProvider

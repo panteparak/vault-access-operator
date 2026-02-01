@@ -37,6 +37,8 @@ var _ = Describe("TC-AU-SHARED: Authentication Method Compatibility", func() {
 	}{
 		{"kubernetes", func() AuthProvider { return NewKubernetesAuthProvider() }},
 		{"jwt", func() AuthProvider { return NewJWTAuthProvider() }},
+		{"approle", func() AuthProvider { return NewAppRoleAuthProvider() }},
+		{"oidc", func() AuthProvider { return NewOIDCAuthProvider() }},
 	}
 
 	for _, ap := range authProviders {

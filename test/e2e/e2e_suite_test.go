@@ -94,6 +94,22 @@ path "sys/auth/*" {
   capabilities = ["sudo", "create", "read", "update", "delete", "list"]
 }
 
+# AppRole auth management
+path "auth/approle/*" {
+  capabilities = ["create", "read", "update", "delete", "list", "sudo"]
+}
+path "auth/approle" {
+  capabilities = ["read"]
+}
+
+# OIDC (JWT at oidc path) auth management
+path "auth/oidc/*" {
+  capabilities = ["create", "read", "update", "delete", "list", "sudo"]
+}
+path "auth/oidc" {
+  capabilities = ["read"]
+}
+
 # Health checks
 path "sys/health" {
   capabilities = ["read"]
@@ -285,6 +301,22 @@ func setupSharedTestInfrastructure() {
 		fmt.Fprintf(GinkgoWriter, "JWT auth tests will be skipped\n")
 	}
 
+	// Enable AppRole auth method
+	utils.TimedBy("enabling AppRole auth method")
+	_, _ = utils.RunVaultCommand("auth", "enable", "approle") // Ignore if already enabled
+
+	// Enable OIDC (JWT at oidc path) auth method
+	utils.TimedBy("enabling OIDC auth method (JWT at oidc path)")
+	_, _ = utils.RunVaultCommand("auth", "enable", "-path=oidc", "jwt") // Ignore if already enabled
+
+	// Configure OIDC auth with same JWKS/OIDC config as JWT
+	utils.TimedBy("configuring OIDC auth with JWKS")
+	if err := configureOIDCAuth(); err != nil {
+		// OIDC auth is optional - log warning but continue
+		fmt.Fprintf(GinkgoWriter, "Warning: OIDC auth configuration failed: %v\n", err)
+		fmt.Fprintf(GinkgoWriter, "OIDC auth tests will be skipped\n")
+	}
+
 	// Create operator policy with least-privilege permissions
 	// This demonstrates proper Vault security practices - never use root token in production
 	utils.TimedBy("creating operator policy with least-privilege permissions")
@@ -416,9 +448,19 @@ func getOperatorToken() (string, error) {
 	return tokenResp.Auth.ClientToken, nil
 }
 
-// configureJWTAuth configures Vault's JWT auth method.
-// Tries OIDC discovery first (requires internal issuer), falls back to JWKS.
+// configureJWTAuth configures Vault's JWT auth method at the default "auth/jwt" path.
 func configureJWTAuth() error {
+	return configureJWTAuthAtPath("auth/jwt")
+}
+
+// configureOIDCAuth configures Vault's JWT auth method at the "auth/oidc" mount path.
+func configureOIDCAuth() error {
+	return configureJWTAuthAtPath("auth/oidc")
+}
+
+// configureJWTAuthAtPath configures a JWT/OIDC auth method at the given Vault path.
+// Tries OIDC discovery first (requires internal issuer), falls back to JWKS.
+func configureJWTAuthAtPath(authPath string) error {
 	// Get OIDC configuration to find the issuer
 	cmd := exec.Command("kubectl", "get", "--raw", "/.well-known/openid-configuration")
 	output, err := utils.Run(cmd)
@@ -433,22 +475,24 @@ func configureJWTAuth() error {
 		return fmt.Errorf("failed to parse OIDC config: %w", err)
 	}
 
+	configPath := fmt.Sprintf("%s/config", authPath)
+
 	// Try OIDC discovery first (works if k3d configured with internal issuer)
 	// Get the Kubernetes CA cert for TLS verification
 	cmd = exec.Command("kubectl", "exec", "-n", vaultNamespace, "vault-0", "--",
 		"cat", "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")
 	caCert, err := utils.Run(cmd)
 	if err == nil && caCert != "" {
-		_, err = utils.RunVaultCommand("write", "auth/jwt/config",
+		_, err = utils.RunVaultCommand("write", configPath,
 			fmt.Sprintf("oidc_discovery_url=%s", oidcConfig.Issuer),
 			fmt.Sprintf("bound_issuer=%s", oidcConfig.Issuer),
 			fmt.Sprintf("oidc_discovery_ca_pem=%s", caCert),
 		)
 		if err == nil {
-			fmt.Fprintf(GinkgoWriter, "JWT auth configured with OIDC discovery\n")
+			fmt.Fprintf(GinkgoWriter, "%s configured with OIDC discovery\n", authPath)
 			return nil
 		}
-		fmt.Fprintf(GinkgoWriter, "OIDC discovery failed (%v), falling back to JWKS\n", err)
+		fmt.Fprintf(GinkgoWriter, "OIDC discovery failed for %s (%v), falling back to JWKS\n", authPath, err)
 	}
 
 	// Fall back to JWKS (always works, no network call from Vault)
@@ -458,14 +502,14 @@ func configureJWTAuth() error {
 		return fmt.Errorf("failed to get JWKS: %w", err)
 	}
 
-	_, err = utils.RunVaultCommand("write", "auth/jwt/config",
+	_, err = utils.RunVaultCommand("write", configPath,
 		fmt.Sprintf("jwt_validation_pubkeys=%s", jwksOutput),
 		fmt.Sprintf("bound_issuer=%s", oidcConfig.Issuer),
 	)
 	if err != nil {
-		return fmt.Errorf("failed to configure JWT auth with JWKS: %w", err)
+		return fmt.Errorf("failed to configure %s with JWKS: %w", authPath, err)
 	}
 
-	fmt.Fprintf(GinkgoWriter, "JWT auth configured with JWKS\n")
+	fmt.Fprintf(GinkgoWriter, "%s configured with JWKS\n", authPath)
 	return nil
 }

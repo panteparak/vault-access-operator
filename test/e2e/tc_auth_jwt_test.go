@@ -61,43 +61,9 @@ func (h *jwtAuthHelper) checkOIDCDiscovery() string {
 }
 
 // configureJWTAuth configures Vault's JWT auth.
-// Uses JWKS directly first (works in k3d/kind), falls back to OIDC discovery.
-// Skips the test if neither method works.
+// Delegates to the shared configureVaultJWTAuthForTest helper.
 func (h *jwtAuthHelper) configureJWTAuth(issuer string) {
-	// Try JWKS approach first - this works in k3d/kind where Vault can't reach OIDC endpoint
-	By("fetching JWKS from Kubernetes API")
-	cmd := exec.Command("kubectl", "get", "--raw", "/openid/v1/jwks")
-	jwksOutput, err := utils.Run(cmd)
-	if err == nil && jwksOutput != "" {
-		By("configuring JWT auth with JWKS (bypassing OIDC discovery)")
-		_, err = utils.RunVaultCommand("write", "auth/jwt/config",
-			fmt.Sprintf("jwt_validation_pubkeys=%s", jwksOutput),
-			fmt.Sprintf("bound_issuer=%s", issuer),
-		)
-		if err == nil {
-			return // Success with JWKS
-		}
-		// JWKS failed, try OIDC discovery
-		By(fmt.Sprintf("JWKS config failed (%v), trying OIDC discovery", err))
-	}
-
-	// Fall back to OIDC discovery
-	By("configuring JWT auth with OIDC discovery")
-	_, err = utils.RunVaultCommand("write", "auth/jwt/config",
-		fmt.Sprintf("oidc_discovery_url=%s", issuer),
-		"bound_issuer="+issuer,
-	)
-	if err != nil {
-		if strings.Contains(err.Error(), "error checking oidc discovery URL") ||
-			strings.Contains(err.Error(), "fetching keys") ||
-			strings.Contains(err.Error(), "connection refused") ||
-			strings.Contains(err.Error(), "no such host") {
-			Skip(fmt.Sprintf("Vault cannot reach OIDC discovery URL (%s) and JWKS config failed - "+
-				"skipping JWT auth tests. This is expected in some k3d/kind environments.",
-				issuer))
-		}
-		Fail(fmt.Sprintf("Unexpected error configuring JWT auth: %v", err))
-	}
+	configureVaultJWTAuthForTest("auth/jwt", "JWT", issuer)
 }
 
 var _ = Describe("JWT Authentication Tests", func() {

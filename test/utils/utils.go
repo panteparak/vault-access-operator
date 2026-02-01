@@ -511,6 +511,26 @@ func GetServiceAccountToken(namespace, saName string) (string, error) {
 	return Run(cmd)
 }
 
+// VaultLoginWithAppRole logs in to Vault via AppRole auth and returns the JSON response
+func VaultLoginWithAppRole(mountPath, roleID, secretID string) (string, error) {
+	return RunVaultCommand("write", "-format=json",
+		fmt.Sprintf("%s/login", mountPath),
+		fmt.Sprintf("role_id=%s", roleID),
+		fmt.Sprintf("secret_id=%s", secretID))
+}
+
+// GetAppRoleRoleID reads the role_id for an AppRole role and returns the JSON response
+func GetAppRoleRoleID(mountPath, roleName string) (string, error) {
+	return RunVaultCommand("read", "-format=json",
+		fmt.Sprintf("%s/role/%s/role-id", mountPath, roleName))
+}
+
+// GenerateAppRoleSecretID generates a new secret_id for an AppRole role and returns the JSON response
+func GenerateAppRoleSecretID(mountPath, roleName string) (string, error) {
+	return RunVaultCommand("write", "-format=json", "-f",
+		fmt.Sprintf("%s/role/%s/secret-id", mountPath, roleName))
+}
+
 // ReadVaultSecret reads a secret from the KV v2 secrets engine
 func ReadVaultSecret(path string) (string, error) {
 	return RunVaultCommand("kv", "get", "-format=json", path)
