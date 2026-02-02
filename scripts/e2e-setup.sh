@@ -143,6 +143,9 @@ path "sys/auth/*" { capabilities = ["sudo", "create", "read", "update", "delete"
 # Health + mounts
 path "sys/mounts" { capabilities = ["read"] }
 path "sys/health" { capabilities = ["read"] }
+# KV v2 managed resource metadata
+path "secret/data/vault-access-operator/managed/*" { capabilities = ["create", "read", "update", "delete"] }
+path "secret/metadata/vault-access-operator/managed/*" { capabilities = ["list", "read", "delete"] }
 POLICY
 ok "Operator policy created"
 

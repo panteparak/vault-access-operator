@@ -21,9 +21,12 @@ package base
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"time"
 
 	"github.com/go-logr/logr"
+	oplogger "github.com/panteparak/vault-access-operator/pkg/logger"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -31,6 +34,12 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+// ReconcileTrackable is implemented by CRD types that want the reconcileID
+// automatically persisted to their status for debugging.
+type ReconcileTrackable interface {
+	SetLastReconcileID(id string)
+}
 
 // FeatureHandler defines the interface that each feature's handler must implement.
 // This is the "hook" in the Template Method pattern - the varying part that each
@@ -123,7 +132,12 @@ func (r *BaseReconciler[T]) Reconcile(
 	handler FeatureHandler[T],
 	newResource func() T,
 ) (ctrl.Result, error) {
-	log := r.Logger.WithValues("name", req.Name, "namespace", req.Namespace)
+	reconcileID := shortID()
+	log := r.Logger.WithValues(
+		"name", req.Name,
+		"namespace", req.Namespace,
+		oplogger.KeyReconcileID, reconcileID,
+	)
 	ctx = logr.NewContext(ctx, log)
 
 	// Step 1: Fetch the resource
@@ -135,6 +149,11 @@ func (r *BaseReconciler[T]) Reconcile(
 		}
 		log.Error(err, "failed to fetch resource")
 		return ctrl.Result{}, err
+	}
+
+	// Set reconcileID on resource status for kubectl debugging
+	if trackable, ok := any(resource).(ReconcileTrackable); ok {
+		trackable.SetLastReconcileID(reconcileID)
 	}
 
 	// Step 2: Handle deletion
@@ -192,4 +211,11 @@ func (r *BaseReconciler[T]) handleDeletion(
 	r.recordEvent(resource, corev1.EventTypeNormal, EventReasonDeleted, "Successfully deleted from Vault")
 	log.Info("cleanup completed, finalizer removed")
 	return ctrl.Result{}, nil
+}
+
+// shortID generates a short random hex string for reconcile correlation.
+func shortID() string {
+	b := make([]byte, 4)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
 }

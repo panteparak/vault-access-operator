@@ -24,6 +24,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
 	"time"
 
@@ -131,6 +132,16 @@ path "auth/oidc" {
 # Health checks
 path "sys/health" {
   capabilities = ["read"]
+}
+
+# KV v2 managed resource metadata (ownership tracking)
+# The operator stores metadata about which K8s resource manages each Vault policy/role
+# KV v2 requires separate data/ and metadata/ path prefixes
+path "secret/data/vault-access-operator/managed/*" {
+  capabilities = ["create", "read", "update", "delete"]
+}
+path "secret/metadata/vault-access-operator/managed/*" {
+  capabilities = ["list", "read", "delete"]
 }
 `
 
@@ -375,13 +386,18 @@ spec:
 	_, err = utils.Run(cmd)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to create shared VaultConnection")
 
-	utils.TimedBy("waiting for shared VaultConnection to become Active")
+	utils.TimedBy("waiting for shared VaultConnection to become Active and healthy")
 	Eventually(func(g Gomega) {
 		cmd := exec.Command("kubectl", "get", "vaultconnection", sharedVaultConnectionName,
-			"-o", "jsonpath={.status.phase}")
+			"-o", "jsonpath={.status.phase},{.status.vaultVersion},{.status.lastHeartbeat}")
 		output, err := utils.Run(cmd)
 		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(output).To(Equal("Active"))
+
+		parts := strings.SplitN(output, ",", 3)
+		g.Expect(parts).To(HaveLen(3), "expected phase,version,heartbeat but got: %s", output)
+		g.Expect(parts[0]).To(Equal("Active"), "VaultConnection phase should be Active")
+		g.Expect(parts[1]).NotTo(BeEmpty(), "VaultConnection should report vault version")
+		g.Expect(parts[2]).NotTo(BeEmpty(), "VaultConnection should have a lastHeartbeat timestamp")
 	}, 2*time.Minute, 5*time.Second).Should(Succeed())
 }
 

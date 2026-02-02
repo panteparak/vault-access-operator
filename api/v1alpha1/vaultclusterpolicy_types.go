@@ -44,6 +44,8 @@ type VaultClusterPolicySpec struct {
 
 // VaultClusterPolicyStatus defines the observed state of VaultClusterPolicy.
 type VaultClusterPolicyStatus struct {
+	ReconcileStatus `json:",inline"`
+
 	// Phase represents the current phase of the policy
 	// +optional
 	Phase Phase `json:"phase,omitempty"`
@@ -114,6 +116,9 @@ type VaultClusterPolicyList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []VaultClusterPolicy `json:"items"`
 }
+
+// SetLastReconcileID implements ReconcileTrackable.
+func (p *VaultClusterPolicy) SetLastReconcileID(id string) { p.Status.LastReconcileID = id }
 
 func init() {
 	SchemeBuilder.Register(&VaultClusterPolicy{}, &VaultClusterPolicyList{})

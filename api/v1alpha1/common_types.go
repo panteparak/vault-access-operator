@@ -214,6 +214,15 @@ func (s *LocalSecretKeySelector) ToSecretReference() *corev1.SecretKeySelector {
 	}
 }
 
+// ReconcileStatus contains reconciliation tracking fields.
+// Embed this in CRD status structs using json:",inline" for automatic reconcileID tracking.
+type ReconcileStatus struct {
+	// LastReconcileID is the correlation ID of the most recent reconciliation cycle.
+	// Use this to filter operator logs: kubectl logs ... | jq 'select(.reconcileID == "<id>")'
+	// +optional
+	LastReconcileID string `json:"lastReconcileID,omitempty"`
+}
+
 // Finalizer name for the operator
 const (
 	FinalizerName = "vault.platform.io/finalizer"

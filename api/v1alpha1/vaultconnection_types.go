@@ -355,6 +355,8 @@ type ConnectionDefaults struct {
 
 // VaultConnectionStatus defines the observed state of VaultConnection.
 type VaultConnectionStatus struct {
+	ReconcileStatus `json:",inline"`
+
 	// Phase represents the current phase of the connection
 	// +optional
 	Phase Phase `json:"phase,omitempty"`
@@ -440,6 +442,9 @@ type VaultConnectionList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []VaultConnection `json:"items"`
 }
+
+// SetLastReconcileID implements ReconcileTrackable.
+func (c *VaultConnection) SetLastReconcileID(id string) { c.Status.LastReconcileID = id }
 
 func init() {
 	SchemeBuilder.Register(&VaultConnection{}, &VaultConnectionList{})

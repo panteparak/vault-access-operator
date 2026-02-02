@@ -546,6 +546,11 @@ spec:
                   check
                 format: date-time
                 type: string
+              lastReconcileID:
+                description: |-
+                  LastReconcileID is the correlation ID of the most recent reconciliation cycle.
+                  Use this to filter operator logs: kubectl logs ... | jq 'select(.reconcileID == "<id>")'
+                type: string
               message:
                 description: Message provides additional information about the current
                   state

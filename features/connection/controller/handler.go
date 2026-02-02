@@ -130,6 +130,15 @@ func (h *Handler) Sync(ctx context.Context, conn *vaultv1alpha1.VaultConnection)
 		return h.handleSyncError(ctx, conn, fmt.Errorf("failed to get Vault version: %w", err))
 	}
 
+	// Explicit health validation — ensure Vault is initialized and unsealed
+	healthy, err := vaultClient.IsHealthy(ctx)
+	if err != nil {
+		return h.handleSyncError(ctx, conn, fmt.Errorf("vault health check failed: %w", err))
+	}
+	if !healthy {
+		return h.handleSyncError(ctx, conn, fmt.Errorf("vault is not healthy (sealed or uninitialized)"))
+	}
+
 	// Update AuthStatus for Kubernetes auth
 	if conn.Spec.Auth.Kubernetes != nil {
 		h.updateAuthStatus(conn)

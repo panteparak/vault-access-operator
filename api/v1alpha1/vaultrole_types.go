@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1alpha1
+package v1alpha1 //nolint:dupl // VaultRole and VaultClusterRole are intentionally parallel (namespaced vs cluster-scoped)
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -61,6 +61,8 @@ type VaultRoleSpec struct {
 
 // VaultRoleStatus defines the observed state of VaultRole.
 type VaultRoleStatus struct {
+	ReconcileStatus `json:",inline"`
+
 	// Phase represents the current phase of the role
 	// +optional
 	Phase Phase `json:"phase,omitempty"`
@@ -131,6 +133,9 @@ type VaultRoleList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []VaultRole `json:"items"`
 }
+
+// SetLastReconcileID implements ReconcileTrackable.
+func (r *VaultRole) SetLastReconcileID(id string) { r.Status.LastReconcileID = id }
 
 func init() {
 	SchemeBuilder.Register(&VaultRole{}, &VaultRoleList{})
