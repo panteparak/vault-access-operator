@@ -1,0 +1,25 @@
+issuer: http://dex.default.svc.cluster.local:5556
+storage:
+  type: memory
+web:
+  http: 0.0.0.0:5556
+oauth2:
+  passwordConnector: local
+  skipApprovalScreen: true
+enablePasswordDB: true
+staticPasswords:
+  - email: "admin@example.com"
+    hash: "$2a$10$2b2cU8CPhOTaGrs1HRQuAueS7JTT5ZHsHSzYiFPm1leZck7Mc8T4W"
+    username: "admin"
+    userID: "admin-user-id"
+staticClients:
+  - id: vault
+    name: "Vault"
+    secret: vault-secret
+    grantTypes: ["authorization_code", "password"]
+    redirectURIs: ["http://localhost/callback"]
+  - id: custom-audience
+    name: "Custom Audience Client"
+    secret: custom-audience-secret
+    grantTypes: ["authorization_code", "password"]
+    redirectURIs: ["http://localhost/callback"]

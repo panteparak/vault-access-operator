@@ -28,3 +28,6 @@ go.work
 
 # MkDocs generated site
 site/
+
+# E2E local development (docker-compose k3s output)
+tmp/e2e/

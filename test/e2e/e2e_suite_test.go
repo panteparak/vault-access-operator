@@ -20,6 +20,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"testing"
@@ -47,6 +49,22 @@ const (
 
 	// operatorPolicyName is the Vault policy for the operator
 	operatorPolicyName = "vault-access-operator"
+)
+
+// Dex OIDC provider constants for OIDC auth tests.
+// Dex runs as a Docker container alongside k3d and is reachable:
+// - From host/tests: http://localhost:5556 (port mapping)
+// - From Vault pods: http://dex.default.svc.cluster.local:5556 (K8s Service + Endpoints)
+const (
+	dexTokenEndpoint      = "http://localhost:5556/token"
+	dexIssuer             = "http://dex.default.svc.cluster.local:5556"
+	dexDiscoveryURL       = "http://localhost:5556/.well-known/openid-configuration"
+	dexClientID           = "vault"
+	dexClientSecret       = "vault-secret"
+	dexCustomClientID     = "custom-audience"
+	dexCustomClientSecret = "custom-audience-secret"
+	dexTestEmail          = "admin@example.com"
+	dexTestPassword       = "password" //nolint:gosec // Test-only static password for Dex
 )
 
 // operatorPolicyHCL defines the minimum permissions required for the operator.
@@ -453,9 +471,61 @@ func configureJWTAuth() error {
 	return configureJWTAuthAtPath("auth/jwt")
 }
 
-// configureOIDCAuth configures Vault's JWT auth method at the "auth/oidc" mount path.
+// configureOIDCAuth configures Vault's JWT auth method at the "auth/oidc" mount path
+// using Dex as the OIDC provider. Dex must be running on the host at dexDiscoveryURL.
 func configureOIDCAuth() error {
-	return configureJWTAuthAtPath("auth/oidc")
+	resp, err := http.Get(dexDiscoveryURL)
+	if err != nil {
+		return fmt.Errorf("Dex not reachable at %s: %w", dexDiscoveryURL, err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("Dex discovery returned status %d", resp.StatusCode)
+	}
+	_, err = utils.RunVaultCommand("write", "auth/oidc/config",
+		fmt.Sprintf("oidc_discovery_url=%s", dexIssuer),
+		fmt.Sprintf("bound_issuer=%s", dexIssuer),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to configure OIDC auth with Dex: %w", err)
+	}
+	fmt.Fprintf(GinkgoWriter, "auth/oidc configured with Dex OIDC discovery (%s)\n", dexIssuer)
+	return nil
+}
+
+// getDexToken obtains an id_token from Dex using the OAuth2 Resource Owner Password
+// Credentials grant. The clientID determines the "aud" claim in the returned JWT.
+func getDexToken(clientID, clientSecret string) (string, error) {
+	data := url.Values{
+		"grant_type":    {"password"},
+		"username":      {dexTestEmail},
+		"password":      {dexTestPassword},
+		"client_id":     {clientID},
+		"client_secret": {clientSecret},
+		"scope":         {"openid email profile"},
+	}
+	resp, err := http.PostForm(dexTokenEndpoint, data)
+	if err != nil {
+		return "", fmt.Errorf("failed to request Dex token: %w", err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read Dex response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("Dex token request failed (status %d): %s", resp.StatusCode, body)
+	}
+	var tokenResp struct {
+		IDToken string `json:"id_token"`
+	}
+	if err := json.Unmarshal(body, &tokenResp); err != nil {
+		return "", fmt.Errorf("failed to parse Dex token response: %w", err)
+	}
+	if tokenResp.IDToken == "" {
+		return "", fmt.Errorf("empty id_token in Dex response")
+	}
+	return tokenResp.IDToken, nil
 }
 
 // configureJWTAuthAtPath configures a JWT/OIDC auth method at the given Vault path.

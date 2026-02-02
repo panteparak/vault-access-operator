@@ -1,0 +1,59 @@
+# Full E2E test stack: k3s (Kubernetes) + Dex (OIDC provider).
+# Vault and the operator are deployed INTO k3s via kubectl/Helm (see scripts/e2e-setup.sh).
+#
+# Usage:
+#   docker compose -f docker-compose.e2e.yaml up -d
+#   export KUBECONFIG=$(pwd)/tmp/e2e/kubeconfig.yaml
+#   bash scripts/e2e-setup.sh
+
+services:
+  k3s:
+    image: rancher/k3s:v1.30.1-k3s1
+    command: >
+      server
+      --disable=traefik
+      --disable=servicelb
+      --disable=metrics-server
+      --kube-apiserver-arg=service-account-issuer=https://kubernetes.default.svc
+      --tls-san=k3s
+      --tls-san=localhost
+      --tls-san=127.0.0.1
+      --write-kubeconfig=/output/kubeconfig.yaml
+      --write-kubeconfig-mode=644
+    privileged: true
+    tmpfs:
+      - /run
+      - /var/run
+    volumes:
+      - k3s-data:/var/lib/rancher/k3s
+      - ./tmp/e2e:/output
+    ports:
+      - "6443:6443"
+    networks:
+      - e2e-net
+    environment:
+      - K3S_TOKEN=e2e-local-token
+
+  dex:
+    image: ghcr.io/dexidp/dex:v2.39.1
+    command: ["dex", "serve", "/etc/dex/config.yaml"]
+    volumes:
+      - ./test/e2e/fixtures/dex-config.yaml:/etc/dex/config.yaml:ro
+    ports:
+      - "5556:5556"
+    networks:
+      - e2e-net
+    depends_on:
+      - k3s
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:5556/.well-known/openid-configuration"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+networks:
+  e2e-net:
+    driver: bridge
+
+volumes:
+  k3s-data:

@@ -860,11 +860,68 @@ jobs:
             --k3s-arg "--kube-apiserver-arg=service-account-issuer=https://kubernetes.default.svc@server:*"
           kubectl wait --for=condition=Ready nodes --all --timeout=60s
 
+      - name: Deploy Dex OIDC Provider
+        run: |
+          docker run -d \
+            --name dex \
+            --network k3d-e2e \
+            -p 5556:5556 \
+            -v ${{ github.workspace }}/test/e2e/fixtures/dex-config.yaml:/etc/dex/config.yaml:ro \
+            ghcr.io/dexidp/dex:v2.39.1 \
+            dex serve /etc/dex/config.yaml
+
+          echo "Waiting for Dex OIDC provider..."
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:5556/.well-known/openid-configuration > /dev/null 2>&1; then
+              echo "Dex is ready"
+              break
+            fi
+            if [ "$i" -eq 30 ]; then
+              echo "ERROR: Dex failed to start"; docker logs dex; exit 1
+            fi
+            sleep 1
+          done
+
+          DEX_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' dex)
+          echo "Dex IP: $DEX_IP"
+          echo "DEX_IP=$DEX_IP" >> $GITHUB_ENV
+          curl -s http://localhost:5556/.well-known/openid-configuration | jq .
+
       - name: Deploy Vault
         run: |
           kubectl apply -f test/e2e/fixtures/vault.yaml
           # Wait for StatefulSet rollout (handles pod creation timing)
           kubectl rollout status statefulset/vault -n vault --timeout=300s
+
+      - name: Create Dex K8s Service
+        run: |
+          cat <<EOF | kubectl apply -f -
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: dex
+            namespace: default
+          spec:
+            ports:
+              - port: 5556
+                targetPort: 5556
+          ---
+          apiVersion: v1
+          kind: Endpoints
+          metadata:
+            name: dex
+            namespace: default
+          subsets:
+            - addresses:
+                - ip: ${DEX_IP}
+              ports:
+                - port: 5556
+          EOF
+
+          echo "Verifying Dex from inside cluster..."
+          kubectl run dex-test --rm -i --restart=Never \
+            --image=curlimages/curl --timeout=60s -- \
+            curl -sf http://dex.default.svc.cluster.local:5556/.well-known/openid-configuration
 
       - name: Configure Vault for E2E tests
         run: |
@@ -934,19 +991,11 @@ jobs:
             echo "Warning: JWT auth configuration failed (tests will skip JWT auth)"
           fi
 
-          # Configure OIDC (JWT at oidc path) auth — same strategy
-          if kubectl exec -i -n vault vault-0 -- vault write auth/oidc/config \
-               oidc_discovery_url="$ISSUER" \
-               bound_issuer="$ISSUER" \
-               oidc_discovery_ca_pem="$K8S_CA" 2>/dev/null; then
-            echo "OIDC auth configured with OIDC discovery"
-          else
-            echo "OIDC discovery failed for OIDC path, falling back to JWKS"
-            kubectl exec -n vault vault-0 -- vault write auth/oidc/config \
-              jwt_validation_pubkeys="$JWKS" \
-              bound_issuer="$ISSUER" || \
-            echo "Warning: OIDC auth configuration failed (tests will skip OIDC auth)"
-          fi
+          # Configure OIDC (JWT at oidc path) auth with Dex OIDC discovery
+          kubectl exec -n vault vault-0 -- vault write auth/oidc/config \
+            oidc_discovery_url="http://dex.default.svc.cluster.local:5556" \
+            bound_issuer="http://dex.default.svc.cluster.local:5556"
+          echo "OIDC auth configured with Dex OIDC discovery"
 
       # For PRs: Load image from artifact (not in registry yet)
       - uses: actions/download-artifact@v4
@@ -1071,43 +1120,125 @@ jobs:
             echo "</details>" >> $GITHUB_STEP_SUMMARY
           fi
 
-      - name: Collect debug logs
+      - name: Debug - E2E test output
         if: failure()
         run: |
           mkdir -p /tmp/debug-logs
-          echo "=== Collecting debug information ==="
+          echo "=== E2E Test Output ==="
+          cat e2e-output.txt 2>/dev/null | tee /tmp/debug-logs/e2e-output.txt || true
+          cp e2e-report.json /tmp/debug-logs/ 2>/dev/null || true
 
-          # E2E test output
-          cp e2e-output.txt /tmp/debug-logs/e2e-output.txt 2>&1 || true
+      - name: Debug - Vault logs
+        if: failure()
+        run: |
+          mkdir -p /tmp/debug-logs/vault
 
-          # Pod status
-          kubectl get pods -A -o wide > /tmp/debug-logs/pods.txt 2>&1 || true
+          echo "=== Vault Pod Logs (last 1000 lines) ==="
+          kubectl logs vault-0 -n vault --tail=1000 2>&1 | tee /tmp/debug-logs/vault/logs.txt || true
 
-          # Vault logs and details
-          kubectl logs vault-0 -n vault --tail=500 > /tmp/debug-logs/vault-logs.txt 2>&1 || true
-          kubectl describe pod vault-0 -n vault > /tmp/debug-logs/vault-describe.txt 2>&1 || true
-          kubectl get events -n vault --sort-by='.lastTimestamp' > /tmp/debug-logs/vault-events.txt 2>&1 || true
+          echo ""
+          echo "=== Vault Pod Describe ==="
+          kubectl describe pod vault-0 -n vault 2>&1 | tee /tmp/debug-logs/vault/describe.txt || true
 
-          # Operator logs and details
-          kubectl logs -n vault-access-operator-system -l control-plane=controller-manager --tail=500 > /tmp/debug-logs/operator-logs.txt 2>&1 || true
-          kubectl describe pods -n vault-access-operator-system > /tmp/debug-logs/operator-describe.txt 2>&1 || true
-          kubectl get events -n vault-access-operator-system --sort-by='.lastTimestamp' > /tmp/debug-logs/operator-events.txt 2>&1 || true
+          echo ""
+          echo "=== Vault Namespace Events ==="
+          kubectl get events -n vault --sort-by='.lastTimestamp' 2>&1 | tee /tmp/debug-logs/vault/events.txt || true
 
-          # CRD status
-          kubectl get vaultconnections,vaultpolicies,vaultclusterpolicies,vaultroles,vaultclusterroles -A -o yaml > /tmp/debug-logs/crd-status.yaml 2>&1 || true
+          echo ""
+          echo "=== Vault Status ==="
+          kubectl exec -n vault vault-0 -- vault status -format=json 2>&1 | tee /tmp/debug-logs/vault/status.json || true
 
-          # All events
-          kubectl get events -A --sort-by='.lastTimestamp' > /tmp/debug-logs/all-events.txt 2>&1 || true
+          echo ""
+          echo "=== Vault Auth Methods ==="
+          kubectl exec -n vault vault-0 -- vault auth list -format=json 2>&1 | tee /tmp/debug-logs/vault/auth-list.json || true
 
-          # Node info
-          kubectl describe nodes > /tmp/debug-logs/nodes.txt 2>&1 || true
+      - name: Debug - Operator logs
+        if: failure()
+        run: |
+          mkdir -p /tmp/debug-logs/operator
 
-          # Storage (PVCs)
-          kubectl get pvc -A -o wide > /tmp/debug-logs/pvcs.txt 2>&1 || true
-          kubectl describe pvc -A > /tmp/debug-logs/pvcs-describe.txt 2>&1 || true
+          echo "=== Operator Pod Logs (last 1000 lines) ==="
+          kubectl logs -n vault-access-operator-system -l control-plane=controller-manager --tail=1000 2>&1 | tee /tmp/debug-logs/operator/logs.txt || true
 
-          echo "=== Debug logs collected ==="
-          ls -la /tmp/debug-logs/
+          echo ""
+          echo "=== Operator Previous Logs (crash restarts) ==="
+          kubectl logs -n vault-access-operator-system -l control-plane=controller-manager --previous --tail=500 2>&1 | tee /tmp/debug-logs/operator/logs-previous.txt || true
+
+          echo ""
+          echo "=== Operator Pod Describe ==="
+          kubectl describe pods -n vault-access-operator-system 2>&1 | tee /tmp/debug-logs/operator/describe.txt || true
+
+          echo ""
+          echo "=== Operator Namespace Events ==="
+          kubectl get events -n vault-access-operator-system --sort-by='.lastTimestamp' 2>&1 | tee /tmp/debug-logs/operator/events.txt || true
+
+      - name: Debug - CRD status
+        if: failure()
+        run: |
+          mkdir -p /tmp/debug-logs/crds
+
+          echo "=== VaultConnections ==="
+          kubectl get vaultconnections -A -o yaml 2>&1 | tee /tmp/debug-logs/crds/vaultconnections.yaml || true
+
+          echo ""
+          echo "=== VaultPolicies ==="
+          kubectl get vaultpolicies -A -o yaml 2>&1 | tee /tmp/debug-logs/crds/vaultpolicies.yaml || true
+
+          echo ""
+          echo "=== VaultClusterPolicies ==="
+          kubectl get vaultclusterpolicies -A -o yaml 2>&1 | tee /tmp/debug-logs/crds/vaultclusterpolicies.yaml || true
+
+          echo ""
+          echo "=== VaultRoles ==="
+          kubectl get vaultroles -A -o yaml 2>&1 | tee /tmp/debug-logs/crds/vaultroles.yaml || true
+
+          echo ""
+          echo "=== VaultClusterRoles ==="
+          kubectl get vaultclusterroles -A -o yaml 2>&1 | tee /tmp/debug-logs/crds/vaultclusterroles.yaml || true
+
+      - name: Debug - Cluster state
+        if: failure()
+        run: |
+          mkdir -p /tmp/debug-logs/cluster
+
+          echo "=== All Pods ==="
+          kubectl get pods -A -o wide 2>&1 | tee /tmp/debug-logs/cluster/pods.txt || true
+
+          echo ""
+          echo "=== All Events (sorted by time) ==="
+          kubectl get events -A --sort-by='.lastTimestamp' 2>&1 | tee /tmp/debug-logs/cluster/all-events.txt || true
+
+          echo ""
+          echo "=== Nodes ==="
+          kubectl describe nodes 2>&1 | tee /tmp/debug-logs/cluster/nodes.txt || true
+
+          echo ""
+          echo "=== PVCs ==="
+          kubectl get pvc -A -o wide 2>&1 | tee /tmp/debug-logs/cluster/pvcs.txt || true
+
+          echo ""
+          echo "=== Services ==="
+          kubectl get svc -A -o wide 2>&1 | tee /tmp/debug-logs/cluster/services.txt || true
+
+          echo ""
+          echo "=== Endpoints ==="
+          kubectl get endpoints -A 2>&1 | tee /tmp/debug-logs/cluster/endpoints.txt || true
+
+      - name: Debug - Dex logs
+        if: failure()
+        run: |
+          mkdir -p /tmp/debug-logs/dex
+
+          echo "=== Dex Container Logs ==="
+          docker logs dex 2>&1 | tee /tmp/debug-logs/dex/logs.txt || true
+
+          echo ""
+          echo "=== Dex Container Inspect ==="
+          docker inspect dex 2>&1 | tee /tmp/debug-logs/dex/inspect.json || true
+
+          echo ""
+          echo "=== Dex OIDC Discovery ==="
+          curl -sf http://localhost:5556/.well-known/openid-configuration 2>&1 | tee /tmp/debug-logs/dex/discovery.json || true
 
       - name: Upload debug logs
         if: failure()
@@ -1116,6 +1247,10 @@ jobs:
           name: e2e-debug-logs
           path: /tmp/debug-logs/
           retention-days: 7
+
+      - name: Cleanup Dex
+        if: always()
+        run: docker rm -f dex 2>/dev/null || true
 
       - name: Cleanup
         if: always()

@@ -19,6 +19,7 @@ package e2e
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os/exec"
 	"strings"
 
@@ -488,59 +489,31 @@ func (p *OIDCAuthProvider) Setup() (string, error) {
 		return "", fmt.Errorf("failed to enable oidc (jwt) auth: %w", err)
 	}
 
-	// Get OIDC configuration to find the issuer
-	ginkgo.By("getting Kubernetes OIDC configuration for OIDC auth")
-	cmd := exec.Command("kubectl", "get", "--raw", "/.well-known/openid-configuration")
-	output, err := utils.Run(cmd)
+	ginkgo.By("checking Dex OIDC provider availability")
+	resp, err := http.Get(dexDiscoveryURL)
 	if err != nil {
-		return "Kubernetes OIDC discovery not available", nil
+		return fmt.Sprintf("Dex not reachable at %s: %v", dexDiscoveryURL, err), nil
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Sprintf("Dex discovery returned status %d", resp.StatusCode), nil
 	}
 
-	var oidcConfig struct {
-		Issuer string `json:"issuer"`
-	}
-	if err := json.Unmarshal([]byte(output), &oidcConfig); err != nil {
-		return fmt.Sprintf("failed to parse OIDC config: %v", err), nil
-	}
-	p.issuer = oidcConfig.Issuer
-
-	// Get JWKS directly from Kubernetes API
-	ginkgo.By("fetching JWKS from Kubernetes API for OIDC auth")
-	cmd = exec.Command("kubectl", "get", "--raw", "/openid/v1/jwks")
-	jwksOutput, err := utils.Run(cmd)
-	if err != nil {
-		return "failed to get JWKS from Kubernetes", nil
-	}
-
-	// Configure OIDC (JWT at oidc path) with JWKS directly
-	ginkgo.By("configuring OIDC auth with JWKS (bypassing OIDC discovery)")
+	ginkgo.By("configuring OIDC auth with Dex OIDC discovery")
 	_, err = utils.RunVaultCommand("write", "auth/oidc/config",
-		fmt.Sprintf("jwt_validation_pubkeys=%s", jwksOutput),
-		fmt.Sprintf("bound_issuer=%s", p.issuer),
+		fmt.Sprintf("oidc_discovery_url=%s", dexIssuer),
+		fmt.Sprintf("bound_issuer=%s", dexIssuer),
 	)
 	if err != nil {
-		// Fall back to trying OIDC discovery
-		ginkgo.By("JWKS config failed for OIDC, trying OIDC discovery")
-		_, err = utils.RunVaultCommand("write", "auth/oidc/config",
-			fmt.Sprintf("oidc_discovery_url=%s", p.issuer),
-			fmt.Sprintf("bound_issuer=%s", p.issuer),
-		)
-		if err != nil {
-			if strings.Contains(err.Error(), "error checking oidc discovery URL") ||
-				strings.Contains(err.Error(), "fetching keys") ||
-				strings.Contains(err.Error(), "connection refused") ||
-				strings.Contains(err.Error(), "no such host") {
-				return fmt.Sprintf("Vault cannot reach OIDC/JWKS endpoint (%s)", p.issuer), nil
-			}
-			return "", fmt.Errorf("failed to configure OIDC auth: %w", err)
-		}
+		return "", fmt.Errorf("failed to configure OIDC auth with Dex: %w", err)
 	}
 
+	p.issuer = dexIssuer
 	return "", nil
 }
 
-func (p *OIDCAuthProvider) GetToken(namespace, serviceAccount string) (string, error) {
-	return utils.GetServiceAccountToken(namespace, serviceAccount)
+func (p *OIDCAuthProvider) GetToken(_, _ string) (string, error) {
+	return getDexToken(dexClientID, dexClientSecret)
 }
 
 func (p *OIDCAuthProvider) Login(role, token string) (string, error) {
@@ -561,14 +534,14 @@ func (p *OIDCAuthProvider) Login(role, token string) (string, error) {
 }
 
 func (p *OIDCAuthProvider) CreateRole(
-	roleName, namespace, serviceAccount string, policies []string,
+	roleName, _, _ string, policies []string,
 ) error {
 	args := []string{
 		"write", fmt.Sprintf("auth/oidc/role/%s", roleName),
 		"role_type=jwt",
-		"bound_audiences=https://kubernetes.default.svc.cluster.local",
-		fmt.Sprintf("bound_subject=system:serviceaccount:%s:%s", namespace, serviceAccount),
-		"user_claim=sub",
+		fmt.Sprintf("bound_audiences=%s", dexClientID),
+		"user_claim=email",
+		fmt.Sprintf("bound_claims=email=%s", dexTestEmail),
 		fmt.Sprintf("policies=%s", strings.Join(policies, ",")),
 		"ttl=1h",
 	}
@@ -591,10 +564,24 @@ func (p *OIDCAuthProvider) AuthPath() string {
 }
 
 // configureVaultJWTAuthForTest configures Vault's JWT auth engine at the given mount path.
-// Uses JWKS directly first (works in k3d/kind), falls back to OIDC discovery.
-// Skips the test if neither method works. authLabel is used in log/skip messages
-// (e.g., "JWT" or "OIDC").
+// For "auth/oidc" path, uses Dex OIDC discovery.
+// For other paths (e.g., "auth/jwt"), uses JWKS directly first, falls back to OIDC discovery.
+// Skips the test if configuration fails.
 func configureVaultJWTAuthForTest(authPath, authLabel, issuer string) {
+	// OIDC path uses Dex as the OIDC provider
+	if authPath == "auth/oidc" {
+		ginkgo.By("configuring OIDC auth with Dex OIDC discovery")
+		_, err := utils.RunVaultCommand("write", "auth/oidc/config",
+			fmt.Sprintf("oidc_discovery_url=%s", dexIssuer),
+			fmt.Sprintf("bound_issuer=%s", dexIssuer),
+		)
+		if err != nil {
+			ginkgo.Skip(fmt.Sprintf("Failed to configure OIDC auth with Dex: %v", err))
+		}
+		return
+	}
+
+	// JWT path: use K8s JWKS first, OIDC discovery fallback
 	ginkgo.By(fmt.Sprintf("fetching JWKS from Kubernetes API for %s auth", authLabel))
 	cmd := exec.Command("kubectl", "get", "--raw", "/openid/v1/jwks")
 	jwksOutput, err := utils.Run(cmd)

@@ -131,6 +131,30 @@ test: manifests generate fmt vet setup-envtest ## Run tests.
 test-e2e: manifests generate fmt vet ## Run E2E tests (requires running cluster with Vault + operator deployed)
 	go test ./test/e2e/ -v -ginkgo.v -ginkgo.fail-fast -timeout 10m
 
+##@ E2E Local Development
+
+E2E_KUBECONFIG := $(shell pwd)/tmp/e2e/kubeconfig.yaml
+
+.PHONY: e2e-local-up
+e2e-local-up: ## Set up local E2E stack (k3s + Dex + Vault + operator)
+	docker compose -f docker-compose.e2e.yaml up -d
+	bash scripts/e2e-setup.sh
+
+.PHONY: e2e-local-down
+e2e-local-down: ## Tear down local E2E stack
+	bash scripts/e2e-teardown.sh
+
+.PHONY: e2e-local-status
+e2e-local-status: ## Show status of local E2E stack
+	@docker compose -f docker-compose.e2e.yaml ps
+	@echo ""
+	@KUBECONFIG=$(E2E_KUBECONFIG) kubectl get pods -A 2>/dev/null || echo "k3s not ready"
+
+.PHONY: e2e-local-test
+e2e-local-test: ## Run E2E tests against local stack
+	KUBECONFIG=$(E2E_KUBECONFIG) E2E_SKIP_BUILD=true E2E_SKIP_IMAGE_LOAD=true \
+		go test ./test/e2e/ -v -ginkgo.v -ginkgo.fail-fast -timeout 10m
+
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter
 	$(GOLANGCI_LINT) run
