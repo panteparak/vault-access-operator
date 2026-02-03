@@ -43,7 +43,7 @@ var (
 	metricsServiceName = "vault-access-operator-controller-manager-metrics-service"
 )
 
-var _ = Describe("Manager", Ordered, func() {
+var _ = Describe("Manager", Ordered, Label("setup"), func() {
 	var controllerPodName string
 
 	// operatorAlreadyDeployed tracks whether the operator was pre-deployed by CI

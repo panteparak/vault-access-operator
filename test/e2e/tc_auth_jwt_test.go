@@ -66,7 +66,7 @@ func (h *jwtAuthHelper) configureJWTAuth(issuer string) {
 	configureVaultJWTAuthForTest("auth/jwt", "JWT", issuer)
 }
 
-var _ = Describe("JWT Authentication Tests", func() {
+var _ = Describe("JWT Authentication Tests", Label("auth"), func() {
 	// TC-AU04: JWT Authentication with Kubernetes Service Account Token
 	Context("TC-AU04: JWT Auth with Kubernetes Service Account Token", Ordered, func() {
 		const (

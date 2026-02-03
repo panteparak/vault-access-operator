@@ -28,7 +28,7 @@ import (
 	"github.com/panteparak/vault-access-operator/test/utils"
 )
 
-var _ = Describe("Error Handling Tests", Ordered, func() {
+var _ = Describe("Error Handling Tests", Ordered, Label("module"), func() {
 	Context("TC-EH: Error Scenarios", func() {
 		It("TC-EH01: Handle invalid connection reference", func() {
 			invalidPolicyName := "tc-eh01-invalid-conn"

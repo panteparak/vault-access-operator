@@ -27,7 +27,7 @@ import (
 	"github.com/panteparak/vault-access-operator/test/utils"
 )
 
-var _ = Describe("VaultConnection Tests", Ordered, func() {
+var _ = Describe("VaultConnection Tests", Ordered, Label("module"), func() {
 	// Test configuration
 	const (
 		vaultConnectionName  = "tc-vc-vault"

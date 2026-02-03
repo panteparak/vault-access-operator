@@ -131,6 +131,19 @@ test: manifests generate fmt vet setup-envtest ## Run tests.
 test-e2e: manifests generate fmt vet ## Run E2E tests (requires running cluster with Vault + operator deployed)
 	go test ./test/e2e/ -v -ginkgo.v -ginkgo.fail-fast -timeout 10m
 
+##@ E2E Tests - Sequential Execution
+
+.PHONY: test-e2e-sequential
+test-e2e-sequential: test-e2e-auth test-e2e-modules ## Run E2E tests: auth first, then modules
+
+.PHONY: test-e2e-auth
+test-e2e-auth: ## Run auth tests only
+	go test ./test/e2e/ -v -ginkgo.v -ginkgo.label-filter="auth" -timeout 10m
+
+.PHONY: test-e2e-modules
+test-e2e-modules: ## Run module tests only (after auth)
+	go test ./test/e2e/ -v -ginkgo.v -ginkgo.label-filter="module || setup" -timeout 15m
+
 ##@ E2E Local Development
 
 E2E_KUBECONFIG := $(shell pwd)/tmp/e2e/kubeconfig.yaml

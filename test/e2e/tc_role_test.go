@@ -28,7 +28,7 @@ import (
 	"github.com/panteparak/vault-access-operator/test/utils"
 )
 
-var _ = Describe("VaultRole Tests", Ordered, func() {
+var _ = Describe("VaultRole Tests", Ordered, Label("module"), func() {
 	// Test configuration
 	const (
 		roleName       = "tc-vr-role"

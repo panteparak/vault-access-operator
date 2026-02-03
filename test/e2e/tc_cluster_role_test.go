@@ -29,7 +29,7 @@ import (
 	"github.com/panteparak/vault-access-operator/test/utils"
 )
 
-var _ = Describe("VaultClusterRole Tests", Ordered, func() {
+var _ = Describe("VaultClusterRole Tests", Ordered, Label("module"), func() {
 	// Test configuration
 	const (
 		clusterRoleName       = "tc-cr-cluster-role"

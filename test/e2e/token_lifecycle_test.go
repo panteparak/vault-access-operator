@@ -27,7 +27,7 @@ import (
 	"github.com/panteparak/vault-access-operator/test/utils"
 )
 
-var _ = Describe("Token Lifecycle", Ordered, func() {
+var _ = Describe("Token Lifecycle", Ordered, Label("auth"), func() {
 	const (
 		tokenLifecycleNamespace = "e2e-token-lifecycle"
 		bootstrapSecretName     = "vault-bootstrap-token"

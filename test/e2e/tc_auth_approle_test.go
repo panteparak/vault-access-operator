@@ -27,7 +27,7 @@ import (
 	"github.com/panteparak/vault-access-operator/test/utils"
 )
 
-var _ = Describe("AppRole Authentication Tests", func() {
+var _ = Describe("AppRole Authentication Tests", Label("auth"), func() {
 	// TC-AU-APPROLE: AppRole Authentication
 	Context("TC-AU-APPROLE: AppRole Auth with role_id and secret_id", Ordered, func() {
 		const (

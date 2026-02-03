@@ -29,7 +29,7 @@ import (
 
 // AuthTestSuite defines a reusable test suite that runs against any AuthProvider.
 // This allows the same tests to verify behavior across different auth methods.
-var _ = Describe("TC-AU-SHARED: Authentication Method Compatibility", func() {
+var _ = Describe("TC-AU-SHARED: Authentication Method Compatibility", Label("auth"), func() {
 	// Test with each available auth provider
 	authProviders := []struct {
 		name     string

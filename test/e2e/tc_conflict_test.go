@@ -27,7 +27,7 @@ import (
 	"github.com/panteparak/vault-access-operator/test/utils"
 )
 
-var _ = Describe("Conflict Policy Tests", Ordered, func() {
+var _ = Describe("Conflict Policy Tests", Ordered, Label("module"), func() {
 	Context("TC-CF: Policy Conflict Resolution", func() {
 		It("TC-CF01-ADOPT: Adopt existing unmanaged policy", func() {
 			adoptPolicyName := "tc-cf01-adopt"

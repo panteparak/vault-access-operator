@@ -29,7 +29,7 @@ import (
 	"github.com/panteparak/vault-access-operator/test/utils"
 )
 
-var _ = Describe("Authentication Tests", Ordered, func() {
+var _ = Describe("Authentication Tests", Ordered, Label("auth"), func() {
 	// Test configuration
 	const (
 		authSAName     = "tc-au-sa"

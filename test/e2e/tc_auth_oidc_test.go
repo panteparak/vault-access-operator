@@ -74,7 +74,7 @@ func (h *oidcAuthHelper) configureOIDCAuth(_ string) {
 	configureVaultJWTAuthForTest("auth/oidc", "OIDC", h.issuer)
 }
 
-var _ = Describe("OIDC Authentication Tests", func() {
+var _ = Describe("OIDC Authentication Tests", Label("auth"), func() {
 	// TC-AU-OIDC: OIDC Authentication (JWT at oidc path)
 	// Uses Dex as a standalone OIDC provider. Vault validates Dex-issued JWTs
 	// via standard OIDC discovery (/.well-known/openid-configuration).

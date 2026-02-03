@@ -1080,9 +1080,26 @@ jobs:
           E2E_SKIP_IMAGE_LOAD: "true"
         run: |
           set -o pipefail
-          # Run tests with verbose output, timing, and JSON report for detailed summary
+
+          # Run auth tests FIRST to catch authentication issues early
+          echo "=========================================="
+          echo "Phase 1: Running authentication tests..."
+          echo "=========================================="
           go test ./test/e2e/... -v -ginkgo.v -ginkgo.fail-fast -ginkgo.show-node-events \
-            -ginkgo.json-report=e2e-report.json -timeout=10m 2>&1 | tee e2e-output.txt
+            -ginkgo.label-filter="auth" \
+            -ginkgo.json-report=e2e-auth-report.json -timeout=10m 2>&1 | tee e2e-auth-output.txt
+
+          # Run module/setup tests AFTER auth is verified
+          echo "=========================================="
+          echo "Phase 2: Running module tests..."
+          echo "=========================================="
+          go test ./test/e2e/... -v -ginkgo.v -ginkgo.fail-fast -ginkgo.show-node-events \
+            -ginkgo.label-filter="module || setup" \
+            -ginkgo.json-report=e2e-module-report.json -timeout=15m 2>&1 | tee e2e-module-output.txt
+
+          # Combine outputs for summary
+          cat e2e-auth-output.txt e2e-module-output.txt > e2e-output.txt
+          jq -s 'add' e2e-auth-report.json e2e-module-report.json > e2e-report.json
 
       - name: E2E Summary
         if: always()

@@ -27,7 +27,7 @@ import (
 	"github.com/panteparak/vault-access-operator/test/utils"
 )
 
-var _ = Describe("VaultClusterPolicy Tests", Ordered, func() {
+var _ = Describe("VaultClusterPolicy Tests", Ordered, Label("module"), func() {
 	// Test configuration - uses shared VaultConnection from suite
 	const (
 		clusterPolicyName = "tc-cp-cluster-policy"
