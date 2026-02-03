@@ -860,6 +860,11 @@ jobs:
             --k3s-arg "--kube-apiserver-arg=service-account-issuer=https://kubernetes.default.svc@server:*"
           kubectl wait --for=condition=Ready nodes --all --timeout=60s
 
+          # Wait for all kube-system pods (CoreDNS, local-path-provisioner, etc.)
+          # Node readiness alone does NOT guarantee system pods are running.
+          # Without CoreDNS, pods cannot resolve Service DNS names.
+          kubectl wait --for=condition=Ready pods --all -n kube-system --timeout=120s
+
       - name: Deploy Dex OIDC Provider
         run: |
           docker run -d \
@@ -919,9 +924,22 @@ jobs:
           EOF
 
           echo "Verifying Dex from inside cluster..."
-          kubectl run dex-test --rm -i --restart=Never \
-            --image=curlimages/curl --timeout=60s -- \
-            curl -sf http://dex.default.svc.cluster.local:5556/.well-known/openid-configuration
+          for attempt in $(seq 1 5); do
+            if kubectl run dex-test-${attempt} --rm -i --restart=Never \
+              --image=curlimages/curl --timeout=30s -- \
+              curl -sf --max-time 10 http://dex.default.svc.cluster.local:5556/.well-known/openid-configuration; then
+              echo "Dex reachable from inside cluster"
+              break
+            fi
+            if [ "$attempt" -eq 5 ]; then
+              echo "ERROR: Dex not reachable from inside cluster after 5 attempts"
+              kubectl get svc,endpoints dex -o wide
+              kubectl get pods -n kube-system
+              exit 1
+            fi
+            echo "Attempt ${attempt} failed, retrying in 3s..."
+            sleep 3
+          done
 
       - name: Configure Vault for E2E tests
         run: |
