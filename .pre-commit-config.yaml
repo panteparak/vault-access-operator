@@ -63,3 +63,17 @@ repos:
         language: system
         pass_filenames: false
         types: [go]
+
+  # GitHub Actions workflow linting
+  # Requires actionlint: brew install actionlint (macOS) or go install github.com/rhysd/actionlint/cmd/actionlint@latest
+  - repo: local
+    hooks:
+      - id: actionlint
+        name: actionlint
+        description: Lint GitHub Actions workflow files
+        # Disable shellcheck integration to avoid noisy SC2086/SC2129 style warnings
+        # Use -ignore to suppress specific patterns if needed
+        entry: actionlint -shellcheck=
+        language: system
+        files: ^\.github/workflows/.*\.ya?ml$
+        pass_filenames: true

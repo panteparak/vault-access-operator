@@ -46,11 +46,29 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: ${{ env.GO_VERSION_FILE }}
-          cache: true
+          cache: false  # We use explicit caching below for better control
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-mod-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-mod-
+      - name: Cache Go build
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/go-build
+          key: ${{ runner.os }}-go-build-lint-${{ hashFiles('**/go.sum') }}-${{ hashFiles('**/*.go') }}
+          restore-keys: |
+            ${{ runner.os }}-go-build-lint-${{ hashFiles('**/go.sum') }}-
+            ${{ runner.os }}-go-build-lint-
+            ${{ runner.os }}-go-build-
       - uses: golangci/golangci-lint-action@v8
         with:
           version: v2.8.0
           args: --config=.golangci.yml
+          # golangci-lint has its own cache - let it manage that
+          skip-cache: false
       - name: Summary
         if: always()
         run: |
@@ -68,7 +86,23 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: ${{ env.GO_VERSION_FILE }}
-          cache: true
+          cache: false  # We use explicit caching below for better control
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-mod-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-mod-
+      - name: Cache Go build
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/go-build
+          key: ${{ runner.os }}-go-build-test-${{ hashFiles('**/go.sum') }}-${{ hashFiles('**/*.go') }}
+          restore-keys: |
+            ${{ runner.os }}-go-build-test-${{ hashFiles('**/go.sum') }}-
+            ${{ runner.os }}-go-build-test-
+            ${{ runner.os }}-go-build-
       - name: Run unit tests
         run: |
           set -o pipefail
@@ -105,7 +139,23 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: ${{ env.GO_VERSION_FILE }}
-          cache: true
+          cache: false  # We use explicit caching below for better control
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-mod-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-mod-
+      - name: Cache Go build
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/go-build
+          key: ${{ runner.os }}-go-build-integration-${{ hashFiles('**/go.sum') }}-${{ hashFiles('**/*.go') }}
+          restore-keys: |
+            ${{ runner.os }}-go-build-integration-${{ hashFiles('**/go.sum') }}-
+            ${{ runner.os }}-go-build-integration-
+            ${{ runner.os }}-go-build-
       - name: Run integration tests
         run: |
           # Integration tests require Docker for testcontainers
@@ -189,7 +239,23 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: ${{ env.GO_VERSION_FILE }}
-          cache: true
+          cache: false  # We use explicit caching below for better control
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-mod-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-mod-
+      - name: Cache Go build
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/go-build
+          key: ${{ runner.os }}-go-build-verify-${{ hashFiles('**/go.sum') }}-${{ hashFiles('**/*.go') }}
+          restore-keys: |
+            ${{ runner.os }}-go-build-verify-${{ hashFiles('**/go.sum') }}-
+            ${{ runner.os }}-go-build-verify-
+            ${{ runner.os }}-go-build-
       - uses: azure/setup-helm@v4
         with:
           version: 'v3.14.0'
@@ -656,7 +722,23 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: ${{ env.GO_VERSION_FILE }}
-          cache: true
+          cache: false  # We use explicit caching below for better control
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-mod-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-mod-
+      - name: Cache Go build
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/go-build
+          key: ${{ runner.os }}-go-build-security-${{ hashFiles('**/go.sum') }}-${{ hashFiles('**/*.go') }}
+          restore-keys: |
+            ${{ runner.os }}-go-build-security-${{ hashFiles('**/go.sum') }}-
+            ${{ runner.os }}-go-build-security-
+            ${{ runner.os }}-go-build-
       - name: Run security tests
         run: |
           # Generate JSON report for detailed test case summary
@@ -742,7 +824,23 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: ${{ env.GO_VERSION_FILE }}
-          cache: true
+          cache: false  # We use explicit caching below for better control
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-mod-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-mod-
+      - name: Cache Go build
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/go-build
+          key: ${{ runner.os }}-go-build-profiled-${{ hashFiles('**/go.sum') }}-${{ hashFiles('**/*.go') }}
+          restore-keys: |
+            ${{ runner.os }}-go-build-profiled-${{ hashFiles('**/go.sum') }}-
+            ${{ runner.os }}-go-build-profiled-
+            ${{ runner.os }}-go-build-
       - name: Run profiled integration tests
         run: |
           make test-integration-report 2>&1 | tee profiled-output.txt || true
@@ -810,7 +908,23 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false  # We use explicit caching below for better control
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-mod-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-mod-
+      - name: Cache Go build
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/go-build
+          key: ${{ runner.os }}-go-build-e2e-${{ hashFiles('**/go.sum') }}-${{ hashFiles('**/*.go') }}
+          restore-keys: |
+            ${{ runner.os }}-go-build-e2e-${{ hashFiles('**/go.sum') }}-
+            ${{ runner.os }}-go-build-e2e-
+            ${{ runner.os }}-go-build-
 
       - name: Get short SHA
         id: short-sha
