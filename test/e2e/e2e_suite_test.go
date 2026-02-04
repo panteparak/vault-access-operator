@@ -444,31 +444,51 @@ func cleanupSharedTestInfrastructure() {
 	_ = utils.DeleteNamespace(ctx, testNamespace)
 }
 
-// configureKubernetesAuth configures Vault's Kubernetes auth method at "auth/kubernetes".
-// It retrieves the vault-auth ServiceAccount token (which has TokenReview permissions)
-// and the cluster CA certificate, then writes them to auth/kubernetes/config so Vault
-// can validate Kubernetes service account tokens.
+// configureKubernetesAuth configures Vault's Kubernetes auth method at
+// "auth/kubernetes". It retrieves the vault-auth SA token (which has
+// TokenReview permissions) and the cluster CA certificate, then writes
+// them to auth/kubernetes/config so Vault can validate K8s SA tokens.
+//
+// Uses the cluster's internal CA (from kube-root-ca.crt ConfigMap)
+// because Vault connects to kubernetes.default.svc from inside the
+// cluster. Falls back to the kubeconfig CA if the ConfigMap is
+// unavailable.
 func configureKubernetesAuth() error {
 	ctx := context.Background()
 
-	// Get a token for the vault-auth ServiceAccount (has TokenReview permissions)
+	// Get a token for the vault-auth ServiceAccount
 	reviewerJWT, err := utils.CreateServiceAccountTokenClientGo(
 		ctx, vaultAuthNamespace, vaultAuthSA,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to get vault-auth SA token: %w", err)
+		return fmt.Errorf(
+			"failed to get vault-auth SA token: %w", err,
+		)
 	}
 
-	// Get Kubernetes CA certificate from the kubeconfig's TLS settings
-	caCert, err := utils.GetKubernetesCA()
+	// Prefer the cluster's internal CA (kube-root-ca.crt ConfigMap).
+	// Fall back to kubeconfig CA for environments where the ConfigMap
+	// is not available.
+	caCert, err := utils.GetClusterCA(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to get Kubernetes CA cert: %w", err)
+		fmt.Fprintf(GinkgoWriter,
+			"Could not get cluster CA (%v), "+
+				"falling back to kubeconfig CA\n", err,
+		)
+		caCert, err = utils.GetKubernetesCA()
+		if err != nil {
+			return fmt.Errorf(
+				"failed to get Kubernetes CA cert: %w", err,
+			)
+		}
 	}
 
 	// Configure Kubernetes auth via Vault Go client
 	vaultClient, err := utils.GetTestVaultClient()
 	if err != nil {
-		return fmt.Errorf("failed to get vault client: %w", err)
+		return fmt.Errorf(
+			"failed to get vault client: %w", err,
+		)
 	}
 
 	return vaultClient.WriteKubernetesAuthConfig(
@@ -549,15 +569,25 @@ func getDexToken(clientID, clientSecret string) (string, error) {
 	return tokenResp.IDToken, nil
 }
 
-// configureJWTAuthAtPath configures a JWT/OIDC auth method at the given Vault path.
-// Tries OIDC discovery first (requires internal issuer), falls back to JWKS.
+// configureJWTAuthAtPath configures a JWT/OIDC auth method at the given
+// Vault path.
 //
-//nolint:unparam // authPath is parameterised for flexibility (jwt vs oidc mounts)
+// Strategy: try OIDC discovery with the cluster's internal CA first,
+// then fall back to static JWKS public keys (no network call from Vault).
+//
+// The cluster CA (from kube-root-ca.crt ConfigMap) is used instead of the
+// kubeconfig CA because Vault runs inside the cluster and verifies
+// kubernetes.default.svc — which may use a different CA than the external
+// API endpoint (e.g., k3d uses a TLS proxy with its own cert chain).
+//
+//nolint:unparam // authPath is parameterised for flexibility (jwt vs oidc)
 func configureJWTAuthAtPath(authPath string) error {
 	ctx := context.Background()
 
-	// Get OIDC configuration to find the issuer (kubectl get --raw equivalent)
-	output, err := utils.GetK8sRawEndpoint(ctx, "/.well-known/openid-configuration")
+	// Get OIDC configuration to find the issuer
+	output, err := utils.GetK8sRawEndpoint(
+		ctx, "/.well-known/openid-configuration",
+	)
 	if err != nil {
 		return fmt.Errorf("failed to get OIDC config: %w", err)
 	}
@@ -566,47 +596,85 @@ func configureJWTAuthAtPath(authPath string) error {
 		Issuer string `json:"issuer"`
 	}
 	if err := json.Unmarshal(output, &oidcConfig); err != nil {
-		return fmt.Errorf("failed to parse OIDC config: %w", err)
+		return fmt.Errorf(
+			"failed to parse OIDC config: %w", err,
+		)
 	}
 
 	vaultClient, err := utils.GetTestVaultClient()
 	if err != nil {
-		return fmt.Errorf("failed to get vault client: %w", err)
+		return fmt.Errorf(
+			"failed to get vault client: %w", err,
+		)
 	}
 
 	configPath := fmt.Sprintf("%s/config", authPath)
 
-	// Try OIDC discovery first (works if k3d configured with internal issuer)
-	caCert, err := utils.GetKubernetesCA()
-	if err == nil && caCert != "" {
-		err = vaultClient.WriteAuthConfig(ctx, configPath, map[string]interface{}{
-			"oidc_discovery_url":    oidcConfig.Issuer,
-			"bound_issuer":          oidcConfig.Issuer,
-			"oidc_discovery_ca_pem": caCert,
-		})
+	// Try OIDC discovery with the cluster's internal CA.
+	// This CA is from the kube-root-ca.crt ConfigMap, which
+	// Kubernetes auto-populates with the CA that signs the
+	// API server's in-cluster TLS certificate.
+	clusterCA, err := utils.GetClusterCA(ctx)
+	if err == nil && clusterCA != "" {
+		err = vaultClient.WriteAuthConfig(
+			ctx, configPath, map[string]interface{}{
+				"oidc_discovery_url":    oidcConfig.Issuer,
+				"bound_issuer":          oidcConfig.Issuer,
+				"oidc_discovery_ca_pem": clusterCA,
+			},
+		)
 		if err == nil {
-			fmt.Fprintf(GinkgoWriter, "%s configured with OIDC discovery\n", authPath)
+			fmt.Fprintf(GinkgoWriter,
+				"%s configured with OIDC discovery "+
+					"(cluster CA)\n", authPath,
+			)
 			return nil
 		}
 		fmt.Fprintf(GinkgoWriter,
-			"OIDC discovery failed for %s (%v), falling back to JWKS\n",
-			authPath, err)
+			"OIDC discovery failed for %s (%v), "+
+				"falling back to JWKS\n",
+			authPath, err,
+		)
+	} else {
+		fmt.Fprintf(GinkgoWriter,
+			"Could not get cluster CA (%v), "+
+				"falling back to JWKS\n", err,
+		)
 	}
 
-	// Fall back to JWKS (always works, no network call from Vault)
-	jwksOutput, err := utils.GetK8sRawEndpoint(ctx, "/openid/v1/jwks")
+	// Fall back to static JWKS public keys.
+	// This extracts PEM-encoded RSA public keys from the K8s JWKS
+	// endpoint and passes them directly to Vault — no network call
+	// from Vault to the K8s API is needed.
+	jwksOutput, err := utils.GetK8sRawEndpoint(
+		ctx, "/openid/v1/jwks",
+	)
 	if err != nil {
 		return fmt.Errorf("failed to get JWKS: %w", err)
 	}
 
-	err = vaultClient.WriteAuthConfig(ctx, configPath, map[string]interface{}{
-		"jwt_validation_pubkeys": string(jwksOutput),
-		"bound_issuer":           oidcConfig.Issuer,
-	})
+	pemKeys, err := utils.JWKSToPEMKeys(jwksOutput)
 	if err != nil {
-		return fmt.Errorf("failed to configure %s with JWKS: %w", authPath, err)
+		return fmt.Errorf(
+			"failed to convert JWKS to PEM keys: %w", err,
+		)
 	}
 
-	fmt.Fprintf(GinkgoWriter, "%s configured with JWKS\n", authPath)
+	err = vaultClient.WriteAuthConfig(
+		ctx, configPath, map[string]interface{}{
+			"jwt_validation_pubkeys": pemKeys,
+			"bound_issuer":           oidcConfig.Issuer,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf(
+			"failed to configure %s with JWKS: %w",
+			authPath, err,
+		)
+	}
+
+	fmt.Fprintf(GinkgoWriter,
+		"%s configured with JWKS PEM keys\n", authPath,
+	)
 	return nil
 }

@@ -21,7 +21,13 @@ package utils
 
 import (
 	"context"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/json"
+	"encoding/pem"
 	"fmt"
+	"math/big"
 	"os"
 	"sync"
 	"time"
@@ -928,4 +934,107 @@ func GetK8sRawEndpoint(
 		)
 	}
 	return result, nil
+}
+
+// GetClusterCA returns the Kubernetes cluster's internal CA certificate PEM
+// from the kube-root-ca.crt ConfigMap. This ConfigMap is auto-created by
+// Kubernetes (since 1.20) in every namespace and contains the CA that signs
+// the API server's internal TLS certificate (kubernetes.default.svc).
+//
+// This is preferred over GetKubernetesCA() when the CA is needed for
+// in-cluster TLS verification (e.g., Vault verifying kubernetes.default.svc),
+// because the kubeconfig CA may differ from the internal CA in environments
+// like k3d that use a TLS proxy for external access.
+func GetClusterCA(ctx context.Context) (string, error) {
+	k8sClient, err := GetK8sClient()
+	if err != nil {
+		return "", fmt.Errorf("failed to get k8s client: %w", err)
+	}
+
+	var cm corev1.ConfigMap
+	err = k8sClient.Get(ctx, client.ObjectKey{
+		Name:      "kube-root-ca.crt",
+		Namespace: "kube-system",
+	}, &cm)
+	if err != nil {
+		return "", fmt.Errorf(
+			"failed to get kube-root-ca.crt ConfigMap: %w", err,
+		)
+	}
+
+	caCert, ok := cm.Data["ca.crt"]
+	if !ok || caCert == "" {
+		return "", fmt.Errorf(
+			"kube-root-ca.crt ConfigMap missing ca.crt key",
+		)
+	}
+
+	return caCert, nil
+}
+
+// jwksResponse represents a JSON Web Key Set response.
+type jwksResponse struct {
+	Keys []jwkKey `json:"keys"`
+}
+
+// jwkKey represents a single JSON Web Key.
+type jwkKey struct {
+	Kty string `json:"kty"`
+	N   string `json:"n"`
+	E   string `json:"e"`
+}
+
+// JWKSToPEMKeys converts a JWKS JSON document (from /openid/v1/jwks) to
+// a list of PEM-encoded public keys suitable for Vault's
+// jwt_validation_pubkeys parameter.
+func JWKSToPEMKeys(jwksJSON []byte) ([]string, error) {
+	var jwks jwksResponse
+	if err := json.Unmarshal(jwksJSON, &jwks); err != nil {
+		return nil, fmt.Errorf("failed to parse JWKS: %w", err)
+	}
+
+	var pemKeys []string
+	for _, key := range jwks.Keys {
+		if key.Kty != "RSA" {
+			continue
+		}
+
+		nBytes, err := base64.RawURLEncoding.DecodeString(key.N)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"failed to decode JWK modulus: %w", err,
+			)
+		}
+
+		eBytes, err := base64.RawURLEncoding.DecodeString(key.E)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"failed to decode JWK exponent: %w", err,
+			)
+		}
+
+		pubKey := &rsa.PublicKey{
+			N: new(big.Int).SetBytes(nBytes),
+			E: int(new(big.Int).SetBytes(eBytes).Int64()),
+		}
+
+		derBytes, err := x509.MarshalPKIXPublicKey(pubKey)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"failed to marshal public key: %w", err,
+			)
+		}
+
+		pemBlock := pem.EncodeToMemory(&pem.Block{
+			Type:  "PUBLIC KEY",
+			Bytes: derBytes,
+		})
+		pemKeys = append(pemKeys, string(pemBlock))
+	}
+
+	if len(pemKeys) == 0 {
+		return nil, fmt.Errorf("no RSA keys found in JWKS")
+	}
+
+	return pemKeys, nil
 }
