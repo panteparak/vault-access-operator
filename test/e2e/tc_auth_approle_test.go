@@ -17,7 +17,7 @@ limitations under the License.
 package e2e
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
 	"strings"
 
@@ -29,21 +29,31 @@ import (
 
 var _ = Describe("AppRole Authentication Tests", Label("auth"), func() {
 	// TC-AU-APPROLE: AppRole Authentication
-	Context("TC-AU-APPROLE: AppRole Auth with role_id and secret_id", Ordered, func() {
+	Context("TC-AU-APPROLE: AppRole Auth with "+
+		"role_id and secret_id", Ordered, func() {
 		const (
 			approlePolicyName = "tc-au-approle-policy"
 			approleRoleName   = "tc-au-approle-role"
 		)
 
-		var (
-			roleID string
-		)
+		var roleID string
+		ctx := context.Background()
 
 		BeforeAll(func() {
+			vaultClient, err := utils.GetTestVaultClient()
+			Expect(err).NotTo(HaveOccurred())
+
 			By("enabling AppRole auth method in Vault")
-			_, err := utils.RunVaultCommand("auth", "enable", "approle")
-			if err != nil && !strings.Contains(err.Error(), "already in use") {
-				Fail(fmt.Sprintf("Failed to enable AppRole auth: %v", err))
+			err = vaultClient.EnableAuth(
+				ctx, "approle", "approle",
+			)
+			if err != nil &&
+				!strings.Contains(
+					err.Error(), "already in use",
+				) {
+				Fail(fmt.Sprintf(
+					"Failed to enable AppRole: %v", err,
+				))
 			}
 
 			By("creating test policy for AppRole tests")
@@ -55,160 +65,180 @@ path "sys/health" {
   capabilities = ["read"]
 }
 `
-			err = utils.CreateUnmanagedVaultPolicy(approlePolicyName, policyHCL)
+			err = vaultClient.WritePolicy(
+				ctx, approlePolicyName, policyHCL,
+			)
 			Expect(err).NotTo(HaveOccurred())
 
 			By("creating AppRole role in Vault")
-			_, err = utils.RunVaultCommand("write", fmt.Sprintf("auth/approle/role/%s", approleRoleName),
-				fmt.Sprintf("policies=%s,default", approlePolicyName),
-				"token_ttl=1h",
+			err = vaultClient.WriteAuthRole(
+				ctx, "approle", approleRoleName,
+				map[string]interface{}{
+					"policies": fmt.Sprintf(
+						"%s,default",
+						approlePolicyName,
+					),
+					"token_ttl": "1h",
+				},
 			)
 			Expect(err).NotTo(HaveOccurred())
 
 			By("reading role_id for the AppRole role")
-			output, err := utils.GetAppRoleRoleID("auth/approle", approleRoleName)
+			roleID, err = vaultClient.GetAppRoleRoleID(
+				ctx, "approle", approleRoleName,
+			)
 			Expect(err).NotTo(HaveOccurred())
-
-			var roleIDResp struct {
-				Data struct {
-					RoleID string `json:"role_id"`
-				} `json:"data"`
-			}
-			err = json.Unmarshal([]byte(output), &roleIDResp)
-			Expect(err).NotTo(HaveOccurred())
-			roleID = roleIDResp.Data.RoleID
 			Expect(roleID).NotTo(BeEmpty())
 		})
 
 		AfterAll(func() {
-			By("cleaning up TC-AU-APPROLE test resources")
-			_, _ = utils.RunVaultCommand("delete", fmt.Sprintf("auth/approle/role/%s", approleRoleName))
-			_, _ = utils.RunVaultCommand("policy", "delete", approlePolicyName)
+			By("cleaning up TC-AU-APPROLE resources")
+			vaultClient, err := utils.GetTestVaultClient()
+			if err != nil {
+				return
+			}
+			_ = vaultClient.DeleteAuthRole(
+				ctx, "approle", approleRoleName,
+			)
+			_ = vaultClient.DeletePolicy(
+				ctx, approlePolicyName,
+			)
 		})
 
-		It("TC-AU-APPROLE-01: should authenticate with valid role_id and secret_id", func() {
-			By("generating a secret_id")
-			output, err := utils.GenerateAppRoleSecretID("auth/approle", approleRoleName)
+		It("TC-AU-APPROLE-01: should authenticate "+
+			"with valid role_id and secret_id", func() {
+			vaultClient, err := utils.GetTestVaultClient()
 			Expect(err).NotTo(HaveOccurred())
 
-			var secretIDResp struct {
-				Data struct {
-					SecretID string `json:"secret_id"`
-				} `json:"data"`
-			}
-			err = json.Unmarshal([]byte(output), &secretIDResp)
+			By("generating a secret_id")
+			secretID, err :=
+				vaultClient.GenerateAppRoleSecretID(
+					ctx, "approle", approleRoleName,
+				)
 			Expect(err).NotTo(HaveOccurred())
-			secretID := secretIDResp.Data.SecretID
 			Expect(secretID).NotTo(BeEmpty())
 
 			By("logging in with role_id and secret_id")
-			loginOutput, err := utils.VaultLoginWithAppRole("auth/approle", roleID, secretID)
-			Expect(err).NotTo(HaveOccurred())
-
-			var loginResp struct {
-				Auth struct {
-					ClientToken string   `json:"client_token"`
-					Policies    []string `json:"policies"`
-				} `json:"auth"`
-			}
-			err = json.Unmarshal([]byte(loginOutput), &loginResp)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(loginResp.Auth.ClientToken).NotTo(BeEmpty())
-			Expect(loginResp.Auth.Policies).To(ContainElement(approlePolicyName))
-		})
-
-		It("TC-AU-APPROLE-02: should reject authentication with invalid secret_id", func() {
-			By("attempting login with valid role_id and garbage secret_id")
-			_, err := utils.VaultLoginWithAppRole("auth/approle", roleID, "invalid-secret-id-12345")
-			Expect(err).To(HaveOccurred())
-		})
-
-		It("TC-AU-APPROLE-03: should reject authentication with invalid role_id", func() {
-			By("generating a valid secret_id")
-			output, err := utils.GenerateAppRoleSecretID("auth/approle", approleRoleName)
-			Expect(err).NotTo(HaveOccurred())
-
-			var secretIDResp struct {
-				Data struct {
-					SecretID string `json:"secret_id"`
-				} `json:"data"`
-			}
-			err = json.Unmarshal([]byte(output), &secretIDResp)
-			Expect(err).NotTo(HaveOccurred())
-
-			By("attempting login with garbage role_id and valid secret_id")
-			_, err = utils.VaultLoginWithAppRole("auth/approle", "invalid-role-id-12345", secretIDResp.Data.SecretID)
-			Expect(err).To(HaveOccurred())
-		})
-
-		It("TC-AU-APPROLE-04: should enforce single-use secret_id when configured", func() {
-			singleUseRole := "tc-au-approle-single-use"
-
-			By("creating AppRole role with secret_id_num_uses=1")
-			_, err := utils.RunVaultCommand("write", fmt.Sprintf("auth/approle/role/%s", singleUseRole),
-				fmt.Sprintf("policies=%s", approlePolicyName),
-				"secret_id_num_uses=1",
-				"token_ttl=1h",
+			secret, err := vaultClient.Write(
+				ctx,
+				"auth/approle/login",
+				map[string]interface{}{
+					"role_id":   roleID,
+					"secret_id": secretID,
+				},
 			)
 			Expect(err).NotTo(HaveOccurred())
-
-			By("reading role_id for single-use role")
-			output, err := utils.GetAppRoleRoleID("auth/approle", singleUseRole)
-			Expect(err).NotTo(HaveOccurred())
-
-			var roleIDResp struct {
-				Data struct {
-					RoleID string `json:"role_id"`
-				} `json:"data"`
-			}
-			err = json.Unmarshal([]byte(output), &roleIDResp)
-			Expect(err).NotTo(HaveOccurred())
-			singleUseRoleID := roleIDResp.Data.RoleID
-
-			By("generating a single-use secret_id")
-			output, err = utils.GenerateAppRoleSecretID("auth/approle", singleUseRole)
-			Expect(err).NotTo(HaveOccurred())
-
-			var secretIDResp struct {
-				Data struct {
-					SecretID string `json:"secret_id"`
-				} `json:"data"`
-			}
-			err = json.Unmarshal([]byte(output), &secretIDResp)
-			Expect(err).NotTo(HaveOccurred())
-			secretID := secretIDResp.Data.SecretID
-
-			By("first login should succeed")
-			_, err = utils.VaultLoginWithAppRole("auth/approle", singleUseRoleID, secretID)
-			Expect(err).NotTo(HaveOccurred())
-
-			By("second login with same secret_id should fail (single-use)")
-			_, err = utils.VaultLoginWithAppRole("auth/approle", singleUseRoleID, secretID)
-			Expect(err).To(HaveOccurred())
-
-			By("cleaning up single-use role")
-			_, _ = utils.RunVaultCommand("delete", fmt.Sprintf("auth/approle/role/%s", singleUseRole))
+			Expect(secret).NotTo(BeNil())
+			Expect(secret.Auth).NotTo(BeNil())
+			Expect(secret.Auth.ClientToken).NotTo(
+				BeEmpty(),
+			)
+			Expect(secret.Auth.Policies).To(
+				ContainElement(approlePolicyName),
+			)
 		})
 
-		It("TC-AU-APPROLE-05: VaultConnection with AppRole auth", func() {
-			Skip("VaultConnection AppRole auth not yet implemented - this test documents the expected API")
+		It("TC-AU-APPROLE-02: should reject "+
+			"authentication with invalid secret_id",
+			func() {
+				vaultClient, err :=
+					utils.GetTestVaultClient()
+				Expect(err).NotTo(HaveOccurred())
 
-			// When AppRole auth is added to the VaultConnection spec, this test should be enabled.
-			//
-			// Expected VaultConnection YAML:
-			// apiVersion: vault.platform.io/v1alpha1
-			// kind: VaultConnection
-			// metadata:
-			//   name: approle-connection
-			// spec:
-			//   address: http://vault.vault.svc.cluster.local:8200
-			//   auth:
-			//     appRole:
-			//       roleId: <role-id>
-			//       secretRef:
-			//         name: approle-secret
-			//         namespace: default
-			//         key: secret-id
+				By("attempting login with invalid " +
+					"secret_id")
+				_, err = vaultClient.LoginAppRole(
+					ctx, "approle",
+					roleID, "invalid-secret-id-12345",
+				)
+				Expect(err).To(HaveOccurred())
+			})
+
+		It("TC-AU-APPROLE-03: should reject "+
+			"authentication with invalid role_id",
+			func() {
+				vaultClient, err :=
+					utils.GetTestVaultClient()
+				Expect(err).NotTo(HaveOccurred())
+
+				By("generating a valid secret_id")
+				secretID, err :=
+					vaultClient.GenerateAppRoleSecretID(
+						ctx, "approle",
+						approleRoleName,
+					)
+				Expect(err).NotTo(HaveOccurred())
+
+				By("attempting login with invalid " +
+					"role_id")
+				_, err = vaultClient.LoginAppRole(
+					ctx, "approle",
+					"invalid-role-id-12345", secretID,
+				)
+				Expect(err).To(HaveOccurred())
+			})
+
+		It("TC-AU-APPROLE-04: should enforce "+
+			"single-use secret_id when configured",
+			func() {
+				singleUseRole :=
+					"tc-au-approle-single-use"
+
+				vaultClient, err :=
+					utils.GetTestVaultClient()
+				Expect(err).NotTo(HaveOccurred())
+
+				By("creating role with " +
+					"secret_id_num_uses=1")
+				err = vaultClient.WriteAuthRole(
+					ctx, "approle", singleUseRole,
+					map[string]interface{}{
+						"policies":           approlePolicyName,
+						"secret_id_num_uses": 1,
+						"token_ttl":          "1h",
+					},
+				)
+				Expect(err).NotTo(HaveOccurred())
+
+				By("reading role_id for single-use role")
+				singleUseRoleID, err :=
+					vaultClient.GetAppRoleRoleID(
+						ctx, "approle", singleUseRole,
+					)
+				Expect(err).NotTo(HaveOccurred())
+
+				By("generating a single-use secret_id")
+				secretID, err :=
+					vaultClient.GenerateAppRoleSecretID(
+						ctx, "approle", singleUseRole,
+					)
+				Expect(err).NotTo(HaveOccurred())
+
+				By("first login should succeed")
+				_, err = vaultClient.LoginAppRole(
+					ctx, "approle",
+					singleUseRoleID, secretID,
+				)
+				Expect(err).NotTo(HaveOccurred())
+
+				By("second login should fail " +
+					"(single-use)")
+				_, err = vaultClient.LoginAppRole(
+					ctx, "approle",
+					singleUseRoleID, secretID,
+				)
+				Expect(err).To(HaveOccurred())
+
+				By("cleaning up single-use role")
+				_ = vaultClient.DeleteAuthRole(
+					ctx, "approle", singleUseRole,
+				)
+			})
+
+		It("TC-AU-APPROLE-05: VaultConnection "+
+			"with AppRole auth", func() {
+			Skip("VaultConnection AppRole auth " +
+				"not yet implemented")
 		})
 	})
 })
