@@ -17,20 +17,21 @@ limitations under the License.
 package e2e
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"os/exec"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/types"
 
+	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/test/utils"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 var _ = Describe("VaultClusterRole Tests", Ordered, Label("module"), func() {
-	// Test configuration
 	const (
 		clusterRoleName       = "tc-cr-cluster-role"
 		clusterRolePolicyName = "tc-cr-cluster-policy"
@@ -38,317 +39,398 @@ var _ = Describe("VaultClusterRole Tests", Ordered, Label("module"), func() {
 		namespacedPolicyName  = "tc-cr-ns-policy"
 	)
 
+	ctx := context.Background()
+
 	BeforeAll(func() {
 		By("creating test service account for cluster role tests")
-		cmd := exec.Command("kubectl", "create", "serviceaccount", clusterRoleSAName, "-n", testNamespace)
-		_, _ = utils.Run(cmd)
+		_ = utils.CreateServiceAccount(
+			ctx, testNamespace, clusterRoleSAName,
+		)
 
 		By("creating VaultClusterPolicy for cluster role binding")
-		clusterPolicyYAML := fmt.Sprintf(`
-apiVersion: vault.platform.io/v1alpha1
-kind: VaultClusterPolicy
-metadata:
-  name: %s
-spec:
-  connectionRef: %s
-  rules:
-    - path: "secret/data/shared/*"
-      capabilities: ["read", "list"]
-`, clusterRolePolicyName, sharedVaultConnectionName)
-
-		cmd = exec.Command("kubectl", "apply", "-f", "-")
-		cmd.Stdin = stringReader(clusterPolicyYAML)
-		_, err := utils.Run(cmd)
+		clusterPolicy := &vaultv1alpha1.VaultClusterPolicy{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: clusterRolePolicyName,
+			},
+			Spec: vaultv1alpha1.VaultClusterPolicySpec{
+				ConnectionRef: sharedVaultConnectionName,
+				Rules: []vaultv1alpha1.PolicyRule{
+					{
+						Path: "secret/data/shared/*",
+						Capabilities: []vaultv1alpha1.Capability{
+							vaultv1alpha1.CapabilityRead,
+							vaultv1alpha1.CapabilityList,
+						},
+					},
+				},
+			},
+		}
+		err := utils.CreateVaultClusterPolicyCR(
+			ctx, clusterPolicy,
+		)
 		Expect(err).NotTo(HaveOccurred())
 
-		By("creating namespaced VaultPolicy for cluster role binding")
-		nsPolicyYAML := fmt.Sprintf(`
-apiVersion: vault.platform.io/v1alpha1
-kind: VaultPolicy
-metadata:
-  name: %s
-  namespace: %s
-spec:
-  connectionRef: %s
-  rules:
-    - path: "secret/data/%s/*"
-      capabilities: ["read", "list"]
-`, namespacedPolicyName, testNamespace, sharedVaultConnectionName, testNamespace)
-
-		cmd = exec.Command("kubectl", "apply", "-f", "-")
-		cmd.Stdin = stringReader(nsPolicyYAML)
-		_, err = utils.Run(cmd)
+		By("creating namespaced VaultPolicy for cluster role")
+		nsPolicy := &vaultv1alpha1.VaultPolicy{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      namespacedPolicyName,
+				Namespace: testNamespace,
+			},
+			Spec: vaultv1alpha1.VaultPolicySpec{
+				ConnectionRef: sharedVaultConnectionName,
+				Rules: []vaultv1alpha1.PolicyRule{
+					{
+						Path: fmt.Sprintf(
+							"secret/data/%s/*", testNamespace,
+						),
+						Capabilities: []vaultv1alpha1.Capability{
+							vaultv1alpha1.CapabilityRead,
+							vaultv1alpha1.CapabilityList,
+						},
+					},
+				},
+			},
+		}
+		err = utils.CreateVaultPolicyCR(ctx, nsPolicy)
 		Expect(err).NotTo(HaveOccurred())
 
 		By("waiting for policies to become Active")
 		Eventually(func(g Gomega) {
-			cmd := exec.Command("kubectl", "get", "vaultclusterpolicy", clusterRolePolicyName,
-				"-o", "jsonpath={.status.phase}")
-			output, err := utils.Run(cmd)
+			status, err := utils.GetVaultClusterPolicyStatus(
+				ctx, clusterRolePolicyName,
+			)
 			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(output).To(Equal("Active"))
+			g.Expect(status).To(Equal("Active"))
 		}, 2*time.Minute, 5*time.Second).Should(Succeed())
 
 		Eventually(func(g Gomega) {
-			cmd := exec.Command("kubectl", "get", "vaultpolicy", namespacedPolicyName,
-				"-n", testNamespace, "-o", "jsonpath={.status.phase}")
-			output, err := utils.Run(cmd)
+			status, err := utils.GetVaultPolicyStatus(
+				ctx, namespacedPolicyName, testNamespace,
+			)
 			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(output).To(Equal("Active"))
+			g.Expect(status).To(Equal("Active"))
 		}, 2*time.Minute, 5*time.Second).Should(Succeed())
 	})
 
 	AfterAll(func() {
 		By("cleaning up VaultClusterRole test resources")
-		cmd := exec.Command("kubectl", "delete", "vaultclusterrole", clusterRoleName,
-			"--ignore-not-found", "--timeout=60s")
-		_, _ = utils.Run(cmd)
-		cmd = exec.Command("kubectl", "delete", "vaultclusterpolicy", clusterRolePolicyName,
-			"--ignore-not-found", "--timeout=60s")
-		_, _ = utils.Run(cmd)
-		cmd = exec.Command("kubectl", "delete", "vaultpolicy", namespacedPolicyName,
-			"-n", testNamespace, "--ignore-not-found", "--timeout=60s")
-		_, _ = utils.Run(cmd)
-		cmd = exec.Command("kubectl", "delete", "serviceaccount", clusterRoleSAName,
-			"-n", testNamespace, "--ignore-not-found")
-		_, _ = utils.Run(cmd)
+		_ = utils.DeleteVaultClusterRoleCR(
+			ctx, clusterRoleName,
+		)
+		_ = utils.DeleteVaultClusterPolicyCR(
+			ctx, clusterRolePolicyName,
+		)
+		_ = utils.DeleteVaultPolicyCR(
+			ctx, namespacedPolicyName, testNamespace,
+		)
+		_ = utils.DeleteServiceAccount(
+			ctx, testNamespace, clusterRoleSAName,
+		)
 	})
 
 	Context("TC-CR: VaultClusterRole Lifecycle", func() {
-		It("TC-CR01: Create VaultClusterRole referencing multiple policies", func() {
+		It("TC-CR01: Create VaultClusterRole referencing "+
+			"multiple policies", func() {
 			By("creating VaultClusterRole resource")
-			roleYAML := fmt.Sprintf(`
-apiVersion: vault.platform.io/v1alpha1
-kind: VaultClusterRole
-metadata:
-  name: %s
-spec:
-  connectionRef: %s
-  authPath: "auth/kubernetes"
-  serviceAccounts:
-    - name: %s
-      namespace: %s
-  policies:
-    - kind: VaultClusterPolicy
-      name: %s
-    - kind: VaultPolicy
-      name: %s
-      namespace: %s
-  tokenTTL: "1h"
-  tokenMaxTTL: "24h"
-`, clusterRoleName, sharedVaultConnectionName, clusterRoleSAName, testNamespace,
-				clusterRolePolicyName, namespacedPolicyName, testNamespace)
-
-			cmd := exec.Command("kubectl", "apply", "-f", "-")
-			cmd.Stdin = stringReader(roleYAML)
-			_, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred(), "Failed to create VaultClusterRole")
+			role := &vaultv1alpha1.VaultClusterRole{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: clusterRoleName,
+				},
+				Spec: vaultv1alpha1.VaultClusterRoleSpec{
+					ConnectionRef: sharedVaultConnectionName,
+					AuthPath:      "auth/kubernetes",
+					ServiceAccounts: []vaultv1alpha1.ServiceAccountRef{
+						{
+							Name:      clusterRoleSAName,
+							Namespace: testNamespace,
+						},
+					},
+					Policies: []vaultv1alpha1.PolicyReference{
+						{
+							Kind: "VaultClusterPolicy",
+							Name: clusterRolePolicyName,
+						},
+						{
+							Kind:      "VaultPolicy",
+							Name:      namespacedPolicyName,
+							Namespace: testNamespace,
+						},
+					},
+					TokenTTL:    "1h",
+					TokenMaxTTL: "24h",
+				},
+			}
+			err := utils.CreateVaultClusterRoleCR(ctx, role)
+			Expect(err).NotTo(HaveOccurred(),
+				"Failed to create VaultClusterRole")
 
 			By("waiting for VaultClusterRole to become Active")
 			Eventually(func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "vaultclusterrole", clusterRoleName,
-					"-o", "jsonpath={.status.phase}")
-				output, err := utils.Run(cmd)
+				status, err := utils.GetVaultClusterRoleStatus(
+					ctx, clusterRoleName,
+				)
 				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal("Active"), "VaultClusterRole not active, got: %s", output)
+				g.Expect(status).To(
+					Equal("Active"),
+					"VaultClusterRole not active, got: %s",
+					status,
+				)
 			}, 2*time.Minute, 5*time.Second).Should(Succeed())
 
-			By("verifying VaultClusterRole has correct vaultRoleName")
-			cmd = exec.Command("kubectl", "get", "vaultclusterrole", clusterRoleName,
-				"-o", "jsonpath={.status.vaultRoleName}")
-			output, err := utils.Run(cmd)
+			By("verifying VaultClusterRole has correct status")
+			r, err := utils.GetVaultClusterRole(
+				ctx, clusterRoleName,
+			)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(Equal(clusterRoleName))
+			Expect(r.Status.VaultRoleName).To(
+				Equal(clusterRoleName),
+			)
 
-			By("verifying VaultClusterRole has resolved policies")
-			cmd = exec.Command("kubectl", "get", "vaultclusterrole", clusterRoleName,
-				"-o", "jsonpath={.status.resolvedPolicies}")
-			output, err = utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(ContainSubstring(clusterRolePolicyName))
+			By("verifying resolved policies")
+			Expect(r.Status.ResolvedPolicies).To(
+				ContainElement(clusterRolePolicyName),
+			)
 		})
 
-		It("TC-CR02: Verify cluster role configuration in Vault", func() {
-			expectedNamespacedPolicyName := fmt.Sprintf("%s-%s", testNamespace, namespacedPolicyName)
+		It("TC-CR02: Verify cluster role configuration "+
+			"in Vault", func() {
+			expectedNSPolicyName := fmt.Sprintf(
+				"%s-%s", testNamespace, namespacedPolicyName,
+			)
 
 			By("reading role configuration from Vault")
-			var roleJSON string
+			vaultClient, err := utils.GetTestVaultClient()
+			Expect(err).NotTo(HaveOccurred())
+
+			var roleData map[string]interface{}
 			Eventually(func(g Gomega) {
-				var err error
-				roleJSON, err = utils.ReadVaultRole("auth/kubernetes", clusterRoleName)
-				g.Expect(err).NotTo(HaveOccurred())
+				var readErr error
+				roleData, readErr = vaultClient.ReadAuthRole(
+					ctx, "kubernetes", clusterRoleName,
+				)
+				g.Expect(readErr).NotTo(HaveOccurred())
 			}, 30*time.Second, 2*time.Second).Should(Succeed())
 
-			By("parsing role JSON and verifying configuration")
-			var roleResponse struct {
-				Data struct {
-					BoundServiceAccountNames      []string `json:"bound_service_account_names"`
-					BoundServiceAccountNamespaces []string `json:"bound_service_account_namespaces"`
-					TokenPolicies                 []string `json:"token_policies"`
-					TokenTTL                      int      `json:"token_ttl"`
-					TokenMaxTTL                   int      `json:"token_max_ttl"`
-				} `json:"data"`
+			By("parsing and verifying role configuration")
+			dataJSON, err := json.Marshal(roleData)
+			Expect(err).NotTo(HaveOccurred())
+
+			var roleConfig struct {
+				BoundSANames []string `json:"bound_service_account_names"`
+				BoundSANS    []string `json:"bound_service_account_namespaces"`
+				Policies     []string `json:"token_policies"`
+				TokenTTL     int      `json:"token_ttl"`
+				TokenMaxTTL  int      `json:"token_max_ttl"`
 			}
-			err := json.Unmarshal([]byte(roleJSON), &roleResponse)
-			Expect(err).NotTo(HaveOccurred(), "Failed to parse role JSON: %s", roleJSON)
+			err = json.Unmarshal(dataJSON, &roleConfig)
+			Expect(err).NotTo(HaveOccurred(),
+				"Failed to parse role data: %s",
+				string(dataJSON))
 
 			By("verifying bound service accounts")
-			Expect(roleResponse.Data.BoundServiceAccountNames).To(ContainElement(clusterRoleSAName),
-				"Role should have test SA as bound service account")
+			Expect(roleConfig.BoundSANames).To(
+				ContainElement(clusterRoleSAName),
+				"Role should have test SA bound",
+			)
 
 			By("verifying bound namespaces")
-			Expect(roleResponse.Data.BoundServiceAccountNamespaces).To(ContainElement(testNamespace),
-				"Role should have test namespace as bound namespace")
+			Expect(roleConfig.BoundSANS).To(
+				ContainElement(testNamespace),
+				"Role should have test namespace bound",
+			)
 
 			By("verifying policies are attached")
-			Expect(roleResponse.Data.TokenPolicies).To(ContainElement(clusterRolePolicyName),
-				"Role should have cluster policy attached")
-			Expect(roleResponse.Data.TokenPolicies).To(ContainElement(expectedNamespacedPolicyName),
-				"Role should have namespaced policy attached")
+			Expect(roleConfig.Policies).To(
+				ContainElement(clusterRolePolicyName),
+				"Should have cluster policy attached",
+			)
+			Expect(roleConfig.Policies).To(
+				ContainElement(expectedNSPolicyName),
+				"Should have namespaced policy attached",
+			)
 
 			By("verifying token TTL configuration")
-			// tokenTTL is "1h" = 3600 seconds
-			Expect(roleResponse.Data.TokenTTL).To(Equal(3600),
-				"Role should have token_ttl of 1h (3600 seconds)")
-			// tokenMaxTTL is "24h" = 86400 seconds
-			Expect(roleResponse.Data.TokenMaxTTL).To(Equal(86400),
-				"Role should have token_max_ttl of 24h (86400 seconds)")
+			// tokenTTL "1h" = 3600 seconds
+			Expect(roleConfig.TokenTTL).To(Equal(3600),
+				"token_ttl should be 3600 seconds")
+			// tokenMaxTTL "24h" = 86400 seconds
+			Expect(roleConfig.TokenMaxTTL).To(Equal(86400),
+				"token_max_ttl should be 86400 seconds")
 		})
 
-		It("TC-CR03-DEL: Remove cluster role from Vault on deletion", func() {
+		It("TC-CR03-DEL: Remove cluster role from Vault "+
+			"on deletion", func() {
 			tempClusterRoleName := "tc-cr03-temp"
 
 			By("creating temporary VaultClusterRole")
-			roleYAML := fmt.Sprintf(`
-apiVersion: vault.platform.io/v1alpha1
-kind: VaultClusterRole
-metadata:
-  name: %s
-spec:
-  connectionRef: %s
-  authPath: "auth/kubernetes"
-  serviceAccounts:
-    - name: %s
-      namespace: %s
-  policies:
-    - kind: VaultClusterPolicy
-      name: %s
-  tokenTTL: "15m"
-`, tempClusterRoleName, sharedVaultConnectionName, clusterRoleSAName, testNamespace, clusterRolePolicyName)
-
-			cmd := exec.Command("kubectl", "apply", "-f", "-")
-			cmd.Stdin = stringReader(roleYAML)
-			_, err := utils.Run(cmd)
+			role := &vaultv1alpha1.VaultClusterRole{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: tempClusterRoleName,
+				},
+				Spec: vaultv1alpha1.VaultClusterRoleSpec{
+					ConnectionRef: sharedVaultConnectionName,
+					AuthPath:      "auth/kubernetes",
+					ServiceAccounts: []vaultv1alpha1.ServiceAccountRef{
+						{
+							Name:      clusterRoleSAName,
+							Namespace: testNamespace,
+						},
+					},
+					Policies: []vaultv1alpha1.PolicyReference{
+						{
+							Kind: "VaultClusterPolicy",
+							Name: clusterRolePolicyName,
+						},
+					},
+					TokenTTL: "15m",
+				},
+			}
+			err := utils.CreateVaultClusterRoleCR(ctx, role)
 			Expect(err).NotTo(HaveOccurred())
 
 			By("waiting for VaultClusterRole to become Active")
 			Eventually(func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "vaultclusterrole", tempClusterRoleName,
-					"-o", "jsonpath={.status.phase}")
-				output, err := utils.Run(cmd)
+				status, err := utils.GetVaultClusterRoleStatus(
+					ctx, tempClusterRoleName,
+				)
 				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal("Active"))
+				g.Expect(status).To(Equal("Active"))
 			}, 2*time.Minute, 5*time.Second).Should(Succeed())
 
 			By("verifying role exists in Vault")
+			vaultClient, err := utils.GetTestVaultClient()
+			Expect(err).NotTo(HaveOccurred())
+
 			Eventually(func(g Gomega) {
-				exists, err := utils.VaultRoleExists("auth/kubernetes", tempClusterRoleName)
+				exists, err := vaultClient.RoleExists(
+					ctx, "kubernetes", tempClusterRoleName,
+				)
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(exists).To(BeTrue())
 			}, 30*time.Second, 2*time.Second).Should(Succeed())
 
 			By("deleting the VaultClusterRole")
-			cmd = exec.Command("kubectl", "delete", "vaultclusterrole", tempClusterRoleName)
-			_, err = utils.Run(cmd)
+			err = utils.DeleteVaultClusterRoleCR(
+				ctx, tempClusterRoleName,
+			)
 			Expect(err).NotTo(HaveOccurred())
 
 			By("verifying role is removed from Vault")
 			Eventually(func(g Gomega) {
-				exists, err := utils.VaultRoleExists("auth/kubernetes", tempClusterRoleName)
+				exists, err := vaultClient.RoleExists(
+					ctx, "kubernetes", tempClusterRoleName,
+				)
 				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(exists).To(BeFalse(), "Role should be removed from Vault after deletion")
+				g.Expect(exists).To(BeFalse(),
+					"Role should be removed from Vault")
 			}, 30*time.Second, 2*time.Second).Should(Succeed())
 		})
 	})
 
 	Context("TC-CR: VaultClusterRole Error Handling", func() {
-		// verifyClusterRoleError is a helper to test VaultClusterRole error scenarios
-		verifyClusterRoleError := func(roleName, roleYAML string, expectedMsgPatterns []string) {
-			cmd := exec.Command("kubectl", "apply", "-f", "-")
-			cmd.Stdin = stringReader(roleYAML)
-			_, err := utils.Run(cmd)
+		// verifyClusterRoleError creates a VaultClusterRole and
+		// verifies it enters an error state with expected message.
+		verifyClusterRoleError := func(
+			role *vaultv1alpha1.VaultClusterRole,
+			expectedMsgPatterns []string,
+		) {
+			err := utils.CreateVaultClusterRoleCR(ctx, role)
 			Expect(err).NotTo(HaveOccurred())
 
-			By("verifying VaultClusterRole enters Error or Pending phase")
+			By("verifying it enters Error or Pending phase")
 			Eventually(func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "vaultclusterrole", roleName,
-					"-o", "jsonpath={.status.phase}")
-				output, err := utils.Run(cmd)
+				status, err := utils.GetVaultClusterRoleStatus(
+					ctx, role.Name,
+				)
 				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Or(Equal("Error"), Equal("Pending")))
+				g.Expect(status).To(
+					Or(Equal("Error"), Equal("Pending")),
+				)
 			}, 30*time.Second, 2*time.Second).Should(Succeed())
 
 			By("verifying status message indicates the issue")
-			cmd = exec.Command("kubectl", "get", "vaultclusterrole", roleName,
-				"-o", "jsonpath={.status.message}")
-			output, err := utils.Run(cmd)
+			r, err := utils.GetVaultClusterRole(
+				ctx, role.Name,
+			)
 			Expect(err).NotTo(HaveOccurred())
-			if output != "" {
-				matchers := make([]types.GomegaMatcher, len(expectedMsgPatterns))
-				for i, pattern := range expectedMsgPatterns {
-					matchers[i] = ContainSubstring(pattern)
+			if r.Status.Message != "" {
+				matchers := make(
+					[]types.GomegaMatcher,
+					len(expectedMsgPatterns),
+				)
+				for i, p := range expectedMsgPatterns {
+					matchers[i] = ContainSubstring(p)
 				}
-				Expect(output).To(Or(matchers...))
+				Expect(r.Status.Message).To(Or(matchers...))
 			}
 
 			By("cleaning up cluster role")
-			cmd = exec.Command("kubectl", "delete", "vaultclusterrole", roleName,
-				"--ignore-not-found", "--timeout=30s")
-			_, _ = utils.Run(cmd)
+			_ = utils.DeleteVaultClusterRoleCR(
+				ctx, role.Name,
+			)
 		}
 
-		It("TC-CR04: Handle invalid connection reference", func() {
-			roleName := "tc-cr04-invalid-conn"
-			By("creating VaultClusterRole with non-existent connection")
-			roleYAML := fmt.Sprintf(`
-apiVersion: vault.platform.io/v1alpha1
-kind: VaultClusterRole
-metadata:
-  name: %s
-spec:
-  connectionRef: non-existent-connection
-  authPath: "auth/kubernetes"
-  serviceAccounts:
-    - name: %s
-      namespace: %s
-  policies:
-    - kind: VaultClusterPolicy
-      name: %s
-  tokenTTL: "1h"
-`, roleName, clusterRoleSAName, testNamespace, clusterRolePolicyName)
-			verifyClusterRoleError(roleName, roleYAML, []string{"not found", "connection", "Not Found"})
+		It("TC-CR04: Handle invalid connection "+
+			"reference", func() {
+			By("creating VaultClusterRole with bad connection")
+			verifyClusterRoleError(
+				&vaultv1alpha1.VaultClusterRole{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "tc-cr04-invalid-conn",
+					},
+					Spec: vaultv1alpha1.VaultClusterRoleSpec{
+						ConnectionRef: "non-existent-connection",
+						AuthPath:      "auth/kubernetes",
+						ServiceAccounts: []vaultv1alpha1.ServiceAccountRef{
+							{
+								Name:      clusterRoleSAName,
+								Namespace: testNamespace,
+							},
+						},
+						Policies: []vaultv1alpha1.PolicyReference{
+							{
+								Kind: "VaultClusterPolicy",
+								Name: clusterRolePolicyName,
+							},
+						},
+						TokenTTL: "1h",
+					},
+				},
+				[]string{
+					"not found", "connection", "Not Found",
+				},
+			)
 		})
 
 		It("TC-CR05: Handle missing policy reference", func() {
-			roleName := "tc-cr05-missing-policy"
-			By("creating VaultClusterRole referencing non-existent policy")
-			roleYAML := fmt.Sprintf(`
-apiVersion: vault.platform.io/v1alpha1
-kind: VaultClusterRole
-metadata:
-  name: %s
-spec:
-  connectionRef: %s
-  authPath: "auth/kubernetes"
-  serviceAccounts:
-    - name: %s
-      namespace: %s
-  policies:
-    - kind: VaultClusterPolicy
-      name: non-existent-cluster-policy
-  tokenTTL: "1h"
-`, roleName, sharedVaultConnectionName, clusterRoleSAName, testNamespace)
-			verifyClusterRoleError(roleName, roleYAML, []string{"not found", "policy", "Not Found"})
+			By("creating VaultClusterRole with missing policy")
+			verifyClusterRoleError(
+				&vaultv1alpha1.VaultClusterRole{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "tc-cr05-missing-policy",
+					},
+					Spec: vaultv1alpha1.VaultClusterRoleSpec{
+						ConnectionRef: sharedVaultConnectionName,
+						AuthPath:      "auth/kubernetes",
+						ServiceAccounts: []vaultv1alpha1.ServiceAccountRef{
+							{
+								Name:      clusterRoleSAName,
+								Namespace: testNamespace,
+							},
+						},
+						Policies: []vaultv1alpha1.PolicyReference{
+							{
+								Kind: "VaultClusterPolicy",
+								Name: "non-existent-cluster-policy",
+							},
+						},
+						TokenTTL: "1h",
+					},
+				},
+				[]string{
+					"not found", "policy", "Not Found",
+				},
+			)
 		})
 	})
 })
