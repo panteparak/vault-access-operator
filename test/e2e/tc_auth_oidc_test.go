@@ -17,6 +17,7 @@ limitations under the License.
 package e2e
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -29,72 +30,84 @@ import (
 	"github.com/panteparak/vault-access-operator/test/utils"
 )
 
-// oidcAuthHelper provides reusable functions for OIDC (JWT at oidc path) auth tests.
-// Uses Dex as the OIDC provider instead of Kubernetes built-in OIDC issuer.
-type oidcAuthHelper struct {
-	issuer string
-}
-
-// checkOIDCAvailability verifies Dex OIDC discovery is available.
-// Returns the issuer URL or skips the test if Dex is not reachable.
-func (h *oidcAuthHelper) checkOIDCAvailability() string {
+// checkDexOIDCAvailability verifies that Dex OIDC discovery is reachable.
+// Skips the current test if Dex is not available.
+func checkDexOIDCAvailability() {
 	By("checking Dex OIDC provider availability")
-	resp, err := http.Get(dexDiscoveryURL)
+	resp, err := http.Get(dexDiscoveryURL) //nolint:gosec
 	if err != nil {
-		Skip(fmt.Sprintf("Dex OIDC provider not available at %s: %v", dexDiscoveryURL, err))
+		Skip(fmt.Sprintf(
+			"Dex OIDC provider not available at %s: %v",
+			dexDiscoveryURL, err,
+		))
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		Skip(fmt.Sprintf("Failed to read Dex discovery response: %v", err))
+		Skip(fmt.Sprintf(
+			"Failed to read Dex discovery response: %v",
+			err,
+		))
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		Skip(fmt.Sprintf("Dex discovery returned status %d", resp.StatusCode))
+		Skip(fmt.Sprintf(
+			"Dex discovery returned status %d",
+			resp.StatusCode,
+		))
 	}
 
 	var discoveryResp struct {
 		Issuer string `json:"issuer"`
 	}
 	if err := json.Unmarshal(body, &discoveryResp); err != nil {
-		Skip(fmt.Sprintf("Failed to parse Dex discovery: %v", err))
+		Skip(fmt.Sprintf(
+			"Failed to parse Dex discovery: %v", err,
+		))
 	}
 
 	if discoveryResp.Issuer == "" {
 		Skip("Dex issuer is empty in discovery response")
 	}
-
-	h.issuer = discoveryResp.Issuer
-	return discoveryResp.Issuer
 }
 
-// configureOIDCAuth configures Vault's JWT auth at the "oidc" mount path with Dex.
-func (h *oidcAuthHelper) configureOIDCAuth(_ string) {
-	configureVaultJWTAuthForTest("auth/oidc", "OIDC", h.issuer)
-}
+var _ = Describe("OIDC Authentication Tests",
+	Label("auth"), func() {
+		// TC-AU-OIDC: OIDC Authentication (JWT at oidc path)
+		// Uses Dex as a standalone OIDC provider. Vault validates
+		// Dex-issued JWTs via standard OIDC discovery.
+		Context("TC-AU-OIDC: OIDC Auth with "+
+			"Dex OIDC provider", Ordered, func() {
+			const (
+				oidcRoleName   = "tc-au-oidc-role"
+				oidcPolicyName = "tc-au-oidc-policy"
+			)
 
-var _ = Describe("OIDC Authentication Tests", Label("auth"), func() {
-	// TC-AU-OIDC: OIDC Authentication (JWT at oidc path)
-	// Uses Dex as a standalone OIDC provider. Vault validates Dex-issued JWTs
-	// via standard OIDC discovery (/.well-known/openid-configuration).
-	Context("TC-AU-OIDC: OIDC Auth with Dex OIDC provider", Ordered, func() {
-		const (
-			oidcRoleName   = "tc-au-oidc-role"
-			oidcPolicyName = "tc-au-oidc-policy"
-		)
+			ctx := context.Background()
 
-		var helper oidcAuthHelper
+			BeforeAll(func() {
+				vaultClient, err :=
+					utils.GetTestVaultClient()
+				Expect(err).NotTo(HaveOccurred())
 
-		BeforeAll(func() {
-			By("enabling OIDC auth method (JWT engine at oidc path)")
-			_, err := utils.RunVaultCommand("auth", "enable", "-path=oidc", "jwt")
-			if err != nil && !strings.Contains(err.Error(), "already in use") {
-				Fail(fmt.Sprintf("Failed to enable OIDC auth: %v", err))
-			}
+				By("enabling OIDC auth method " +
+					"(JWT engine at oidc path)")
+				err = vaultClient.EnableAuth(
+					ctx, "oidc", "jwt",
+				)
+				if err != nil &&
+					!strings.Contains(
+						err.Error(), "already in use",
+					) {
+					Fail(fmt.Sprintf(
+						"Failed to enable OIDC auth: %v",
+						err,
+					))
+				}
 
-			By("creating test policy for OIDC tests")
-			policyHCL := `
+				By("creating test policy for OIDC tests")
+				policyHCL := `
 path "secret/data/oidc-test/*" {
   capabilities = ["create", "read", "update", "delete", "list"]
 }
@@ -102,157 +115,248 @@ path "sys/health" {
   capabilities = ["read"]
 }
 `
-			err = utils.CreateUnmanagedVaultPolicy(oidcPolicyName, policyHCL)
-			Expect(err).NotTo(HaveOccurred())
+				err = vaultClient.WritePolicy(
+					ctx, oidcPolicyName, policyHCL,
+				)
+				Expect(err).NotTo(HaveOccurred())
 
-			// Check Dex availability and configure auth
-			issuer := helper.checkOIDCAvailability()
-			helper.configureOIDCAuth(issuer)
-		})
+				// Check Dex availability and configure
+				checkDexOIDCAvailability()
+				err = configureOIDCAuth()
+				Expect(err).NotTo(HaveOccurred())
+			})
 
-		AfterAll(func() {
-			By("cleaning up TC-AU-OIDC test resources")
-			_, _ = utils.RunVaultCommand("delete", fmt.Sprintf("auth/oidc/role/%s", oidcRoleName))
-			_, _ = utils.RunVaultCommand("policy", "delete", oidcPolicyName)
-		})
+			AfterAll(func() {
+				By("cleaning up TC-AU-OIDC resources")
+				vaultClient, err :=
+					utils.GetTestVaultClient()
+				if err != nil {
+					return
+				}
+				_ = vaultClient.DeleteAuthRole(
+					ctx, "oidc", oidcRoleName,
+				)
+				_ = vaultClient.DeletePolicy(
+					ctx, oidcPolicyName,
+				)
+			})
 
-		It("TC-AU-OIDC-01: should authenticate using Dex-issued OIDC JWT", func() {
-			By("creating OIDC role bound to Dex user email")
-			_, err := utils.RunVaultCommand("write", fmt.Sprintf("auth/oidc/role/%s", oidcRoleName),
-				"role_type=jwt",
-				fmt.Sprintf("bound_audiences=%s", dexClientID),
-				"user_claim=email",
-				fmt.Sprintf("bound_claims=email=%s", dexTestEmail),
-				fmt.Sprintf("policies=%s,default", oidcPolicyName),
-				"ttl=1h",
-			)
-			Expect(err).NotTo(HaveOccurred())
+			It("TC-AU-OIDC-01: should authenticate "+
+				"using Dex-issued OIDC JWT", func() {
+				vaultClient, err :=
+					utils.GetTestVaultClient()
+				Expect(err).NotTo(HaveOccurred())
 
-			By("getting Dex id_token via password grant")
-			idToken, err := getDexToken(dexClientID, dexClientSecret)
-			Expect(err).NotTo(HaveOccurred())
+				By("creating OIDC role bound to " +
+					"Dex user email")
+				err = vaultClient.WriteAuthRole(
+					ctx, "oidc", oidcRoleName,
+					map[string]interface{}{
+						"role_type":       "jwt",
+						"bound_audiences": dexClientID,
+						"user_claim":      "email",
+						"bound_claims": fmt.Sprintf(
+							"email=%s", dexTestEmail,
+						),
+						"policies": fmt.Sprintf(
+							"%s,default",
+							oidcPolicyName,
+						),
+						"ttl": "1h",
+					},
+				)
+				Expect(err).NotTo(HaveOccurred())
 
-			By("authenticating via OIDC (JWT at oidc path) with Dex token")
-			loginOutput, err := utils.VaultLoginWithJWT("auth/oidc", oidcRoleName, idToken)
-			Expect(err).NotTo(HaveOccurred())
+				By("getting Dex id_token via " +
+					"password grant")
+				idToken, err := getDexToken(
+					dexClientID, dexClientSecret,
+				)
+				Expect(err).NotTo(HaveOccurred())
 
-			var loginResp struct {
-				Auth struct {
-					ClientToken string   `json:"client_token"`
-					Policies    []string `json:"policies"`
-				} `json:"auth"`
-			}
-			err = json.Unmarshal([]byte(loginOutput), &loginResp)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(loginResp.Auth.ClientToken).NotTo(BeEmpty())
-			Expect(loginResp.Auth.Policies).To(ContainElement(oidcPolicyName))
-		})
+				By("authenticating via OIDC (JWT at " +
+					"oidc path) with Dex token")
+				secret, err := vaultClient.Write(
+					ctx, "auth/oidc/login",
+					map[string]interface{}{
+						"role": oidcRoleName,
+						"jwt":  idToken,
+					},
+				)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(secret).NotTo(BeNil())
+				Expect(secret.Auth).NotTo(BeNil())
+				Expect(secret.Auth.ClientToken).NotTo(
+					BeEmpty(),
+				)
+				Expect(secret.Auth.Policies).To(
+					ContainElement(oidcPolicyName),
+				)
+			})
 
-		It("TC-AU-OIDC-02: should verify OIDC issuer discovery from Dex", func() {
-			By("fetching OIDC discovery document from Dex")
-			resp, err := http.Get(dexDiscoveryURL)
-			Expect(err).NotTo(HaveOccurred())
-			defer resp.Body.Close()
-			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			It("TC-AU-OIDC-02: should verify OIDC "+
+				"issuer discovery from Dex", func() {
+				vaultClient, err :=
+					utils.GetTestVaultClient()
+				Expect(err).NotTo(HaveOccurred())
 
-			body, err := io.ReadAll(resp.Body)
-			Expect(err).NotTo(HaveOccurred())
+				By("fetching OIDC discovery " +
+					"document from Dex")
+				resp, err := http.Get( //nolint:gosec
+					dexDiscoveryURL,
+				)
+				Expect(err).NotTo(HaveOccurred())
+				defer resp.Body.Close()
+				Expect(resp.StatusCode).To(
+					Equal(http.StatusOK),
+				)
 
-			var discoveryConfig struct {
-				Issuer               string   `json:"issuer"`
-				JWKSURI              string   `json:"jwks_uri"`
-				SigningAlgsSupported []string `json:"id_token_signing_alg_values_supported"`
-			}
-			err = json.Unmarshal(body, &discoveryConfig)
-			Expect(err).NotTo(HaveOccurred())
+				body, err := io.ReadAll(resp.Body)
+				Expect(err).NotTo(HaveOccurred())
 
-			By("verifying Dex OIDC discovery fields are present")
-			Expect(discoveryConfig.Issuer).To(Equal(dexIssuer), "issuer should match Dex config")
-			Expect(discoveryConfig.JWKSURI).NotTo(BeEmpty(), "jwks_uri should be present")
+				var discoveryConfig struct {
+					Issuer      string   `json:"issuer"`
+					JWKSURI     string   `json:"jwks_uri"`
+					SigningAlgs []string `json:"id_token_signing_alg_values_supported"`
+				}
+				err = json.Unmarshal(
+					body, &discoveryConfig,
+				)
+				Expect(err).NotTo(HaveOccurred())
 
-			By("verifying Vault's OIDC auth config references Dex issuer")
-			vaultConfig, err := utils.RunVaultCommand("read", "-format=json", "auth/oidc/config")
-			Expect(err).NotTo(HaveOccurred())
-			Expect(vaultConfig).To(ContainSubstring(dexIssuer))
-		})
+				By("verifying Dex OIDC discovery " +
+					"fields are present")
+				Expect(discoveryConfig.Issuer).To(
+					Equal(dexIssuer),
+					"issuer should match Dex config",
+				)
+				Expect(discoveryConfig.JWKSURI).NotTo(
+					BeEmpty(),
+					"jwks_uri should be present",
+				)
 
-		It("TC-AU-OIDC-03: should support custom audience via Dex client", func() {
-			customAudRole := "tc-au-oidc-custom-aud"
+				By("verifying Vault's OIDC auth " +
+					"config references Dex issuer")
+				vaultConfig, err := vaultClient.Read(
+					ctx, "auth/oidc/config",
+				)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(vaultConfig).NotTo(BeNil())
+				Expect(vaultConfig.Data).NotTo(BeNil())
 
-			By("creating OIDC role bound to custom-audience Dex client")
-			_, err := utils.RunVaultCommand("write", fmt.Sprintf("auth/oidc/role/%s", customAudRole),
-				"role_type=jwt",
-				fmt.Sprintf("bound_audiences=%s", dexCustomClientID),
-				"user_claim=email",
-				fmt.Sprintf("bound_claims=email=%s", dexTestEmail),
-				"policies=default",
-			)
-			Expect(err).NotTo(HaveOccurred())
+				// The oidc_discovery_url field should
+				// contain the Dex issuer URL
+				oidcDiscURL, ok :=
+					vaultConfig.Data["oidc_discovery_url"]
+				Expect(ok).To(BeTrue(),
+					"oidc_discovery_url should "+
+						"be in config",
+				)
+				Expect(fmt.Sprint(oidcDiscURL)).To(
+					Equal(dexIssuer),
+				)
+			})
 
-			By("getting Dex id_token with custom-audience client")
-			customToken, err := getDexToken(dexCustomClientID, dexCustomClientSecret)
-			Expect(err).NotTo(HaveOccurred())
+			It("TC-AU-OIDC-03: should support custom "+
+				"audience via Dex client", func() {
+				customAudRole := "tc-au-oidc-custom-aud"
 
-			By("authenticating with custom-audience token")
-			loginOutput, err := utils.VaultLoginWithJWT("auth/oidc", customAudRole, customToken)
-			Expect(err).NotTo(HaveOccurred())
+				vaultClient, err :=
+					utils.GetTestVaultClient()
+				Expect(err).NotTo(HaveOccurred())
 
-			var loginResp struct {
-				Auth struct {
-					ClientToken string `json:"client_token"`
-				} `json:"auth"`
-			}
-			err = json.Unmarshal([]byte(loginOutput), &loginResp)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(loginResp.Auth.ClientToken).NotTo(BeEmpty())
+				By("creating OIDC role bound to " +
+					"custom-audience Dex client")
+				err = vaultClient.WriteAuthRole(
+					ctx, "oidc", customAudRole,
+					map[string]interface{}{
+						"role_type":       "jwt",
+						"bound_audiences": dexCustomClientID,
+						"user_claim":      "email",
+						"bound_claims": fmt.Sprintf(
+							"email=%s", dexTestEmail,
+						),
+						"policies": "default",
+					},
+				)
+				Expect(err).NotTo(HaveOccurred())
 
-			By("cleaning up custom audience role")
-			_, _ = utils.RunVaultCommand("delete", fmt.Sprintf("auth/oidc/role/%s", customAudRole))
-		})
+				By("getting Dex id_token with " +
+					"custom-audience client")
+				customToken, err := getDexToken(
+					dexCustomClientID,
+					dexCustomClientSecret,
+				)
+				Expect(err).NotTo(HaveOccurred())
 
-		It("TC-AU-OIDC-04: should reject token with wrong audience", func() {
-			wrongAudRole := "tc-au-oidc-wrong-aud"
+				By("authenticating with " +
+					"custom-audience token")
+				secret, err := vaultClient.Write(
+					ctx, "auth/oidc/login",
+					map[string]interface{}{
+						"role": customAudRole,
+						"jwt":  customToken,
+					},
+				)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(secret).NotTo(BeNil())
+				Expect(secret.Auth).NotTo(BeNil())
+				Expect(secret.Auth.ClientToken).NotTo(
+					BeEmpty(),
+				)
 
-			By("creating OIDC role bound to a non-existent audience")
-			_, err := utils.RunVaultCommand("write", fmt.Sprintf("auth/oidc/role/%s", wrongAudRole),
-				"role_type=jwt",
-				"bound_audiences=https://wrong-audience.example.com",
-				"user_claim=email",
-				"policies=default",
-			)
-			Expect(err).NotTo(HaveOccurred())
+				By("cleaning up custom audience role")
+				_ = vaultClient.DeleteAuthRole(
+					ctx, "oidc", customAudRole,
+				)
+			})
 
-			By("getting Dex token (aud=vault, mismatches role)")
-			dexToken, err := getDexToken(dexClientID, dexClientSecret)
-			Expect(err).NotTo(HaveOccurred())
+			It("TC-AU-OIDC-04: should reject token "+
+				"with wrong audience", func() {
+				wrongAudRole := "tc-au-oidc-wrong-aud"
 
-			By("attempting login - should fail due to audience mismatch")
-			_, err = utils.VaultLoginWithJWT("auth/oidc", wrongAudRole, dexToken)
-			Expect(err).To(HaveOccurred())
+				vaultClient, err :=
+					utils.GetTestVaultClient()
+				Expect(err).NotTo(HaveOccurred())
 
-			By("cleaning up wrong audience role")
-			_, _ = utils.RunVaultCommand("delete", fmt.Sprintf("auth/oidc/role/%s", wrongAudRole))
-		})
+				By("creating OIDC role bound to " +
+					"a non-existent audience")
+				err = vaultClient.WriteAuthRole(
+					ctx, "oidc", wrongAudRole,
+					map[string]interface{}{
+						"role_type":       "jwt",
+						"bound_audiences": "https://wrong-audience.example.com",
+						"user_claim":      "email",
+						"policies":        "default",
+					},
+				)
+				Expect(err).NotTo(HaveOccurred())
 
-		It("TC-AU-OIDC-05: VaultConnection with OIDC auth", func() {
-			Skip("VaultConnection OIDC auth not yet fully implemented - this test documents the expected API")
+				By("getting Dex token " +
+					"(aud=vault, mismatches role)")
+				dexToken, err := getDexToken(
+					dexClientID, dexClientSecret,
+				)
+				Expect(err).NotTo(HaveOccurred())
 
-			// When OIDC auth is added to the VaultConnection spec, this test should be enabled.
-			//
-			// Expected VaultConnection YAML:
-			// apiVersion: vault.platform.io/v1alpha1
-			// kind: VaultConnection
-			// metadata:
-			//   name: oidc-connection
-			// spec:
-			//   address: http://vault.vault.svc.cluster.local:8200
-			//   auth:
-			//     oidc:
-			//       role: my-oidc-role
-			//       authPath: oidc
-			//       serviceAccountRef:
-			//         name: my-service-account
-			//         namespace: my-namespace
+				By("attempting login - should fail " +
+					"due to audience mismatch")
+				_, err = vaultClient.LoginJWT(
+					ctx, "oidc",
+					wrongAudRole, dexToken,
+				)
+				Expect(err).To(HaveOccurred())
+
+				By("cleaning up wrong audience role")
+				_ = vaultClient.DeleteAuthRole(
+					ctx, "oidc", wrongAudRole,
+				)
+			})
+
+			It("TC-AU-OIDC-05: VaultConnection "+
+				"with OIDC auth", func() {
+				Skip("VaultConnection OIDC auth " +
+					"not yet fully implemented")
+			})
 		})
 	})
-})

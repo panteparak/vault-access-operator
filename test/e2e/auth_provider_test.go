@@ -563,57 +563,6 @@ func (p *OIDCAuthProvider) AuthPath() string {
 	return p.authPath
 }
 
-// configureVaultJWTAuthForTest configures Vault's JWT auth engine at the given mount path.
-// For "auth/oidc" path, uses Dex OIDC discovery.
-// For other paths (e.g., "auth/jwt"), uses JWKS directly first, falls back to OIDC discovery.
-// Skips the test if configuration fails.
-func configureVaultJWTAuthForTest(authPath, authLabel, issuer string) {
-	// OIDC path uses Dex as the OIDC provider
-	if authPath == "auth/oidc" {
-		ginkgo.By("configuring OIDC auth with Dex OIDC discovery")
-		_, err := utils.RunVaultCommand("write", "auth/oidc/config",
-			fmt.Sprintf("oidc_discovery_url=%s", dexIssuer),
-			fmt.Sprintf("bound_issuer=%s", dexIssuer),
-		)
-		if err != nil {
-			ginkgo.Skip(fmt.Sprintf("Failed to configure OIDC auth with Dex: %v", err))
-		}
-		return
-	}
-
-	// JWT path: use K8s JWKS first, OIDC discovery fallback
-	ginkgo.By(fmt.Sprintf("fetching JWKS from Kubernetes API for %s auth", authLabel))
-	cmd := exec.Command("kubectl", "get", "--raw", "/openid/v1/jwks")
-	jwksOutput, err := utils.Run(cmd)
-	if err == nil && jwksOutput != "" {
-		ginkgo.By(fmt.Sprintf("configuring %s auth with JWKS (bypassing OIDC discovery)", authLabel))
-		_, err = utils.RunVaultCommand("write", fmt.Sprintf("%s/config", authPath),
-			fmt.Sprintf("jwt_validation_pubkeys=%s", jwksOutput),
-			fmt.Sprintf("bound_issuer=%s", issuer),
-		)
-		if err == nil {
-			return
-		}
-		ginkgo.By(fmt.Sprintf("JWKS config failed for %s (%v), trying OIDC discovery", authLabel, err))
-	}
-
-	ginkgo.By(fmt.Sprintf("configuring %s auth with OIDC discovery", authLabel))
-	_, err = utils.RunVaultCommand("write", fmt.Sprintf("%s/config", authPath),
-		fmt.Sprintf("oidc_discovery_url=%s", issuer),
-		"bound_issuer="+issuer,
-	)
-	if err != nil {
-		if strings.Contains(err.Error(), "error checking oidc discovery URL") ||
-			strings.Contains(err.Error(), "fetching keys") ||
-			strings.Contains(err.Error(), "connection refused") ||
-			strings.Contains(err.Error(), "no such host") {
-			ginkgo.Skip(fmt.Sprintf("Vault cannot reach OIDC discovery URL (%s) and JWKS config failed - "+
-				"skipping %s auth tests.", issuer, authLabel))
-		}
-		ginkgo.Fail(fmt.Sprintf("Unexpected error configuring %s auth: %v", authLabel, err))
-	}
-}
-
 // GetAvailableAuthProviders returns all auth providers that are available
 // in the current environment. Providers that can't be set up are skipped.
 func GetAvailableAuthProviders() []AuthProvider {
