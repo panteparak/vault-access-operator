@@ -699,6 +699,50 @@ func CreateServiceAccountTokenClientGo(
 	return result.Status.Token, nil
 }
 
+// CreateServiceAccountTokenWithOpts creates a token for a
+// ServiceAccount with custom audiences and/or expiration.
+// This replaces `kubectl create token <sa> --audience <aud>
+// --duration <dur>`.
+func CreateServiceAccountTokenWithOpts(
+	ctx context.Context,
+	namespace, saName string,
+	audiences []string,
+	expirationSeconds *int64,
+) (string, error) {
+	cfg := GetK8sRestConfig()
+	if cfg == nil {
+		return "", fmt.Errorf(
+			"k8s rest config not initialized; " +
+				"call GetK8sClient() first",
+		)
+	}
+
+	clientset, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		return "", fmt.Errorf(
+			"failed to create kubernetes clientset: %w", err,
+		)
+	}
+
+	tokenReq := &authenticationv1.TokenRequest{
+		Spec: authenticationv1.TokenRequestSpec{
+			Audiences:         audiences,
+			ExpirationSeconds: expirationSeconds,
+		},
+	}
+	result, err := clientset.CoreV1().
+		ServiceAccounts(namespace).
+		CreateToken(ctx, saName, tokenReq, metav1.CreateOptions{})
+	if err != nil {
+		return "", fmt.Errorf(
+			"failed to create token for SA %s/%s: %w",
+			namespace, saName, err,
+		)
+	}
+
+	return result.Status.Token, nil
+}
+
 // =============================================================================
 // Namespace helpers
 // =============================================================================

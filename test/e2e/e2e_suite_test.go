@@ -558,6 +558,8 @@ func getDexToken(clientID, clientSecret string) (string, error) {
 
 // configureJWTAuthAtPath configures a JWT/OIDC auth method at the given Vault path.
 // Tries OIDC discovery first (requires internal issuer), falls back to JWKS.
+//
+//nolint:unparam // authPath is parameterised for flexibility (jwt vs oidc mounts)
 func configureJWTAuthAtPath(authPath string) error {
 	ctx := context.Background()
 
