@@ -23,6 +23,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -30,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/util/wait"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -43,6 +45,11 @@ var (
 	k8sClient     client.Client
 	k8sClientOnce sync.Once
 	k8sClientErr  error
+
+	// k8sRestConfig is the REST config used to create the client.
+	// Stored so that other clients (e.g. kubernetes.Clientset for TokenRequest)
+	// can be created from the same config.
+	k8sRestConfig *rest.Config
 
 	// scheme for the k8s client
 	scheme = runtime.NewScheme()
@@ -58,19 +65,24 @@ func init() {
 // The client is lazily initialized on first call.
 func GetK8sClient() (client.Client, error) {
 	k8sClientOnce.Do(func() {
-		var cfg *rest.Config
-		cfg, k8sClientErr = config.GetConfig()
+		k8sRestConfig, k8sClientErr = config.GetConfig()
 		if k8sClientErr != nil {
 			k8sClientErr = fmt.Errorf("failed to get kubeconfig: %w", k8sClientErr)
 			return
 		}
 
-		k8sClient, k8sClientErr = client.New(cfg, client.Options{Scheme: scheme})
+		k8sClient, k8sClientErr = client.New(k8sRestConfig, client.Options{Scheme: scheme})
 		if k8sClientErr != nil {
 			k8sClientErr = fmt.Errorf("failed to create k8s client: %w", k8sClientErr)
 		}
 	})
 	return k8sClient, k8sClientErr
+}
+
+// GetK8sRestConfig returns the REST config used by the K8s client.
+// Must be called after GetK8sClient() or MustGetK8sClient().
+func GetK8sRestConfig() *rest.Config {
+	return k8sRestConfig
 }
 
 // MustGetK8sClient returns the K8s client or panics if unavailable.
@@ -438,4 +450,344 @@ func DeleteSecret(ctx context.Context, namespace, name string) error {
 		return err
 	}
 	return nil
+}
+
+// =============================================================================
+// Generic CRUD helpers
+// =============================================================================
+
+// CreateObject creates any Kubernetes object. Returns nil if it already exists.
+func CreateObject(ctx context.Context, obj client.Object) error {
+	c, err := GetK8sClient()
+	if err != nil {
+		return err
+	}
+
+	if err := c.Create(ctx, obj); err != nil {
+		if errors.IsAlreadyExists(err) {
+			return nil
+		}
+		return fmt.Errorf("failed to create %T %s/%s: %w",
+			obj, obj.GetNamespace(), obj.GetName(), err)
+	}
+	return nil
+}
+
+// DeleteObject deletes any Kubernetes object. Returns nil if not found.
+func DeleteObject(ctx context.Context, obj client.Object) error {
+	c, err := GetK8sClient()
+	if err != nil {
+		return err
+	}
+
+	if err := c.Delete(ctx, obj); err != nil {
+		if errors.IsNotFound(err) {
+			return nil
+		}
+		return fmt.Errorf("failed to delete %T %s/%s: %w",
+			obj, obj.GetNamespace(), obj.GetName(), err)
+	}
+	return nil
+}
+
+// UpdateObject updates any Kubernetes object.
+func UpdateObject(ctx context.Context, obj client.Object) error {
+	c, err := GetK8sClient()
+	if err != nil {
+		return err
+	}
+
+	if err := c.Update(ctx, obj); err != nil {
+		return fmt.Errorf("failed to update %T %s/%s: %w",
+			obj, obj.GetNamespace(), obj.GetName(), err)
+	}
+	return nil
+}
+
+// PatchObject applies a merge-patch to any Kubernetes object.
+func PatchObject(ctx context.Context, obj client.Object, patch client.Patch) error {
+	c, err := GetK8sClient()
+	if err != nil {
+		return err
+	}
+
+	if err := c.Patch(ctx, obj, patch); err != nil {
+		return fmt.Errorf("failed to patch %T %s/%s: %w",
+			obj, obj.GetNamespace(), obj.GetName(), err)
+	}
+	return nil
+}
+
+// =============================================================================
+// CRD Create helpers (typed convenience wrappers)
+// =============================================================================
+
+// CreateVaultConnectionCR creates a VaultConnection CRD in Kubernetes.
+func CreateVaultConnectionCR(ctx context.Context, obj *vaultv1alpha1.VaultConnection) error {
+	return CreateObject(ctx, obj)
+}
+
+// CreateVaultPolicyCR creates a VaultPolicy CRD in Kubernetes.
+func CreateVaultPolicyCR(ctx context.Context, obj *vaultv1alpha1.VaultPolicy) error {
+	return CreateObject(ctx, obj)
+}
+
+// CreateVaultRoleCR creates a VaultRole CRD in Kubernetes.
+func CreateVaultRoleCR(ctx context.Context, obj *vaultv1alpha1.VaultRole) error {
+	return CreateObject(ctx, obj)
+}
+
+// CreateVaultClusterPolicyCR creates a VaultClusterPolicy CRD in Kubernetes.
+func CreateVaultClusterPolicyCR(ctx context.Context, obj *vaultv1alpha1.VaultClusterPolicy) error {
+	return CreateObject(ctx, obj)
+}
+
+// CreateVaultClusterRoleCR creates a VaultClusterRole CRD in Kubernetes.
+func CreateVaultClusterRoleCR(ctx context.Context, obj *vaultv1alpha1.VaultClusterRole) error {
+	return CreateObject(ctx, obj)
+}
+
+// =============================================================================
+// CRD Update helpers
+// =============================================================================
+
+// UpdateVaultPolicyCR fetches the latest version of a VaultPolicy, applies the
+// mutate function, and writes it back. This handles the resourceVersion conflict
+// that occurs when updating a stale object.
+func UpdateVaultPolicyCR(ctx context.Context, name, namespace string, mutate func(*vaultv1alpha1.VaultPolicy)) error {
+	policy, err := GetVaultPolicy(ctx, name, namespace)
+	if err != nil {
+		return fmt.Errorf("failed to get VaultPolicy for update: %w", err)
+	}
+	mutate(policy)
+	return UpdateObject(ctx, policy)
+}
+
+// UpdateVaultRoleCR fetches the latest VaultRole, applies the mutate function,
+// and writes it back.
+func UpdateVaultRoleCR(ctx context.Context, name, namespace string, mutate func(*vaultv1alpha1.VaultRole)) error {
+	role, err := GetVaultRole(ctx, name, namespace)
+	if err != nil {
+		return fmt.Errorf("failed to get VaultRole for update: %w", err)
+	}
+	mutate(role)
+	return UpdateObject(ctx, role)
+}
+
+// UpdateVaultClusterPolicyCR fetches the latest VaultClusterPolicy, applies the
+// mutate function, and writes it back.
+func UpdateVaultClusterPolicyCR(
+	ctx context.Context, name string, mutate func(*vaultv1alpha1.VaultClusterPolicy),
+) error {
+	policy, err := GetVaultClusterPolicy(ctx, name)
+	if err != nil {
+		return fmt.Errorf("failed to get VaultClusterPolicy for update: %w", err)
+	}
+	mutate(policy)
+	return UpdateObject(ctx, policy)
+}
+
+// UpdateVaultClusterRoleCR fetches the latest VaultClusterRole, applies the
+// mutate function, and writes it back.
+func UpdateVaultClusterRoleCR(ctx context.Context, name string, mutate func(*vaultv1alpha1.VaultClusterRole)) error {
+	role, err := GetVaultClusterRole(ctx, name)
+	if err != nil {
+		return fmt.Errorf("failed to get VaultClusterRole for update: %w", err)
+	}
+	mutate(role)
+	return UpdateObject(ctx, role)
+}
+
+// =============================================================================
+// CRD Delete helpers (by name, idempotent)
+// =============================================================================
+
+// DeleteVaultConnectionCR deletes a VaultConnection CRD by name.
+// Returns nil if the resource does not exist.
+func DeleteVaultConnectionCR(ctx context.Context, name string) error {
+	return DeleteObject(ctx, &vaultv1alpha1.VaultConnection{
+		ObjectMeta: metav1.ObjectMeta{Name: name},
+	})
+}
+
+// DeleteVaultPolicyCR deletes a VaultPolicy CRD by name and namespace.
+// Returns nil if the resource does not exist.
+// Note: This deletes the K8s CR, not the policy in Vault. For Vault-level
+// deletion, use DeleteVaultPolicy() from utils.go.
+func DeleteVaultPolicyCR(ctx context.Context, name, namespace string) error {
+	return DeleteObject(ctx, &vaultv1alpha1.VaultPolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+	})
+}
+
+// DeleteVaultRoleCR deletes a VaultRole CRD by name and namespace.
+// Returns nil if the resource does not exist.
+// Note: This deletes the K8s CR, not the role in Vault. For Vault-level
+// deletion, use DeleteVaultRole() from utils.go.
+func DeleteVaultRoleCR(ctx context.Context, name, namespace string) error {
+	return DeleteObject(ctx, &vaultv1alpha1.VaultRole{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+	})
+}
+
+// DeleteVaultClusterPolicyCR deletes a VaultClusterPolicy CRD by name.
+// Returns nil if the resource does not exist.
+func DeleteVaultClusterPolicyCR(ctx context.Context, name string) error {
+	return DeleteObject(ctx, &vaultv1alpha1.VaultClusterPolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: name},
+	})
+}
+
+// DeleteVaultClusterRoleCR deletes a VaultClusterRole CRD by name.
+// Returns nil if the resource does not exist.
+func DeleteVaultClusterRoleCR(ctx context.Context, name string) error {
+	return DeleteObject(ctx, &vaultv1alpha1.VaultClusterRole{
+		ObjectMeta: metav1.ObjectMeta{Name: name},
+	})
+}
+
+// =============================================================================
+// ServiceAccount helpers
+// =============================================================================
+
+// CreateServiceAccount creates a ServiceAccount. Returns nil if it already exists.
+func CreateServiceAccount(ctx context.Context, namespace, name string) error {
+	return CreateObject(ctx, &corev1.ServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+		},
+	})
+}
+
+// DeleteServiceAccount deletes a ServiceAccount. Returns nil if not found.
+func DeleteServiceAccount(ctx context.Context, namespace, name string) error {
+	return DeleteObject(ctx, &corev1.ServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+		},
+	})
+}
+
+// =============================================================================
+// Namespace helpers
+// =============================================================================
+
+// LabelNamespace adds labels to an existing namespace.
+func LabelNamespace(ctx context.Context, name string, labels map[string]string) error {
+	c, err := GetK8sClient()
+	if err != nil {
+		return err
+	}
+
+	ns := &corev1.Namespace{}
+	if err := c.Get(ctx, types.NamespacedName{Name: name}, ns); err != nil {
+		return fmt.Errorf("failed to get namespace %s: %w", name, err)
+	}
+
+	if ns.Labels == nil {
+		ns.Labels = make(map[string]string)
+	}
+	for k, v := range labels {
+		ns.Labels[k] = v
+	}
+
+	return c.Update(ctx, ns)
+}
+
+// =============================================================================
+// Wait / polling helpers
+// =============================================================================
+
+// PhaseGetter is a function that returns the current phase of a resource.
+type PhaseGetter func(ctx context.Context) (string, error)
+
+// WaitForPhase polls a PhaseGetter until the resource reaches the expected phase
+// or the timeout expires. This replaces the common pattern of:
+//
+//	Eventually(func(g Gomega) {
+//	    cmd := exec.Command("kubectl", "get", "vaultpolicy", name, "-n", ns, "-o", "jsonpath={.status.phase}")
+//	    output, err := utils.Run(cmd)
+//	    g.Expect(err).NotTo(HaveOccurred())
+//	    g.Expect(output).To(Equal("Active"))
+//	}).Should(Succeed())
+func WaitForPhase(
+	ctx context.Context, getter PhaseGetter, expectedPhase string,
+	timeout, interval time.Duration,
+) error {
+	return wait.PollUntilContextTimeout(ctx, interval, timeout, true, func(ctx context.Context) (bool, error) {
+		phase, err := getter(ctx)
+		if err != nil {
+			// Transient errors during polling are expected (e.g., resource not yet created)
+			return false, nil //nolint:nilerr
+		}
+		return phase == expectedPhase, nil
+	})
+}
+
+// WaitForVaultPolicyPhase waits for a VaultPolicy to reach the expected phase.
+func WaitForVaultPolicyPhase(
+	ctx context.Context, name, namespace, phase string,
+	timeout, interval time.Duration,
+) error {
+	return WaitForPhase(ctx, func(ctx context.Context) (string, error) {
+		return GetVaultPolicyStatus(ctx, name, namespace)
+	}, phase, timeout, interval)
+}
+
+// WaitForVaultConnectionPhase waits for a VaultConnection to reach the expected phase.
+func WaitForVaultConnectionPhase(ctx context.Context, name, phase string, timeout, interval time.Duration) error {
+	return WaitForPhase(ctx, func(ctx context.Context) (string, error) {
+		return GetVaultConnectionStatus(ctx, name, "")
+	}, phase, timeout, interval)
+}
+
+// WaitForVaultRolePhase waits for a VaultRole to reach the expected phase.
+func WaitForVaultRolePhase(ctx context.Context, name, namespace, phase string, timeout, interval time.Duration) error {
+	return WaitForPhase(ctx, func(ctx context.Context) (string, error) {
+		return GetVaultRoleStatus(ctx, name, namespace)
+	}, phase, timeout, interval)
+}
+
+// WaitForVaultClusterPolicyPhase waits for a VaultClusterPolicy to reach the expected phase.
+func WaitForVaultClusterPolicyPhase(ctx context.Context, name, phase string, timeout, interval time.Duration) error {
+	return WaitForPhase(ctx, func(ctx context.Context) (string, error) {
+		return GetVaultClusterPolicyStatus(ctx, name)
+	}, phase, timeout, interval)
+}
+
+// WaitForVaultClusterRolePhase waits for a VaultClusterRole to reach the expected phase.
+func WaitForVaultClusterRolePhase(ctx context.Context, name, phase string, timeout, interval time.Duration) error {
+	return WaitForPhase(ctx, func(ctx context.Context) (string, error) {
+		return GetVaultClusterRoleStatus(ctx, name)
+	}, phase, timeout, interval)
+}
+
+// WaitForDeletion polls until the given resource no longer exists.
+func WaitForDeletion(
+	ctx context.Context, obj client.Object, name, namespace string,
+	timeout, interval time.Duration,
+) error {
+	return wait.PollUntilContextTimeout(ctx, interval, timeout, true, func(ctx context.Context) (bool, error) {
+		exists, err := ResourceExists(ctx, obj, name, namespace)
+		if err != nil {
+			return false, nil //nolint:nilerr
+		}
+		return !exists, nil
+	})
+}
+
+// WaitForClusterDeletion polls until the given cluster-scoped resource no longer exists.
+func WaitForClusterDeletion(
+	ctx context.Context, obj client.Object, name string,
+	timeout, interval time.Duration,
+) error {
+	return wait.PollUntilContextTimeout(ctx, interval, timeout, true, func(ctx context.Context) (bool, error) {
+		exists, err := ClusterResourceExists(ctx, obj, name)
+		if err != nil {
+			return false, nil //nolint:nilerr
+		}
+		return !exists, nil
+	})
 }
