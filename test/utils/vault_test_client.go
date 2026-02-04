@@ -483,6 +483,20 @@ func (c *TestVaultClient) Delete(
 	return nil
 }
 
+// ListAuth lists all enabled auth methods in Vault.
+// The returned map keys use trailing slashes (e.g., "kubernetes/", "token/").
+func (c *TestVaultClient) ListAuth(
+	ctx context.Context,
+) (map[string]*vaultapi.AuthMount, error) {
+	auths, err := c.client.Sys().ListAuthWithContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"failed to list auth methods: %w", err,
+		)
+	}
+	return auths, nil
+}
+
 // =============================================================================
 // Secrets engine management
 // =============================================================================

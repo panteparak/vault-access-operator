@@ -423,13 +423,6 @@ func setupSharedTestInfrastructure() {
 	}, 2*time.Minute, 5*time.Second).Should(Succeed())
 }
 
-// stringReader creates an io.Reader from a string for kubectl stdin.
-// Used by test files that still use kubectl apply -f - for CRD creation.
-// TODO: Remove when all test files are migrated to typed client helpers.
-func stringReader(s string) *strings.Reader {
-	return strings.NewReader(s)
-}
-
 // cleanupSharedTestInfrastructure removes shared test resources
 func cleanupSharedTestInfrastructure() {
 	ctx := context.Background()
