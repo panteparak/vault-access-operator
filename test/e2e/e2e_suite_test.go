@@ -318,6 +318,17 @@ func setupSharedTestInfrastructure() {
 		g.Expect(err).NotTo(HaveOccurred())
 	}, 1*time.Minute, 5*time.Second).Should(Succeed())
 
+	// Enable and configure Kubernetes auth (required for VaultRole CRDs)
+	utils.TimedBy("enabling Kubernetes auth method")
+	_, _ = utils.RunVaultCommand("auth", "enable", "kubernetes") // Ignore if already enabled
+
+	utils.TimedBy("configuring Kubernetes auth")
+	if err := configureKubernetesAuth(); err != nil {
+		// Kubernetes auth is critical for VaultRole tests - log warning but continue
+		fmt.Fprintf(GinkgoWriter, "Warning: Kubernetes auth configuration failed: %v\n", err)
+		fmt.Fprintf(GinkgoWriter, "VaultRole tests may fail\n")
+	}
+
 	// Enable and configure JWT auth for JWT auth tests
 	utils.TimedBy("enabling JWT auth method")
 	_, _ = utils.RunVaultCommand("auth", "enable", "jwt") // Ignore if already enabled
@@ -480,6 +491,39 @@ func getOperatorToken() (string, error) {
 	}
 
 	return tokenResp.Auth.ClientToken, nil
+}
+
+// configureKubernetesAuth configures Vault's Kubernetes auth method at "auth/kubernetes".
+// It retrieves the vault-auth ServiceAccount token (which has TokenReview permissions)
+// and the cluster CA certificate, then writes them to auth/kubernetes/config so Vault
+// can validate Kubernetes service account tokens.
+func configureKubernetesAuth() error {
+	// Get a token for the vault-auth ServiceAccount (has TokenReview permissions)
+	reviewerJWT, err := utils.GetServiceAccountToken(vaultAuthNamespace, vaultAuthSA)
+	if err != nil {
+		return fmt.Errorf("failed to get vault-auth SA token: %w", err)
+	}
+	reviewerJWT = strings.TrimSpace(reviewerJWT)
+
+	// Get Kubernetes CA certificate from the vault pod's mounted SA
+	cmd := exec.Command("kubectl", "exec", "-n", vaultNamespace, "vault-0", "--",
+		"cat", "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")
+	caCert, err := utils.Run(cmd)
+	if err != nil {
+		return fmt.Errorf("failed to get Kubernetes CA cert: %w", err)
+	}
+
+	// Configure Kubernetes auth with the token reviewer JWT and CA cert
+	_, err = utils.RunVaultCommand("write", "auth/kubernetes/config",
+		"kubernetes_host=https://kubernetes.default.svc.cluster.local:443",
+		fmt.Sprintf("token_reviewer_jwt=%s", reviewerJWT),
+		fmt.Sprintf("kubernetes_ca_cert=%s", strings.TrimSpace(caCert)),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to configure kubernetes auth: %w", err)
+	}
+
+	return nil
 }
 
 // configureJWTAuth configures Vault's JWT auth method at the default "auth/jwt" path.

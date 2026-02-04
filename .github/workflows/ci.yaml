@@ -1091,6 +1091,9 @@ jobs:
           echo "Vault operator policy created successfully"
 
           # Enable auth methods for E2E tests
+          kubectl exec -n vault vault-0 -- vault auth enable kubernetes || true
+          echo "Kubernetes auth method enabled"
+
           kubectl exec -n vault vault-0 -- vault auth enable jwt || true
           echo "JWT auth method enabled"
 
@@ -1111,6 +1114,14 @@ jobs:
 
           # Pre-fetch JWKS so it's available as fallback for both JWT and OIDC config
           JWKS=$(kubectl get --raw /openid/v1/jwks)
+
+          # Configure Kubernetes auth (required for VaultRole CRDs that default to auth/kubernetes)
+          VAULT_AUTH_TOKEN=$(kubectl create token vault-auth -n vault)
+          kubectl exec -n vault vault-0 -- vault write auth/kubernetes/config \
+            kubernetes_host=https://kubernetes.default.svc.cluster.local:443 \
+            token_reviewer_jwt="$VAULT_AUTH_TOKEN" \
+            kubernetes_ca_cert="$K8S_CA"
+          echo "Kubernetes auth configured"
 
           # Configure JWT auth — try OIDC discovery first, fall back to JWKS
           if kubectl exec -i -n vault vault-0 -- vault write auth/jwt/config \
