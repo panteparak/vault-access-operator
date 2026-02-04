@@ -22,13 +22,16 @@ package utils
 import (
 	"context"
 	"crypto/rsa"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"math/big"
+	"net/url"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -970,6 +973,138 @@ func GetClusterCA(ctx context.Context) (string, error) {
 	}
 
 	return caCert, nil
+}
+
+// GetAPIServerTLSCA extracts the CA certificate(s) from a TLS handshake to
+// the Kubernetes API server. This gets the exact CA that signed the server's
+// TLS certificate, which is needed for in-cluster OIDC discovery
+// (kubernetes.default.svc).
+//
+// In k3d with TCP passthrough, the external and internal API server present
+// the same certificate chain, so the extracted CA works for both external
+// clients and Vault running inside the cluster.
+//
+// This is more reliable than reading from kube-root-ca.crt ConfigMap because
+// k3s 1.25+ uses separate CAs: server-ca (signs TLS certs) vs client-ca
+// (signs client certs). The ConfigMap may contain the client CA while the
+// TLS handshake always returns the server CA.
+func GetAPIServerTLSCA() (string, error) {
+	cfg := GetK8sRestConfig()
+	if cfg == nil {
+		return "", fmt.Errorf(
+			"k8s rest config not initialized; call GetK8sClient() first",
+		)
+	}
+
+	u, err := url.Parse(cfg.Host)
+	if err != nil {
+		return "", fmt.Errorf(
+			"failed to parse API server URL %q: %w", cfg.Host, err,
+		)
+	}
+
+	host := u.Host
+	if u.Port() == "" {
+		host = host + ":443"
+	}
+
+	conn, err := tls.Dial("tcp", host, &tls.Config{
+		InsecureSkipVerify: true, //nolint:gosec // intentional: extracting CA from chain
+	})
+	if err != nil {
+		return "", fmt.Errorf(
+			"TLS handshake to %s failed: %w", host, err,
+		)
+	}
+	defer conn.Close()
+
+	certs := conn.ConnectionState().PeerCertificates
+	if len(certs) == 0 {
+		return "", fmt.Errorf(
+			"no certificates in TLS chain from %s", host,
+		)
+	}
+
+	// Collect all CA certs from the chain.
+	var caPEMs []byte
+	for _, cert := range certs {
+		if cert.IsCA {
+			caPEMs = append(caPEMs, pem.EncodeToMemory(&pem.Block{
+				Type:  "CERTIFICATE",
+				Bytes: cert.Raw,
+			})...)
+		}
+	}
+
+	if len(caPEMs) == 0 {
+		// If no cert is explicitly marked as CA, use the last cert
+		// in the chain (typically the root or highest intermediate).
+		last := certs[len(certs)-1]
+		caPEMs = pem.EncodeToMemory(&pem.Block{
+			Type:  "CERTIFICATE",
+			Bytes: last.Raw,
+		})
+	}
+
+	return string(caPEMs), nil
+}
+
+// BuildCABundle collects CA certificates from all available sources and
+// returns a combined PEM bundle. This ensures the correct CA is included
+// regardless of k3s version or CA configuration (server-ca vs client-ca).
+//
+// Sources (in priority order):
+//  1. TLS handshake to API server (most reliable — exact server CA)
+//  2. kubeconfig CA (from rest config)
+//  3. kube-root-ca.crt ConfigMap
+//
+// Duplicate certificates are deduplicated. The logf parameter receives
+// diagnostic messages about which sources were used.
+func BuildCABundle(
+	ctx context.Context,
+	logf func(format string, args ...interface{}),
+) (string, error) {
+	seen := make(map[string]bool) // deduplicate by PEM content
+	var bundle strings.Builder
+
+	addCA := func(source, ca string) {
+		ca = strings.TrimSpace(ca)
+		if ca != "" && !seen[ca] {
+			seen[ca] = true
+			bundle.WriteString(ca)
+			if !strings.HasSuffix(ca, "\n") {
+				bundle.WriteString("\n")
+			}
+			logf("CA bundle: added cert from %s", source)
+		}
+	}
+
+	// Source 1: TLS handshake (exact server CA)
+	if tlsCA, err := GetAPIServerTLSCA(); err == nil {
+		addCA("TLS handshake", tlsCA)
+	} else {
+		logf("CA bundle: TLS handshake failed: %v", err)
+	}
+
+	// Source 2: kubeconfig CA
+	if kubeconfigCA, err := GetKubernetesCA(); err == nil {
+		addCA("kubeconfig", kubeconfigCA)
+	} else {
+		logf("CA bundle: kubeconfig CA failed: %v", err)
+	}
+
+	// Source 3: kube-root-ca.crt ConfigMap
+	if configmapCA, err := GetClusterCA(ctx); err == nil {
+		addCA("kube-root-ca.crt ConfigMap", configmapCA)
+	} else {
+		logf("CA bundle: ConfigMap CA failed: %v", err)
+	}
+
+	result := bundle.String()
+	if result == "" {
+		return "", fmt.Errorf("no CA certificates found from any source")
+	}
+	return result, nil
 }
 
 // jwksResponse represents a JSON Web Key Set response.

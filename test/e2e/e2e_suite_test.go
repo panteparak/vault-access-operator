@@ -446,13 +446,11 @@ func cleanupSharedTestInfrastructure() {
 
 // configureKubernetesAuth configures Vault's Kubernetes auth method at
 // "auth/kubernetes". It retrieves the vault-auth SA token (which has
-// TokenReview permissions) and the cluster CA certificate, then writes
-// them to auth/kubernetes/config so Vault can validate K8s SA tokens.
+// TokenReview permissions) and a combined CA bundle, then writes them
+// to auth/kubernetes/config so Vault can validate K8s SA tokens.
 //
-// Uses the cluster's internal CA (from kube-root-ca.crt ConfigMap)
-// because Vault connects to kubernetes.default.svc from inside the
-// cluster. Falls back to the kubeconfig CA if the ConfigMap is
-// unavailable.
+// Uses a combined CA bundle (TLS handshake + kubeconfig + ConfigMap)
+// to handle k3s 1.25+ which uses separate server-ca and client-ca.
 func configureKubernetesAuth() error {
 	ctx := context.Background()
 
@@ -466,21 +464,15 @@ func configureKubernetesAuth() error {
 		)
 	}
 
-	// Prefer the cluster's internal CA (kube-root-ca.crt ConfigMap).
-	// Fall back to kubeconfig CA for environments where the ConfigMap
-	// is not available.
-	caCert, err := utils.GetClusterCA(ctx)
+	// Build CA bundle from all available sources
+	logf := func(format string, args ...interface{}) {
+		fmt.Fprintf(GinkgoWriter, format+"\n", args...)
+	}
+	caCert, err := utils.BuildCABundle(ctx, logf)
 	if err != nil {
-		fmt.Fprintf(GinkgoWriter,
-			"Could not get cluster CA (%v), "+
-				"falling back to kubeconfig CA\n", err,
+		return fmt.Errorf(
+			"failed to build CA bundle: %w", err,
 		)
-		caCert, err = utils.GetKubernetesCA()
-		if err != nil {
-			return fmt.Errorf(
-				"failed to get Kubernetes CA cert: %w", err,
-			)
-		}
 	}
 
 	// Configure Kubernetes auth via Vault Go client
@@ -572,13 +564,12 @@ func getDexToken(clientID, clientSecret string) (string, error) {
 // configureJWTAuthAtPath configures a JWT/OIDC auth method at the given
 // Vault path.
 //
-// Strategy: try OIDC discovery with the cluster's internal CA first,
-// then fall back to static JWKS public keys (no network call from Vault).
-//
-// The cluster CA (from kube-root-ca.crt ConfigMap) is used instead of the
-// kubeconfig CA because Vault runs inside the cluster and verifies
-// kubernetes.default.svc — which may use a different CA than the external
-// API endpoint (e.g., k3d uses a TLS proxy with its own cert chain).
+// Strategy: build a combined CA bundle from all available sources (TLS
+// handshake, kubeconfig, ConfigMap) and use it for OIDC discovery. This
+// handles k3s 1.25+ which uses separate server-ca and client-ca — only
+// the server CA can verify kubernetes.default.svc, but different sources
+// may expose different CAs. The combined bundle ensures the right one is
+// included. Falls back to static JWKS PEM keys if no CA is available.
 //
 //nolint:unparam // authPath is parameterised for flexibility (jwt vs oidc)
 func configureJWTAuthAtPath(authPath string) error {
@@ -610,34 +601,36 @@ func configureJWTAuthAtPath(authPath string) error {
 
 	configPath := fmt.Sprintf("%s/config", authPath)
 
-	// Try OIDC discovery with the cluster's internal CA.
-	// This CA is from the kube-root-ca.crt ConfigMap, which
-	// Kubernetes auto-populates with the CA that signs the
-	// API server's in-cluster TLS certificate.
-	clusterCA, err := utils.GetClusterCA(ctx)
-	if err == nil && clusterCA != "" {
+	// Build a combined CA bundle from all available sources.
+	// This ensures the correct server CA is included regardless
+	// of k3s version or CA configuration (server-ca vs client-ca).
+	logf := func(format string, args ...interface{}) {
+		fmt.Fprintf(GinkgoWriter, format+"\n", args...)
+	}
+	caBundle, err := utils.BuildCABundle(ctx, logf)
+	if err == nil && caBundle != "" {
 		err = vaultClient.WriteAuthConfig(
 			ctx, configPath, map[string]interface{}{
 				"oidc_discovery_url":    oidcConfig.Issuer,
 				"bound_issuer":          oidcConfig.Issuer,
-				"oidc_discovery_ca_pem": clusterCA,
+				"oidc_discovery_ca_pem": caBundle,
 			},
 		)
 		if err == nil {
 			fmt.Fprintf(GinkgoWriter,
 				"%s configured with OIDC discovery "+
-					"(cluster CA)\n", authPath,
+					"(CA bundle)\n", authPath,
 			)
 			return nil
 		}
 		fmt.Fprintf(GinkgoWriter,
-			"OIDC discovery failed for %s (%v), "+
+			"OIDC config write failed for %s (%v), "+
 				"falling back to JWKS\n",
 			authPath, err,
 		)
 	} else {
 		fmt.Fprintf(GinkgoWriter,
-			"Could not get cluster CA (%v), "+
+			"Could not build CA bundle (%v), "+
 				"falling back to JWKS\n", err,
 		)
 	}
