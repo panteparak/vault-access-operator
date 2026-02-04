@@ -17,6 +17,7 @@ limitations under the License.
 package e2e
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -31,7 +32,10 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/test/utils"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // Shared constants for all E2E tests
@@ -283,214 +287,168 @@ var _ = ReportAfterEach(func(report SpecReport) {
 	}
 })
 
-// setupSharedTestInfrastructure creates resources shared across all test files
+// setupSharedTestInfrastructure creates resources shared across all test files.
+// Uses typed Go clients (client-go + vault/api) instead of kubectl subprocesses.
 func setupSharedTestInfrastructure() {
+	ctx := context.Background()
+
+	// Initialize the K8s client (must be first — other helpers depend on it)
+	utils.TimedBy("initializing K8s client")
+	_ = utils.MustGetK8sClient()
+
 	utils.TimedBy("creating test namespace")
-	cmd := exec.Command("kubectl", "create", "ns", testNamespace)
-	_, _ = utils.Run(cmd) // Ignore error if already exists
+	err := utils.CreateNamespace(ctx, testNamespace)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to create test namespace")
 
 	// Check if Vault is already deployed (CI deploys it before tests)
 	utils.TimedBy("checking if Vault is deployed")
-	cmd = exec.Command("kubectl", "get", "ns", vaultNamespace)
-	_, err := utils.Run(cmd)
-	if err != nil {
+	vaultExists, err := utils.NamespaceExists(ctx, vaultNamespace)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
+	if !vaultExists {
 		utils.TimedBy("deploying Vault dev server (not found, deploying for local development)")
-		cmd = exec.Command("kubectl", "apply", "-f", "test/e2e/fixtures/vault.yaml")
+		cmd := exec.Command("kubectl", "apply", "-f", "test/e2e/fixtures/vault.yaml")
 		_, err = utils.Run(cmd)
 		ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to deploy Vault")
 	}
 
 	utils.TimedBy("waiting for Vault to be ready")
 	Eventually(func(g Gomega) {
-		cmd := exec.Command("kubectl", "get", "pods", "-n", vaultNamespace,
-			"-l", "app=vault", "-o", "jsonpath={.items[0].status.phase}")
-		output, err := utils.Run(cmd)
+		pods, err := utils.GetPodsByLabel(ctx, vaultNamespace, "app", "vault")
 		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(output).To(Equal("Running"))
+		g.Expect(pods.Items).NotTo(BeEmpty(), "no vault pods found")
+		g.Expect(pods.Items[0].Status.Phase).To(Equal(corev1.PodRunning))
 	}, 2*time.Minute, 5*time.Second).Should(Succeed())
 
-	// Wait for Vault API to be accessible (pod Running doesn't mean API is ready)
+	// Wait for Vault API to be accessible via the Go client
 	utils.TimedBy("waiting for Vault API to be accessible")
+	vaultClient, err := utils.GetTestVaultClient()
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to create Vault test client")
+
 	Eventually(func(g Gomega) {
-		cmd := exec.Command("kubectl", "exec", "-n", vaultNamespace, "vault-0", "--",
-			"vault", "status", "-format=json")
-		_, err := utils.Run(cmd)
+		healthy, err := vaultClient.Health(ctx)
 		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(healthy).To(BeTrue(), "Vault should be initialized and unsealed")
 	}, 1*time.Minute, 5*time.Second).Should(Succeed())
 
-	// Enable and configure Kubernetes auth (required for VaultRole CRDs)
+	// Enable and configure auth methods using the Vault Go client
 	utils.TimedBy("enabling Kubernetes auth method")
-	_, _ = utils.RunVaultCommand("auth", "enable", "kubernetes") // Ignore if already enabled
+	err = vaultClient.EnableAuth(ctx, "kubernetes", "kubernetes")
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to enable kubernetes auth")
 
 	utils.TimedBy("configuring Kubernetes auth")
 	if err := configureKubernetesAuth(); err != nil {
-		// Kubernetes auth is critical for VaultRole tests - log warning but continue
 		fmt.Fprintf(GinkgoWriter, "Warning: Kubernetes auth configuration failed: %v\n", err)
 		fmt.Fprintf(GinkgoWriter, "VaultRole tests may fail\n")
 	}
 
-	// Enable and configure JWT auth for JWT auth tests
 	utils.TimedBy("enabling JWT auth method")
-	_, _ = utils.RunVaultCommand("auth", "enable", "jwt") // Ignore if already enabled
+	err = vaultClient.EnableAuth(ctx, "jwt", "jwt")
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to enable jwt auth")
 
-	// Configure JWT auth using JWKS (works in k3d/kind without network access from Vault)
 	utils.TimedBy("configuring JWT auth with JWKS")
 	if err := configureJWTAuth(); err != nil {
-		// JWT auth is optional - log warning but continue
 		fmt.Fprintf(GinkgoWriter, "Warning: JWT auth configuration failed: %v\n", err)
 		fmt.Fprintf(GinkgoWriter, "JWT auth tests will be skipped\n")
 	}
 
-	// Enable AppRole auth method
 	utils.TimedBy("enabling AppRole auth method")
-	_, _ = utils.RunVaultCommand("auth", "enable", "approle") // Ignore if already enabled
+	err = vaultClient.EnableAuth(ctx, "approle", "approle")
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to enable approle auth")
 
-	// Enable OIDC (JWT at oidc path) auth method
 	utils.TimedBy("enabling OIDC auth method (JWT at oidc path)")
-	_, _ = utils.RunVaultCommand("auth", "enable", "-path=oidc", "jwt") // Ignore if already enabled
+	err = vaultClient.EnableAuth(ctx, "oidc", "jwt")
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to enable oidc auth")
 
-	// Configure OIDC auth with same JWKS/OIDC config as JWT
 	utils.TimedBy("configuring OIDC auth with JWKS")
 	if err := configureOIDCAuth(); err != nil {
-		// OIDC auth is optional - log warning but continue
 		fmt.Fprintf(GinkgoWriter, "Warning: OIDC auth configuration failed: %v\n", err)
 		fmt.Fprintf(GinkgoWriter, "OIDC auth tests will be skipped\n")
 	}
 
 	// Create operator policy with least-privilege permissions
-	// This demonstrates proper Vault security practices - never use root token in production
 	utils.TimedBy("creating operator policy with least-privilege permissions")
-	err = createOperatorPolicy()
+	err = vaultClient.WritePolicy(ctx, operatorPolicyName, operatorPolicyHCL)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to create operator policy")
 
 	// Create operator token (non-root) with the operator policy
 	utils.TimedBy("creating operator token (non-root)")
-	operatorToken, err := getOperatorToken()
+	operatorToken, err := vaultClient.CreateToken(
+		ctx, []string{operatorPolicyName}, "24h",
+	)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to create operator token")
 	ExpectWithOffset(1, operatorToken).NotTo(BeEmpty(), "Operator token should not be empty")
 
 	utils.TimedBy("creating Vault token secret for shared VaultConnection (using operator token, not root)")
-	cmd = exec.Command("kubectl", "create", "secret", "generic", sharedVaultTokenSecretName,
-		"-n", testNamespace,
-		"--from-literal=token="+operatorToken)
-	_, _ = utils.Run(cmd) // Ignore error if already exists
+	err = utils.CreateSecret(ctx, testNamespace, sharedVaultTokenSecretName,
+		map[string][]byte{"token": []byte(operatorToken)})
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to create token secret")
 
 	utils.TimedBy("creating shared VaultConnection for tests")
-	connectionYAML := fmt.Sprintf(`
-apiVersion: vault.platform.io/v1alpha1
-kind: VaultConnection
-metadata:
-  name: %s
-spec:
-  address: http://vault.%s.svc.cluster.local:8200
-  auth:
-    token:
-      secretRef:
-        name: %s
-        namespace: %s
-        key: token
-  healthCheckInterval: "10s"
-`, sharedVaultConnectionName, vaultNamespace, sharedVaultTokenSecretName, testNamespace)
-
-	cmd = exec.Command("kubectl", "apply", "-f", "-")
-	cmd.Stdin = stringReader(connectionYAML)
-	_, err = utils.Run(cmd)
+	conn := &vaultv1alpha1.VaultConnection{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: sharedVaultConnectionName,
+		},
+		Spec: vaultv1alpha1.VaultConnectionSpec{
+			Address: fmt.Sprintf(
+				"http://vault.%s.svc.cluster.local:8200", vaultNamespace,
+			),
+			Auth: vaultv1alpha1.AuthConfig{
+				Token: &vaultv1alpha1.TokenAuth{
+					SecretRef: vaultv1alpha1.SecretKeySelector{
+						Name:      sharedVaultTokenSecretName,
+						Namespace: testNamespace,
+						Key:       "token",
+					},
+				},
+			},
+			HealthCheckInterval: "10s",
+		},
+	}
+	err = utils.CreateVaultConnectionCR(ctx, conn)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to create shared VaultConnection")
 
 	utils.TimedBy("waiting for shared VaultConnection to become Active and healthy")
 	Eventually(func(g Gomega) {
-		cmd := exec.Command("kubectl", "get", "vaultconnection", sharedVaultConnectionName,
-			"-o", "jsonpath={.status.phase},{.status.vaultVersion},{.status.lastHeartbeat}")
-		output, err := utils.Run(cmd)
+		vc, err := utils.GetVaultConnection(ctx, sharedVaultConnectionName, "")
 		g.Expect(err).NotTo(HaveOccurred())
-
-		parts := strings.SplitN(output, ",", 3)
-		g.Expect(parts).To(HaveLen(3), "expected phase,version,heartbeat but got: %s", output)
-		g.Expect(parts[0]).To(Equal("Active"), "VaultConnection phase should be Active")
-		g.Expect(parts[1]).NotTo(BeEmpty(), "VaultConnection should report vault version")
-		g.Expect(parts[2]).NotTo(BeEmpty(), "VaultConnection should have a lastHeartbeat timestamp")
+		g.Expect(string(vc.Status.Phase)).To(
+			Equal("Active"), "VaultConnection phase should be Active",
+		)
+		g.Expect(vc.Status.VaultVersion).NotTo(
+			BeEmpty(), "VaultConnection should report vault version",
+		)
+		g.Expect(vc.Status.LastHeartbeat).NotTo(
+			BeNil(), "VaultConnection should have a lastHeartbeat timestamp",
+		)
 	}, 2*time.Minute, 5*time.Second).Should(Succeed())
+}
+
+// stringReader creates an io.Reader from a string for kubectl stdin.
+// Used by test files that still use kubectl apply -f - for CRD creation.
+// TODO: Remove when all test files are migrated to typed client helpers.
+func stringReader(s string) *strings.Reader {
+	return strings.NewReader(s)
 }
 
 // cleanupSharedTestInfrastructure removes shared test resources
 func cleanupSharedTestInfrastructure() {
+	ctx := context.Background()
+
 	utils.TimedBy("cleaning up shared VaultConnection")
-	cmd := exec.Command("kubectl", "delete", "vaultconnection", sharedVaultConnectionName,
-		"--ignore-not-found", "--timeout=60s")
-	_, _ = utils.Run(cmd)
+	_ = utils.DeleteVaultConnectionCR(ctx, sharedVaultConnectionName)
 
 	// Wait for finalizers to complete
-	Eventually(func(g Gomega) {
-		cmd := exec.Command("kubectl", "get", "vaultconnection", sharedVaultConnectionName)
-		_, err := utils.Run(cmd)
-		g.Expect(err).To(HaveOccurred()) // Should fail when deleted
-	}, 60*time.Second, 2*time.Second).Should(Succeed())
+	err := utils.WaitForClusterDeletion(
+		ctx, &vaultv1alpha1.VaultConnection{}, sharedVaultConnectionName,
+		60*time.Second, 2*time.Second,
+	)
+	if err != nil {
+		fmt.Fprintf(GinkgoWriter,
+			"Warning: VaultConnection deletion timed out: %v\n", err)
+	}
 
 	utils.TimedBy("cleaning up test namespace")
-	cmd = exec.Command("kubectl", "delete", "ns", testNamespace, "--ignore-not-found", "--timeout=60s")
-	_, _ = utils.Run(cmd)
-}
-
-// stringReader creates an io.Reader from a string for kubectl stdin
-func stringReader(s string) *stringReaderImpl {
-	return &stringReaderImpl{data: []byte(s)}
-}
-
-type stringReaderImpl struct {
-	data []byte
-	pos  int
-}
-
-func (r *stringReaderImpl) Read(p []byte) (n int, err error) {
-	if r.pos >= len(r.data) {
-		return 0, io.EOF
-	}
-	n = copy(p, r.data[r.pos:])
-	r.pos += n
-	return n, nil
-}
-
-// createOperatorPolicy creates the operator policy in Vault using kubectl exec.
-// This policy provides the minimum permissions required for the operator to function.
-func createOperatorPolicy() error {
-	// Write the policy to Vault using heredoc via kubectl exec
-	// The policy is written to stdin of the vault policy write command
-	// Note: -i flag is required to pass stdin to the pod
-	cmd := exec.Command("kubectl", "exec", "-i", "-n", vaultNamespace, "vault-0", "--",
-		"vault", "policy", "write", operatorPolicyName, "-")
-	cmd.Stdin = stringReader(operatorPolicyHCL)
-	_, err := utils.Run(cmd)
-	return err
-}
-
-// getOperatorToken creates a new operator token with the operator policy.
-// Returns the token string or an error if token creation fails.
-func getOperatorToken() (string, error) {
-	cmd := exec.Command("kubectl", "exec", "-n", vaultNamespace, "vault-0", "--",
-		"vault", "token", "create",
-		"-policy="+operatorPolicyName,
-		"-ttl=24h",
-		"-format=json")
-	output, err := utils.Run(cmd)
-	if err != nil {
-		return "", fmt.Errorf("failed to create operator token: %w", err)
-	}
-
-	// Parse the JSON response to extract the client_token
-	var tokenResp struct {
-		Auth struct {
-			ClientToken string `json:"client_token"`
-		} `json:"auth"`
-	}
-	if err := json.Unmarshal([]byte(output), &tokenResp); err != nil {
-		return "", fmt.Errorf("failed to parse token response: %w", err)
-	}
-
-	if tokenResp.Auth.ClientToken == "" {
-		return "", fmt.Errorf("empty token in response")
-	}
-
-	return tokenResp.Auth.ClientToken, nil
+	_ = utils.DeleteNamespace(ctx, testNamespace)
 }
 
 // configureKubernetesAuth configures Vault's Kubernetes auth method at "auth/kubernetes".
@@ -498,32 +456,34 @@ func getOperatorToken() (string, error) {
 // and the cluster CA certificate, then writes them to auth/kubernetes/config so Vault
 // can validate Kubernetes service account tokens.
 func configureKubernetesAuth() error {
+	ctx := context.Background()
+
 	// Get a token for the vault-auth ServiceAccount (has TokenReview permissions)
-	reviewerJWT, err := utils.GetServiceAccountToken(vaultAuthNamespace, vaultAuthSA)
+	reviewerJWT, err := utils.CreateServiceAccountTokenClientGo(
+		ctx, vaultAuthNamespace, vaultAuthSA,
+	)
 	if err != nil {
 		return fmt.Errorf("failed to get vault-auth SA token: %w", err)
 	}
-	reviewerJWT = strings.TrimSpace(reviewerJWT)
 
-	// Get Kubernetes CA certificate from the vault pod's mounted SA
-	cmd := exec.Command("kubectl", "exec", "-n", vaultNamespace, "vault-0", "--",
-		"cat", "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")
-	caCert, err := utils.Run(cmd)
+	// Get Kubernetes CA certificate from the kubeconfig's TLS settings
+	caCert, err := utils.GetKubernetesCA()
 	if err != nil {
 		return fmt.Errorf("failed to get Kubernetes CA cert: %w", err)
 	}
 
-	// Configure Kubernetes auth with the token reviewer JWT and CA cert
-	_, err = utils.RunVaultCommand("write", "auth/kubernetes/config",
-		"kubernetes_host=https://kubernetes.default.svc.cluster.local:443",
-		fmt.Sprintf("token_reviewer_jwt=%s", reviewerJWT),
-		fmt.Sprintf("kubernetes_ca_cert=%s", strings.TrimSpace(caCert)),
-	)
+	// Configure Kubernetes auth via Vault Go client
+	vaultClient, err := utils.GetTestVaultClient()
 	if err != nil {
-		return fmt.Errorf("failed to configure kubernetes auth: %w", err)
+		return fmt.Errorf("failed to get vault client: %w", err)
 	}
 
-	return nil
+	return vaultClient.WriteKubernetesAuthConfig(
+		ctx, "kubernetes",
+		"https://kubernetes.default.svc.cluster.local:443",
+		strings.TrimSpace(reviewerJWT),
+		strings.TrimSpace(caCert),
+	)
 }
 
 // configureJWTAuth configures Vault's JWT auth method at the default "auth/jwt" path.
@@ -534,7 +494,9 @@ func configureJWTAuth() error {
 // configureOIDCAuth configures Vault's JWT auth method at the "auth/oidc" mount path
 // using Dex as the OIDC provider. Dex must be running on the host at dexDiscoveryURL.
 func configureOIDCAuth() error {
-	resp, err := http.Get(dexDiscoveryURL)
+	ctx := context.Background()
+
+	resp, err := http.Get(dexDiscoveryURL) //nolint:gosec
 	if err != nil {
 		return fmt.Errorf("Dex not reachable at %s: %w", dexDiscoveryURL, err)
 	}
@@ -542,10 +504,16 @@ func configureOIDCAuth() error {
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("Dex discovery returned status %d", resp.StatusCode)
 	}
-	_, err = utils.RunVaultCommand("write", "auth/oidc/config",
-		fmt.Sprintf("oidc_discovery_url=%s", dexIssuer),
-		fmt.Sprintf("bound_issuer=%s", dexIssuer),
-	)
+
+	vaultClient, err := utils.GetTestVaultClient()
+	if err != nil {
+		return fmt.Errorf("failed to get vault client: %w", err)
+	}
+
+	err = vaultClient.WriteAuthConfig(ctx, "auth/oidc/config", map[string]interface{}{
+		"oidc_discovery_url": dexIssuer,
+		"bound_issuer":       dexIssuer,
+	})
 	if err != nil {
 		return fmt.Errorf("failed to configure OIDC auth with Dex: %w", err)
 	}
@@ -591,9 +559,10 @@ func getDexToken(clientID, clientSecret string) (string, error) {
 // configureJWTAuthAtPath configures a JWT/OIDC auth method at the given Vault path.
 // Tries OIDC discovery first (requires internal issuer), falls back to JWKS.
 func configureJWTAuthAtPath(authPath string) error {
-	// Get OIDC configuration to find the issuer
-	cmd := exec.Command("kubectl", "get", "--raw", "/.well-known/openid-configuration")
-	output, err := utils.Run(cmd)
+	ctx := context.Background()
+
+	// Get OIDC configuration to find the issuer (kubectl get --raw equivalent)
+	output, err := utils.GetK8sRawEndpoint(ctx, "/.well-known/openid-configuration")
 	if err != nil {
 		return fmt.Errorf("failed to get OIDC config: %w", err)
 	}
@@ -601,41 +570,44 @@ func configureJWTAuthAtPath(authPath string) error {
 	var oidcConfig struct {
 		Issuer string `json:"issuer"`
 	}
-	if err := json.Unmarshal([]byte(output), &oidcConfig); err != nil {
+	if err := json.Unmarshal(output, &oidcConfig); err != nil {
 		return fmt.Errorf("failed to parse OIDC config: %w", err)
+	}
+
+	vaultClient, err := utils.GetTestVaultClient()
+	if err != nil {
+		return fmt.Errorf("failed to get vault client: %w", err)
 	}
 
 	configPath := fmt.Sprintf("%s/config", authPath)
 
 	// Try OIDC discovery first (works if k3d configured with internal issuer)
-	// Get the Kubernetes CA cert for TLS verification
-	cmd = exec.Command("kubectl", "exec", "-n", vaultNamespace, "vault-0", "--",
-		"cat", "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")
-	caCert, err := utils.Run(cmd)
+	caCert, err := utils.GetKubernetesCA()
 	if err == nil && caCert != "" {
-		_, err = utils.RunVaultCommand("write", configPath,
-			fmt.Sprintf("oidc_discovery_url=%s", oidcConfig.Issuer),
-			fmt.Sprintf("bound_issuer=%s", oidcConfig.Issuer),
-			fmt.Sprintf("oidc_discovery_ca_pem=%s", caCert),
-		)
+		err = vaultClient.WriteAuthConfig(ctx, configPath, map[string]interface{}{
+			"oidc_discovery_url":    oidcConfig.Issuer,
+			"bound_issuer":          oidcConfig.Issuer,
+			"oidc_discovery_ca_pem": caCert,
+		})
 		if err == nil {
 			fmt.Fprintf(GinkgoWriter, "%s configured with OIDC discovery\n", authPath)
 			return nil
 		}
-		fmt.Fprintf(GinkgoWriter, "OIDC discovery failed for %s (%v), falling back to JWKS\n", authPath, err)
+		fmt.Fprintf(GinkgoWriter,
+			"OIDC discovery failed for %s (%v), falling back to JWKS\n",
+			authPath, err)
 	}
 
 	// Fall back to JWKS (always works, no network call from Vault)
-	cmd = exec.Command("kubectl", "get", "--raw", "/openid/v1/jwks")
-	jwksOutput, err := utils.Run(cmd)
+	jwksOutput, err := utils.GetK8sRawEndpoint(ctx, "/openid/v1/jwks")
 	if err != nil {
 		return fmt.Errorf("failed to get JWKS: %w", err)
 	}
 
-	_, err = utils.RunVaultCommand("write", configPath,
-		fmt.Sprintf("jwt_validation_pubkeys=%s", jwksOutput),
-		fmt.Sprintf("bound_issuer=%s", oidcConfig.Issuer),
-	)
+	err = vaultClient.WriteAuthConfig(ctx, configPath, map[string]interface{}{
+		"jwt_validation_pubkeys": string(jwksOutput),
+		"bound_issuer":           oidcConfig.Issuer,
+	})
 	if err != nil {
 		return fmt.Errorf("failed to configure %s with JWKS: %w", authPath, err)
 	}

@@ -22,6 +22,7 @@ package utils
 import (
 	"context"
 	"fmt"
+	"os"
 	"sync"
 	"time"
 
@@ -818,4 +819,69 @@ func WaitForClusterDeletion(
 		}
 		return !exists, nil
 	})
+}
+
+// =============================================================================
+// Kubernetes API helpers
+// =============================================================================
+
+// NamespaceExists checks if a namespace exists.
+func NamespaceExists(ctx context.Context, name string) (bool, error) {
+	return ClusterResourceExists(ctx, &corev1.Namespace{}, name)
+}
+
+// GetKubernetesCA returns the Kubernetes cluster CA certificate PEM.
+// It reads from the rest config's TLS settings (CAData or CAFile).
+func GetKubernetesCA() (string, error) {
+	cfg := GetK8sRestConfig()
+	if cfg == nil {
+		return "", fmt.Errorf(
+			"k8s rest config not initialized; call GetK8sClient() first",
+		)
+	}
+
+	if len(cfg.CAData) > 0 {
+		return string(cfg.CAData), nil
+	}
+
+	if cfg.CAFile != "" {
+		data, err := os.ReadFile(cfg.CAFile)
+		if err != nil {
+			return "", fmt.Errorf("failed to read CA file %q: %w",
+				cfg.CAFile, err)
+		}
+		return string(data), nil
+	}
+
+	return "", fmt.Errorf("no CA cert found in kubeconfig")
+}
+
+// GetK8sRawEndpoint calls a raw Kubernetes API endpoint (equivalent to
+// kubectl get --raw <path>). Useful for OIDC discovery, JWKS, etc.
+func GetK8sRawEndpoint(
+	ctx context.Context, path string,
+) ([]byte, error) {
+	cfg := GetK8sRestConfig()
+	if cfg == nil {
+		return nil, fmt.Errorf(
+			"k8s rest config not initialized; call GetK8sClient() first",
+		)
+	}
+
+	clientset, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create clientset: %w", err)
+	}
+
+	result, err := clientset.Discovery().
+		RESTClient().
+		Get().
+		AbsPath(path).
+		DoRaw(ctx)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"failed to get raw endpoint %q: %w", path, err,
+		)
+	}
+	return result, nil
 }
