@@ -17,103 +17,117 @@ limitations under the License.
 package e2e
 
 import (
+	"context"
 	"fmt"
-	"os/exec"
 	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/test/utils"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 var _ = Describe("Error Handling Tests", Ordered, Label("module"), func() {
+	ctx := context.Background()
+
 	Context("TC-EH: Error Scenarios", func() {
 		It("TC-EH01: Handle invalid connection reference", func() {
 			invalidPolicyName := "tc-eh01-invalid-conn"
 
 			By("creating VaultPolicy with non-existent connection")
-			policyYAML := fmt.Sprintf(`
-apiVersion: vault.platform.io/v1alpha1
-kind: VaultPolicy
-metadata:
-  name: %s
-  namespace: %s
-spec:
-  connectionRef: non-existent-connection
-  rules:
-    - path: "secret/data/test/*"
-      capabilities: ["read"]
-`, invalidPolicyName, testNamespace)
-
-			cmd := exec.Command("kubectl", "apply", "-f", "-")
-			cmd.Stdin = stringReader(policyYAML)
-			_, err := utils.Run(cmd)
+			policy := &vaultv1alpha1.VaultPolicy{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      invalidPolicyName,
+					Namespace: testNamespace,
+				},
+				Spec: vaultv1alpha1.VaultPolicySpec{
+					ConnectionRef: "non-existent-connection",
+					Rules: []vaultv1alpha1.PolicyRule{
+						{
+							Path: "secret/data/test/*",
+							Capabilities: []vaultv1alpha1.Capability{
+								vaultv1alpha1.CapabilityRead,
+							},
+						},
+					},
+				},
+			}
+			err := utils.CreateVaultPolicyCR(ctx, policy)
 			Expect(err).NotTo(HaveOccurred())
 
 			By("verifying VaultPolicy enters Error or Pending phase")
 			Eventually(func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "vaultpolicy", invalidPolicyName,
-					"-n", testNamespace, "-o", "jsonpath={.status.phase}")
-				output, err := utils.Run(cmd)
+				status, err := utils.GetVaultPolicyStatus(
+					ctx, invalidPolicyName, testNamespace,
+				)
 				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Or(Equal("Error"), Equal("Pending")))
+				g.Expect(status).To(
+					Or(Equal("Error"), Equal("Pending")),
+				)
 			}, 30*time.Second, 2*time.Second).Should(Succeed())
 
 			By("cleaning up invalid policy")
-			cmd = exec.Command("kubectl", "delete", "vaultpolicy", invalidPolicyName,
-				"-n", testNamespace, "--ignore-not-found")
-			_, _ = utils.Run(cmd)
+			_ = utils.DeleteVaultPolicyCR(
+				ctx, invalidPolicyName, testNamespace,
+			)
 		})
 
-		It("TC-EH02: Handle missing policy reference in VaultRole", func() {
+		It("TC-EH02: Handle missing policy reference "+
+			"in VaultRole", func() {
 			missingPolicyRoleName := "tc-eh02-missing-policy"
 			missingPolicySAName := "tc-eh02-sa"
 
 			By("creating a test service account")
-			cmd := exec.Command("kubectl", "create", "serviceaccount", missingPolicySAName, "-n", testNamespace)
-			_, _ = utils.Run(cmd)
+			_ = utils.CreateServiceAccount(
+				ctx, testNamespace, missingPolicySAName,
+			)
 
 			By("creating VaultRole referencing non-existent policy")
-			roleYAML := fmt.Sprintf(`
-apiVersion: vault.platform.io/v1alpha1
-kind: VaultRole
-metadata:
-  name: %s
-  namespace: %s
-spec:
-  connectionRef: %s
-  serviceAccounts:
-    - %s
-  policies:
-    - kind: VaultPolicy
-      name: non-existent-policy
-      namespace: %s
-  tokenTTL: "30m"
-`, missingPolicyRoleName, testNamespace, sharedVaultConnectionName, missingPolicySAName, testNamespace)
-
-			cmd = exec.Command("kubectl", "apply", "-f", "-")
-			cmd.Stdin = stringReader(roleYAML)
-			_, err := utils.Run(cmd)
+			role := &vaultv1alpha1.VaultRole{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      missingPolicyRoleName,
+					Namespace: testNamespace,
+				},
+				Spec: vaultv1alpha1.VaultRoleSpec{
+					ConnectionRef: sharedVaultConnectionName,
+					ServiceAccounts: []string{
+						missingPolicySAName,
+					},
+					Policies: []vaultv1alpha1.PolicyReference{
+						{
+							Kind:      "VaultPolicy",
+							Name:      "non-existent-policy",
+							Namespace: testNamespace,
+						},
+					},
+					TokenTTL: "30m",
+				},
+			}
+			err := utils.CreateVaultRoleCR(ctx, role)
 			Expect(err).NotTo(HaveOccurred())
 
 			By("verifying VaultRole enters Error or Pending phase")
 			Eventually(func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "vaultrole", missingPolicyRoleName,
-					"-n", testNamespace, "-o", "jsonpath={.status.phase}")
-				output, err := utils.Run(cmd)
+				status, err := utils.GetVaultRoleStatus(
+					ctx, missingPolicyRoleName, testNamespace,
+				)
 				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Or(Equal("Error"), Equal("Pending")),
-					"VaultRole should be in Error or Pending phase due to missing policy")
+				g.Expect(status).To(
+					Or(Equal("Error"), Equal("Pending")),
+					"VaultRole should be in Error or Pending "+
+						"phase due to missing policy",
+				)
 			}, 30*time.Second, 2*time.Second).Should(Succeed())
 
 			By("verifying status message indicates missing policy")
-			cmd = exec.Command("kubectl", "get", "vaultrole", missingPolicyRoleName,
-				"-n", testNamespace, "-o", "jsonpath={.status.message}")
-			output, err := utils.Run(cmd)
-			if err == nil && output != "" {
-				Expect(strings.ToLower(output)).To(Or(
+			r, err := utils.GetVaultRole(
+				ctx, missingPolicyRoleName, testNamespace,
+			)
+			if err == nil && r.Status.Message != "" {
+				Expect(strings.ToLower(r.Status.Message)).To(Or(
 					ContainSubstring("not found"),
 					ContainSubstring("missing"),
 					ContainSubstring("policy"),
@@ -121,135 +135,158 @@ spec:
 			}
 
 			By("cleaning up missing policy role")
-			cmd = exec.Command("kubectl", "delete", "vaultrole", missingPolicyRoleName,
-				"-n", testNamespace, "--ignore-not-found", "--timeout=30s")
-			_, _ = utils.Run(cmd)
-			cmd = exec.Command("kubectl", "delete", "serviceaccount", missingPolicySAName,
-				"-n", testNamespace, "--ignore-not-found")
-			_, _ = utils.Run(cmd)
+			_ = utils.DeleteVaultRoleCR(
+				ctx, missingPolicyRoleName, testNamespace,
+			)
+			_ = utils.DeleteServiceAccount(
+				ctx, testNamespace, missingPolicySAName,
+			)
 		})
 
-		It("TC-EH03: Reject policy violating namespace boundary", func() {
+		It("TC-EH03: Reject policy violating "+
+			"namespace boundary", func() {
 			violationPolicyName := "tc-eh03-boundary"
+			enforceNS := true
 
-			By("attempting to create VaultPolicy without {{namespace}} variable")
-			policyYAML := fmt.Sprintf(`
-apiVersion: vault.platform.io/v1alpha1
-kind: VaultPolicy
-metadata:
-  name: %s
-  namespace: %s
-spec:
-  connectionRef: %s
-  enforceNamespaceBoundary: true
-  rules:
-    - path: "secret/data/global/*"
-      capabilities: ["read"]
-      description: "This path violates namespace boundary - no {{namespace}} variable"
-`, violationPolicyName, testNamespace, sharedVaultConnectionName)
+			By("creating VaultPolicy without {{namespace}} variable")
+			policy := &vaultv1alpha1.VaultPolicy{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      violationPolicyName,
+					Namespace: testNamespace,
+				},
+				Spec: vaultv1alpha1.VaultPolicySpec{
+					ConnectionRef:            sharedVaultConnectionName,
+					EnforceNamespaceBoundary: &enforceNS,
+					Rules: []vaultv1alpha1.PolicyRule{
+						{
+							Path: "secret/data/global/*",
+							Capabilities: []vaultv1alpha1.Capability{
+								vaultv1alpha1.CapabilityRead,
+							},
+							Description: "This path violates " +
+								"namespace boundary",
+						},
+					},
+				},
+			}
+			err := utils.CreateVaultPolicyCR(ctx, policy)
 
-			cmd := exec.Command("kubectl", "apply", "-f", "-")
-			cmd.Stdin = stringReader(policyYAML)
-			output, err := utils.Run(cmd)
-
-			// The webhook should reject this - either via admission error or the controller
-			// should put it in error state
+			// Webhook may reject, or controller detects the error
 			if err != nil {
-				By("webhook rejected the policy (expected behavior)")
-				Expect(output).To(Or(
+				By("webhook rejected the policy (expected)")
+				errMsg := err.Error()
+				Expect(errMsg).To(Or(
 					ContainSubstring("namespace"),
 					ContainSubstring("boundary"),
 					ContainSubstring("{{namespace}}"),
-				), "Rejection message should mention namespace boundary")
+				), "Rejection should mention namespace boundary")
 			} else {
-				By("policy was created, checking if controller puts it in error state")
+				By("policy created, checking controller phase")
 				Eventually(func(g Gomega) {
-					cmd := exec.Command("kubectl", "get", "vaultpolicy", violationPolicyName,
-						"-n", testNamespace, "-o", "jsonpath={.status.phase}")
-					output, err := utils.Run(cmd)
+					status, err := utils.GetVaultPolicyStatus(
+						ctx, violationPolicyName,
+						testNamespace,
+					)
 					g.Expect(err).NotTo(HaveOccurred())
-					g.Expect(output).To(Or(Equal("Error"), Equal("Active")))
-				}, 30*time.Second, 2*time.Second).Should(Succeed())
+					g.Expect(status).To(
+						Or(Equal("Error"), Equal("Active")),
+					)
+				}, 30*time.Second, 2*time.Second).Should(
+					Succeed(),
+				)
 
 				By("cleaning up boundary violation policy")
-				cmd = exec.Command("kubectl", "delete", "vaultpolicy", violationPolicyName,
-					"-n", testNamespace, "--ignore-not-found", "--timeout=30s")
-				_, _ = utils.Run(cmd)
+				_ = utils.DeleteVaultPolicyCR(
+					ctx, violationPolicyName, testNamespace,
+				)
 			}
 		})
 
-		It("TC-EH04: Handle VaultConnection becoming unavailable", func() {
+		It("TC-EH04: Handle VaultConnection "+
+			"becoming unavailable", func() {
 			unavailConnName := "tc-eh04-unavail"
 			unavailPolicyName := "tc-eh04-policy"
 
-			By("creating VaultConnection to a non-existent Vault address")
-			connYAML := fmt.Sprintf(`
-apiVersion: vault.platform.io/v1alpha1
-kind: VaultConnection
-metadata:
-  name: %s
-spec:
-  address: http://vault-does-not-exist.%s.svc.cluster.local:8200
-  auth:
-    token:
-      secretRef:
-        name: vault-token
-        namespace: %s
-        key: token
-  healthCheckInterval: "5s"
-`, unavailConnName, testNamespace, testNamespace)
-
-			cmd := exec.Command("kubectl", "apply", "-f", "-")
-			cmd.Stdin = stringReader(connYAML)
-			_, err := utils.Run(cmd)
+			By("creating VaultConnection to non-existent Vault")
+			conn := &vaultv1alpha1.VaultConnection{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: unavailConnName,
+				},
+				Spec: vaultv1alpha1.VaultConnectionSpec{
+					Address: fmt.Sprintf(
+						"http://vault-does-not-exist.%s"+
+							".svc.cluster.local:8200",
+						testNamespace,
+					),
+					Auth: vaultv1alpha1.AuthConfig{
+						Token: &vaultv1alpha1.TokenAuth{
+							SecretRef: vaultv1alpha1.SecretKeySelector{
+								Name:      "vault-token",
+								Namespace: testNamespace,
+								Key:       "token",
+							},
+						},
+					},
+					HealthCheckInterval: "5s",
+				},
+			}
+			err := utils.CreateVaultConnectionCR(ctx, conn)
 			Expect(err).NotTo(HaveOccurred())
 
-			By("verifying VaultConnection enters Error or Pending phase")
+			By("verifying VaultConnection enters Error or Pending")
 			Eventually(func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "vaultconnection", unavailConnName,
-					"-o", "jsonpath={.status.phase}")
-				output, err := utils.Run(cmd)
+				status, err := utils.GetVaultConnectionStatus(
+					ctx, unavailConnName, "",
+				)
 				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Or(Equal("Error"), Equal("Pending")),
-					"VaultConnection should be in Error or Pending phase")
+				g.Expect(status).To(
+					Or(Equal("Error"), Equal("Pending")),
+					"VaultConnection should be in Error or "+
+						"Pending phase",
+				)
 			}, 30*time.Second, 2*time.Second).Should(Succeed())
 
-			By("creating VaultPolicy using the unavailable connection")
-			policyYAML := fmt.Sprintf(`
-apiVersion: vault.platform.io/v1alpha1
-kind: VaultPolicy
-metadata:
-  name: %s
-  namespace: %s
-spec:
-  connectionRef: %s
-  rules:
-    - path: "secret/data/unavail/*"
-      capabilities: ["read"]
-`, unavailPolicyName, testNamespace, unavailConnName)
-
-			cmd = exec.Command("kubectl", "apply", "-f", "-")
-			cmd.Stdin = stringReader(policyYAML)
-			_, err = utils.Run(cmd)
+			By("creating VaultPolicy using unavailable connection")
+			policy := &vaultv1alpha1.VaultPolicy{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      unavailPolicyName,
+					Namespace: testNamespace,
+				},
+				Spec: vaultv1alpha1.VaultPolicySpec{
+					ConnectionRef: unavailConnName,
+					Rules: []vaultv1alpha1.PolicyRule{
+						{
+							Path: "secret/data/unavail/*",
+							Capabilities: []vaultv1alpha1.Capability{
+								vaultv1alpha1.CapabilityRead,
+							},
+						},
+					},
+				},
+			}
+			err = utils.CreateVaultPolicyCR(ctx, policy)
 			Expect(err).NotTo(HaveOccurred())
 
-			By("verifying VaultPolicy enters Error or Pending phase")
+			By("verifying VaultPolicy enters Error or Pending")
 			Eventually(func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "vaultpolicy", unavailPolicyName,
-					"-n", testNamespace, "-o", "jsonpath={.status.phase}")
-				output, err := utils.Run(cmd)
+				status, err := utils.GetVaultPolicyStatus(
+					ctx, unavailPolicyName, testNamespace,
+				)
 				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Or(Equal("Error"), Equal("Pending")),
-					"VaultPolicy should be in Error or Pending phase when connection unavailable")
+				g.Expect(status).To(
+					Or(Equal("Error"), Equal("Pending")),
+					"VaultPolicy should be in Error or Pending "+
+						"when connection unavailable",
+				)
 			}, 30*time.Second, 2*time.Second).Should(Succeed())
 
-			By("cleaning up unavailable connection test resources")
-			cmd = exec.Command("kubectl", "delete", "vaultpolicy", unavailPolicyName,
-				"-n", testNamespace, "--ignore-not-found", "--timeout=30s")
-			_, _ = utils.Run(cmd)
-			cmd = exec.Command("kubectl", "delete", "vaultconnection", unavailConnName,
-				"--ignore-not-found", "--timeout=30s")
-			_, _ = utils.Run(cmd)
+			By("cleaning up unavailable connection resources")
+			_ = utils.DeleteVaultPolicyCR(
+				ctx, unavailPolicyName, testNamespace,
+			)
+			_ = utils.DeleteVaultConnectionCR(
+				ctx, unavailConnName,
+			)
 		})
 
 		It("TC-EH05: Reject invalid TTL format", func() {
@@ -258,110 +295,117 @@ spec:
 			invalidTTLPolicyName := "tc-eh05-policy"
 
 			By("creating test prerequisites")
-			cmd := exec.Command("kubectl", "create", "serviceaccount", invalidTTLSAName, "-n", testNamespace)
-			_, _ = utils.Run(cmd)
+			_ = utils.CreateServiceAccount(
+				ctx, testNamespace, invalidTTLSAName,
+			)
 
-			policyYAML := fmt.Sprintf(`
-apiVersion: vault.platform.io/v1alpha1
-kind: VaultPolicy
-metadata:
-  name: %s
-  namespace: %s
-spec:
-  connectionRef: %s
-  rules:
-    - path: "secret/data/test/*"
-      capabilities: ["read"]
-`, invalidTTLPolicyName, testNamespace, sharedVaultConnectionName)
-
-			cmd = exec.Command("kubectl", "apply", "-f", "-")
-			cmd.Stdin = stringReader(policyYAML)
-			_, _ = utils.Run(cmd)
+			policy := &vaultv1alpha1.VaultPolicy{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      invalidTTLPolicyName,
+					Namespace: testNamespace,
+				},
+				Spec: vaultv1alpha1.VaultPolicySpec{
+					ConnectionRef: sharedVaultConnectionName,
+					Rules: []vaultv1alpha1.PolicyRule{
+						{
+							Path: "secret/data/test/*",
+							Capabilities: []vaultv1alpha1.Capability{
+								vaultv1alpha1.CapabilityRead,
+							},
+						},
+					},
+				},
+			}
+			_ = utils.CreateVaultPolicyCR(ctx, policy)
 
 			Eventually(func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "vaultpolicy", invalidTTLPolicyName,
-					"-n", testNamespace, "-o", "jsonpath={.status.phase}")
-				output, err := utils.Run(cmd)
+				status, err := utils.GetVaultPolicyStatus(
+					ctx, invalidTTLPolicyName, testNamespace,
+				)
 				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal("Active"))
+				g.Expect(status).To(Equal("Active"))
 			}, 2*time.Minute, 5*time.Second).Should(Succeed())
 
 			By("creating VaultRole with invalid TTL format")
-			roleYAML := fmt.Sprintf(`
-apiVersion: vault.platform.io/v1alpha1
-kind: VaultRole
-metadata:
-  name: %s
-  namespace: %s
-spec:
-  connectionRef: %s
-  serviceAccounts:
-    - %s
-  policies:
-    - kind: VaultPolicy
-      name: %s
-      namespace: %s
-  tokenTTL: "invalid-ttl"
-`, invalidTTLRoleName, testNamespace, sharedVaultConnectionName, invalidTTLSAName, invalidTTLPolicyName, testNamespace)
+			role := &vaultv1alpha1.VaultRole{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      invalidTTLRoleName,
+					Namespace: testNamespace,
+				},
+				Spec: vaultv1alpha1.VaultRoleSpec{
+					ConnectionRef: sharedVaultConnectionName,
+					ServiceAccounts: []string{
+						invalidTTLSAName,
+					},
+					Policies: []vaultv1alpha1.PolicyReference{
+						{
+							Kind:      "VaultPolicy",
+							Name:      invalidTTLPolicyName,
+							Namespace: testNamespace,
+						},
+					},
+					TokenTTL: "invalid-ttl",
+				},
+			}
+			err := utils.CreateVaultRoleCR(ctx, role)
 
-			cmd = exec.Command("kubectl", "apply", "-f", "-")
-			cmd.Stdin = stringReader(roleYAML)
-			output, err := utils.Run(cmd)
-
-			// Either webhook rejects it or it gets created in error state
+			// Webhook may reject or controller handles it
 			if err != nil {
-				By("webhook rejected the invalid TTL (expected behavior)")
-				Expect(output).To(Or(
+				By("webhook rejected the invalid TTL (expected)")
+				errMsg := err.Error()
+				Expect(errMsg).To(Or(
 					ContainSubstring("ttl"),
 					ContainSubstring("duration"),
 					ContainSubstring("invalid"),
 				))
 			} else {
-				By("role was created, verifying it's in error state")
+				By("role created, verifying error state")
 				Eventually(func(g Gomega) {
-					cmd := exec.Command("kubectl", "get", "vaultrole", invalidTTLRoleName,
-						"-n", testNamespace, "-o", "jsonpath={.status.phase}")
-					output, err := utils.Run(cmd)
+					status, err := utils.GetVaultRoleStatus(
+						ctx, invalidTTLRoleName, testNamespace,
+					)
 					g.Expect(err).NotTo(HaveOccurred())
-					g.Expect(output).To(Or(Equal("Error"), Equal("Pending")))
-				}, 30*time.Second, 2*time.Second).Should(Succeed())
+					g.Expect(status).To(
+						Or(Equal("Error"), Equal("Pending")),
+					)
+				}, 30*time.Second, 2*time.Second).Should(
+					Succeed(),
+				)
 			}
 
 			By("cleaning up")
-			cmd = exec.Command("kubectl", "delete", "vaultrole", invalidTTLRoleName,
-				"-n", testNamespace, "--ignore-not-found")
-			_, _ = utils.Run(cmd)
-			cmd = exec.Command("kubectl", "delete", "vaultpolicy", invalidTTLPolicyName,
-				"-n", testNamespace, "--ignore-not-found")
-			_, _ = utils.Run(cmd)
-			cmd = exec.Command("kubectl", "delete", "serviceaccount", invalidTTLSAName,
-				"-n", testNamespace, "--ignore-not-found")
-			_, _ = utils.Run(cmd)
+			_ = utils.DeleteVaultRoleCR(
+				ctx, invalidTTLRoleName, testNamespace,
+			)
+			_ = utils.DeleteVaultPolicyCR(
+				ctx, invalidTTLPolicyName, testNamespace,
+			)
+			_ = utils.DeleteServiceAccount(
+				ctx, testNamespace, invalidTTLSAName,
+			)
 		})
 
 		It("TC-EH06: Handle empty policy rules", func() {
 			emptyRulesPolicyName := "tc-eh06-empty-rules"
 
 			By("creating VaultPolicy with empty rules")
-			policyYAML := fmt.Sprintf(`
-apiVersion: vault.platform.io/v1alpha1
-kind: VaultPolicy
-metadata:
-  name: %s
-  namespace: %s
-spec:
-  connectionRef: %s
-  rules: []
-`, emptyRulesPolicyName, testNamespace, sharedVaultConnectionName)
+			policy := &vaultv1alpha1.VaultPolicy{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      emptyRulesPolicyName,
+					Namespace: testNamespace,
+				},
+				Spec: vaultv1alpha1.VaultPolicySpec{
+					ConnectionRef: sharedVaultConnectionName,
+					Rules:         []vaultv1alpha1.PolicyRule{},
+				},
+			}
+			err := utils.CreateVaultPolicyCR(ctx, policy)
 
-			cmd := exec.Command("kubectl", "apply", "-f", "-")
-			cmd.Stdin = stringReader(policyYAML)
-			output, err := utils.Run(cmd)
-
-			// Webhook should reject empty rules, or it should result in error state
+			// Webhook should reject empty rules, or error state
 			if err != nil {
-				By("webhook rejected empty rules (expected behavior)")
-				Expect(output).To(Or(
+				By("webhook rejected empty rules (expected)")
+				errMsg := err.Error()
+				Expect(errMsg).To(Or(
 					ContainSubstring("rules"),
 					ContainSubstring("empty"),
 					ContainSubstring("required"),
@@ -369,17 +413,21 @@ spec:
 			} else {
 				By("policy created, checking status")
 				Eventually(func(g Gomega) {
-					cmd := exec.Command("kubectl", "get", "vaultpolicy", emptyRulesPolicyName,
-						"-n", testNamespace, "-o", "jsonpath={.status.phase}")
-					output, err := utils.Run(cmd)
+					status, err := utils.GetVaultPolicyStatus(
+						ctx, emptyRulesPolicyName,
+						testNamespace,
+					)
 					g.Expect(err).NotTo(HaveOccurred())
-					// Empty rules might be accepted but result in a warning
-					g.Expect(output).To(Or(Equal("Error"), Equal("Active")))
-				}, 30*time.Second, 2*time.Second).Should(Succeed())
+					g.Expect(status).To(
+						Or(Equal("Error"), Equal("Active")),
+					)
+				}, 30*time.Second, 2*time.Second).Should(
+					Succeed(),
+				)
 
-				cmd = exec.Command("kubectl", "delete", "vaultpolicy", emptyRulesPolicyName,
-					"-n", testNamespace, "--ignore-not-found")
-				_, _ = utils.Run(cmd)
+				_ = utils.DeleteVaultPolicyCR(
+					ctx, emptyRulesPolicyName, testNamespace,
+				)
 			}
 		})
 	})
