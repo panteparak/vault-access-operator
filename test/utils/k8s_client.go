@@ -25,6 +25,7 @@ import (
 	"sync"
 	"time"
 
+	authenticationv1 "k8s.io/api/authentication/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -32,6 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -668,6 +670,32 @@ func DeleteServiceAccount(ctx context.Context, namespace, name string) error {
 			Namespace: namespace,
 		},
 	})
+}
+
+// CreateServiceAccountTokenClientGo creates a token for a ServiceAccount using
+// the client-go TokenRequest API. This replaces `kubectl create token <sa>`.
+func CreateServiceAccountTokenClientGo(
+	ctx context.Context, namespace, saName string,
+) (string, error) {
+	cfg := GetK8sRestConfig()
+	if cfg == nil {
+		return "", fmt.Errorf("k8s rest config not initialized; call GetK8sClient() first")
+	}
+
+	clientset, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		return "", fmt.Errorf("failed to create kubernetes clientset: %w", err)
+	}
+
+	tokenReq := &authenticationv1.TokenRequest{}
+	result, err := clientset.CoreV1().ServiceAccounts(namespace).CreateToken(
+		ctx, saName, tokenReq, metav1.CreateOptions{},
+	)
+	if err != nil {
+		return "", fmt.Errorf("failed to create token for SA %s/%s: %w", namespace, saName, err)
+	}
+
+	return result.Status.Token, nil
 }
 
 // =============================================================================
