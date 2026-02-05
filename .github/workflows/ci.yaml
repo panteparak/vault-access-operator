@@ -897,18 +897,17 @@ jobs:
 
       - name: Copy CRDs to helm chart
         run: |
-          # Copy CRDs from artifact to helm chart (in case verify auto-committed new ones)
           echo "Copying generated CRDs to helm chart..."
           cp -v /tmp/generated-crds/charts/vault-access-operator/crds/*.yaml \
                 ./charts/vault-access-operator/crds/ 2>/dev/null || \
           cp -v /tmp/generated-crds/config/crd/bases/*.yaml \
                 ./charts/vault-access-operator/crds/
           echo "CRDs copied successfully"
-          ls -la ./charts/vault-access-operator/crds/
+
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-          cache: false  # We use explicit caching below for better control
+          cache: false
       - name: Cache Go modules
         uses: actions/cache@v4
         with:
@@ -933,9 +932,6 @@ jobs:
       - name: Set image tag
         id: image-tag
         run: |
-          # E2E runs on amd64, so always use linux-amd64 platform tag
-          # For PRs: use platform-specific tag (only amd64 is built)
-          # For push: use manifest tag (works with multi-arch)
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
             echo "tag=sha-${{ steps.short-sha.outputs.sha }}-linux-amd64" >> $GITHUB_OUTPUT
           else
@@ -948,244 +944,55 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Setup k3d with GHCR access
+      - uses: azure/setup-helm@v4
+        with:
+          version: 'v3.14.0'
+
+      # --- E2E Infrastructure via Makefile targets (identical to local) ---
+
+      - name: Start E2E infrastructure
+        run: make e2e-compose-up
+
+      - name: Wait for cluster
+        run: make e2e-wait-cluster
+
+      - name: Deploy and configure
         run: |
-          curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash
+          make e2e-deploy-vault-rbac
+          make e2e-bridge-vault
+          make e2e-bridge-dex
+          make e2e-configure-vault
 
-          # Create k3d registry config for GHCR authentication
-          mkdir -p /tmp/k3d
-          cat > /tmp/k3d/registries.yaml << EOF
-          mirrors:
-            "ghcr.io":
-              endpoint:
-                - "https://ghcr.io"
-          configs:
-            "ghcr.io":
-              auth:
-                username: ${{ github.actor }}
-                password: ${{ secrets.GITHUB_TOKEN }}
-          EOF
-
-          k3d cluster create e2e --wait --timeout 120s \
-            --registry-config /tmp/k3d/registries.yaml \
-            --k3s-arg "--disable=traefik@server:*" \
-            --k3s-arg "--disable=servicelb@server:*" \
-            --k3s-arg "--disable=metrics-server@server:*" \
-            --k3s-arg "--kube-apiserver-arg=service-account-issuer=https://kubernetes.default.svc@server:*"
-          kubectl wait --for=condition=Ready nodes --all --timeout=60s
-
-          # Wait for all kube-system pods (CoreDNS, local-path-provisioner, etc.)
-          # Node readiness alone does NOT guarantee system pods are running.
-          # Without CoreDNS, pods cannot resolve Service DNS names.
-          kubectl wait --for=condition=Ready pods --all -n kube-system --timeout=120s
-
-      - name: Deploy Dex OIDC Provider
-        run: |
-          docker run -d \
-            --name dex \
-            --network k3d-e2e \
-            -p 5556:5556 \
-            -v ${{ github.workspace }}/test/e2e/fixtures/dex-config.yaml:/etc/dex/config.yaml:ro \
-            ghcr.io/dexidp/dex:v2.39.1 \
-            dex serve /etc/dex/config.yaml
-
-          echo "Waiting for Dex OIDC provider..."
-          for i in $(seq 1 30); do
-            if curl -sf http://localhost:5556/.well-known/openid-configuration > /dev/null 2>&1; then
-              echo "Dex is ready"
-              break
-            fi
-            if [ "$i" -eq 30 ]; then
-              echo "ERROR: Dex failed to start"; docker logs dex; exit 1
-            fi
-            sleep 1
-          done
-
-          DEX_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' dex)
-          echo "Dex IP: $DEX_IP"
-          echo "DEX_IP=$DEX_IP" >> $GITHUB_ENV
-          curl -s http://localhost:5556/.well-known/openid-configuration | jq .
-
-      - name: Deploy Vault
-        run: |
-          kubectl apply -f test/e2e/fixtures/vault.yaml
-          # Wait for StatefulSet rollout (handles pod creation timing)
-          kubectl rollout status statefulset/vault -n vault --timeout=300s
-
-      - name: Create Dex K8s Service
-        run: |
-          cat <<EOF | kubectl apply -f -
-          apiVersion: v1
-          kind: Service
-          metadata:
-            name: dex
-            namespace: default
-          spec:
-            ports:
-              - port: 5556
-                targetPort: 5556
-          ---
-          apiVersion: v1
-          kind: Endpoints
-          metadata:
-            name: dex
-            namespace: default
-          subsets:
-            - addresses:
-                - ip: ${DEX_IP}
-              ports:
-                - port: 5556
-          EOF
-
-          echo "Verifying Dex from inside cluster..."
-          for attempt in $(seq 1 5); do
-            if kubectl run dex-test-${attempt} --rm -i --restart=Never \
-              --image=curlimages/curl --timeout=30s -- \
-              curl -sf --max-time 10 http://dex.default.svc.cluster.local:5556/.well-known/openid-configuration; then
-              echo "Dex reachable from inside cluster"
-              break
-            fi
-            if [ "$attempt" -eq 5 ]; then
-              echo "ERROR: Dex not reachable from inside cluster after 5 attempts"
-              kubectl get svc,endpoints dex -o wide
-              kubectl get pods -n kube-system
-              exit 1
-            fi
-            echo "Attempt ${attempt} failed, retrying in 3s..."
-            sleep 3
-          done
-
-      - name: Configure Vault for E2E tests
-        run: |
-          # Create operator policy for E2E tests
-          # Mirrors operatorPolicyHCL in e2e_suite_test.go — keep in sync
-          # Note: -i flag is required to pass stdin (heredoc) to kubectl exec
-          kubectl exec -i -n vault vault-0 -- vault policy write vault-access-operator - <<'EOF'
-          # Policy management
-          path "sys/policies/acl/*" { capabilities = ["create", "read", "update", "delete", "list"] }
-          path "sys/policies/acl" { capabilities = ["list"] }
-          # Kubernetes auth
-          path "auth/kubernetes/role/*" { capabilities = ["create", "read", "update", "delete", "list"] }
-          path "auth/kubernetes/role" { capabilities = ["list"] }
-          path "auth/kubernetes/config" { capabilities = ["create", "read", "update", "delete"] }
-          # JWT auth
-          path "auth/jwt/role/*" { capabilities = ["create", "read", "update", "delete", "list"] }
-          path "auth/jwt/role" { capabilities = ["list"] }
-          path "auth/jwt/config" { capabilities = ["create", "read", "update", "delete"] }
-          # AppRole auth
-          path "auth/approle/*" { capabilities = ["create", "read", "update", "delete", "list", "sudo"] }
-          path "auth/approle" { capabilities = ["read"] }
-          # OIDC (JWT at oidc path) auth
-          path "auth/oidc/*" { capabilities = ["create", "read", "update", "delete", "list", "sudo"] }
-          path "auth/oidc" { capabilities = ["read"] }
-          # Auth method management
-          path "sys/auth" { capabilities = ["read"] }
-          path "sys/auth/*" { capabilities = ["sudo", "create", "read", "update", "delete", "list"] }
-          # Health + mounts
-          path "sys/mounts" { capabilities = ["read"] }
-          path "sys/health" { capabilities = ["read"] }
-          # KV v2 managed resource metadata
-          path "secret/data/vault-access-operator/managed/*" { capabilities = ["create", "read", "update", "delete"] }
-          path "secret/metadata/vault-access-operator/managed/*" { capabilities = ["list", "read", "delete"] }
-          EOF
-          echo "Vault operator policy created successfully"
-
-          # Enable auth methods for E2E tests
-          kubectl exec -n vault vault-0 -- vault auth enable kubernetes || true
-          echo "Kubernetes auth method enabled"
-
-          kubectl exec -n vault vault-0 -- vault auth enable jwt || true
-          echo "JWT auth method enabled"
-
-          kubectl exec -n vault vault-0 -- vault auth enable approle || true
-          echo "AppRole auth method enabled"
-
-          kubectl exec -n vault vault-0 -- vault auth enable -path=oidc jwt || true
-          echo "OIDC (JWT at oidc path) auth method enabled"
-
-          # Get OIDC/JWKS configuration from the Kubernetes API
-          OIDC_CONFIG=$(kubectl get --raw /.well-known/openid-configuration)
-          ISSUER=$(echo "$OIDC_CONFIG" | jq -r '.issuer')
-          echo "OIDC Issuer: $ISSUER"
-
-          # Get the Kubernetes CA cert for TLS verification
-          K8S_CA=$(kubectl get secret -n vault vault-token -o jsonpath='{.data.ca\.crt}' 2>/dev/null | base64 -d || \
-                   kubectl exec -n vault vault-0 -- cat /var/run/secrets/kubernetes.io/serviceaccount/ca.crt)
-
-          # Configure Kubernetes auth (required for VaultRole CRDs that default to auth/kubernetes)
-          # Use jq + stdin to preserve multiline PEM content through kubectl exec
-          VAULT_AUTH_TOKEN=$(kubectl create token vault-auth -n vault)
-          jq -n \
-            --arg host "https://kubernetes.default.svc.cluster.local:443" \
-            --arg jwt "$VAULT_AUTH_TOKEN" \
-            --arg ca "$K8S_CA" \
-            '{kubernetes_host: $host, token_reviewer_jwt: $jwt, kubernetes_ca_cert: $ca}' | \
-          kubectl exec -i -n vault vault-0 -- vault write auth/kubernetes/config -
-          echo "Kubernetes auth configured"
-
-          # Configure JWT auth — try OIDC discovery first, fall back to JWKS URL
-          # Use jq + stdin to preserve multiline PEM content through kubectl exec
-          if jq -n \
-               --arg issuer "$ISSUER" \
-               --arg ca "$K8S_CA" \
-               '{oidc_discovery_url: $issuer, bound_issuer: $issuer, oidc_discovery_ca_pem: $ca}' | \
-             kubectl exec -i -n vault vault-0 -- vault write auth/jwt/config - 2>/dev/null; then
-            echo "JWT auth configured with OIDC discovery"
-          else
-            echo "OIDC discovery failed for JWT, falling back to JWKS URL with CA"
-            if jq -n \
-                 --arg issuer "$ISSUER" \
-                 --arg ca "$K8S_CA" \
-                 '{jwks_url: "https://kubernetes.default.svc/openid/v1/jwks", jwks_ca_pem: $ca, bound_issuer: $issuer}' | \
-               kubectl exec -i -n vault vault-0 -- vault write auth/jwt/config - 2>/dev/null; then
-              echo "JWT auth configured with JWKS URL"
-            else
-              echo "Warning: JWT auth configuration failed (tests will skip JWT auth)"
-            fi
-          fi
-
-          # Configure OIDC (JWT at oidc path) auth with Dex OIDC discovery
-          kubectl exec -n vault vault-0 -- vault write auth/oidc/config \
-            oidc_discovery_url="http://dex.default.svc.cluster.local:5556" \
-            bound_issuer="http://dex.default.svc.cluster.local:5556"
-          echo "OIDC auth configured with Dex OIDC discovery"
-
-      # For PRs: Load image from artifact (not in registry yet)
+      # PR: Load image from build artifact
       - uses: actions/download-artifact@v4
         if: github.event_name == 'pull_request'
         with:
           name: operator-image
           path: /tmp
 
-      - name: Load image into k3d (PR only)
+      - name: Load operator image (PR)
         if: github.event_name == 'pull_request'
         run: |
           docker load -i /tmp/operator-image.tar
-          k3d image import ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.image-tag.outputs.tag }} --cluster e2e
+          make e2e-import-operator \
+            E2E_OPERATOR_IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.image-tag.outputs.tag }}
 
-      # Deploy operator using Helm
-      # Template comparison in verify job ensures kustomize and helm are equivalent
-      - uses: azure/setup-helm@v4
-        with:
-          version: 'v3.14.0'
-
-      - name: Deploy operator (Helm)
+      # Push: Pull image from GHCR, then import into k3s
+      - name: Load operator image (push)
+        if: github.event_name == 'push'
         run: |
-          helm install vault-access-operator ./charts/vault-access-operator \
-            --namespace vault-access-operator-system --create-namespace \
-            --set image.repository=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }} \
-            --set image.tag=${{ steps.image-tag.outputs.tag }} \
-            --set image.pullPolicy=IfNotPresent \
-            --set webhook.enabled=false \
-            --wait --timeout 5m
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.image-tag.outputs.tag }}
+          make e2e-import-operator \
+            E2E_OPERATOR_IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.image-tag.outputs.tag }}
 
-      - name: Wait for operator
+      - name: Deploy operator
         run: |
-          kubectl wait --for=condition=Available deployment \
-            -l app.kubernetes.io/name=vault-access-operator \
-            -n vault-access-operator-system --timeout=120s
+          make e2e-deploy-operator \
+            E2E_OPERATOR_IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.image-tag.outputs.tag }}
 
       - name: Verify deployment state
+        env:
+          KUBECONFIG: ${{ github.workspace }}/tmp/e2e/kubeconfig.yaml
         run: |
           echo "=== Operator Pod Status ==="
           kubectl get pods -n vault-access-operator-system -o wide
@@ -1195,25 +1002,24 @@ jobs:
           kubectl get crds | grep vault || echo "No Vault CRDs found!"
 
           echo ""
-          echo "=== Operator Logs (last 50 lines) ==="
-          kubectl logs -n vault-access-operator-system \
-            -l app.kubernetes.io/name=vault-access-operator \
-            --tail=50 || echo "Could not get operator logs"
+          echo "=== Vault Health (docker compose) ==="
+          docker compose -f docker-compose.e2e.yaml exec -T vault vault status || echo "Vault not ready"
 
           echo ""
-          echo "=== Vault Status ==="
-          kubectl get pods -n vault -o wide
-          kubectl exec -n vault vault-0 -- vault status || echo "Vault not ready or not unsealed"
+          echo "=== All Pods ==="
+          kubectl get pods -A -o wide
 
       - name: Run E2E tests
         env:
+          KUBECONFIG: ${{ github.workspace }}/tmp/e2e/kubeconfig.yaml
+          VAULT_ADDR: http://localhost:8200
+          E2E_K8S_HOST: https://k3s:6443
           E2E_IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.image-tag.outputs.tag }}
           E2E_SKIP_BUILD: "true"
           E2E_SKIP_IMAGE_LOAD: "true"
         run: |
           set -o pipefail
 
-          # Run auth tests FIRST to catch authentication issues early
           echo "=========================================="
           echo "Phase 1: Running authentication tests..."
           echo "=========================================="
@@ -1221,7 +1027,6 @@ jobs:
             -ginkgo.label-filter="auth" \
             -ginkgo.json-report=e2e-auth-report.json -timeout=10m 2>&1 | tee e2e-auth-output.txt
 
-          # Run module/setup tests AFTER auth is verified
           echo "=========================================="
           echo "Phase 2: Running module tests..."
           echo "=========================================="
@@ -1229,34 +1034,31 @@ jobs:
             -ginkgo.label-filter="module || setup" \
             -ginkgo.json-report=e2e-module-report.json -timeout=15m 2>&1 | tee e2e-module-output.txt
 
-          # Combine outputs for summary
           cat e2e-auth-output.txt e2e-module-output.txt > e2e-output.txt
           jq -s 'add' e2e-auth-report.json e2e-module-report.json > e2e-report.json
 
       - name: E2E Summary
         if: always()
         run: |
-          echo "## 🚀 E2E Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "## E2E Test Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Component | Status |" >> $GITHUB_STEP_SUMMARY
           echo "|-----------|--------|" >> $GITHUB_STEP_SUMMARY
           echo "| Install Method | Helm |" >> $GITHUB_STEP_SUMMARY
-          echo "| Kubernetes | k3d |" >> $GITHUB_STEP_SUMMARY
-          echo "| Vault | dev mode |" >> $GITHUB_STEP_SUMMARY
+          echo "| Kubernetes | k3s (compose) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Vault | dev mode (compose, external) |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
-          # Generate test case table from JSON report
           if [ -f e2e-report.json ]; then
             echo "### Test Cases" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "| Status | Test Case | Duration |" >> $GITHUB_STEP_SUMMARY
             echo "|--------|-----------|----------|" >> $GITHUB_STEP_SUMMARY
 
-            # Parse JSON and create table rows (skip skipped tests)
             jq -r '
               .[] | .SpecReports[]? |
               select(.State != "skipped" and .State != "") |
-              (if .State == "passed" then "✅" elif .State == "failed" then "❌" else "⚠️" end) as $status |
+              (if .State == "passed" then "PASS" elif .State == "failed" then "FAIL" else "WARN" end) as $status |
               (.LeafNodeText // .ContainerHierarchyTexts[-1] // "Unknown") as $name |
               ((.RunTime / 1000000000 * 100 | floor) / 100) as $duration |
               "| \($status) | \($name) | \($duration)s |"
@@ -1264,22 +1066,20 @@ jobs:
 
             echo "" >> $GITHUB_STEP_SUMMARY
 
-            # Summary counts
             PASSED=$(jq '[.[] | .SpecReports[]? | select(.State == "passed")] | length' e2e-report.json 2>/dev/null || echo "0")
             FAILED=$(jq '[.[] | .SpecReports[]? | select(.State == "failed")] | length' e2e-report.json 2>/dev/null || echo "0")
             SKIPPED=$(jq '[.[] | .SpecReports[]? | select(.State == "skipped")] | length' e2e-report.json 2>/dev/null || echo "0")
 
             echo "### Summary" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "| ✅ Passed | ❌ Failed | ⏭️ Skipped |" >> $GITHUB_STEP_SUMMARY
-            echo "|-----------|-----------|------------|" >> $GITHUB_STEP_SUMMARY
+            echo "| Passed | Failed | Skipped |" >> $GITHUB_STEP_SUMMARY
+            echo "|--------|--------|---------|" >> $GITHUB_STEP_SUMMARY
             echo "| ${PASSED} | ${FAILED} | ${SKIPPED} |" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
           fi
 
-          # Extract failures with context
           if [ -f e2e-output.txt ] && grep -q "FAIL" e2e-output.txt; then
-            echo "### ❌ Failure Details" >> $GITHUB_STEP_SUMMARY
+            echo "### Failure Details" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "<details>" >> $GITHUB_STEP_SUMMARY
             echo "<summary>Click to expand failure logs</summary>" >> $GITHUB_STEP_SUMMARY
@@ -1303,27 +1103,21 @@ jobs:
         run: |
           mkdir -p /tmp/debug-logs/vault
 
-          echo "=== Vault Pod Logs (last 1000 lines) ==="
-          kubectl logs vault-0 -n vault --tail=1000 2>&1 | tee /tmp/debug-logs/vault/logs.txt || true
-
-          echo ""
-          echo "=== Vault Pod Describe ==="
-          kubectl describe pod vault-0 -n vault 2>&1 | tee /tmp/debug-logs/vault/describe.txt || true
-
-          echo ""
-          echo "=== Vault Namespace Events ==="
-          kubectl get events -n vault --sort-by='.lastTimestamp' 2>&1 | tee /tmp/debug-logs/vault/events.txt || true
+          echo "=== Vault Container Logs ==="
+          docker compose -f docker-compose.e2e.yaml logs vault 2>&1 | tee /tmp/debug-logs/vault/logs.txt || true
 
           echo ""
           echo "=== Vault Status ==="
-          kubectl exec -n vault vault-0 -- vault status -format=json 2>&1 | tee /tmp/debug-logs/vault/status.json || true
+          docker compose -f docker-compose.e2e.yaml exec -T vault vault status -format=json 2>&1 | tee /tmp/debug-logs/vault/status.json || true
 
           echo ""
           echo "=== Vault Auth Methods ==="
-          kubectl exec -n vault vault-0 -- vault auth list -format=json 2>&1 | tee /tmp/debug-logs/vault/auth-list.json || true
+          docker compose -f docker-compose.e2e.yaml exec -T vault vault auth list -format=json 2>&1 | tee /tmp/debug-logs/vault/auth-list.json || true
 
       - name: Debug - Operator logs
         if: failure()
+        env:
+          KUBECONFIG: ${{ github.workspace }}/tmp/e2e/kubeconfig.yaml
         run: |
           mkdir -p /tmp/debug-logs/operator
 
@@ -1338,12 +1132,10 @@ jobs:
           echo "=== Operator Pod Describe ==="
           kubectl describe pods -n vault-access-operator-system 2>&1 | tee /tmp/debug-logs/operator/describe.txt || true
 
-          echo ""
-          echo "=== Operator Namespace Events ==="
-          kubectl get events -n vault-access-operator-system --sort-by='.lastTimestamp' 2>&1 | tee /tmp/debug-logs/operator/events.txt || true
-
       - name: Debug - CRD status
         if: failure()
+        env:
+          KUBECONFIG: ${{ github.workspace }}/tmp/e2e/kubeconfig.yaml
         run: |
           mkdir -p /tmp/debug-logs/crds
 
@@ -1368,6 +1160,8 @@ jobs:
 
       - name: Debug - Cluster state
         if: failure()
+        env:
+          KUBECONFIG: ${{ github.workspace }}/tmp/e2e/kubeconfig.yaml
         run: |
           mkdir -p /tmp/debug-logs/cluster
 
@@ -1383,10 +1177,6 @@ jobs:
           kubectl describe nodes 2>&1 | tee /tmp/debug-logs/cluster/nodes.txt || true
 
           echo ""
-          echo "=== PVCs ==="
-          kubectl get pvc -A -o wide 2>&1 | tee /tmp/debug-logs/cluster/pvcs.txt || true
-
-          echo ""
           echo "=== Services ==="
           kubectl get svc -A -o wide 2>&1 | tee /tmp/debug-logs/cluster/services.txt || true
 
@@ -1400,11 +1190,7 @@ jobs:
           mkdir -p /tmp/debug-logs/dex
 
           echo "=== Dex Container Logs ==="
-          docker logs dex 2>&1 | tee /tmp/debug-logs/dex/logs.txt || true
-
-          echo ""
-          echo "=== Dex Container Inspect ==="
-          docker inspect dex 2>&1 | tee /tmp/debug-logs/dex/inspect.json || true
+          docker compose -f docker-compose.e2e.yaml logs dex 2>&1 | tee /tmp/debug-logs/dex/logs.txt || true
 
           echo ""
           echo "=== Dex OIDC Discovery ==="
@@ -1418,13 +1204,9 @@ jobs:
           path: /tmp/debug-logs/
           retention-days: 7
 
-      - name: Cleanup Dex
-        if: always()
-        run: docker rm -f dex 2>/dev/null || true
-
       - name: Cleanup
         if: always()
-        run: k3d cluster delete e2e || true
+        run: make e2e-compose-down
 
   # ============================================================================
   # Stage 5: Success

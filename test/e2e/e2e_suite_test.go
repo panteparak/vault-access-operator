@@ -34,7 +34,6 @@ import (
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/test/utils"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -57,9 +56,10 @@ const (
 )
 
 // Dex OIDC provider constants for OIDC auth tests.
-// Dex runs as a Docker container alongside k3d and is reachable:
+// Dex runs as a Docker container alongside k3s (docker-compose) and is reachable:
 // - From host/tests: http://localhost:5556 (port mapping)
-// - From Vault pods: http://dex.default.svc.cluster.local:5556 (K8s Service + Endpoints)
+// - From k8s pods: http://dex.default.svc.cluster.local:5556 (K8s Service + Endpoints bridge)
+// - From Vault container: http://dex.default.svc.cluster.local:5556 (docker network alias)
 const (
 	dexTokenEndpoint      = "http://localhost:5556/token"
 	dexIssuer             = "http://dex.default.svc.cluster.local:5556"
@@ -191,7 +191,7 @@ func init() {
 
 // TestE2E runs the end-to-end (e2e) test suite for the project. These tests execute in an isolated,
 // temporary environment to validate project changes with the purpose to be used in CI jobs.
-// The default setup uses k3d and builds/loads the Manager Docker image locally.
+// Both local and CI use docker-compose (k3s + Vault + Dex) with identical Makefile targets.
 // In CI, E2E_SKIP_BUILD and E2E_SKIP_IMAGE_LOAD are set to use pre-built images.
 // Note: Webhooks use self-signed TLS certificates instead of cert-manager.
 func TestE2E(t *testing.T) {
@@ -255,13 +255,16 @@ var _ = ReportAfterEach(func(report SpecReport) {
 			fmt.Fprintf(GinkgoWriter, "\n--- Failed to get Operator Logs: %v ---\n", err)
 		}
 
-		// Capture Vault status
-		cmd = exec.Command("kubectl", "exec", "-n", vaultNamespace, "vault-0", "--",
-			"vault", "status")
+		// Capture Vault status (Vault runs as docker container, check via API)
+		vaultAddr := os.Getenv("VAULT_ADDR")
+		if vaultAddr == "" {
+			vaultAddr = "http://localhost:8200"
+		}
+		cmd = exec.Command("curl", "-sf", vaultAddr+"/v1/sys/health")
 		if output, err := utils.Run(cmd); err == nil {
-			fmt.Fprintf(GinkgoWriter, "\n--- Vault Status ---\n%s\n", output)
+			fmt.Fprintf(GinkgoWriter, "\n--- Vault Health ---\n%s\n", output)
 		} else {
-			fmt.Fprintf(GinkgoWriter, "\n--- Failed to get Vault Status: %v ---\n", err)
+			fmt.Fprintf(GinkgoWriter, "\n--- Failed to get Vault Health: %v ---\n", err)
 		}
 
 		// Capture CRD status
@@ -300,26 +303,20 @@ func setupSharedTestInfrastructure() {
 	err := utils.CreateNamespace(ctx, testNamespace)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to create test namespace")
 
-	// Check if Vault is already deployed (CI deploys it before tests)
-	utils.TimedBy("checking if Vault is deployed")
+	// Deploy Vault RBAC resources if vault namespace doesn't exist
+	// (CI and local both deploy these via Makefile, but this handles fallback)
+	utils.TimedBy("checking if Vault RBAC is deployed")
 	vaultExists, err := utils.NamespaceExists(ctx, vaultNamespace)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred())
 	if !vaultExists {
-		utils.TimedBy("deploying Vault dev server (not found, deploying for local development)")
-		cmd := exec.Command("kubectl", "apply", "-f", "test/e2e/fixtures/vault.yaml")
+		utils.TimedBy("deploying Vault RBAC (not found, deploying for fallback)")
+		cmd := exec.Command("kubectl", "apply", "-f", "test/e2e/fixtures/vault-rbac.yaml")
 		_, err = utils.Run(cmd)
-		ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to deploy Vault")
+		ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to deploy Vault RBAC")
 	}
 
-	utils.TimedBy("waiting for Vault to be ready")
-	Eventually(func(g Gomega) {
-		pods, err := utils.GetPodsByLabel(ctx, vaultNamespace, "app", "vault")
-		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(pods.Items).NotTo(BeEmpty(), "no vault pods found")
-		g.Expect(pods.Items[0].Status.Phase).To(Equal(corev1.PodRunning))
-	}, 2*time.Minute, 5*time.Second).Should(Succeed())
-
 	// Wait for Vault API to be accessible via the Go client
+	// Vault now runs as a docker container (not a k8s pod), so we check the API directly
 	utils.TimedBy("waiting for Vault API to be accessible")
 	vaultClient, err := utils.GetTestVaultClient()
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to create Vault test client")
@@ -483,9 +480,17 @@ func configureKubernetesAuth() error {
 		)
 	}
 
+	// E2E_K8S_HOST overrides the Kubernetes API host that Vault uses.
+	// When Vault runs external to k8s (docker-compose), it connects via
+	// the docker network (e.g., https://k3s:6443) instead of the in-cluster DNS.
+	k8sHost := os.Getenv("E2E_K8S_HOST")
+	if k8sHost == "" {
+		k8sHost = "https://kubernetes.default.svc.cluster.local:443"
+	}
+
 	return vaultClient.WriteKubernetesAuthConfig(
 		ctx, "kubernetes",
-		"https://kubernetes.default.svc.cluster.local:443",
+		k8sHost,
 		strings.TrimSpace(reviewerJWT),
 		strings.TrimSpace(caCert),
 	)

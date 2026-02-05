@@ -155,9 +155,9 @@ path "sys/health" {
 						"role_type":       "jwt",
 						"bound_audiences": dexClientID,
 						"user_claim":      "email",
-						"bound_claims": fmt.Sprintf(
-							"email=%s", dexTestEmail,
-						),
+						"bound_claims": map[string]interface{}{
+							"email": dexTestEmail,
+						},
 						"policies": fmt.Sprintf(
 							"%s,default",
 							oidcPolicyName,
@@ -273,9 +273,9 @@ path "sys/health" {
 						"role_type":       "jwt",
 						"bound_audiences": dexCustomClientID,
 						"user_claim":      "email",
-						"bound_claims": fmt.Sprintf(
-							"email=%s", dexTestEmail,
-						),
+						"bound_claims": map[string]interface{}{
+							"email": dexTestEmail,
+						},
 						"policies": "default",
 					},
 				)

@@ -125,7 +125,7 @@ vet: ## Run go vet against code.
 test: manifests generate fmt vet setup-envtest ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
 
-# E2E tests run in CI (k3d cluster with Vault + operator pre-deployed).
+# E2E tests run in CI (docker-compose k3s with Vault + operator pre-deployed).
 # This target assumes a running cluster — see .github/workflows/ci.yaml for full setup.
 .PHONY: test-e2e
 test-e2e: manifests generate fmt vet ## Run E2E tests (requires running cluster with Vault + operator deployed)
@@ -144,29 +144,202 @@ test-e2e-auth: ## Run auth tests only
 test-e2e-modules: ## Run module tests only (after auth)
 	go test ./test/e2e/ -v -ginkgo.v -ginkgo.label-filter="module || setup" -timeout 15m
 
-##@ E2E Local Development
+##@ E2E Infrastructure (Mini-Step Targets)
+# These targets are used by both local development and CI.
+# CI calls the same make targets as local — single source of truth.
 
-E2E_KUBECONFIG := $(shell pwd)/tmp/e2e/kubeconfig.yaml
+E2E_KUBECONFIG      := $(shell pwd)/tmp/e2e/kubeconfig.yaml
+E2E_COMPOSE         := docker compose -f docker-compose.e2e.yaml
+E2E_VAULT_EXEC      := $(E2E_COMPOSE) exec -T vault vault
+E2E_KUBECTL          = KUBECONFIG=$(E2E_KUBECONFIG) kubectl
+E2E_HELM             = KUBECONFIG=$(E2E_KUBECONFIG) helm
+E2E_OPERATOR_IMAGE  ?= vault-access-operator:local
+
+.PHONY: e2e-compose-up
+e2e-compose-up: ## Start docker-compose stack (k3s + Vault + Dex)
+	@mkdir -p tmp/e2e
+	$(E2E_COMPOSE) up -d
+	@echo "Waiting for Vault healthcheck..."
+	@for i in $$(seq 1 30); do \
+		if $(E2E_COMPOSE) exec -T vault vault status >/dev/null 2>&1; then \
+			echo "Vault is ready"; break; \
+		fi; \
+		if [ "$$i" -eq 30 ]; then echo "ERROR: Vault failed to start"; $(E2E_COMPOSE) logs vault; exit 1; fi; \
+		sleep 2; \
+	done
+
+.PHONY: e2e-compose-down
+e2e-compose-down: ## Stop docker-compose stack and clean up
+	$(E2E_COMPOSE) down -v 2>/dev/null || true
+	rm -rf tmp/e2e
+
+.PHONY: e2e-wait-cluster
+e2e-wait-cluster: ## Wait for k3s kubeconfig, fix URL, wait for node + kube-system
+	@echo "Waiting for k3s kubeconfig..."
+	@for i in $$(seq 1 60); do \
+		if [ -f "$(E2E_KUBECONFIG)" ]; then echo "Kubeconfig found"; break; fi; \
+		if [ "$$i" -eq 60 ]; then echo "ERROR: Timed out waiting for kubeconfig"; exit 1; fi; \
+		sleep 2; \
+	done
+	@# Fix kubeconfig server URL — k3s writes its internal container IP, we need localhost
+	@sed -i.bak 's|server: https://.*:6443|server: https://127.0.0.1:6443|' "$(E2E_KUBECONFIG)"
+	@rm -f "$(E2E_KUBECONFIG).bak"
+	@echo "Waiting for k3s node to be ready..."
+	$(E2E_KUBECTL) wait --for=condition=Ready nodes --all --timeout=120s
+	@echo "Waiting for kube-system pods to appear..."
+	@for i in $$(seq 1 30); do \
+		if $(E2E_KUBECTL) get pods -n kube-system 2>/dev/null | grep -q .; then break; fi; \
+		if [ "$$i" -eq 30 ]; then echo "ERROR: Timed out waiting for kube-system pods"; exit 1; fi; \
+		sleep 2; \
+	done
+	$(E2E_KUBECTL) wait --for=condition=Ready pods --all -n kube-system --timeout=120s
+
+.PHONY: e2e-check-context
+e2e-check-context: ## Verify KUBECONFIG points to E2E cluster (safety check)
+	@if [ ! -f "$(E2E_KUBECONFIG)" ]; then \
+		echo "ERROR: E2E kubeconfig not found at $(E2E_KUBECONFIG)"; \
+		echo "Run 'make e2e-compose-up e2e-wait-cluster' first"; \
+		exit 1; \
+	fi
+	@SERVER=$$($(E2E_KUBECTL) config view --minify -o jsonpath='{.clusters[0].cluster.server}'); \
+	case "$$SERVER" in \
+		*127.0.0.1*|*localhost*|*k3s*) echo "KUBECONFIG OK: $$SERVER" ;; \
+		*) echo "ERROR: KUBECONFIG points to $$SERVER — refusing to run against non-local cluster"; exit 1 ;; \
+	esac
+
+.PHONY: e2e-deploy-vault-rbac
+e2e-deploy-vault-rbac: e2e-check-context ## Deploy Vault RBAC resources (namespace, SA, ClusterRole)
+	$(E2E_KUBECTL) apply -f test/e2e/fixtures/vault-rbac.yaml
+
+.PHONY: e2e-bridge-vault
+e2e-bridge-vault: e2e-check-context ## Create K8s Service+Endpoints bridging to Vault container
+	@CID=$$($(E2E_COMPOSE) ps -q vault); \
+	if [ -z "$$CID" ]; then echo "ERROR: Vault container not found"; exit 1; fi; \
+	VAULT_IP=$$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$$CID"); \
+	if [ -z "$$VAULT_IP" ]; then echo "ERROR: Could not get Vault container IP"; exit 1; fi; \
+	echo "Vault container IP: $$VAULT_IP"; \
+	sed "s/__VAULT_IP__/$$VAULT_IP/" test/e2e/fixtures/vault-bridge.yaml | $(E2E_KUBECTL) apply -f -
+
+.PHONY: e2e-bridge-dex
+e2e-bridge-dex: e2e-check-context ## Create K8s Service+Endpoints bridging to Dex container
+	@CID=$$($(E2E_COMPOSE) ps -q dex); \
+	if [ -z "$$CID" ]; then echo "ERROR: Dex container not found"; exit 1; fi; \
+	DEX_IP=$$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$$CID"); \
+	if [ -z "$$DEX_IP" ]; then echo "ERROR: Could not get Dex container IP"; exit 1; fi; \
+	echo "Dex container IP: $$DEX_IP"; \
+	sed "s/__DEX_IP__/$$DEX_IP/" test/e2e/fixtures/dex-bridge.yaml | $(E2E_KUBECTL) apply -f -
+
+.PHONY: e2e-configure-vault
+e2e-configure-vault: ## Configure Vault auth methods and policies for E2E
+	@echo "Creating operator policy..."
+	@cat test/e2e/fixtures/policies/e2e-operator-bootstrap.hcl | $(E2E_VAULT_EXEC) policy write vault-access-operator -
+	@echo "Enabling auth methods..."
+	@$(E2E_VAULT_EXEC) auth enable kubernetes 2>/dev/null || true
+	@$(E2E_VAULT_EXEC) auth enable jwt 2>/dev/null || true
+	@$(E2E_VAULT_EXEC) auth enable approle 2>/dev/null || true
+	@$(E2E_VAULT_EXEC) auth enable -path=oidc jwt 2>/dev/null || true
+	@echo "Configuring Kubernetes auth..."
+	@# Extract the TLS server CA from kubeconfig (NOT the SA CA — they differ in k3s 1.25+)
+	@K8S_CA=$$($(E2E_KUBECTL) config view --raw --minify -o jsonpath='{.clusters[0].cluster.certificate-authority-data}' | base64 -d); \
+	VAULT_AUTH_TOKEN=$$($(E2E_KUBECTL) create token vault-auth -n vault); \
+	jq -n \
+		--arg host "https://k3s:6443" \
+		--arg jwt "$$VAULT_AUTH_TOKEN" \
+		--arg ca "$$K8S_CA" \
+		'{kubernetes_host: $$host, token_reviewer_jwt: $$jwt, kubernetes_ca_cert: $$ca}' | \
+	$(E2E_VAULT_EXEC) write auth/kubernetes/config -
+	@echo "Kubernetes auth configured (host=https://k3s:6443)"
+	@echo "Configuring JWT auth..."
+	@# External Vault can't resolve kubernetes.default.svc — use jwks_url via docker network
+	@K8S_CA=$$($(E2E_KUBECTL) config view --raw --minify -o jsonpath='{.clusters[0].cluster.certificate-authority-data}' | base64 -d); \
+	ISSUER=$$($(E2E_KUBECTL) get --raw /.well-known/openid-configuration | jq -r '.issuer'); \
+	jq -n \
+		--arg issuer "$$ISSUER" \
+		--arg ca "$$K8S_CA" \
+		--arg jwks_url "https://k3s:6443/openid/v1/jwks" \
+		'{jwks_url: $$jwks_url, jwks_ca_pem: $$ca, bound_issuer: $$issuer}' | \
+	$(E2E_VAULT_EXEC) write auth/jwt/config -
+	@echo "JWT auth configured (jwks_url=https://k3s:6443/openid/v1/jwks)"
+	@echo "Configuring OIDC auth with Dex..."
+	@# Dex has docker network alias dex.default.svc.cluster.local — Vault resolves it via docker DNS
+	@$(E2E_VAULT_EXEC) write auth/oidc/config \
+		oidc_discovery_url="http://dex.default.svc.cluster.local:5556" \
+		bound_issuer="http://dex.default.svc.cluster.local:5556"
+	@echo "OIDC auth configured with Dex"
+
+.PHONY: e2e-build-operator
+e2e-build-operator: ## Build operator docker image
+	docker build -t $(E2E_OPERATOR_IMAGE) .
+
+.PHONY: e2e-import-operator
+e2e-import-operator: ## Import operator image into k3s containerd
+	docker save $(E2E_OPERATOR_IMAGE) | \
+		$(E2E_COMPOSE) exec -T k3s ctr --namespace k8s.io images import -
+
+.PHONY: e2e-deploy-operator
+e2e-deploy-operator: e2e-check-context ## Deploy operator via Helm into k3s
+	@# Parse repository and tag from E2E_OPERATOR_IMAGE
+	@REPO=$$(echo "$(E2E_OPERATOR_IMAGE)" | sed 's/:.*//'); \
+	TAG=$$(echo "$(E2E_OPERATOR_IMAGE)" | sed 's/.*://'); \
+	$(E2E_HELM) upgrade --install vault-access-operator ./charts/vault-access-operator \
+		--namespace vault-access-operator-system --create-namespace \
+		--set image.repository=$$REPO \
+		--set image.tag=$$TAG \
+		--set image.pullPolicy=Never \
+		--set webhook.enabled=false \
+		--wait --timeout 5m
+	$(E2E_KUBECTL) wait --for=condition=Available deployment \
+		-l app.kubernetes.io/name=vault-access-operator \
+		-n vault-access-operator-system --timeout=120s
+
+##@ E2E Local Development (Composite)
 
 .PHONY: e2e-local-up
-e2e-local-up: ## Set up local E2E stack (k3s + Dex + Vault + operator)
-	docker compose -f docker-compose.e2e.yaml up -d
-	bash scripts/e2e-setup.sh
+e2e-local-up: ## Set up full local E2E stack (k3s + Vault + Dex + operator)
+e2e-local-up: e2e-compose-up e2e-wait-cluster e2e-deploy-vault-rbac e2e-bridge-vault e2e-bridge-dex e2e-configure-vault e2e-build-operator e2e-import-operator e2e-deploy-operator
+	@echo ""
+	@echo "========================================"
+	@echo "  E2E stack is ready!"
+	@echo "========================================"
+	@echo ""
+	@echo "  KUBECONFIG: export KUBECONFIG=$(E2E_KUBECONFIG)"
+	@echo ""
+	@echo "  Run tests:   make e2e-local-test"
+	@echo "  Status:      make e2e-local-status"
+	@echo "  Tear down:   make e2e-local-down"
+	@echo ""
 
 .PHONY: e2e-local-down
 e2e-local-down: ## Tear down local E2E stack
-	bash scripts/e2e-teardown.sh
+	-$(E2E_HELM) uninstall vault-access-operator -n vault-access-operator-system 2>/dev/null
+	$(MAKE) e2e-compose-down
 
 .PHONY: e2e-local-status
 e2e-local-status: ## Show status of local E2E stack
-	@docker compose -f docker-compose.e2e.yaml ps
+	@$(E2E_COMPOSE) ps
 	@echo ""
-	@KUBECONFIG=$(E2E_KUBECONFIG) kubectl get pods -A 2>/dev/null || echo "k3s not ready"
+	@$(E2E_KUBECTL) get pods -A 2>/dev/null || echo "k3s not ready"
 
 .PHONY: e2e-local-test
-e2e-local-test: ## Run E2E tests against local stack
-	KUBECONFIG=$(E2E_KUBECONFIG) E2E_SKIP_BUILD=true E2E_SKIP_IMAGE_LOAD=true \
+e2e-local-test: ## Run all E2E tests against local stack
+	KUBECONFIG=$(E2E_KUBECONFIG) VAULT_ADDR=http://localhost:8200 \
+		E2E_K8S_HOST=https://k3s:6443 \
+		E2E_SKIP_BUILD=true E2E_SKIP_IMAGE_LOAD=true \
 		go test ./test/e2e/ -v -ginkgo.v -ginkgo.fail-fast -timeout 10m
+
+.PHONY: e2e-local-test-auth
+e2e-local-test-auth: ## Run auth E2E tests only
+	KUBECONFIG=$(E2E_KUBECONFIG) VAULT_ADDR=http://localhost:8200 \
+		E2E_K8S_HOST=https://k3s:6443 \
+		E2E_SKIP_BUILD=true E2E_SKIP_IMAGE_LOAD=true \
+		go test ./test/e2e/ -v -ginkgo.v -ginkgo.fail-fast -ginkgo.label-filter="auth" -timeout 10m
+
+.PHONY: e2e-local-test-modules
+e2e-local-test-modules: ## Run module E2E tests only
+	KUBECONFIG=$(E2E_KUBECONFIG) VAULT_ADDR=http://localhost:8200 \
+		E2E_K8S_HOST=https://k3s:6443 \
+		E2E_SKIP_BUILD=true E2E_SKIP_IMAGE_LOAD=true \
+		go test ./test/e2e/ -v -ginkgo.v -ginkgo.fail-fast -ginkgo.label-filter="module || setup" -timeout 15m
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter

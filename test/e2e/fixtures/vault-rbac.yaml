@@ -1,0 +1,58 @@
+# Kubernetes RBAC resources for external Vault E2E tests.
+# Vault itself runs as a docker-compose service (not in k8s).
+# These resources provide:
+#   - A namespace for Vault-related k8s resources
+#   - A ServiceAccount with TokenReview permissions (for Vault K8s auth)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: vault
+---
+# ServiceAccount for Vault's token_reviewer_jwt
+# This SA needs TokenReview permissions for K8s auth to work
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vault-auth
+  namespace: vault
+---
+# ClusterRole for TokenReview (required for Vault K8s auth)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: vault-tokenreview
+rules:
+  - apiGroups: ["authentication.k8s.io"]
+    resources: ["tokenreviews"]
+    verbs: ["create"]
+---
+# Bind the ClusterRole to Vault's ServiceAccount
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: vault-tokenreview-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: vault-tokenreview
+subjects:
+  - kind: ServiceAccount
+    name: vault-auth
+    namespace: vault
+---
+# Allow anonymous access to OIDC discovery endpoints.
+# External Vault needs to fetch /openid/v1/jwks without k8s credentials.
+# The built-in ClusterRole system:service-account-issuer-discovery grants
+# read access to /.well-known/openid-configuration and /openid/v1/jwks.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: oidc-discovery-anonymous
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:service-account-issuer-discovery
+subjects:
+  - kind: Group
+    name: system:unauthenticated
+    apiGroup: rbac.authorization.k8s.io

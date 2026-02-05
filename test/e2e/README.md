@@ -96,7 +96,7 @@ test/e2e/
 ├── tc_conflict_test.go            # TC-CF* tests
 ├── token_lifecycle_test.go        # TC-LC* tests
 └── fixtures/
-    ├── vault.yaml                 # Vault dev server deployment
+    ├── vault-rbac.yaml             # Vault RBAC (SA, ClusterRole, Binding)
     ├── policies/
     │   ├── basic-secret-access.hcl
     │   ├── namespace-scoped.hcl
@@ -173,7 +173,8 @@ go test ./test/e2e/... -v -ginkgo.label-filter 'slow'
 
 ### Local Development Mode
 
-If Vault is not deployed, the suite will automatically deploy it from `fixtures/vault.yaml`.
+Vault runs as a docker-compose service (external to k8s). The suite applies `fixtures/vault-rbac.yaml`
+for k8s-side RBAC if not already present. Use `make e2e-local-up` to start the full stack.
 
 ## Fixture Usage
 

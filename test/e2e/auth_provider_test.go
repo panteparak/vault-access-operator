@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/onsi/ginkgo/v2"
@@ -29,7 +30,7 @@ import (
 
 const (
 	// vaultAuthSA is the ServiceAccount in the vault namespace with TokenReview permissions.
-	// Created by test/e2e/fixtures/vault.yaml along with the ClusterRoleBinding.
+	// Created by test/e2e/fixtures/vault-rbac.yaml along with the ClusterRoleBinding.
 	vaultAuthSA        = "vault-auth"
 	vaultAuthNamespace = "vault"
 )
@@ -149,10 +150,17 @@ func (p *KubernetesAuthProvider) Setup() (string, error) {
 		return "", fmt.Errorf("failed to get Kubernetes CA cert: %w", err)
 	}
 
+	// E2E_K8S_HOST overrides the Kubernetes API host for external Vault.
+	// When Vault runs in docker-compose, it reaches k8s via docker network.
+	k8sHost := os.Getenv("E2E_K8S_HOST")
+	if k8sHost == "" {
+		k8sHost = "https://kubernetes.default.svc.cluster.local:443"
+	}
+
 	ginkgo.By("configuring Kubernetes auth with token reviewer and CA cert")
 	err = vaultClient.WriteKubernetesAuthConfig(
 		ctx, "kubernetes",
-		"https://kubernetes.default.svc.cluster.local:443",
+		k8sHost,
 		strings.TrimSpace(reviewerJWT),
 		strings.TrimSpace(caCert),
 	)
@@ -565,9 +573,11 @@ func (p *OIDCAuthProvider) CreateRole(
 			"role_type":       "jwt",
 			"bound_audiences": dexClientID,
 			"user_claim":      "email",
-			"bound_claims":    fmt.Sprintf("email=%s", dexTestEmail),
-			"policies":        strings.Join(policies, ","),
-			"ttl":             "1h",
+			"bound_claims": map[string]interface{}{
+				"email": dexTestEmail,
+			},
+			"policies": strings.Join(policies, ","),
+			"ttl":      "1h",
 		},
 	)
 }

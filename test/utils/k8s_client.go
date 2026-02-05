@@ -947,7 +947,7 @@ func GetK8sRawEndpoint(
 // This is preferred over GetKubernetesCA() when the CA is needed for
 // in-cluster TLS verification (e.g., Vault verifying kubernetes.default.svc),
 // because the kubeconfig CA may differ from the internal CA in environments
-// like k3d that use a TLS proxy for external access.
+// like k3s-in-docker that use a TLS proxy for external access.
 func GetClusterCA(ctx context.Context) (string, error) {
 	k8sClient, err := GetK8sClient()
 	if err != nil {
@@ -980,9 +980,9 @@ func GetClusterCA(ctx context.Context) (string, error) {
 // TLS certificate, which is needed for in-cluster OIDC discovery
 // (kubernetes.default.svc).
 //
-// In k3d with TCP passthrough, the external and internal API server present
+// In docker-compose k3s, the external and internal API server present
 // the same certificate chain, so the extracted CA works for both external
-// clients and Vault running inside the cluster.
+// clients and Vault running as an external docker-compose service.
 //
 // This is more reliable than reading from kube-root-ca.crt ConfigMap because
 // k3s 1.25+ uses separate CAs: server-ca (signs TLS certs) vs client-ca

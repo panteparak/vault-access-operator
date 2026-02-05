@@ -1,0 +1,24 @@
+# Kubernetes Service + Endpoints that bridge to the external Dex container.
+# Pods inside k3s reach Dex via this headless service.
+# The Endpoints IP is the Dex container's docker network IP,
+# injected by the Makefile target via sed: __DEX_IP__
+apiVersion: v1
+kind: Service
+metadata:
+  name: dex
+  namespace: default
+spec:
+  ports:
+    - port: 5556
+      targetPort: 5556
+---
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: dex
+  namespace: default
+subsets:
+  - addresses:
+      - ip: __DEX_IP__
+    ports:
+      - port: 5556

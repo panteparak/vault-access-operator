@@ -32,7 +32,7 @@ import (
 
 const (
 	// DefaultTestVaultAddr is the default address for the Vault dev server
-	// when port-forwarded from the k3d cluster.
+	// running as a docker-compose service with port 8200 exposed.
 	DefaultTestVaultAddr = "http://localhost:8200"
 
 	// DefaultTestVaultToken is the root token for the Vault dev server.

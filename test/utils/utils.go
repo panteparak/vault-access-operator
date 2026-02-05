@@ -329,7 +329,8 @@ func PatchValidatingWebhookCABundle(webhookName string, caBundle []byte) error {
 }
 
 // LoadImageToCluster loads a local docker image to the Kubernetes cluster.
-// Supports both k3d (default) and Kind via E2E_CLUSTER_TOOL environment variable.
+// Supports k3d and Kind via E2E_CLUSTER_TOOL environment variable.
+// Note: With docker-compose k3s, use `make e2e-import-operator` instead (E2E_SKIP_IMAGE_LOAD=true).
 // Cluster name can be set via E2E_CLUSTER_NAME (default: "e2e" for k3d, "kind" for Kind).
 func LoadImageToCluster(imageName string) error {
 	clusterTool := os.Getenv("E2E_CLUSTER_TOOL")

@@ -26,7 +26,6 @@ import (
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/test/utils"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -50,24 +49,16 @@ var _ = Describe("Token Lifecycle", Ordered,
 				ctx, tokenLifecycleNamespace,
 			)
 
-			By("waiting for Vault to be ready")
-			verifyVaultReady := func(g Gomega) {
-				pods, err := utils.GetPodsByLabel(
-					ctx, vaultNamespace,
-					"app", "vault",
-				)
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(pods.Items).NotTo(
-					BeEmpty(), "No Vault pods found",
-				)
-				g.Expect(
-					pods.Items[0].Status.Phase,
-				).To(Equal(corev1.PodRunning))
-			}
-			Eventually(
-				verifyVaultReady,
-				3*time.Minute, 5*time.Second,
-			).Should(Succeed())
+			By("waiting for Vault API to be accessible")
+			// Vault runs as external docker-compose service, not as k8s pods.
+			// Check health via the Vault API client instead.
+			vaultClient, err := utils.GetTestVaultClient()
+			Expect(err).NotTo(HaveOccurred(), "Failed to get Vault client")
+			Eventually(func(g Gomega) {
+				healthy, err := vaultClient.Health(ctx)
+				g.Expect(err).NotTo(HaveOccurred(), "Vault health check failed")
+				g.Expect(healthy).To(BeTrue(), "Vault not healthy (not initialized or sealed)")
+			}, 30*time.Second, 2*time.Second).Should(Succeed())
 
 			By("creating bootstrap token secret " +
 				"with Vault root token")
@@ -78,7 +69,7 @@ var _ = Describe("Token Lifecycle", Ordered,
 			)
 
 			By("creating operator policy in Vault")
-			vaultClient, err :=
+			vaultClient, err =
 				utils.GetTestVaultClient()
 			Expect(err).NotTo(HaveOccurred())
 
