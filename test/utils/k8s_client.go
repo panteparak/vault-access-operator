@@ -374,6 +374,8 @@ func GetPodsByLabel(ctx context.Context, namespace, labelKey, labelValue string)
 }
 
 // CreateNamespace creates a namespace if it doesn't exist.
+// If the namespace exists but is in Terminating phase (e.g., from a previous
+// test phase's cleanup), it waits for deletion to complete and re-creates it.
 func CreateNamespace(ctx context.Context, name string) error {
 	c, err := GetK8sClient()
 	if err != nil {
@@ -387,10 +389,44 @@ func CreateNamespace(ctx context.Context, name string) error {
 	}
 
 	if err := c.Create(ctx, ns); err != nil {
-		if errors.IsAlreadyExists(err) {
-			return nil
+		if !errors.IsAlreadyExists(err) {
+			return err
 		}
-		return err
+
+		// Namespace exists — check if it's being torn down.
+		existing := &corev1.Namespace{}
+		if getErr := c.Get(ctx, types.NamespacedName{Name: name}, existing); getErr != nil {
+			return fmt.Errorf("failed to get existing namespace %s: %w", name, getErr)
+		}
+
+		if existing.Status.Phase != corev1.NamespaceTerminating {
+			return nil // active namespace, nothing to do
+		}
+
+		// Wait for the terminating namespace to be fully removed.
+		if waitErr := wait.PollUntilContextTimeout(
+			ctx, 1*time.Second, 2*time.Minute, true,
+			func(ctx context.Context) (bool, error) {
+				var check corev1.Namespace
+				if getErr := c.Get(ctx, types.NamespacedName{Name: name}, &check); getErr != nil {
+					if errors.IsNotFound(getErr) {
+						return true, nil // fully deleted
+					}
+					return false, nil //nolint:nilerr // transient error, retry
+				}
+				return false, nil // still terminating
+			},
+		); waitErr != nil {
+			return fmt.Errorf("timed out waiting for terminating namespace %s to be deleted: %w", name, waitErr)
+		}
+
+		// Re-create the namespace now that it's gone.
+		freshNs := &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{Name: name},
+		}
+		if createErr := c.Create(ctx, freshNs); createErr != nil {
+			return fmt.Errorf("failed to re-create namespace %s after termination: %w", name, createErr)
+		}
 	}
 	return nil
 }
