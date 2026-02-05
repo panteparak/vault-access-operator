@@ -302,7 +302,12 @@ make lint
 # Build container image
 make docker-build IMG=my-registry/vault-access-operator:dev
 
-# Run end-to-end tests
+# Run end-to-end tests locally (starts k3s + Vault + Dex in Docker)
+make e2e-local-up     # One-time setup
+make e2e-local-test   # Run tests
+make e2e-local-down   # Tear down
+
+# Run E2E tests in CI (requires pre-deployed stack)
 make test-e2e
 ```
 

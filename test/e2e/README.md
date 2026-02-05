@@ -128,23 +128,105 @@ test/e2e/
         └── cluster-shared-policy.hcl
 ```
 
-## Running Tests
+## Running Tests Locally
 
 ### Prerequisites
 
-- kubectl configured with cluster access
-- Vault deployed in `vault` namespace (or use local development mode)
-- operator-sdk or make available
+- **Docker** with Docker Compose v2 (for the local stack)
+- **Go 1.21+** (to compile and run the test binary)
+- **Make** (all commands are Makefile targets)
+- **jq** (used by Vault configuration scripts)
 
-### Run All E2E Tests
+No external Kubernetes cluster is needed — the local stack runs k3s inside Docker.
 
-```bash
-make test-e2e
+### Architecture
+
+The local E2E stack uses `docker-compose.e2e.yaml` to spin up three containers
+on a shared Docker network (`e2e-net`):
+
+```
+┌─────────────────────────────────────────────────────┐
+│  docker network: e2e-net                            │
+│                                                     │
+│  ┌─────────┐    ┌───────────┐    ┌───────────────┐  │
+│  │   k3s   │    │   Vault   │    │   Dex (OIDC)  │  │
+│  │ :6443   │    │ :8200     │    │ :5556         │  │
+│  │         │    │ dev mode  │    │               │  │
+│  └─────────┘    └───────────┘    └───────────────┘  │
+│       │               │               │             │
+│       └───── bridge Services (Endpoints) ───────────┘
+│                                                     │
+│  k8s sees Vault at: vault.vault.svc:8200            │
+│  k8s sees Dex at:   dex.default.svc.cluster.local   │
+└─────────────────────────────────────────────────────┘
+
+Host machine:
+  - kubectl → localhost:6443 (k3s)
+  - Vault UI → localhost:8200 (root token: "root")
+  - Dex      → localhost:5556
 ```
 
-### Run Specific Test Category
+Vault and Dex run **outside** Kubernetes. Kubernetes Services with manually-created
+Endpoints "bridge" traffic into the Docker network. This simulates a production
+topology where Vault is external to the cluster.
+
+### Quick Start (Full Local Stack)
 
 ```bash
+# 1. Start everything: k3s + Vault + Dex + build operator + deploy operator
+make e2e-local-up
+
+# 2. Run all E2E tests
+make e2e-local-test
+
+# 3. Tear down when done
+make e2e-local-down
+```
+
+`make e2e-local-up` is a composite target that runs these steps in order:
+
+| Step | Target | What it does |
+|------|--------|--------------|
+| 1 | `e2e-compose-up` | Start docker-compose stack (k3s + Vault + Dex) |
+| 2 | `e2e-wait-cluster` | Wait for k3s kubeconfig, fix server URL, wait for node ready |
+| 3 | `e2e-deploy-vault-rbac` | Create vault namespace, service account, RBAC |
+| 4 | `e2e-bridge-vault` | Create K8s Service+Endpoints bridging to Vault container |
+| 5 | `e2e-bridge-dex` | Create K8s Service+Endpoints bridging to Dex container |
+| 6 | `e2e-configure-vault` | Enable auth methods, configure K8s auth, create operator role |
+| 7 | `e2e-build-operator` | Build operator Docker image |
+| 8 | `e2e-import-operator` | Import operator image into k3s containerd |
+| 9 | `e2e-deploy-operator` | Deploy operator via Helm into k3s |
+
+You can run individual steps if you need to debug or re-run a specific part:
+
+```bash
+# Re-build and re-deploy operator only (after code changes)
+make e2e-build-operator e2e-import-operator e2e-deploy-operator
+```
+
+### Running Tests
+
+```bash
+# Run ALL E2E tests
+make e2e-local-test
+
+# Run auth tests only (Kubernetes auth, JWT, OIDC)
+make e2e-local-test-auth
+
+# Run module tests only (connection, policy, role, error handling)
+make e2e-local-test-modules
+```
+
+### Running Specific Tests
+
+Use Go test flags with the required environment variables:
+
+```bash
+# Set up environment (copy from `make e2e-local-up` output)
+export KUBECONFIG=$(pwd)/tmp/e2e/kubeconfig.yaml
+export VAULT_ADDR=http://localhost:8200
+export E2E_K8S_HOST=https://k3s:6443
+
 # Run only connection tests
 go test ./test/e2e/... -v -run "TC-VC"
 
@@ -154,14 +236,14 @@ go test ./test/e2e/... -v -run "TC-EH"
 # Run only auth tests
 go test ./test/e2e/... -v -run "TC-AU"
 
-# Run a specific test
+# Run a single test by ID
 go test ./test/e2e/... -v -run "TC-VP02"
 ```
 
 ### Skip Slow Tests
 
 Some tests are labeled `slow` because they require waiting for token expiration (~90+ seconds).
-Skip these in quick CI runs:
+Skip these in quick iterations:
 
 ```bash
 # Skip slow tests
@@ -171,10 +253,38 @@ go test ./test/e2e/... -v -ginkgo.label-filter '!slow'
 go test ./test/e2e/... -v -ginkgo.label-filter 'slow'
 ```
 
-### Local Development Mode
+### Useful Commands During Development
 
-Vault runs as a docker-compose service (external to k8s). The suite applies `fixtures/vault-rbac.yaml`
-for k8s-side RBAC if not already present. Use `make e2e-local-up` to start the full stack.
+```bash
+# Check stack status (containers + k8s pods)
+make e2e-local-status
+
+# Use kubectl against the E2E cluster
+export KUBECONFIG=$(pwd)/tmp/e2e/kubeconfig.yaml
+kubectl get pods -A
+kubectl get vaultconnection -o wide
+kubectl logs -n vault-access-operator-system deploy/vault-access-operator -f
+
+# Access Vault CLI directly
+export VAULT_ADDR=http://localhost:8200
+export VAULT_TOKEN=root
+vault status
+vault policy list
+vault auth list
+vault list auth/kubernetes/role
+
+# Re-deploy operator after code changes (without restarting the whole stack)
+make e2e-build-operator e2e-import-operator e2e-deploy-operator
+```
+
+### Running in CI
+
+In CI, the same Makefile targets are used. See `.github/workflows/ci.yaml` for the
+full pipeline. The CI target assumes the stack is already running:
+
+```bash
+make test-e2e
+```
 
 ## Fixture Usage
 
@@ -233,16 +343,36 @@ It("TC-XX01: Descriptive test name", func() {
 
 ## Troubleshooting
 
+### `make e2e-local-up` Fails
+
+**"Vault failed to start"** — Check Docker resources. Vault needs IPC_LOCK capability:
+```bash
+docker compose -f docker-compose.e2e.yaml logs vault
+```
+
+**"Timed out waiting for kubeconfig"** — k3s takes 30-60s to generate the kubeconfig.
+Check that Docker has enough memory (k3s needs ~2GB):
+```bash
+docker compose -f docker-compose.e2e.yaml logs k3s
+```
+
+**"refused to run against non-local cluster"** — The safety check (`e2e-check-context`)
+verifies KUBECONFIG points to localhost. This prevents accidentally running E2E tests
+against a production cluster.
+
 ### Test Fails with "VaultConnection not Active"
 
 Check that:
-1. Vault is running in the `vault` namespace
-2. The token secret exists with the correct key
-3. Network connectivity between test namespace and Vault
+1. Vault is running and healthy: `docker compose -f docker-compose.e2e.yaml ps`
+2. The vault-bridge Service exists: `kubectl get svc -n vault`
+3. The token secret exists with the correct key
+4. Network connectivity between k3s and Vault container
 
 ```bash
+export KUBECONFIG=$(pwd)/tmp/e2e/kubeconfig.yaml
 kubectl get pods -n vault
 kubectl get vaultconnection -o wide
+kubectl logs -n vault-access-operator-system deploy/vault-access-operator --tail=50
 ```
 
 ### Test Timeouts
@@ -260,6 +390,23 @@ Force cleanup of stuck resources:
 ```bash
 # Remove finalizers to force deletion
 kubectl patch vaultpolicy <name> -n <ns> -p '{"metadata":{"finalizers":[]}}' --type=merge
+```
+
+### Operator Not Picking Up Code Changes
+
+After modifying operator code, you must rebuild and redeploy:
+
+```bash
+make e2e-build-operator e2e-import-operator e2e-deploy-operator
+```
+
+### Starting Fresh
+
+If the stack is in a bad state, tear down and recreate:
+
+```bash
+make e2e-local-down
+make e2e-local-up
 ```
 
 ## Quality Metrics

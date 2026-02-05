@@ -107,6 +107,16 @@ func (c *Client) TokenTTL() time.Duration {
 	return c.tokenTTL
 }
 
+// SetTokenExpiration sets when the token expires.
+func (c *Client) SetTokenExpiration(t time.Time) {
+	c.tokenExpiration = t
+}
+
+// SetTokenTTL sets the token's original TTL.
+func (c *Client) SetTokenTTL(d time.Duration) {
+	c.tokenTTL = d
+}
+
 // RenewSelf renews the current Vault token in place.
 // Updates tokenExpiration and tokenTTL with the new values from Vault.
 func (c *Client) RenewSelf(ctx context.Context) error {

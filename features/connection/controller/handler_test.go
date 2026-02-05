@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -1094,5 +1095,517 @@ func TestCleanup_CleanupWithoutClientInCache(t *testing.T) {
 	// Verify status is Deleting
 	if conn.Status.Phase != vaultv1alpha1.PhaseDeleting {
 		t.Errorf("expected phase Deleting, got %s", conn.Status.Phase)
+	}
+}
+
+// --- Enhanced mock Vault server for getOrRenewClient tests ---
+
+// mockVaultServerOpts configures the multi-endpoint mock Vault server.
+type mockVaultServerOpts struct {
+	version       string
+	healthErr     bool
+	renewErr      bool
+	renewLeaseTTL int // lease_duration in renew-self response
+}
+
+// newMultiEndpointVaultServer creates a mock Vault server that handles
+// /v1/sys/health and /v1/auth/token/renew-self with configurable behavior.
+func newMultiEndpointVaultServer(opts mockVaultServerOpts) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/v1/sys/health"):
+			if opts.healthErr {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"initialized": true,
+				"sealed":      false,
+				"version":     opts.version,
+			})
+
+		case strings.HasSuffix(r.URL.Path, "/v1/auth/token/renew-self"):
+			if opts.renewErr {
+				w.WriteHeader(http.StatusForbidden)
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"errors": []string{"permission denied"},
+				})
+				return
+			}
+			ttl := opts.renewLeaseTTL
+			if ttl == 0 {
+				ttl = 3600
+			}
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"auth": map[string]interface{}{
+					"client_token":   "s.renewed-token",
+					"lease_duration": ttl,
+					"renewable":      true,
+				},
+			})
+
+		default:
+			// Default health response for any other path
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"initialized": true,
+				"sealed":      false,
+				"version":     opts.version,
+			})
+		}
+	}))
+}
+
+// newCachedVaultClient creates an authenticated vault.Client for cache pre-population.
+func newCachedVaultClient(
+	t *testing.T, address string,
+	expiration time.Time, ttl time.Duration,
+) *vault.Client {
+	t.Helper()
+	c, err := vault.NewClient(vault.ClientConfig{Address: address})
+	if err != nil {
+		t.Fatalf("failed to create vault client: %v", err)
+	}
+	c.SetAuthenticated(true)
+	c.SetTokenExpiration(expiration)
+	c.SetTokenTTL(ttl)
+	c.SetToken(testVaultToken)
+	return c
+}
+
+// --- getOrRenewClient tests ---
+
+// TestGetOrRenewClient_CacheHit_FreshToken tests that a cached client with
+// a fresh token (well within TTL) is reused without renewal.
+func TestGetOrRenewClient_CacheHit_FreshToken(t *testing.T) {
+	server := newMultiEndpointVaultServer(mockVaultServerOpts{version: "1.15.0"})
+	defer server.Close()
+
+	scheme := createScheme()
+	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
+
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(conn).
+		WithStatusSubresource(conn).
+		Build()
+
+	cache := vault.NewClientCache()
+
+	// Pre-populate cache: token expires in 1 hour, TTL is 1 hour
+	// remaining (1h) > threshold (0.25 * 1h = 15min) → fresh
+	cachedClient := newCachedVaultClient(
+		t, server.URL, time.Now().Add(time.Hour), time.Hour,
+	)
+	cache.Set(testConnectionName, cachedClient)
+
+	handler := NewHandler(HandlerConfig{
+		Client:      k8sClient,
+		ClientCache: cache,
+		Log:         logr.Discard(),
+	})
+
+	ctx := context.Background()
+	client, renewed, err := handler.getOrRenewClient(ctx, conn)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if renewed {
+		t.Error("expected renewed=false for fresh token")
+	}
+	// Should return the exact same cached client
+	if client != cachedClient {
+		t.Error("expected to return the cached client instance")
+	}
+}
+
+// TestGetOrRenewClient_CacheHit_RenewalThreshold tests that a cached client
+// approaching TTL expiration triggers a renewal via RenewSelf.
+func TestGetOrRenewClient_CacheHit_RenewalThreshold(t *testing.T) {
+	server := newMultiEndpointVaultServer(mockVaultServerOpts{
+		version:       "1.15.0",
+		renewLeaseTTL: 3600, // 1 hour renewed TTL
+	})
+	defer server.Close()
+
+	scheme := createScheme()
+	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
+
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(conn).
+		WithStatusSubresource(conn).
+		Build()
+
+	cache := vault.NewClientCache()
+
+	// Pre-populate cache: token expires in 10 minutes, TTL is 1 hour
+	// remaining (10min) < threshold (0.25 * 1h = 15min) → needs renewal
+	cachedClient := newCachedVaultClient(
+		t, server.URL, time.Now().Add(10*time.Minute), time.Hour,
+	)
+	cache.Set(testConnectionName, cachedClient)
+
+	handler := NewHandler(HandlerConfig{
+		Client:      k8sClient,
+		ClientCache: cache,
+		Log:         logr.Discard(),
+	})
+
+	ctx := context.Background()
+	client, renewed, err := handler.getOrRenewClient(ctx, conn)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !renewed {
+		t.Error("expected renewed=true when token is within renewal threshold")
+	}
+	// Should return the same cached client (renewed in-place)
+	if client != cachedClient {
+		t.Error("expected to return the same cached client after renewal")
+	}
+}
+
+// TestGetOrRenewClient_CacheHit_RenewalFails_ReAuth tests that when token
+// renewal fails, the handler falls back to full re-authentication.
+func TestGetOrRenewClient_CacheHit_RenewalFails_ReAuth(t *testing.T) {
+	server := newMultiEndpointVaultServer(mockVaultServerOpts{
+		version:  "1.15.0",
+		renewErr: true, // Renewal will fail
+	})
+	defer server.Close()
+
+	scheme := createScheme()
+	secret := newTokenSecret(tokenSecretOpts{})
+	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
+
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(secret, conn).
+		WithStatusSubresource(conn).
+		Build()
+
+	cache := vault.NewClientCache()
+
+	// Pre-populate cache: within renewal threshold
+	cachedClient := newCachedVaultClient(
+		t, server.URL, time.Now().Add(10*time.Minute), time.Hour,
+	)
+	cache.Set(testConnectionName, cachedClient)
+
+	handler := NewHandler(HandlerConfig{
+		Client:      k8sClient,
+		ClientCache: cache,
+		Log:         logr.Discard(),
+	})
+
+	ctx := context.Background()
+	client, renewed, err := handler.getOrRenewClient(ctx, conn)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !renewed {
+		t.Error("expected renewed=true (wasReauth) when renewal fails and re-auth succeeds")
+	}
+	// Should return a NEW client, not the cached one
+	if client == cachedClient {
+		t.Error("expected a new client after re-authentication, got cached client")
+	}
+}
+
+// TestGetOrRenewClient_CacheHit_TokenExpired_ReAuth tests that an expired
+// cached token triggers full re-authentication.
+func TestGetOrRenewClient_CacheHit_TokenExpired_ReAuth(t *testing.T) {
+	server := newMultiEndpointVaultServer(mockVaultServerOpts{version: "1.15.0"})
+	defer server.Close()
+
+	scheme := createScheme()
+	secret := newTokenSecret(tokenSecretOpts{})
+	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
+
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(secret, conn).
+		WithStatusSubresource(conn).
+		Build()
+
+	cache := vault.NewClientCache()
+
+	// Pre-populate cache: token already expired (5 minutes ago)
+	cachedClient := newCachedVaultClient(
+		t, server.URL, time.Now().Add(-5*time.Minute), time.Hour,
+	)
+	cache.Set(testConnectionName, cachedClient)
+
+	handler := NewHandler(HandlerConfig{
+		Client:      k8sClient,
+		ClientCache: cache,
+		Log:         logr.Discard(),
+	})
+
+	ctx := context.Background()
+	client, renewed, err := handler.getOrRenewClient(ctx, conn)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !renewed {
+		t.Error("expected renewed=true (wasReauth) when token is expired")
+	}
+	// Should return a NEW client
+	if client == cachedClient {
+		t.Error("expected a new client after re-authentication, got cached client")
+	}
+}
+
+// TestGetOrRenewClient_CacheHit_StaticToken tests that a cached client
+// with no expiration info (e.g., static token) is reused directly.
+func TestGetOrRenewClient_CacheHit_StaticToken(t *testing.T) {
+	scheme := createScheme()
+	conn := newVaultConnection(vaultConnectionOpts{address: "http://localhost:8200"})
+
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(conn).
+		WithStatusSubresource(conn).
+		Build()
+
+	cache := vault.NewClientCache()
+
+	// Pre-populate cache: zero expiration and zero TTL = static token
+	cachedClient := newCachedVaultClient(
+		t, "http://localhost:8200", time.Time{}, 0,
+	)
+	cache.Set(testConnectionName, cachedClient)
+
+	handler := NewHandler(HandlerConfig{
+		Client:      k8sClient,
+		ClientCache: cache,
+		Log:         logr.Discard(),
+	})
+
+	ctx := context.Background()
+	client, renewed, err := handler.getOrRenewClient(ctx, conn)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if renewed {
+		t.Error("expected renewed=false for static token")
+	}
+	if client != cachedClient {
+		t.Error("expected to return the cached client for static token")
+	}
+}
+
+// TestGetOrRenewClient_CacheHit_AddressMismatch tests that when the cached
+// client's address differs from the connection spec, a new client is created.
+func TestGetOrRenewClient_CacheHit_AddressMismatch(t *testing.T) {
+	server := newMultiEndpointVaultServer(mockVaultServerOpts{version: "1.15.0"})
+	defer server.Close()
+
+	scheme := createScheme()
+	secret := newTokenSecret(tokenSecretOpts{})
+	// Connection points to the mock server
+	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
+
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(secret, conn).
+		WithStatusSubresource(conn).
+		Build()
+
+	cache := vault.NewClientCache()
+
+	// Pre-populate cache: client points to a DIFFERENT address
+	cachedClient := newCachedVaultClient(
+		t, "http://old-vault:8200",
+		time.Now().Add(time.Hour), time.Hour,
+	)
+	cache.Set(testConnectionName, cachedClient)
+
+	handler := NewHandler(HandlerConfig{
+		Client:      k8sClient,
+		ClientCache: cache,
+		Log:         logr.Discard(),
+	})
+
+	ctx := context.Background()
+	client, renewed, err := handler.getOrRenewClient(ctx, conn)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Address mismatch means the cached client wasn't used
+	// wasReauth = true because cachedClient existed and was authenticated
+	if !renewed {
+		t.Error("expected renewed=true (wasReauth) due to address mismatch")
+	}
+	if client == cachedClient {
+		t.Error("expected a new client when address changed")
+	}
+}
+
+// TestGetOrRenewClient_CacheMiss_FreshAuth tests that when no client exists
+// in cache, a new one is built and authenticated.
+func TestGetOrRenewClient_CacheMiss_FreshAuth(t *testing.T) {
+	server := newMultiEndpointVaultServer(mockVaultServerOpts{version: "1.15.0"})
+	defer server.Close()
+
+	scheme := createScheme()
+	secret := newTokenSecret(tokenSecretOpts{})
+	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
+
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(secret, conn).
+		WithStatusSubresource(conn).
+		Build()
+
+	cache := vault.NewClientCache()
+	// Cache is empty - no pre-population
+
+	handler := NewHandler(HandlerConfig{
+		Client:      k8sClient,
+		ClientCache: cache,
+		Log:         logr.Discard(),
+	})
+
+	ctx := context.Background()
+	client, renewed, err := handler.getOrRenewClient(ctx, conn)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if renewed {
+		t.Error("expected renewed=false for first-time auth (no prior cached client)")
+	}
+	if client == nil {
+		t.Error("expected non-nil client from fresh auth")
+	}
+}
+
+// TestGetOrRenewClient_CacheMiss_AuthError tests error propagation when
+// buildAndAuthenticateClient fails (e.g., secret not found).
+func TestGetOrRenewClient_CacheMiss_AuthError(t *testing.T) {
+	scheme := createScheme()
+	// No secret created → authentication will fail
+	conn := newVaultConnection(vaultConnectionOpts{
+		address:    "http://localhost:8200",
+		secretName: "nonexistent-secret",
+	})
+
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(conn).
+		WithStatusSubresource(conn).
+		Build()
+
+	cache := vault.NewClientCache()
+
+	handler := NewHandler(HandlerConfig{
+		Client:      k8sClient,
+		ClientCache: cache,
+		Log:         logr.Discard(),
+	})
+
+	ctx := context.Background()
+	client, renewed, err := handler.getOrRenewClient(ctx, conn)
+
+	if err == nil {
+		t.Fatal("expected error when secret is missing, got nil")
+	}
+	if renewed {
+		t.Error("expected renewed=false on error")
+	}
+	if client != nil {
+		t.Error("expected nil client on error")
+	}
+}
+
+// --- Phase oscillation tests ---
+
+// TestSync_ErrorPhaseResetToSyncing documents that Error phase is reset to
+// Syncing at the start of each Sync() call (handler.go:105-106), then set
+// back to Error by handleSyncError. The final phase after a failed sync is
+// always Error, but there's a transient Syncing state in between.
+func TestSync_ErrorPhaseResetToSyncing(t *testing.T) {
+	scheme := createScheme()
+	// No secret → auth will fail
+	conn := newVaultConnection(vaultConnectionOpts{
+		address:    "http://localhost:8200",
+		secretName: "nonexistent-secret",
+	})
+	conn.Status.Phase = vaultv1alpha1.PhaseError // Start in Error phase
+	conn.Status.Message = "previous error"
+
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(conn).
+		WithStatusSubresource(conn).
+		Build()
+
+	cache := vault.NewClientCache()
+	handler := NewHandler(HandlerConfig{
+		Client:      k8sClient,
+		ClientCache: cache,
+		Log:         logr.Discard(),
+	})
+
+	ctx := context.Background()
+	err := handler.Sync(ctx, conn)
+
+	if err == nil {
+		t.Fatal("expected error when secret is missing")
+	}
+
+	// After failed sync, phase should be Error again
+	// (it was temporarily set to Syncing by line 105-106, then
+	// back to Error by handleSyncError)
+	if conn.Status.Phase != vaultv1alpha1.PhaseError {
+		t.Errorf("expected phase Error after failed sync, got %s",
+			conn.Status.Phase)
+	}
+}
+
+// TestSync_ActivePhaseNotResetToSyncing verifies that Sync() does NOT reset
+// the phase to Syncing when it's already Active (handler.go:105 condition).
+func TestSync_ActivePhaseNotResetToSyncing(t *testing.T) {
+	server := newMultiEndpointVaultServer(mockVaultServerOpts{version: "1.15.0"})
+	defer server.Close()
+
+	scheme := createScheme()
+	secret := newTokenSecret(tokenSecretOpts{})
+	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
+	conn.Status.Phase = vaultv1alpha1.PhaseActive // Start in Active phase
+
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(secret, conn).
+		WithStatusSubresource(conn).
+		Build()
+
+	cache := vault.NewClientCache()
+	bus := events.NewEventBus(logr.Discard())
+	handler := NewHandler(HandlerConfig{
+		Client:      k8sClient,
+		ClientCache: cache,
+		EventBus:    bus,
+		Log:         logr.Discard(),
+	})
+
+	ctx := context.Background()
+	err := handler.Sync(ctx, conn)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Phase should remain Active (the condition on line 105 skips
+	// resetting when already Active or Syncing)
+	if conn.Status.Phase != vaultv1alpha1.PhaseActive {
+		t.Errorf("expected phase Active, got %s", conn.Status.Phase)
 	}
 }

@@ -88,12 +88,48 @@ make test
 # Unit tests with coverage
 make test-coverage
 
-# End-to-end tests (requires Kind cluster)
-make test-e2e
-
 # Specific package tests
 go test ./pkg/vault/... -v
+
+# Lint
+make lint
 ```
+
+### Running E2E Tests Locally
+
+The E2E test suite runs against a full stack: k3s (Kubernetes) + Vault + Dex (OIDC),
+all in Docker containers. No external cluster needed.
+
+**Prerequisites:** Docker with Compose v2, Go 1.21+, Make, jq
+
+```bash
+# Start the full local stack (k3s + Vault + Dex + operator)
+make e2e-local-up
+
+# Run all E2E tests
+make e2e-local-test
+
+# Run auth tests only
+make e2e-local-test-auth
+
+# Run module tests only (connection, policy, role, error handling)
+make e2e-local-test-modules
+
+# Check stack status
+make e2e-local-status
+
+# Tear down when done
+make e2e-local-down
+```
+
+After modifying operator code, rebuild and redeploy without restarting the stack:
+
+```bash
+make e2e-build-operator e2e-import-operator e2e-deploy-operator
+```
+
+For detailed E2E test documentation including architecture, individual step targets,
+and troubleshooting, see [`test/e2e/README.md`](test/e2e/README.md).
 
 ### Building
 
