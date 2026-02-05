@@ -295,6 +295,14 @@ spec:
                           AuthPath is the Vault auth mount path (default: "kubernetes").
                           Use a custom path if the Kubernetes auth method is mounted elsewhere.
                         type: string
+                      kubernetesHost:
+                        description: |-
+                          KubernetesHost overrides the auto-discovered Kubernetes API server address
+                          used when configuring Vault's Kubernetes auth method during bootstrap.
+                          Required when Vault is external to the cluster and cannot reach the
+                          in-cluster API server address. Example: "https://k8s-api.example.com:6443"
+                          When empty, the operator auto-discovers the host from in-cluster config.
+                        type: string
                       role:
                         description: |-
                           Role is the Vault role to authenticate as.

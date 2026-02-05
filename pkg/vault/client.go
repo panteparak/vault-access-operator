@@ -17,8 +17,10 @@ const DefaultKubernetesAuthPath = "auth/kubernetes"
 // Client wraps the Vault API client with additional metadata
 type Client struct {
 	*api.Client
-	connectionName string
-	authenticated  bool
+	connectionName  string
+	authenticated   bool
+	tokenExpiration time.Time
+	tokenTTL        time.Duration
 }
 
 // ClientConfig holds configuration for creating a Vault client
@@ -93,6 +95,33 @@ func (c *Client) SetAuthenticated(auth bool) {
 	c.authenticated = auth
 }
 
+// TokenExpiration returns when the current Vault token expires.
+// Returns zero time if not set (e.g., static token auth).
+func (c *Client) TokenExpiration() time.Time {
+	return c.tokenExpiration
+}
+
+// TokenTTL returns the original TTL of the current Vault token.
+// Returns zero if not set (e.g., static token auth).
+func (c *Client) TokenTTL() time.Duration {
+	return c.tokenTTL
+}
+
+// RenewSelf renews the current Vault token in place.
+// Updates tokenExpiration and tokenTTL with the new values from Vault.
+func (c *Client) RenewSelf(ctx context.Context) error {
+	secret, err := c.Auth().Token().RenewSelfWithContext(ctx, 0)
+	if err != nil {
+		return fmt.Errorf("token renewal failed: %w", err)
+	}
+	if secret != nil && secret.Auth != nil && secret.Auth.LeaseDuration > 0 {
+		ttl := time.Duration(secret.Auth.LeaseDuration) * time.Second
+		c.tokenTTL = ttl
+		c.tokenExpiration = time.Now().Add(ttl)
+	}
+	return nil
+}
+
 // IsHealthy checks if Vault is healthy and the client can connect
 func (c *Client) IsHealthy(ctx context.Context) (bool, error) {
 	health, err := c.Sys().HealthWithContext(ctx)
@@ -154,6 +183,11 @@ func (c *Client) AuthenticateKubernetesWithToken(ctx context.Context, role, moun
 
 	c.SetToken(secret.Auth.ClientToken)
 	c.authenticated = true
+	if secret.Auth.LeaseDuration > 0 {
+		ttl := time.Duration(secret.Auth.LeaseDuration) * time.Second
+		c.tokenTTL = ttl
+		c.tokenExpiration = time.Now().Add(ttl)
+	}
 	return nil
 }
 
@@ -188,6 +222,11 @@ func (c *Client) AuthenticateAppRole(ctx context.Context, roleID, secretID, moun
 
 	c.SetToken(secret.Auth.ClientToken)
 	c.authenticated = true
+	if secret.Auth.LeaseDuration > 0 {
+		ttl := time.Duration(secret.Auth.LeaseDuration) * time.Second
+		c.tokenTTL = ttl
+		c.tokenExpiration = time.Now().Add(ttl)
+	}
 	return nil
 }
 
@@ -213,6 +252,11 @@ func (c *Client) AuthenticateJWT(ctx context.Context, role, mountPath, jwt strin
 
 	c.SetToken(secret.Auth.ClientToken)
 	c.authenticated = true
+	if secret.Auth.LeaseDuration > 0 {
+		ttl := time.Duration(secret.Auth.LeaseDuration) * time.Second
+		c.tokenTTL = ttl
+		c.tokenExpiration = time.Now().Add(ttl)
+	}
 	return nil
 }
 
@@ -241,6 +285,11 @@ func (c *Client) AuthenticateOIDC(ctx context.Context, role, mountPath, jwt stri
 
 	c.SetToken(secret.Auth.ClientToken)
 	c.authenticated = true
+	if secret.Auth.LeaseDuration > 0 {
+		ttl := time.Duration(secret.Auth.LeaseDuration) * time.Second
+		c.tokenTTL = ttl
+		c.tokenExpiration = time.Now().Add(ttl)
+	}
 	return nil
 }
 
@@ -267,6 +316,11 @@ func (c *Client) AuthenticateAWS(ctx context.Context, role, mountPath string, lo
 
 	c.SetToken(secret.Auth.ClientToken)
 	c.authenticated = true
+	if secret.Auth.LeaseDuration > 0 {
+		ttl := time.Duration(secret.Auth.LeaseDuration) * time.Second
+		c.tokenTTL = ttl
+		c.tokenExpiration = time.Now().Add(ttl)
+	}
 	return nil
 }
 
@@ -293,6 +347,11 @@ func (c *Client) AuthenticateGCP(ctx context.Context, role, mountPath, signedJWT
 
 	c.SetToken(secret.Auth.ClientToken)
 	c.authenticated = true
+	if secret.Auth.LeaseDuration > 0 {
+		ttl := time.Duration(secret.Auth.LeaseDuration) * time.Second
+		c.tokenTTL = ttl
+		c.tokenExpiration = time.Now().Add(ttl)
+	}
 	return nil
 }
 

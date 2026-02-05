@@ -578,12 +578,15 @@ func UpdateVaultPolicyCR(ctx context.Context, name, namespace string, mutate fun
 // UpdateVaultRoleCR fetches the latest VaultRole, applies the mutate function,
 // and writes it back.
 func UpdateVaultRoleCR(ctx context.Context, name, namespace string, mutate func(*vaultv1alpha1.VaultRole)) error {
+	// Use merge patch instead of read-modify-write Update to avoid
+	// resourceVersion conflicts with the operator's status updates.
 	role, err := GetVaultRole(ctx, name, namespace)
 	if err != nil {
 		return fmt.Errorf("failed to get VaultRole for update: %w", err)
 	}
+	old := role.DeepCopy()
 	mutate(role)
-	return UpdateObject(ctx, role)
+	return PatchObject(ctx, role, client.MergeFrom(old))
 }
 
 // UpdateVaultClusterPolicyCR fetches the latest VaultClusterPolicy, applies the

@@ -19,6 +19,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -68,36 +69,11 @@ var _ = Describe("Token Lifecycle", Ordered,
 				map[string][]byte{"token": []byte("root")},
 			)
 
-			By("creating operator policy in Vault")
-			vaultClient, err =
-				utils.GetTestVaultClient()
-			Expect(err).NotTo(HaveOccurred())
-
-			policyHCL := `
-path "sys/policies/acl/*" {
-  capabilities = ["create", "read", "update", "delete", "list"]
-}
-path "auth/kubernetes/role/*" {
-  capabilities = ["create", "read", "update", "delete", "list"]
-}
-path "auth/kubernetes/config" {
-  capabilities = ["create", "read", "update", "delete", "list"]
-}
-path "sys/auth" {
-  capabilities = ["read"]
-}
-path "sys/auth/*" {
-  capabilities = ["sudo", "create", "read", "update", "delete", "list"]
-}
-path "sys/mounts" {
-  capabilities = ["read"]
-}
-`
-			err = vaultClient.WritePolicy(
-				ctx, operatorPolicy, policyHCL,
-			)
-			Expect(err).NotTo(HaveOccurred(),
-				"Failed to create operator policy in Vault")
+			// The operator policy ("vault-access-operator") is created
+			// by BeforeSuite with comprehensive permissions.
+			// Do NOT overwrite it here — that would reduce permissions
+			// for ALL tokens referencing this policy (Vault evaluates
+			// policies dynamically at access time).
 		})
 
 		AfterAll(func() {
@@ -141,18 +117,10 @@ path "sys/mounts" {
 				2*time.Second,
 			).Should(Succeed())
 
-			// Clean up Vault resources
-			By("cleaning up Vault auth method and role")
-			vaultClient, err :=
-				utils.GetTestVaultClient()
-			if err == nil {
-				_ = vaultClient.DisableAuth(
-					ctx, "kubernetes",
-				)
-				_ = vaultClient.DeletePolicy(
-					ctx, operatorPolicy,
-				)
-			}
+			// Do NOT disable kubernetes auth or delete the shared
+			// operator policy — both are shared resources created by
+			// BeforeSuite/Makefile and used by subsequent auth tests
+			// (TC-AU01, TC-AU-SHARED with kubernetes auth, etc.).
 
 			// Delete namespace
 			_ = utils.DeleteNamespace(
@@ -194,8 +162,9 @@ path "sys/mounts" {
 									AutoRevoke: &autoRevokeFalse,
 								},
 								Kubernetes: &vaultv1alpha1.KubernetesAuth{
-									Role:     operatorRole,
-									AuthPath: "kubernetes",
+									Role:           operatorRole,
+									AuthPath:       "kubernetes",
+									KubernetesHost: os.Getenv("E2E_K8S_HOST"),
 									TokenDuration: metav1.Duration{
 										Duration: time.Hour,
 									},
@@ -622,7 +591,10 @@ path "sys/mounts" {
 
 		Context("Token Lifecycle - Renewal",
 			Label("slow"), func() {
-				const renewalConnectionName = "e2e-renewal-conn"
+				const (
+					renewalConnectionName = "e2e-renewal-conn"
+					renewalRoleName       = "e2e-short-ttl-role"
+				)
 
 				AfterEach(func() {
 					By("cleaning up renewal " +
@@ -630,15 +602,64 @@ path "sys/mounts" {
 					_ = utils.DeleteVaultConnectionCR(
 						ctx, renewalConnectionName,
 					)
+					// Wait for deletion
+					Eventually(func(g Gomega) {
+						exists, err :=
+							utils.ClusterResourceExists(
+								ctx,
+								&vaultv1alpha1.VaultConnection{},
+								renewalConnectionName,
+							)
+						g.Expect(err).NotTo(HaveOccurred())
+						g.Expect(exists).To(BeFalse())
+					}, 30*time.Second,
+						2*time.Second,
+					).Should(Succeed())
+
+					By("cleaning up short-TTL " +
+						"Vault role")
+					vc, err :=
+						utils.GetTestVaultClient()
+					if err == nil {
+						_ = vc.DeleteAuthRole(
+							ctx, "kubernetes",
+							renewalRoleName,
+						)
+					}
 				})
 
 				It("TC-LC07: Renew token when "+
 					"approaching expiration",
 					Label("slow"), func() {
+						By("creating a Vault role " +
+							"with short TTL (2m) " +
+							"for renewal testing")
+						vc, err :=
+							utils.GetTestVaultClient()
+						Expect(err).NotTo(
+							HaveOccurred(),
+						)
+						err = vc.WriteAuthRole(
+							ctx, "kubernetes",
+							renewalRoleName,
+							map[string]interface{}{
+								"bound_service_account_names":      "vault-access-operator",
+								"bound_service_account_namespaces": "vault-access-operator-system",
+								"policies":                         operatorPolicy,
+								"ttl":                              "2m",
+								"max_ttl":                          "10m",
+							},
+						)
+						Expect(err).NotTo(
+							HaveOccurred(),
+							"Failed to create "+
+								"short-TTL Vault role",
+						)
+
 						By("creating VaultConnection " +
-							"with short token " +
-							"duration (2m)")
-						err :=
+							"with short-TTL " +
+							"Vault role")
+						err =
 							utils.CreateVaultConnectionCR(
 								ctx,
 								&vaultv1alpha1.VaultConnection{
@@ -652,10 +673,10 @@ path "sys/mounts" {
 										),
 										Auth: vaultv1alpha1.AuthConfig{
 											Kubernetes: &vaultv1alpha1.KubernetesAuth{
-												Role:     operatorRole,
+												Role:     renewalRoleName,
 												AuthPath: "kubernetes",
 												TokenDuration: metav1.Duration{
-													Duration: 2 * time.Minute,
+													Duration: 10 * time.Minute,
 												},
 											},
 										},
@@ -709,8 +730,8 @@ path "sys/mounts" {
 						}
 
 						By("waiting for token " +
-							"renewal (happens at " +
-							"~75% of 2m TTL = ~90s)")
+							"renewal (Vault TTL=2m, " +
+							"renewal at ~75% = ~90s)")
 						Eventually(func(g Gomega) {
 							c, err :=
 								utils.GetVaultConnection(

@@ -315,8 +315,22 @@ var _ = Describe("Authentication Tests", Ordered, Label("auth"), func() {
 			)
 			Expect(err).NotTo(HaveOccurred())
 
-			By("waiting for role update to propagate")
-			time.Sleep(5 * time.Second)
+			By("waiting for role update to propagate to Vault")
+			Eventually(func(g Gomega) {
+				r, err := utils.GetVaultRole(
+					ctx, authRoleName, testNamespace,
+				)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(r.Status.Phase).To(Equal(
+					vaultv1alpha1.PhaseActive,
+				))
+				g.Expect(r.Status.BoundServiceAccounts).To(
+					ContainElement(fmt.Sprintf(
+						"%s/%s", testNamespace,
+						additionalSAName,
+					)),
+				)
+			}, 2*time.Minute, 5*time.Second).Should(Succeed())
 
 			vaultClient, err := utils.GetTestVaultClient()
 			Expect(err).NotTo(HaveOccurred())

@@ -249,6 +249,13 @@ e2e-configure-vault: ## Configure Vault auth methods and policies for E2E
 		'{kubernetes_host: $$host, token_reviewer_jwt: $$jwt, kubernetes_ca_cert: $$ca}' | \
 	$(E2E_VAULT_EXEC) write auth/kubernetes/config -
 	@echo "Kubernetes auth configured (host=https://k3s:6443)"
+	@echo "Creating operator role in Kubernetes auth..."
+	@$(E2E_VAULT_EXEC) write auth/kubernetes/role/vault-access-operator \
+		bound_service_account_names=vault-access-operator \
+		bound_service_account_namespaces=vault-access-operator-system \
+		policies=vault-access-operator \
+		ttl=1h
+	@echo "Operator role created"
 	@echo "Configuring JWT auth..."
 	@# External Vault can't resolve kubernetes.default.svc — use jwks_url via docker network
 	@K8S_CA=$$($(E2E_KUBECTL) config view --raw --minify -o jsonpath='{.clusters[0].cluster.certificate-authority-data}' | base64 -d); \

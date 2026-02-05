@@ -19,6 +19,12 @@ rules:
   verbs:
   - create
 - apiGroups:
+  - authentication.k8s.io
+  resources:
+  - tokenreviews
+  verbs:
+  - create
+- apiGroups:
   - vault.platform.io
   resources:
   - vaultclusterpolicies

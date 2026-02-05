@@ -78,10 +78,12 @@ func (m *managerImpl) Bootstrap(
 	}
 
 	// Step 3: Get token_reviewer_jwt
+	// NOTE: Do NOT set Audiences here. The token_reviewer_jwt is used by Vault
+	// as bearer auth to call the Kubernetes TokenReview API. It must have the
+	// API server's default audience (not "vault") to be accepted.
 	tokenInfo, err := m.tokenProvider.GetToken(ctx, token.GetTokenOptions{
 		ServiceAccount: *config.TokenReviewerServiceAccount,
 		Duration:       config.TokenReviewerDuration,
-		Audiences:      []string{token.DefaultAudience},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get token_reviewer_jwt: %w", err)
@@ -241,7 +243,7 @@ func (m *managerImpl) testKubernetesAuth(
 	// Get a fresh token for testing
 	tokenInfo, err := m.tokenProvider.GetToken(ctx, token.GetTokenOptions{
 		ServiceAccount: config.OperatorServiceAccount,
-		Duration:       5 * time.Minute, // Short-lived test token
+		Duration:       10 * time.Minute, // Must be >= 10 minutes for k3s/some K8s distributions
 		Audiences:      []string{token.DefaultAudience},
 	})
 	if err != nil {

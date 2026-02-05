@@ -402,35 +402,55 @@ var _ = Describe("VaultClusterRole Tests", Ordered, Label("module"), func() {
 			)
 		})
 
-		It("TC-CR05: Handle missing policy reference", func() {
+		// TC-CR05: The operator uses eventual consistency for policy
+		// references — VaultClusterRole becomes Active even when the
+		// referenced VaultClusterPolicy doesn't exist. This matches
+		// VaultRole behavior (see TC-EH02).
+		It("TC-CR05: VaultClusterRole with non-existent "+
+			"policy reference becomes Active", func() {
+			roleName := "tc-cr05-missing-policy"
+
 			By("creating VaultClusterRole with missing policy")
-			verifyClusterRoleError(
-				&vaultv1alpha1.VaultClusterRole{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "tc-cr05-missing-policy",
-					},
-					Spec: vaultv1alpha1.VaultClusterRoleSpec{
-						ConnectionRef: sharedVaultConnectionName,
-						AuthPath:      "auth/kubernetes",
-						ServiceAccounts: []vaultv1alpha1.ServiceAccountRef{
-							{
-								Name:      clusterRoleSAName,
-								Namespace: testNamespace,
-							},
-						},
-						Policies: []vaultv1alpha1.PolicyReference{
-							{
-								Kind: "VaultClusterPolicy",
-								Name: "non-existent-cluster-policy",
-							},
-						},
-						TokenTTL: "1h",
-					},
+			role := &vaultv1alpha1.VaultClusterRole{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: roleName,
 				},
-				[]string{
-					"not found", "policy", "Not Found",
+				Spec: vaultv1alpha1.VaultClusterRoleSpec{
+					ConnectionRef: sharedVaultConnectionName,
+					AuthPath:      "auth/kubernetes",
+					ServiceAccounts: []vaultv1alpha1.ServiceAccountRef{
+						{
+							Name:      clusterRoleSAName,
+							Namespace: testNamespace,
+						},
+					},
+					Policies: []vaultv1alpha1.PolicyReference{
+						{
+							Kind: "VaultClusterPolicy",
+							Name: "non-existent-cluster-policy",
+						},
+					},
+					TokenTTL: "1h",
 				},
-			)
+			}
+			err := utils.CreateVaultClusterRoleCR(ctx, role)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying VaultClusterRole becomes Active " +
+				"(operator does not validate policy existence)")
+			Eventually(func(g Gomega) {
+				status, err := utils.GetVaultClusterRoleStatus(
+					ctx, roleName,
+				)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(status).To(Equal("Active"),
+					"VaultClusterRole should be Active even "+
+						"with non-existent policy reference",
+				)
+			}, 30*time.Second, 2*time.Second).Should(Succeed())
+
+			By("cleaning up cluster role")
+			_ = utils.DeleteVaultClusterRoleCR(ctx, roleName)
 		})
 	})
 })

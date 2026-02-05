@@ -57,6 +57,20 @@ rules:
   - get
   - list
   - watch
+# ServiceAccount tokens for TokenRequest API
+- apiGroups:
+  - ""
+  resources:
+  - serviceaccounts/token
+  verbs:
+  - create
+# TokenReview for Vault Kubernetes auth bootstrap (token_reviewer_jwt)
+- apiGroups:
+  - authentication.k8s.io
+  resources:
+  - tokenreviews
+  verbs:
+  - create
 # Events for recording reconciliation events
 - apiGroups:
   - ""

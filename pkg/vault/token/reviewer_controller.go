@@ -154,10 +154,12 @@ func (c *reviewerControllerImpl) Refresh(ctx context.Context, connectionName str
 	c.log.Info("refreshing token_reviewer_jwt", "connection", connectionName)
 
 	// Get new token_reviewer_jwt
+	// NOTE: Do NOT set Audiences here. The token_reviewer_jwt is used by Vault
+	// as bearer auth to call the Kubernetes TokenReview API. It must have the
+	// API server's default audience (not "vault") to be accepted.
 	tokenInfo, err := c.provider.GetToken(ctx, GetTokenOptions{
 		ServiceAccount: config.ServiceAccount,
 		Duration:       config.Duration,
-		Audiences:      []string{DefaultAudience},
 	})
 	if err != nil {
 		return c.handleRefreshFailure(connectionName, fmt.Errorf("failed to get token: %w", err))

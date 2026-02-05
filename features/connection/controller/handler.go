@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -114,8 +115,8 @@ func (h *Handler) Sync(ctx context.Context, conn *vaultv1alpha1.VaultConnection)
 		return h.runBootstrap(ctx, conn)
 	}
 
-	// Phase 2: Normal auth (K8s, Token, or AppRole)
-	vaultClient, err := h.buildAndAuthenticateClient(ctx, conn)
+	// Phase 2: Normal auth — try cached client with renewal, fall back to fresh auth
+	vaultClient, renewed, err := h.getOrRenewClient(ctx, conn)
 	if err != nil {
 		return h.handleSyncError(ctx, conn, err)
 	}
@@ -141,7 +142,10 @@ func (h *Handler) Sync(ctx context.Context, conn *vaultv1alpha1.VaultConnection)
 
 	// Update AuthStatus for Kubernetes auth
 	if conn.Spec.Auth.Kubernetes != nil {
-		h.updateAuthStatus(conn)
+		h.updateAuthStatus(conn, vaultClient)
+		if renewed {
+			h.trackRenewal(conn)
+		}
 	}
 
 	// Update status to Active
@@ -242,6 +246,14 @@ func (h *Handler) runBootstrap(ctx context.Context, conn *vaultv1alpha1.VaultCon
 		OperatorPolicy:        "vault-access-operator",
 	}
 
+	// If KubernetesHost is set, pass it as override to prevent auto-discovery
+	// from using in-cluster address that external Vault can't reach.
+	if k8sAuth.KubernetesHost != "" {
+		bootstrapConfig.KubernetesConfig = &bootstrap.KubernetesClusterConfig{
+			Host: k8sAuth.KubernetesHost,
+		}
+	}
+
 	// Run bootstrap
 	result, err := h.bootstrapMgr.Bootstrap(ctx, vaultClient, bootstrapConfig)
 	if err != nil {
@@ -305,11 +317,17 @@ func (h *Handler) buildVaultClient(ctx context.Context, conn *vaultv1alpha1.Vaul
 }
 
 // updateAuthStatus updates the auth status for Kubernetes auth connections.
-func (h *Handler) updateAuthStatus(conn *vaultv1alpha1.VaultConnection) {
+func (h *Handler) updateAuthStatus(conn *vaultv1alpha1.VaultConnection, vaultClient *vault.Client) {
 	if conn.Status.AuthStatus == nil {
 		conn.Status.AuthStatus = &vaultv1alpha1.AuthStatus{}
 	}
 	conn.Status.AuthStatus.AuthMethod = defaultKubernetesAuthPath
+
+	// Set token expiration from Vault auth response
+	if exp := vaultClient.TokenExpiration(); !exp.IsZero() {
+		expTime := metav1.NewTime(exp)
+		conn.Status.AuthStatus.TokenExpiration = &expTime
+	}
 
 	// Check if token reviewer rotation is disabled and add warning
 	k8sAuth := conn.Spec.Auth.Kubernetes
@@ -404,6 +422,90 @@ func (h *Handler) buildAndAuthenticateClient(
 	}
 
 	return vaultClient, nil
+}
+
+// renewalThreshold is the fraction of TTL at which to trigger renewal.
+// At 0.75, renewal occurs when 75% of the TTL has elapsed (25% remaining).
+const renewalThreshold = 0.75
+
+// getOrRenewClient tries to reuse a cached Vault client, renewing if needed.
+// Returns the client, whether a renewal occurred, and any error.
+func (h *Handler) getOrRenewClient(
+	ctx context.Context,
+	conn *vaultv1alpha1.VaultConnection,
+) (*vault.Client, bool, error) {
+	log := logr.FromContextOrDiscard(ctx)
+
+	// Try to reuse the cached client
+	cachedClient, cacheErr := h.clientCache.Get(conn.Name)
+	if cacheErr == nil && cachedClient != nil && cachedClient.IsAuthenticated() {
+		// Verify the cached client points to the same Vault address
+		if cachedClient.Address() == conn.Spec.Address {
+			exp := cachedClient.TokenExpiration()
+			ttl := cachedClient.TokenTTL()
+
+			if !exp.IsZero() && ttl > 0 {
+				remaining := time.Until(exp)
+
+				if remaining > 0 {
+					// Token hasn't expired yet
+					threshold := time.Duration(float64(ttl) * (1 - renewalThreshold))
+
+					if remaining > threshold {
+						// Token still fresh, reuse without renewal
+						log.V(1).Info("reusing cached vault client",
+							"connectionName", conn.Name,
+							"remaining", remaining.Round(time.Second),
+						)
+						return cachedClient, false, nil
+					}
+
+					// Token approaching expiration, try renewal
+					log.Info("token approaching expiration, attempting renewal",
+						"connectionName", conn.Name,
+						"remaining", remaining.Round(time.Second),
+						"ttl", ttl,
+					)
+					if err := cachedClient.RenewSelf(ctx); err == nil {
+						log.Info("token renewed successfully",
+							"connectionName", conn.Name,
+							"newExpiration", cachedClient.TokenExpiration(),
+						)
+						return cachedClient, true, nil
+					} else {
+						log.Info("token renewal failed, re-authenticating",
+							"connectionName", conn.Name,
+							"error", err,
+						)
+					}
+				}
+				// Token expired or renewal failed, fall through to re-auth
+			} else {
+				// No expiration info (e.g., static token), just reuse
+				return cachedClient, false, nil
+			}
+		}
+	}
+
+	// Full re-authentication
+	vaultClient, err := h.buildAndAuthenticateClient(ctx, conn)
+	if err != nil {
+		return nil, false, err
+	}
+
+	// Count re-auth as renewal if there was a previous cached client
+	wasReauth := cacheErr == nil && cachedClient != nil && cachedClient.IsAuthenticated()
+	return vaultClient, wasReauth, nil
+}
+
+// trackRenewal increments the renewal counter and timestamp in the CRD status.
+func (h *Handler) trackRenewal(conn *vaultv1alpha1.VaultConnection) {
+	if conn.Status.AuthStatus == nil {
+		conn.Status.AuthStatus = &vaultv1alpha1.AuthStatus{}
+	}
+	conn.Status.AuthStatus.TokenRenewalCount++
+	now := metav1.Now()
+	conn.Status.AuthStatus.TokenLastRenewed = &now
 }
 
 // authenticate authenticates the Vault client using the configured auth method.

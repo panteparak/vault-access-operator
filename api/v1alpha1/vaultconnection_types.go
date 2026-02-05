@@ -122,6 +122,14 @@ type KubernetesAuth struct {
 	// +optional
 	AuthPath string `json:"authPath,omitempty"`
 
+	// KubernetesHost overrides the auto-discovered Kubernetes API server address
+	// used when configuring Vault's Kubernetes auth method during bootstrap.
+	// Required when Vault is external to the cluster and cannot reach the
+	// in-cluster API server address. Example: "https://k8s-api.example.com:6443"
+	// When empty, the operator auto-discovers the host from in-cluster config.
+	// +optional
+	KubernetesHost string `json:"kubernetesHost,omitempty"`
+
 	// TokenDuration is the requested service account token lifetime.
 	// Uses Kubernetes TokenRequest API for short-lived tokens.
 	// +kubebuilder:default="1h"

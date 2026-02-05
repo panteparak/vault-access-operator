@@ -102,6 +102,7 @@ func NewReconciler(cfg ReconcilerConfig) *Reconciler {
 // +kubebuilder:rbac:groups=vault.platform.io,resources=vaultconnections/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=serviceaccounts/token,verbs=create
+// +kubebuilder:rbac:groups=authentication.k8s.io,resources=tokenreviews,verbs=create
 
 // Reconcile implements the reconciliation loop for VaultConnection.
 // The actual logic is delegated to the BaseReconciler and Handler.

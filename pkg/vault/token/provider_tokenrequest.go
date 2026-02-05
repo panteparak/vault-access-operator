@@ -76,9 +76,6 @@ func (p *TokenRequestProvider) GetToken(ctx context.Context, opts GetTokenOption
 	}
 
 	audiences := opts.Audiences
-	if len(audiences) == 0 {
-		audiences = []string{DefaultAudience}
-	}
 
 	p.log.V(1).Info("requesting token via TokenRequest API",
 		"namespace", opts.ServiceAccount.Namespace,

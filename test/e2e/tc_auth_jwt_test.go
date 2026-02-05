@@ -401,11 +401,12 @@ path "sys/policies/acl/*" {
 						"bound_audiences": "https://" +
 							"kubernetes.default." +
 							"svc.cluster.local",
-						"bound_claims": fmt.Sprintf(
-							"sub=system:serviceaccount:"+
-								"%s:%s",
-							testNamespace, oidcSAName,
-						),
+						"bound_claims": map[string]interface{}{
+							"sub": fmt.Sprintf(
+								"system:serviceaccount:%s:%s",
+								testNamespace, oidcSAName,
+							),
+						},
 						"user_claim": "sub",
 						"policies":   "default",
 						"ttl":        "15m",
@@ -477,11 +478,12 @@ path "sys/policies/acl/*" {
 						map[string]interface{}{
 							"role_type":       "jwt",
 							"bound_audiences": customAudience,
-							"bound_claims": fmt.Sprintf(
-								"sub=system:serviceaccount:"+
-									"%s:%s",
-								testNamespace, oidcSAName,
-							),
+							"bound_claims": map[string]interface{}{
+								"sub": fmt.Sprintf(
+									"system:serviceaccount:%s:%s",
+									testNamespace, oidcSAName,
+								),
+							},
 							"user_claim": "sub",
 							"policies":   "default",
 						},
@@ -595,12 +597,13 @@ path "auth/kubernetes/role/*" {
 							"bound_audiences": "https://" +
 								"kubernetes.default." +
 								"svc.cluster.local,vault",
-							"bound_claims": fmt.Sprintf(
-								"sub=system:"+
-									"serviceaccount:%s:%s",
-								testNamespace,
-								jwtConnSAName,
-							),
+							"bound_claims": map[string]interface{}{
+								"sub": fmt.Sprintf(
+									"system:serviceaccount:%s:%s",
+									testNamespace,
+									jwtConnSAName,
+								),
+							},
 							"user_claim": "sub",
 							"policies":   jwtConnPolicyName,
 							"ttl":        "1h",

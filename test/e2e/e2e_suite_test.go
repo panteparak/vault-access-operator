@@ -138,6 +138,11 @@ path "sys/health" {
   capabilities = ["read"]
 }
 
+# Mount listing (used by bootstrap to verify auth methods)
+path "sys/mounts" {
+  capabilities = ["read"]
+}
+
 # KV v2 managed resource metadata (ownership tracking)
 # The operator stores metadata about which K8s resource manages each Vault policy/role
 # KV v2 requires separate data/ and metadata/ path prefixes

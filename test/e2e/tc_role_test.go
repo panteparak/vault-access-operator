@@ -139,7 +139,7 @@ var _ = Describe("VaultRole Tests", Ordered, Label("module"), func() {
 
 			By("verifying VaultRole has bound service accounts")
 			Expect(r.Status.BoundServiceAccounts).To(
-				ContainElement(roleSAName),
+				ContainElement(fmt.Sprintf("%s/%s", testNamespace, roleSAName)),
 			)
 		})
 
