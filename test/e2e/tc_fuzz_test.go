@@ -63,7 +63,6 @@ var _ = Describe("Fuzz Tests", Ordered, Label("fuzz"), func() {
 
 	Context("TC-FUZZ-PATH: Policy Path Fuzzing", func() {
 		It("TC-FUZZ-PATH01: should handle random valid path patterns without panicking", func() {
-			// Run fewer iterations to keep test time reasonable
 			rapid.Check(GinkgoT(), func(t *rapid.T) {
 				// Generate random paths using allowed characters
 				// CRD pattern: ^[a-zA-Z0-9/_*{}+-]+$

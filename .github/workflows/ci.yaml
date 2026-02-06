@@ -1040,8 +1040,9 @@ jobs:
           # Run all e2e tests in single invocation to share BeforeSuite/AfterSuite
           # (Running separate phases causes AfterSuite to tear down between phases)
           # Use -count=1 to disable test caching (cached runs don't generate reports)
+          # Use -rapid.checks=10 to limit fuzz test iterations (default 100 is too slow for e2e)
           go test ./test/e2e/... -count=1 -v -ginkgo.v -ginkgo.fail-fast -ginkgo.show-node-events \
-            -ginkgo.json-report=e2e-report.json -timeout=25m 2>&1 | tee e2e-output.txt
+            -rapid.checks=10 -ginkgo.json-report=e2e-report.json -timeout=25m 2>&1 | tee e2e-output.txt
 
           # Ginkgo writes JSON reports to test package directory
           # Copy to working directory for summary step (handle missing gracefully)
