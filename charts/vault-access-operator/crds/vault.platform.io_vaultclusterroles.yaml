@@ -190,8 +190,8 @@ spec:
                 format: date-time
                 type: string
               managed:
-                description: Managed indicates whether this role is managed by the
-                  operator
+                description: Managed indicates whether this resource is managed by
+                  the operator
                 type: boolean
               message:
                 description: Message provides additional information about the current
@@ -202,7 +202,7 @@ spec:
                 format: date-time
                 type: string
               phase:
-                description: Phase represents the current phase of the role
+                description: Phase represents the current phase of the resource
                 enum:
                 - Pending
                 - Syncing
