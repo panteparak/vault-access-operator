@@ -160,12 +160,15 @@ jobs:
         run: |
           # Integration tests require Docker for testcontainers
           # Generate JSON report for detailed test case summary
-          go test ./test/integration/... -v -ginkgo.v -ginkgo.show-node-events \
+          # Use -count=1 to disable test caching (cached runs don't generate reports)
+          go test ./test/integration/... -count=1 -v -ginkgo.v -ginkgo.show-node-events \
             -ginkgo.json-report=integration-report.json -timeout=10m 2>&1 | tee integration-output.txt || true
 
-          # Ginkgo writes JSON reports relative to each test package directory
-          # Combine all sub-package reports into one
-          find test/integration -name "integration-report.json" -exec cat {} + | jq -s 'add' > integration-report.json 2>/dev/null || true
+          # Ginkgo writes JSON reports to each test package directory
+          # Combine all sub-package reports into one (handle missing gracefully)
+          if find test/integration -name "integration-report.json" | grep -q .; then
+            find test/integration -name "integration-report.json" -exec cat {} + | jq -s 'add' > integration-report.json 2>/dev/null || true
+          fi
       - name: Generate integration test summary
         if: always()
         run: |
@@ -746,11 +749,15 @@ jobs:
       - name: Run security tests
         run: |
           # Generate JSON report for detailed test case summary
-          go test ./test/integration/security/... -v -ginkgo.v -ginkgo.show-node-events \
+          # Use -count=1 to disable test caching (cached runs don't generate reports)
+          go test ./test/integration/security/... -count=1 -v -ginkgo.v -ginkgo.show-node-events \
             -ginkgo.json-report=security-report.json -timeout=10m 2>&1 | tee security-output.txt || true
 
-          # Ginkgo writes JSON reports relative to test package directory
-          cp test/integration/security/security-report.json security-report.json 2>/dev/null || true
+          # Ginkgo writes JSON reports to test package directory
+          # Copy to working directory for summary step (handle missing gracefully)
+          if [ -f test/integration/security/security-report.json ]; then
+            cp test/integration/security/security-report.json security-report.json
+          fi
       - name: Generate security test summary
         if: always()
         run: |
@@ -1032,11 +1039,19 @@ jobs:
           echo "=========================================="
           # Run all e2e tests in single invocation to share BeforeSuite/AfterSuite
           # (Running separate phases causes AfterSuite to tear down between phases)
-          go test ./test/e2e/... -v -ginkgo.v -ginkgo.fail-fast -ginkgo.show-node-events \
+          # Use -count=1 to disable test caching (cached runs don't generate reports)
+          go test ./test/e2e/... -count=1 -v -ginkgo.v -ginkgo.fail-fast -ginkgo.show-node-events \
             -ginkgo.json-report=e2e-report.json -timeout=25m 2>&1 | tee e2e-output.txt
 
-          # Ginkgo writes JSON reports relative to test package directory
-          cp test/e2e/e2e-report.json e2e-report.json
+          # Ginkgo writes JSON reports to test package directory
+          # Copy to working directory for summary step (handle missing gracefully)
+          if [ -f test/e2e/e2e-report.json ]; then
+            cp test/e2e/e2e-report.json e2e-report.json
+          elif [ -f e2e-report.json ]; then
+            echo "Report already in working directory"
+          else
+            echo "Warning: e2e-report.json not found, summary will be skipped"
+          fi
 
       - name: E2E Summary
         if: always()
