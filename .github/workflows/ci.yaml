@@ -162,6 +162,10 @@ jobs:
           # Generate JSON report for detailed test case summary
           go test ./test/integration/... -v -ginkgo.v -ginkgo.show-node-events \
             -ginkgo.json-report=integration-report.json -timeout=10m 2>&1 | tee integration-output.txt || true
+
+          # Ginkgo writes JSON reports relative to each test package directory
+          # Combine all sub-package reports into one
+          find test/integration -name "integration-report.json" -exec cat {} + | jq -s 'add' > integration-report.json 2>/dev/null || true
       - name: Generate integration test summary
         if: always()
         run: |
@@ -744,6 +748,9 @@ jobs:
           # Generate JSON report for detailed test case summary
           go test ./test/integration/security/... -v -ginkgo.v -ginkgo.show-node-events \
             -ginkgo.json-report=security-report.json -timeout=10m 2>&1 | tee security-output.txt || true
+
+          # Ginkgo writes JSON reports relative to test package directory
+          cp test/integration/security/security-report.json security-report.json 2>/dev/null || true
       - name: Generate security test summary
         if: always()
         run: |
@@ -1021,22 +1028,15 @@ jobs:
           set -o pipefail
 
           echo "=========================================="
-          echo "Phase 1: Running authentication tests..."
+          echo "Running E2E tests..."
           echo "=========================================="
+          # Run all e2e tests in single invocation to share BeforeSuite/AfterSuite
+          # (Running separate phases causes AfterSuite to tear down between phases)
           go test ./test/e2e/... -v -ginkgo.v -ginkgo.fail-fast -ginkgo.show-node-events \
-            -ginkgo.label-filter="auth" \
-            -ginkgo.json-report=e2e-auth-report.json -timeout=10m 2>&1 | tee e2e-auth-output.txt
+            -ginkgo.json-report=e2e-report.json -timeout=25m 2>&1 | tee e2e-output.txt
 
-          echo "=========================================="
-          echo "Phase 2: Running module tests..."
-          echo "=========================================="
-          go test ./test/e2e/... -v -ginkgo.v -ginkgo.fail-fast -ginkgo.show-node-events \
-            -ginkgo.label-filter="module || setup" \
-            -ginkgo.json-report=e2e-module-report.json -timeout=15m 2>&1 | tee e2e-module-output.txt
-
-          cat e2e-auth-output.txt e2e-module-output.txt > e2e-output.txt
           # Ginkgo writes JSON reports relative to test package directory
-          jq -s 'add' test/e2e/e2e-auth-report.json test/e2e/e2e-module-report.json > e2e-report.json
+          cp test/e2e/e2e-report.json e2e-report.json
 
       - name: E2E Summary
         if: always()
