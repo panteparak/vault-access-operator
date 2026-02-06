@@ -223,6 +223,42 @@ type ReconcileStatus struct {
 	LastReconcileID string `json:"lastReconcileID,omitempty"`
 }
 
+// SyncStatus contains common reconciliation tracking fields for synced Vault resources.
+// Embed with json:",inline" in CRD status structs alongside ReconcileStatus.
+type SyncStatus struct {
+	// Phase represents the current phase of the resource
+	// +optional
+	Phase Phase `json:"phase,omitempty"`
+
+	// Managed indicates whether this resource is managed by the operator
+	// +optional
+	Managed bool `json:"managed,omitempty"`
+
+	// LastSyncedAt is the time of the last successful sync
+	// +optional
+	LastSyncedAt *metav1.Time `json:"lastSyncedAt,omitempty"`
+
+	// LastAttemptAt is the time of the last sync attempt
+	// +optional
+	LastAttemptAt *metav1.Time `json:"lastAttemptAt,omitempty"`
+
+	// RetryCount is the number of retry attempts
+	// +optional
+	RetryCount int `json:"retryCount,omitempty"`
+
+	// NextRetryAt is the time of the next retry attempt
+	// +optional
+	NextRetryAt *metav1.Time `json:"nextRetryAt,omitempty"`
+
+	// Message provides additional information about the current state
+	// +optional
+	Message string `json:"message,omitempty"`
+
+	// Conditions represent the latest available observations
+	// +optional
+	Conditions []Condition `json:"conditions,omitempty"`
+}
+
 // Finalizer name for the operator
 const (
 	FinalizerName = "vault.platform.io/finalizer"

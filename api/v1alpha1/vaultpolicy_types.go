@@ -50,18 +50,11 @@ type VaultPolicySpec struct {
 // VaultPolicyStatus defines the observed state of VaultPolicy.
 type VaultPolicyStatus struct {
 	ReconcileStatus `json:",inline"`
-
-	// Phase represents the current phase of the policy
-	// +optional
-	Phase Phase `json:"phase,omitempty"`
+	SyncStatus      `json:",inline"`
 
 	// VaultName is the name of the policy in Vault (namespace-name format)
 	// +optional
 	VaultName string `json:"vaultName,omitempty"`
-
-	// Managed indicates whether this policy is managed by the operator
-	// +optional
-	Managed bool `json:"managed,omitempty"`
 
 	// RulesCount is the number of rules in the policy
 	// +optional
@@ -70,30 +63,6 @@ type VaultPolicyStatus struct {
 	// LastAppliedHash is the hash of the last applied spec
 	// +optional
 	LastAppliedHash string `json:"lastAppliedHash,omitempty"`
-
-	// LastSyncedAt is the time of the last successful sync
-	// +optional
-	LastSyncedAt *metav1.Time `json:"lastSyncedAt,omitempty"`
-
-	// LastAttemptAt is the time of the last sync attempt
-	// +optional
-	LastAttemptAt *metav1.Time `json:"lastAttemptAt,omitempty"`
-
-	// RetryCount is the number of retry attempts
-	// +optional
-	RetryCount int `json:"retryCount,omitempty"`
-
-	// NextRetryAt is the time of the next retry attempt
-	// +optional
-	NextRetryAt *metav1.Time `json:"nextRetryAt,omitempty"`
-
-	// Message provides additional information about the current state
-	// +optional
-	Message string `json:"message,omitempty"`
-
-	// Conditions represent the latest available observations
-	// +optional
-	Conditions []Condition `json:"conditions,omitempty"`
 }
 
 // IsEnforceNamespaceBoundary returns whether namespace boundary enforcement is enabled

@@ -35,6 +35,7 @@ import (
 	"github.com/panteparak/vault-access-operator/pkg/vault/bootstrap"
 	"github.com/panteparak/vault-access-operator/pkg/vault/token"
 	"github.com/panteparak/vault-access-operator/shared/controller/base"
+	"github.com/panteparak/vault-access-operator/shared/controller/conditions"
 	"github.com/panteparak/vault-access-operator/shared/events"
 )
 
@@ -701,35 +702,10 @@ func (h *Handler) setCondition(
 	status metav1.ConditionStatus,
 	reason, message string,
 ) {
-	now := metav1.Now()
-	condition := vaultv1alpha1.Condition{
-		Type:               condType,
-		Status:             status,
-		LastTransitionTime: now,
-		Reason:             reason,
-		Message:            message,
-		ObservedGeneration: conn.Generation,
-	}
-
-	// Find and update existing condition or append new one
-	found := false
-	for i, c := range conn.Status.Conditions {
-		if c.Type == condType {
-			if c.Status != status {
-				conn.Status.Conditions[i] = condition
-			} else {
-				conn.Status.Conditions[i].Reason = reason
-				conn.Status.Conditions[i].Message = message
-				conn.Status.Conditions[i].ObservedGeneration = conn.Generation
-			}
-			found = true
-			break
-		}
-	}
-
-	if !found {
-		conn.Status.Conditions = append(conn.Status.Conditions, condition)
-	}
+	conn.Status.Conditions = conditions.Set(
+		conn.Status.Conditions, conn.Generation,
+		condType, status, reason, message,
+	)
 }
 
 // getJWTToken retrieves a JWT for the JWT auth method.

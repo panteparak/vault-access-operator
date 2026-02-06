@@ -29,6 +29,9 @@ import (
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/features/policy/domain"
 	"github.com/panteparak/vault-access-operator/pkg/vault"
+	"github.com/panteparak/vault-access-operator/shared/controller/conditions"
+	"github.com/panteparak/vault-access-operator/shared/controller/syncerror"
+	"github.com/panteparak/vault-access-operator/shared/controller/vaultclient"
 	"github.com/panteparak/vault-access-operator/shared/events"
 	infraerrors "github.com/panteparak/vault-access-operator/shared/infrastructure/errors"
 )
@@ -199,40 +202,8 @@ func (h *Handler) CleanupPolicy(ctx context.Context, adapter domain.PolicyAdapte
 
 // getVaultClient retrieves a Vault client for the policy's connection.
 func (h *Handler) getVaultClient(ctx context.Context, adapter domain.PolicyAdapter) (*vault.Client, error) {
-	connRef := adapter.GetConnectionRef()
-
-	// Check if connection exists and is active
-	conn := &vaultv1alpha1.VaultConnection{}
-	if err := h.client.Get(ctx, client.ObjectKey{Name: connRef}, conn); err != nil {
-		return nil, infraerrors.NewDependencyError(
-			adapter.GetK8sResourceIdentifier(),
-			"VaultConnection",
-			connRef,
-			"not found",
-		)
-	}
-
-	if conn.Status.Phase != vaultv1alpha1.PhaseActive {
-		return nil, infraerrors.NewDependencyError(
-			adapter.GetK8sResourceIdentifier(),
-			"VaultConnection",
-			connRef,
-			fmt.Sprintf("not ready (phase: %s)", conn.Status.Phase),
-		)
-	}
-
-	// Get client from cache
-	vaultClient, err := h.clientCache.Get(connRef)
-	if err != nil {
-		return nil, infraerrors.NewDependencyError(
-			adapter.GetK8sResourceIdentifier(),
-			"VaultConnection",
-			connRef,
-			"client not in cache",
-		)
-	}
-
-	return vaultClient, nil
+	return vaultclient.Resolve(ctx, h.client, h.clientCache,
+		adapter.GetConnectionRef(), adapter.GetK8sResourceIdentifier())
 }
 
 // validateNamespaceBoundary validates that paths contain namespace variable.
@@ -344,71 +315,18 @@ func (h *Handler) calculateHash(content string) string {
 
 // handleSyncError updates status for errors.
 func (h *Handler) handleSyncError(ctx context.Context, adapter domain.PolicyAdapter, err error) error {
-	// Determine phase based on error type
-	if infraerrors.IsConflictError(err) {
-		adapter.SetPhase(vaultv1alpha1.PhaseConflict)
-		h.setCondition(adapter, vaultv1alpha1.ConditionTypeReady, metav1.ConditionFalse,
-			vaultv1alpha1.ReasonConflict, err.Error())
-	} else if infraerrors.IsValidationError(err) {
-		adapter.SetPhase(vaultv1alpha1.PhaseError)
-		h.setCondition(adapter, vaultv1alpha1.ConditionTypeReady, metav1.ConditionFalse,
-			vaultv1alpha1.ReasonValidationFailed, err.Error())
-	} else if infraerrors.IsDependencyError(err) {
-		adapter.SetPhase(vaultv1alpha1.PhaseError)
-		h.setCondition(adapter, vaultv1alpha1.ConditionTypeReady, metav1.ConditionFalse,
-			vaultv1alpha1.ReasonConnectionNotReady, err.Error())
-	} else {
-		adapter.SetPhase(vaultv1alpha1.PhaseError)
-		h.setCondition(adapter, vaultv1alpha1.ConditionTypeReady, metav1.ConditionFalse,
-			vaultv1alpha1.ReasonFailed, err.Error())
-	}
-
-	adapter.SetMessage(err.Error())
-	h.setCondition(adapter, vaultv1alpha1.ConditionTypeSynced, metav1.ConditionFalse,
-		vaultv1alpha1.ReasonFailed, err.Error())
-
-	if updateErr := h.client.Status().Update(ctx, adapter.GetObject()); updateErr != nil {
-		h.log.Error(updateErr, "failed to update error status")
-	}
-
-	return err
+	return syncerror.Handle(ctx, h.client, h.log, adapter, err)
 }
 
-// setCondition sets or updates a condition.
+// setCondition sets or updates a condition on the adapter.
 func (h *Handler) setCondition(
 	adapter domain.PolicyAdapter,
 	condType string,
 	status metav1.ConditionStatus,
 	reason, message string,
 ) {
-	now := metav1.Now()
-	condition := vaultv1alpha1.Condition{
-		Type:               condType,
-		Status:             status,
-		LastTransitionTime: now,
-		Reason:             reason,
-		Message:            message,
-		ObservedGeneration: adapter.GetGeneration(),
-	}
-
-	conditions := adapter.GetConditions()
-	found := false
-	for i, c := range conditions {
-		if c.Type == condType {
-			if c.Status != status {
-				conditions[i] = condition
-			} else {
-				conditions[i].Reason = reason
-				conditions[i].Message = message
-				conditions[i].ObservedGeneration = adapter.GetGeneration()
-			}
-			found = true
-			break
-		}
-	}
-
-	if !found {
-		conditions = append(conditions, condition)
-	}
-	adapter.SetConditions(conditions)
+	adapter.SetConditions(conditions.Set(
+		adapter.GetConditions(), adapter.GetGeneration(),
+		condType, status, reason, message,
+	))
 }

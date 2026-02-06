@@ -62,18 +62,11 @@ type VaultClusterRoleSpec struct {
 // VaultClusterRoleStatus defines the observed state of VaultClusterRole.
 type VaultClusterRoleStatus struct {
 	ReconcileStatus `json:",inline"`
-
-	// Phase represents the current phase of the role
-	// +optional
-	Phase Phase `json:"phase,omitempty"`
+	SyncStatus      `json:",inline"`
 
 	// VaultRoleName is the name of the role in Vault
 	// +optional
 	VaultRoleName string `json:"vaultRoleName,omitempty"`
-
-	// Managed indicates whether this role is managed by the operator
-	// +optional
-	Managed bool `json:"managed,omitempty"`
 
 	// BoundServiceAccounts lists the service accounts bound to this role
 	// +optional
@@ -82,30 +75,6 @@ type VaultClusterRoleStatus struct {
 	// ResolvedPolicies lists the resolved Vault policy names
 	// +optional
 	ResolvedPolicies []string `json:"resolvedPolicies,omitempty"`
-
-	// LastSyncedAt is the time of the last successful sync
-	// +optional
-	LastSyncedAt *metav1.Time `json:"lastSyncedAt,omitempty"`
-
-	// LastAttemptAt is the time of the last sync attempt
-	// +optional
-	LastAttemptAt *metav1.Time `json:"lastAttemptAt,omitempty"`
-
-	// RetryCount is the number of retry attempts
-	// +optional
-	RetryCount int `json:"retryCount,omitempty"`
-
-	// NextRetryAt is the time of the next retry attempt
-	// +optional
-	NextRetryAt *metav1.Time `json:"nextRetryAt,omitempty"`
-
-	// Message provides additional information about the current state
-	// +optional
-	Message string `json:"message,omitempty"`
-
-	// Conditions represent the latest available observations
-	// +optional
-	Conditions []Condition `json:"conditions,omitempty"`
 }
 
 // +kubebuilder:object:root=true

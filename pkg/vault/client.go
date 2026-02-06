@@ -170,6 +170,23 @@ func (c *Client) AuthenticateKubernetes(ctx context.Context, role, mountPath, to
 	return c.AuthenticateKubernetesWithToken(ctx, role, mountPath, string(jwt))
 }
 
+// handleAuthResponse processes a Vault auth response — sets token, TTL, and expiration.
+// All auth methods (except static token) delegate their post-login handling here.
+func (c *Client) handleAuthResponse(secret *api.Secret, methodName string) error {
+	if secret == nil || secret.Auth == nil {
+		return fmt.Errorf("%s auth returned no token", methodName)
+	}
+
+	c.SetToken(secret.Auth.ClientToken)
+	c.authenticated = true
+	if secret.Auth.LeaseDuration > 0 {
+		ttl := time.Duration(secret.Auth.LeaseDuration) * time.Second
+		c.tokenTTL = ttl
+		c.tokenExpiration = time.Now().Add(ttl)
+	}
+	return nil
+}
+
 // AuthenticateKubernetesWithToken authenticates using the Kubernetes auth method.
 // Unlike AuthenticateKubernetes, this method accepts the JWT token directly,
 // which is useful when using the TokenRequest API or other token sources.
@@ -187,18 +204,7 @@ func (c *Client) AuthenticateKubernetesWithToken(ctx context.Context, role, moun
 		return fmt.Errorf("kubernetes auth failed: %w", err)
 	}
 
-	if secret == nil || secret.Auth == nil {
-		return fmt.Errorf("kubernetes auth returned no token")
-	}
-
-	c.SetToken(secret.Auth.ClientToken)
-	c.authenticated = true
-	if secret.Auth.LeaseDuration > 0 {
-		ttl := time.Duration(secret.Auth.LeaseDuration) * time.Second
-		c.tokenTTL = ttl
-		c.tokenExpiration = time.Now().Add(ttl)
-	}
-	return nil
+	return c.handleAuthResponse(secret, "kubernetes")
 }
 
 // AuthenticateToken authenticates using a static token
@@ -226,18 +232,7 @@ func (c *Client) AuthenticateAppRole(ctx context.Context, roleID, secretID, moun
 		return fmt.Errorf("approle auth failed: %w", err)
 	}
 
-	if secret == nil || secret.Auth == nil {
-		return fmt.Errorf("approle auth returned no token")
-	}
-
-	c.SetToken(secret.Auth.ClientToken)
-	c.authenticated = true
-	if secret.Auth.LeaseDuration > 0 {
-		ttl := time.Duration(secret.Auth.LeaseDuration) * time.Second
-		c.tokenTTL = ttl
-		c.tokenExpiration = time.Now().Add(ttl)
-	}
-	return nil
+	return c.handleAuthResponse(secret, "approle")
 }
 
 // AuthenticateJWT authenticates using the JWT auth method.
@@ -256,18 +251,7 @@ func (c *Client) AuthenticateJWT(ctx context.Context, role, mountPath, jwt strin
 		return fmt.Errorf("JWT auth failed: %w", err)
 	}
 
-	if secret == nil || secret.Auth == nil {
-		return fmt.Errorf("JWT auth returned no token")
-	}
-
-	c.SetToken(secret.Auth.ClientToken)
-	c.authenticated = true
-	if secret.Auth.LeaseDuration > 0 {
-		ttl := time.Duration(secret.Auth.LeaseDuration) * time.Second
-		c.tokenTTL = ttl
-		c.tokenExpiration = time.Now().Add(ttl)
-	}
-	return nil
+	return c.handleAuthResponse(secret, "JWT")
 }
 
 // AuthenticateOIDC authenticates using the OIDC auth method with a JWT token.
@@ -289,18 +273,7 @@ func (c *Client) AuthenticateOIDC(ctx context.Context, role, mountPath, jwt stri
 		return fmt.Errorf("OIDC auth failed: %w", err)
 	}
 
-	if secret == nil || secret.Auth == nil {
-		return fmt.Errorf("OIDC auth returned no token")
-	}
-
-	c.SetToken(secret.Auth.ClientToken)
-	c.authenticated = true
-	if secret.Auth.LeaseDuration > 0 {
-		ttl := time.Duration(secret.Auth.LeaseDuration) * time.Second
-		c.tokenTTL = ttl
-		c.tokenExpiration = time.Now().Add(ttl)
-	}
-	return nil
+	return c.handleAuthResponse(secret, "OIDC")
 }
 
 // AuthenticateAWS authenticates using the AWS IAM auth method.
@@ -320,18 +293,7 @@ func (c *Client) AuthenticateAWS(ctx context.Context, role, mountPath string, lo
 		return fmt.Errorf("AWS auth failed: %w", err)
 	}
 
-	if secret == nil || secret.Auth == nil {
-		return fmt.Errorf("AWS auth returned no token")
-	}
-
-	c.SetToken(secret.Auth.ClientToken)
-	c.authenticated = true
-	if secret.Auth.LeaseDuration > 0 {
-		ttl := time.Duration(secret.Auth.LeaseDuration) * time.Second
-		c.tokenTTL = ttl
-		c.tokenExpiration = time.Now().Add(ttl)
-	}
-	return nil
+	return c.handleAuthResponse(secret, "AWS")
 }
 
 // AuthenticateGCP authenticates using the GCP IAM auth method.
@@ -351,18 +313,7 @@ func (c *Client) AuthenticateGCP(ctx context.Context, role, mountPath, signedJWT
 		return fmt.Errorf("GCP auth failed: %w", err)
 	}
 
-	if secret == nil || secret.Auth == nil {
-		return fmt.Errorf("GCP auth returned no token")
-	}
-
-	c.SetToken(secret.Auth.ClientToken)
-	c.authenticated = true
-	if secret.Auth.LeaseDuration > 0 {
-		ttl := time.Duration(secret.Auth.LeaseDuration) * time.Second
-		c.tokenTTL = ttl
-		c.tokenExpiration = time.Now().Add(ttl)
-	}
-	return nil
+	return c.handleAuthResponse(secret, "GCP")
 }
 
 // WritePolicy writes a policy to Vault

@@ -136,11 +136,11 @@ func GetGCPServiceAccountEmail(ctx context.Context) (string, error) {
 	return getServiceAccountFromMetadata(ctx)
 }
 
-// getServiceAccountFromMetadata retrieves the service account email from GCE metadata
-func getServiceAccountFromMetadata(ctx context.Context) (string, error) {
-	metadataURL := "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/email"
-
-	req, err := http.NewRequestWithContext(ctx, "GET", metadataURL, nil)
+// gcpMetadataGet performs a GET request to the GCE metadata server at the given URL.
+// It sets the Metadata-Flavor header, enforces a 5s timeout, and returns the trimmed
+// response body. The description parameter is used in error messages.
+func gcpMetadataGet(ctx context.Context, url, description string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return "", err
 	}
@@ -149,12 +149,12 @@ func getServiceAccountFromMetadata(ctx context.Context) (string, error) {
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("metadata request failed: %w", err)
+		return "", fmt.Errorf("%s request failed: %w", description, err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("metadata request returned status %d", resp.StatusCode)
+		return "", fmt.Errorf("%s request returned status %d", description, resp.StatusCode)
 	}
 
 	body, err := io.ReadAll(resp.Body)
@@ -162,50 +162,27 @@ func getServiceAccountFromMetadata(ctx context.Context) (string, error) {
 		return "", err
 	}
 
-	email := strings.TrimSpace(string(body))
-	if email == "" {
-		return "", fmt.Errorf("empty service account email from metadata")
+	value := strings.TrimSpace(string(body))
+	if value == "" {
+		return "", fmt.Errorf("empty %s from metadata", description)
 	}
 
-	return email, nil
+	return value, nil
+}
+
+// getServiceAccountFromMetadata retrieves the service account email from GCE metadata
+func getServiceAccountFromMetadata(ctx context.Context) (string, error) {
+	return gcpMetadataGet(ctx,
+		"http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/email",
+		"service account email")
 }
 
 // getGCEIdentityToken retrieves an identity token from the GCE metadata server
 func getGCEIdentityToken(ctx context.Context, audience string) (string, error) {
-	baseURL := "http://metadata.google.internal/computeMetadata/v1"
-	metadataURL := fmt.Sprintf(
-		"%s/instance/service-accounts/default/identity?audience=vault/%s&format=full",
-		baseURL, audience,
-	)
-
-	req, err := http.NewRequestWithContext(ctx, "GET", metadataURL, nil)
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Metadata-Flavor", "Google")
-
-	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("identity token request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("identity token request returned status %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
-	}
-
-	token := strings.TrimSpace(string(body))
-	if token == "" {
-		return "", fmt.Errorf("empty identity token from metadata")
-	}
-
-	return token, nil
+	const urlTemplate = "http://metadata.google.internal/computeMetadata/v1/instance/" +
+		"service-accounts/default/identity?audience=vault/%s&format=full"
+	url := fmt.Sprintf(urlTemplate, audience)
+	return gcpMetadataGet(ctx, url, "identity token")
 }
 
 // GetGCPProjectID retrieves the current GCP project ID
@@ -228,39 +205,7 @@ func GetGCPProjectID(ctx context.Context) (string, error) {
 	}
 
 	// Try metadata server
-	return getProjectIDFromMetadata(ctx)
-}
-
-// getProjectIDFromMetadata retrieves the project ID from GCE metadata
-func getProjectIDFromMetadata(ctx context.Context) (string, error) {
-	metadataURL := "http://metadata.google.internal/computeMetadata/v1/project/project-id"
-
-	req, err := http.NewRequestWithContext(ctx, "GET", metadataURL, nil)
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Metadata-Flavor", "Google")
-
-	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("project ID metadata request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("project ID metadata request returned status %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
-	}
-
-	projectID := strings.TrimSpace(string(body))
-	if projectID == "" {
-		return "", fmt.Errorf("empty project ID from metadata")
-	}
-
-	return projectID, nil
+	return gcpMetadataGet(ctx,
+		"http://metadata.google.internal/computeMetadata/v1/project/project-id",
+		"project ID")
 }
