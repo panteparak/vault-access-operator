@@ -21,6 +21,9 @@ spec:
     - jsonPath: .status.phase
       name: Phase
       type: string
+    - jsonPath: .status.healthy
+      name: Healthy
+      type: boolean
     - jsonPath: .status.vaultVersion
       name: Version
       type: string
@@ -549,6 +552,29 @@ spec:
                   - type
                   type: object
                 type: array
+              consecutiveFails:
+                description: ConsecutiveFails is the number of consecutive failed
+                  health checks
+                type: integer
+              healthCheckError:
+                description: HealthCheckError contains the error message from the
+                  last failed health check
+                type: string
+              healthy:
+                description: |-
+                  Health monitoring fields
+                  Healthy indicates whether the Vault connection is currently healthy
+                type: boolean
+              lastHealthCheck:
+                description: LastHealthCheck is the timestamp of the last health check
+                  attempt
+                format: date-time
+                type: string
+              lastHealthyTime:
+                description: LastHealthyTime is the timestamp of the last successful
+                  health check
+                format: date-time
+                type: string
               lastHeartbeat:
                 description: LastHeartbeat is the time of the last successful health
                   check

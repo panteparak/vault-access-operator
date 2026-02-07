@@ -171,11 +171,20 @@ spec:
                   - type
                   type: object
                 type: array
+              driftDetected:
+                description: DriftDetected indicates whether the Vault resource differs
+                  from the desired state
+                type: boolean
               lastAppliedHash:
                 description: LastAppliedHash is the hash of the last applied spec
                 type: string
               lastAttemptAt:
                 description: LastAttemptAt is the time of the last sync attempt
+                format: date-time
+                type: string
+              lastDriftCheckAt:
+                description: LastDriftCheckAt is the time of the last drift detection
+                  check
                 format: date-time
                 type: string
               lastReconcileID:
