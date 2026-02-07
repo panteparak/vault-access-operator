@@ -1,8 +1,11 @@
+//go:build integration
+
 /*
 Package role provides integration tests for VaultRole and VaultClusterRole resources.
 
 This file bootstraps the Ginkgo test suite for role tests.
 */
+
 package role
 
 import (

@@ -1,9 +1,12 @@
+//go:build integration
+
 /*
 Package permissions provides integration tests for operator token permissions.
 
 These tests validate that the operator token follows the Principle of Least Privilege,
 having only the minimum permissions required to manage policies and Kubernetes auth roles.
 */
+
 package permissions
 
 import (

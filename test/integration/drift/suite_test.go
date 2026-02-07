@@ -1,8 +1,11 @@
+//go:build integration
+
 /*
 Package drift provides integration tests for drift detection, drift correction, and adoption.
 
 This file bootstraps the Ginkgo test suite for drift tests.
 */
+
 package drift
 
 import (

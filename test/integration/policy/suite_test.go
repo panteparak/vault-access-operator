@@ -1,8 +1,11 @@
+//go:build integration
+
 /*
 Package policy provides integration tests for VaultPolicy and VaultClusterPolicy resources.
 
 This file bootstraps the Ginkgo test suite for policy tests.
 */
+
 package policy
 
 import (

@@ -1,8 +1,11 @@
+//go:build integration
+
 /*
 Package policy provides integration tests for VaultPolicy and VaultClusterPolicy resources.
 
 Tests use the naming convention: INT-POL{NN}_{Description}
 */
+
 package policy
 
 import (

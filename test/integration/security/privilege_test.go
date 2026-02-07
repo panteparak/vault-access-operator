@@ -1,8 +1,11 @@
+//go:build integration
+
 /*
 Package security provides security-focused integration tests for the vault-access-operator.
 
 Tests use the naming convention: SEC-PE{NN}_{Description} for Privilege Escalation tests
 */
+
 package security
 
 import (

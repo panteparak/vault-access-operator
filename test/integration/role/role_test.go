@@ -1,8 +1,11 @@
+//go:build integration
+
 /*
 Package role provides integration tests for VaultRole and VaultClusterRole resources.
 
 Tests use the naming convention: INT-ROL{NN}_{Description}
 */
+
 package role
 
 import (

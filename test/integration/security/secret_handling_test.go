@@ -1,8 +1,11 @@
+//go:build integration
+
 /*
 Package security provides security-focused integration tests for the vault-access-operator.
 
 Tests use the naming convention: SEC-SH{NN}_{Description} for Secret Handling tests
 */
+
 package security
 
 import (

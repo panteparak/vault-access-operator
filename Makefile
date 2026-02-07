@@ -122,7 +122,7 @@ vet: ## Run go vet against code.
 	go vet ./...
 
 .PHONY: test
-test: manifests generate fmt vet setup-envtest ## Run tests.
+test: manifests generate fmt vet setup-envtest ## Run unit tests (excludes e2e and integration tests via build tags).
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
 
 # E2E tests run in CI (docker-compose k3s with Vault + operator pre-deployed).
@@ -400,26 +400,26 @@ INTEGRATION_TIMEOUT ?= 10m
 PROFILING_OUTPUT ?= reports/profiling
 
 .PHONY: test-integration
-test-integration: manifests generate setup-envtest ## Run integration tests with testcontainers-go
+test-integration: manifests generate setup-envtest ## Run integration tests (requires Docker for Vault containers)
 	@echo "Running integration tests..."
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test ./test/integration/... -v -timeout $(INTEGRATION_TIMEOUT)
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test -tags=integration ./test/integration/... -v -timeout $(INTEGRATION_TIMEOUT)
 
 .PHONY: test-integration-parallel
 test-integration-parallel: manifests generate setup-envtest ## Run integration tests with Ginkgo parallelism
 	@echo "Running integration tests with Ginkgo parallelism..."
 	@command -v ginkgo >/dev/null 2>&1 || go install github.com/onsi/ginkgo/v2/ginkgo@latest
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" ginkgo -v -p --timeout=$(INTEGRATION_TIMEOUT) ./test/integration/...
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" ginkgo -v -p --tags=integration --timeout=$(INTEGRATION_TIMEOUT) ./test/integration/...
 
 .PHONY: test-security
 test-security: manifests generate setup-envtest ## Run security-focused integration tests
 	@echo "Running security tests..."
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test ./test/integration/security/... -v -timeout $(INTEGRATION_TIMEOUT) --ginkgo.label-filter="security"
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test -tags=integration ./test/integration/security/... -v -timeout $(INTEGRATION_TIMEOUT) --ginkgo.label-filter="security"
 
 .PHONY: test-integration-profiled
 test-integration-profiled: manifests generate setup-envtest ## Run integration tests with CPU/memory profiling
 	@echo "Running integration tests with profiling..."
 	@mkdir -p $(PROFILING_OUTPUT)
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" INTEGRATION_PROFILING=true go test ./test/integration/... -v -timeout $(INTEGRATION_TIMEOUT)
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" INTEGRATION_PROFILING=true go test -tags=integration ./test/integration/... -v -timeout $(INTEGRATION_TIMEOUT)
 
 .PHONY: test-integration-report
 test-integration-report: test-integration-profiled ## Run profiled tests and generate HTML report

@@ -1,8 +1,11 @@
+//go:build integration
+
 /*
 Package drift provides integration tests for drift detection, drift correction, and adoption.
 
 Tests use the naming convention: INT-DRF{NN}_{Description}
 */
+
 package drift
 
 import (

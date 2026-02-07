@@ -1,3 +1,5 @@
+//go:build integration
+
 /*
 Package security provides security-focused integration tests for the vault-access-operator.
 
@@ -9,6 +11,7 @@ Test Categories:
 - SEC-SH*: Secret Handling (no secrets in logs)
 - SEC-PE*: Privilege Escalation prevention
 */
+
 package security
 
 import (
