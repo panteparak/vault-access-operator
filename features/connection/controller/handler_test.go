@@ -45,6 +45,7 @@ const (
 	testVaultTokenSecret = "vault-token"
 	testSecretKey        = "token"
 	testVaultToken       = "s.test-token-12345"
+	testPreviousError    = "previous error"
 )
 
 // createScheme creates a runtime scheme with required types registered.
@@ -1540,7 +1541,7 @@ func TestSync_ErrorPhaseResetToSyncing(t *testing.T) {
 		secretName: "nonexistent-secret",
 	})
 	conn.Status.Phase = vaultv1alpha1.PhaseError // Start in Error phase
-	conn.Status.Message = "previous error"
+	conn.Status.Message = testPreviousError
 
 	k8sClient := fake.NewClientBuilder().
 		WithScheme(scheme).
@@ -1752,7 +1753,7 @@ func TestSync_ResetsConsecutiveFailsOnSuccess(t *testing.T) {
 	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
 	// Simulate previous failures
 	conn.Status.ConsecutiveFails = 5
-	conn.Status.HealthCheckError = "previous error"
+	conn.Status.HealthCheckError = testPreviousError
 	conn.Status.Healthy = false
 
 	client := fake.NewClientBuilder().
@@ -1839,7 +1840,7 @@ func TestUpdateHealthStatus_Healthy(t *testing.T) {
 	// Set previous unhealthy state
 	conn.Status.Healthy = false
 	conn.Status.ConsecutiveFails = 5
-	conn.Status.HealthCheckError = "previous error"
+	conn.Status.HealthCheckError = testPreviousError
 
 	handler := &Handler{}
 	handler.updateHealthStatus(conn, true, "")
