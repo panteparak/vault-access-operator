@@ -618,15 +618,16 @@ func CreateVaultClusterRoleCR(ctx context.Context, obj *vaultv1alpha1.VaultClust
 // =============================================================================
 
 // UpdateVaultPolicyCR fetches the latest version of a VaultPolicy, applies the
-// mutate function, and writes it back. This handles the resourceVersion conflict
-// that occurs when updating a stale object.
+// mutate function, and writes it back using merge patch to avoid resourceVersion
+// conflicts with the operator's status updates.
 func UpdateVaultPolicyCR(ctx context.Context, name, namespace string, mutate func(*vaultv1alpha1.VaultPolicy)) error {
 	policy, err := GetVaultPolicy(ctx, name, namespace)
 	if err != nil {
 		return fmt.Errorf("failed to get VaultPolicy for update: %w", err)
 	}
+	old := policy.DeepCopy()
 	mutate(policy)
-	return UpdateObject(ctx, policy)
+	return PatchObject(ctx, policy, client.MergeFrom(old))
 }
 
 // UpdateVaultRoleCR fetches the latest VaultRole, applies the mutate function,
@@ -644,7 +645,8 @@ func UpdateVaultRoleCR(ctx context.Context, name, namespace string, mutate func(
 }
 
 // UpdateVaultClusterPolicyCR fetches the latest VaultClusterPolicy, applies the
-// mutate function, and writes it back.
+// mutate function, and writes it back using merge patch to avoid resourceVersion
+// conflicts with the operator's status updates.
 func UpdateVaultClusterPolicyCR(
 	ctx context.Context, name string, mutate func(*vaultv1alpha1.VaultClusterPolicy),
 ) error {
@@ -652,19 +654,22 @@ func UpdateVaultClusterPolicyCR(
 	if err != nil {
 		return fmt.Errorf("failed to get VaultClusterPolicy for update: %w", err)
 	}
+	old := policy.DeepCopy()
 	mutate(policy)
-	return UpdateObject(ctx, policy)
+	return PatchObject(ctx, policy, client.MergeFrom(old))
 }
 
 // UpdateVaultClusterRoleCR fetches the latest VaultClusterRole, applies the
-// mutate function, and writes it back.
+// mutate function, and writes it back using merge patch to avoid resourceVersion
+// conflicts with the operator's status updates.
 func UpdateVaultClusterRoleCR(ctx context.Context, name string, mutate func(*vaultv1alpha1.VaultClusterRole)) error {
 	role, err := GetVaultClusterRole(ctx, name)
 	if err != nil {
 		return fmt.Errorf("failed to get VaultClusterRole for update: %w", err)
 	}
+	old := role.DeepCopy()
 	mutate(role)
-	return UpdateObject(ctx, role)
+	return PatchObject(ctx, role, client.MergeFrom(old))
 }
 
 // =============================================================================
