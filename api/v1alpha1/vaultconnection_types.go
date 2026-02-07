@@ -388,6 +388,27 @@ type VaultConnectionStatus struct {
 	// AuthStatus contains authentication-related status information
 	// +optional
 	AuthStatus *AuthStatus `json:"authStatus,omitempty"`
+
+	// Health monitoring fields
+	// Healthy indicates whether the Vault connection is currently healthy
+	// +optional
+	Healthy bool `json:"healthy,omitempty"`
+
+	// LastHealthCheck is the timestamp of the last health check attempt
+	// +optional
+	LastHealthCheck *metav1.Time `json:"lastHealthCheck,omitempty"`
+
+	// LastHealthyTime is the timestamp of the last successful health check
+	// +optional
+	LastHealthyTime *metav1.Time `json:"lastHealthyTime,omitempty"`
+
+	// HealthCheckError contains the error message from the last failed health check
+	// +optional
+	HealthCheckError string `json:"healthCheckError,omitempty"`
+
+	// ConsecutiveFails is the number of consecutive failed health checks
+	// +optional
+	ConsecutiveFails int `json:"consecutiveFails,omitempty"`
 }
 
 // AuthStatus contains authentication-related status information.
@@ -430,6 +451,7 @@ type AuthStatus struct {
 // +kubebuilder:resource:scope=Cluster
 // +kubebuilder:printcolumn:name="Address",type=string,JSONPath=`.spec.address`
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
+// +kubebuilder:printcolumn:name="Healthy",type=boolean,JSONPath=`.status.healthy`
 // +kubebuilder:printcolumn:name="Version",type=string,JSONPath=`.status.vaultVersion`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 

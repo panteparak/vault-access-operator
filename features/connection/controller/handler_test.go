@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -1607,5 +1608,313 @@ func TestSync_ActivePhaseNotResetToSyncing(t *testing.T) {
 	// resetting when already Active or Syncing)
 	if conn.Status.Phase != vaultv1alpha1.PhaseActive {
 		t.Errorf("expected phase Active, got %s", conn.Status.Phase)
+	}
+}
+
+// --- Health monitoring tests ---
+
+// TestSync_SetsHealthyStatusOnSuccess tests that successful sync sets healthy status.
+func TestSync_SetsHealthyStatusOnSuccess(t *testing.T) {
+	server := newMockVaultServer("1.15.0", false)
+	defer server.Close()
+
+	scheme := createScheme()
+	secret := newTokenSecret(tokenSecretOpts{})
+	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
+
+	client := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(secret, conn).
+		WithStatusSubresource(conn).
+		Build()
+
+	cache := vault.NewClientCache()
+	bus := events.NewEventBus(logr.Discard())
+	handler := NewHandler(HandlerConfig{Client: client, ClientCache: cache, EventBus: bus, Log: logr.Discard()})
+
+	ctx := context.Background()
+	err := handler.Sync(ctx, conn)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify health status fields
+	if !conn.Status.Healthy {
+		t.Error("expected Healthy to be true")
+	}
+
+	if conn.Status.LastHealthCheck == nil {
+		t.Error("expected LastHealthCheck to be set")
+	}
+
+	if conn.Status.LastHealthyTime == nil {
+		t.Error("expected LastHealthyTime to be set")
+	}
+
+	if conn.Status.HealthCheckError != "" {
+		t.Errorf("expected empty HealthCheckError, got %s", conn.Status.HealthCheckError)
+	}
+
+	if conn.Status.ConsecutiveFails != 0 {
+		t.Errorf("expected ConsecutiveFails to be 0, got %d", conn.Status.ConsecutiveFails)
+	}
+}
+
+// TestSync_SetsUnhealthyStatusOnHealthCheckError tests that health check failure sets unhealthy status.
+func TestSync_SetsUnhealthyStatusOnHealthCheckError(t *testing.T) {
+	// Create mock Vault server that returns error
+	server := newMockVaultServer("", true)
+	defer server.Close()
+
+	scheme := createScheme()
+	secret := newTokenSecret(tokenSecretOpts{})
+	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
+
+	client := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(secret, conn).
+		WithStatusSubresource(conn).
+		Build()
+
+	cache := vault.NewClientCache()
+	bus := events.NewEventBus(logr.Discard())
+	handler := NewHandler(HandlerConfig{Client: client, ClientCache: cache, EventBus: bus, Log: logr.Discard()})
+
+	ctx := context.Background()
+	err := handler.Sync(ctx, conn)
+
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	// Verify health status fields
+	if conn.Status.Healthy {
+		t.Error("expected Healthy to be false")
+	}
+
+	if conn.Status.LastHealthCheck == nil {
+		t.Error("expected LastHealthCheck to be set")
+	}
+
+	// LastHealthyTime should NOT be set on failure
+	if conn.Status.LastHealthyTime != nil {
+		t.Error("expected LastHealthyTime to be nil on health check failure")
+	}
+
+	if conn.Status.HealthCheckError == "" {
+		t.Error("expected HealthCheckError to be set")
+	}
+
+	if conn.Status.ConsecutiveFails != 1 {
+		t.Errorf("expected ConsecutiveFails to be 1, got %d", conn.Status.ConsecutiveFails)
+	}
+}
+
+// TestSync_IncrementsConsecutiveFailsOnRepeatedFailures tests that consecutive failures are tracked.
+func TestSync_IncrementsConsecutiveFailsOnRepeatedFailures(t *testing.T) {
+	// Create mock Vault server that returns error
+	server := newMockVaultServer("", true)
+	defer server.Close()
+
+	scheme := createScheme()
+	secret := newTokenSecret(tokenSecretOpts{})
+	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
+	// Simulate previous failures
+	conn.Status.ConsecutiveFails = 3
+
+	client := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(secret, conn).
+		WithStatusSubresource(conn).
+		Build()
+
+	cache := vault.NewClientCache()
+	bus := events.NewEventBus(logr.Discard())
+	handler := NewHandler(HandlerConfig{Client: client, ClientCache: cache, EventBus: bus, Log: logr.Discard()})
+
+	ctx := context.Background()
+	_ = handler.Sync(ctx, conn)
+
+	// Should increment from 3 to 4
+	if conn.Status.ConsecutiveFails != 4 {
+		t.Errorf("expected ConsecutiveFails to be 4, got %d", conn.Status.ConsecutiveFails)
+	}
+}
+
+// TestSync_ResetsConsecutiveFailsOnSuccess tests that consecutive fails reset on success.
+func TestSync_ResetsConsecutiveFailsOnSuccess(t *testing.T) {
+	server := newMockVaultServer("1.15.0", false)
+	defer server.Close()
+
+	scheme := createScheme()
+	secret := newTokenSecret(tokenSecretOpts{})
+	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
+	// Simulate previous failures
+	conn.Status.ConsecutiveFails = 5
+	conn.Status.HealthCheckError = "previous error"
+	conn.Status.Healthy = false
+
+	client := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(secret, conn).
+		WithStatusSubresource(conn).
+		Build()
+
+	cache := vault.NewClientCache()
+	bus := events.NewEventBus(logr.Discard())
+	handler := NewHandler(HandlerConfig{Client: client, ClientCache: cache, EventBus: bus, Log: logr.Discard()})
+
+	ctx := context.Background()
+	err := handler.Sync(ctx, conn)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should reset to 0
+	if conn.Status.ConsecutiveFails != 0 {
+		t.Errorf("expected ConsecutiveFails to be 0, got %d", conn.Status.ConsecutiveFails)
+	}
+
+	// Error should be cleared
+	if conn.Status.HealthCheckError != "" {
+		t.Errorf("expected HealthCheckError to be empty, got %s", conn.Status.HealthCheckError)
+	}
+
+	// Should be healthy now
+	if !conn.Status.Healthy {
+		t.Error("expected Healthy to be true")
+	}
+}
+
+// TestSync_UpdatesLastHealthyTimeOnSuccess tests that LastHealthyTime is updated on success.
+func TestSync_UpdatesLastHealthyTimeOnSuccess(t *testing.T) {
+	server := newMockVaultServer("1.15.0", false)
+	defer server.Close()
+
+	scheme := createScheme()
+	secret := newTokenSecret(tokenSecretOpts{})
+	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
+
+	// Set previous LastHealthyTime to verify it gets updated
+	oldTime := metav1.NewTime(time.Now().Add(-1 * time.Hour))
+	conn.Status.LastHealthyTime = &oldTime
+
+	client := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(secret, conn).
+		WithStatusSubresource(conn).
+		Build()
+
+	cache := vault.NewClientCache()
+	bus := events.NewEventBus(logr.Discard())
+	handler := NewHandler(HandlerConfig{Client: client, ClientCache: cache, EventBus: bus, Log: logr.Discard()})
+
+	ctx := context.Background()
+	err := handler.Sync(ctx, conn)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// LastHealthyTime should be updated to a more recent time
+	if conn.Status.LastHealthyTime == nil {
+		t.Fatal("expected LastHealthyTime to be set")
+	}
+
+	if !conn.Status.LastHealthyTime.After(oldTime.Time) {
+		t.Error("expected LastHealthyTime to be updated to a more recent time")
+	}
+}
+
+// TestUpdateHealthStatus_Healthy tests updateHealthStatus with healthy=true.
+func TestUpdateHealthStatus_Healthy(t *testing.T) {
+	conn := &vaultv1alpha1.VaultConnection{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       "test-conn",
+			Generation: 1,
+		},
+	}
+	// Set previous unhealthy state
+	conn.Status.Healthy = false
+	conn.Status.ConsecutiveFails = 5
+	conn.Status.HealthCheckError = "previous error"
+
+	handler := &Handler{}
+	handler.updateHealthStatus(conn, true, "")
+
+	if !conn.Status.Healthy {
+		t.Error("expected Healthy to be true")
+	}
+
+	if conn.Status.ConsecutiveFails != 0 {
+		t.Errorf("expected ConsecutiveFails to be 0, got %d", conn.Status.ConsecutiveFails)
+	}
+
+	if conn.Status.HealthCheckError != "" {
+		t.Errorf("expected HealthCheckError to be empty, got %s", conn.Status.HealthCheckError)
+	}
+
+	if conn.Status.LastHealthyTime == nil {
+		t.Error("expected LastHealthyTime to be set")
+	}
+}
+
+// TestUpdateHealthStatus_Unhealthy tests updateHealthStatus with healthy=false.
+func TestUpdateHealthStatus_Unhealthy(t *testing.T) {
+	conn := &vaultv1alpha1.VaultConnection{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       "test-conn",
+			Generation: 1,
+		},
+	}
+	// Set previous state
+	conn.Status.ConsecutiveFails = 2
+
+	handler := &Handler{}
+	handler.updateHealthStatus(conn, false, "connection refused")
+
+	if conn.Status.Healthy {
+		t.Error("expected Healthy to be false")
+	}
+
+	if conn.Status.ConsecutiveFails != 3 {
+		t.Errorf("expected ConsecutiveFails to be 3, got %d", conn.Status.ConsecutiveFails)
+	}
+
+	if conn.Status.HealthCheckError != "connection refused" {
+		t.Errorf("expected HealthCheckError to be 'connection refused', got %s", conn.Status.HealthCheckError)
+	}
+}
+
+// TestHandleSyncError_SetsHealthStatus tests that handleSyncError updates health status.
+func TestHandleSyncError_SetsHealthStatus(t *testing.T) {
+	scheme := createScheme()
+	conn := newVaultConnection(vaultConnectionOpts{address: "http://localhost:8200"})
+
+	client := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(conn).
+		WithStatusSubresource(conn).
+		Build()
+
+	handler := NewHandler(HandlerConfig{Client: client, ClientCache: vault.NewClientCache(), Log: logr.Discard()})
+
+	ctx := context.Background()
+	testErr := fmt.Errorf("test error")
+	_ = handler.handleSyncError(ctx, conn, testErr)
+
+	// Verify health status is set
+	if conn.Status.Healthy {
+		t.Error("expected Healthy to be false after error")
+	}
+
+	if conn.Status.LastHealthCheck == nil {
+		t.Error("expected LastHealthCheck to be set after error")
+	}
+
+	if conn.Status.ConsecutiveFails != 1 {
+		t.Errorf("expected ConsecutiveFails to be 1, got %d", conn.Status.ConsecutiveFails)
 	}
 }

@@ -22,7 +22,10 @@ import (
 	"regexp"
 	"strings"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
@@ -50,10 +53,14 @@ var pathPattern = regexp.MustCompile(`^[a-zA-Z0-9/_*{}\-+]+$`)
 const namespaceVar = "{{namespace}}"
 
 // VaultPolicyValidator implements admission.Validator for VaultPolicy
-type VaultPolicyValidator struct{}
+type VaultPolicyValidator struct {
+	client client.Client
+}
 
 // VaultClusterPolicyValidator implements admission.Validator for VaultClusterPolicy
-type VaultClusterPolicyValidator struct{}
+type VaultClusterPolicyValidator struct {
+	client client.Client
+}
 
 // Ensure interfaces are implemented
 var _ admission.Validator[*vaultv1alpha1.VaultPolicy] = &VaultPolicyValidator{}
@@ -64,13 +71,23 @@ var _ admission.Validator[*vaultv1alpha1.VaultClusterPolicy] = &VaultClusterPoli
 // SetupVaultPolicyWebhookWithManager sets up the VaultPolicy webhook with the manager
 func SetupVaultPolicyWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr, &vaultv1alpha1.VaultPolicy{}).
-		WithValidator(&VaultPolicyValidator{}).
+		WithValidator(&VaultPolicyValidator{client: mgr.GetClient()}).
 		Complete()
 }
 
 // ValidateCreate implements admission.Validator
 func (v *VaultPolicyValidator) ValidateCreate(ctx context.Context, policy *vaultv1alpha1.VaultPolicy) (admission.Warnings, error) {
 	vaultpolicylog.Info("validating VaultPolicy create", "name", policy.Name, "namespace", policy.Namespace)
+
+	// Check for naming collision with VaultClusterPolicy
+	// VaultPolicy "namespace/name" maps to Vault policy "{namespace}-{name}"
+	// VaultClusterPolicy "name" maps to Vault policy "{name}"
+	// Collision occurs if VaultClusterPolicy with name "{namespace}-{name}" exists
+	vaultPolicyName := fmt.Sprintf("%s-%s", policy.Namespace, policy.Name)
+	if err := v.checkPolicyNameCollision(ctx, vaultPolicyName, policy.Namespace, policy.Name); err != nil {
+		return nil, err
+	}
+
 	return v.validateVaultPolicy(policy)
 }
 
@@ -110,13 +127,22 @@ func (v *VaultPolicyValidator) validateVaultPolicy(policy *vaultv1alpha1.VaultPo
 // SetupVaultClusterPolicyWebhookWithManager sets up the VaultClusterPolicy webhook with the manager
 func SetupVaultClusterPolicyWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr, &vaultv1alpha1.VaultClusterPolicy{}).
-		WithValidator(&VaultClusterPolicyValidator{}).
+		WithValidator(&VaultClusterPolicyValidator{client: mgr.GetClient()}).
 		Complete()
 }
 
 // ValidateCreate implements admission.Validator
 func (v *VaultClusterPolicyValidator) ValidateCreate(ctx context.Context, policy *vaultv1alpha1.VaultClusterPolicy) (admission.Warnings, error) {
 	vaultpolicylog.Info("validating VaultClusterPolicy create", "name", policy.Name)
+
+	// Check for naming collision with VaultPolicy
+	// VaultClusterPolicy "name" maps to Vault policy "{name}"
+	// VaultPolicy "namespace/name" maps to Vault policy "{namespace}-{name}"
+	// Collision occurs if any VaultPolicy's Vault name equals this policy's name
+	if err := v.checkClusterPolicyNameCollision(ctx, policy.Name); err != nil {
+		return nil, err
+	}
+
 	return v.validateVaultClusterPolicy(policy)
 }
 
@@ -246,4 +272,58 @@ func ValidateCapability(cap vaultv1alpha1.Capability) error {
 // IsValidCapability checks if a capability is valid
 func IsValidCapability(cap vaultv1alpha1.Capability) bool {
 	return validCapabilities[cap]
+}
+
+// checkPolicyNameCollision checks if a VaultClusterPolicy exists that would create a naming collision
+// with the given VaultPolicy. A collision occurs when a VaultClusterPolicy has the same name as the
+// Vault policy name that would be generated for this VaultPolicy (i.e., "{namespace}-{name}").
+func (v *VaultPolicyValidator) checkPolicyNameCollision(ctx context.Context, vaultPolicyName, namespace, name string) error {
+	if v.client == nil {
+		// Client not available (e.g., in tests without client setup)
+		return nil
+	}
+
+	// Check if a VaultClusterPolicy exists with the name that matches the Vault policy name
+	clusterPolicy := &vaultv1alpha1.VaultClusterPolicy{}
+	err := v.client.Get(ctx, types.NamespacedName{Name: vaultPolicyName}, clusterPolicy)
+	if err == nil {
+		// VaultClusterPolicy exists with conflicting name
+		return fmt.Errorf("naming collision: VaultClusterPolicy %q already exists and would map to the same Vault policy name %q as VaultPolicy %s/%s",
+			vaultPolicyName, vaultPolicyName, namespace, name)
+	}
+	if !apierrors.IsNotFound(err) {
+		// Unexpected error
+		return fmt.Errorf("failed to check for naming collision: %w", err)
+	}
+
+	// No collision
+	return nil
+}
+
+// checkClusterPolicyNameCollision checks if any VaultPolicy exists that would create a naming collision
+// with the given VaultClusterPolicy. A collision occurs when any VaultPolicy's generated Vault policy name
+// (i.e., "{namespace}-{name}") matches this VaultClusterPolicy's name.
+func (v *VaultClusterPolicyValidator) checkClusterPolicyNameCollision(ctx context.Context, clusterPolicyName string) error {
+	if v.client == nil {
+		// Client not available (e.g., in tests without client setup)
+		return nil
+	}
+
+	// List all VaultPolicies and check if any would collide
+	policyList := &vaultv1alpha1.VaultPolicyList{}
+	if err := v.client.List(ctx, policyList); err != nil {
+		return fmt.Errorf("failed to list VaultPolicies for collision check: %w", err)
+	}
+
+	for _, p := range policyList.Items {
+		// Check if the VaultPolicy's Vault name would match this cluster policy's name
+		vaultPolicyName := fmt.Sprintf("%s-%s", p.Namespace, p.Name)
+		if vaultPolicyName == clusterPolicyName {
+			return fmt.Errorf("naming collision: VaultPolicy %s/%s already maps to Vault policy name %q which conflicts with VaultClusterPolicy %q",
+				p.Namespace, p.Name, vaultPolicyName, clusterPolicyName)
+		}
+	}
+
+	// No collision
+	return nil
 }

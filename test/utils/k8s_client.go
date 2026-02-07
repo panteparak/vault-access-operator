@@ -35,6 +35,7 @@ import (
 	"sync"
 	"time"
 
+	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	authenticationv1 "k8s.io/api/authentication/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -70,6 +71,7 @@ var (
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(vaultv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(admissionregistrationv1.AddToScheme(scheme))
 }
 
 // GetK8sClient returns a singleton Kubernetes client for E2E tests.
@@ -503,6 +505,22 @@ func DeleteSecret(ctx context.Context, namespace, name string) error {
 // =============================================================================
 // Generic CRUD helpers
 // =============================================================================
+
+// GetObject retrieves any Kubernetes object by name and namespace.
+// For cluster-scoped objects, pass empty string for namespace.
+// The obj parameter should be a pointer to the object type to retrieve.
+func GetObject(ctx context.Context, name, namespace string, obj client.Object) error {
+	c, err := GetK8sClient()
+	if err != nil {
+		return err
+	}
+
+	key := types.NamespacedName{Name: name, Namespace: namespace}
+	if err := c.Get(ctx, key, obj); err != nil {
+		return err
+	}
+	return nil
+}
 
 // CreateObject creates any Kubernetes object. Returns nil if it already exists.
 func CreateObject(ctx context.Context, obj client.Object) error {
@@ -1211,4 +1229,31 @@ func JWKSToPEMKeys(jwksJSON []byte) ([]string, error) {
 	}
 
 	return pemKeys, nil
+}
+
+// IsWebhookDeployed checks if the vault-access-operator validating webhooks are deployed.
+// This is useful for tests that depend on webhook-based validation like collision detection.
+func IsWebhookDeployed(ctx context.Context) (bool, error) {
+	c, err := GetK8sClient()
+	if err != nil {
+		return false, err
+	}
+
+	// List ValidatingWebhookConfigurations to check if our webhooks are deployed
+	webhookList := &admissionregistrationv1.ValidatingWebhookConfigurationList{}
+	if err := c.List(ctx, webhookList); err != nil {
+		return false, fmt.Errorf("failed to list validating webhooks: %w", err)
+	}
+
+	// Look for our operator's webhooks
+	for _, webhook := range webhookList.Items {
+		// Check if it's our operator's webhook by looking for vault-access-operator in the name
+		if strings.Contains(webhook.Name, "vault-access-operator") ||
+			strings.Contains(webhook.Name, "vault-policy") ||
+			strings.Contains(webhook.Name, "vault-role") {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }

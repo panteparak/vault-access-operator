@@ -77,6 +77,11 @@ type PolicyAdapter interface {
 	SetMessage(msg string)
 	GetConditions() []vaultv1alpha1.Condition
 	SetConditions(conditions []vaultv1alpha1.Condition)
+
+	// Drift detection
+	GetDriftDetected() bool
+	SetDriftDetected(driftDetected bool)
+	SetLastDriftCheckAt(t *metav1.Time)
 }
 
 // VaultPolicyAdapter adapts VaultPolicy to the PolicyAdapter interface.
@@ -123,6 +128,11 @@ func (a *VaultPolicyAdapter) GetConditions() []vaultv1alpha1.Condition { return 
 func (a *VaultPolicyAdapter) SetConditions(conditions []vaultv1alpha1.Condition) {
 	a.Status.Conditions = conditions
 }
+func (a *VaultPolicyAdapter) GetDriftDetected() bool { return a.Status.DriftDetected }
+func (a *VaultPolicyAdapter) SetDriftDetected(driftDetected bool) {
+	a.Status.DriftDetected = driftDetected
+}
+func (a *VaultPolicyAdapter) SetLastDriftCheckAt(t *metav1.Time) { a.Status.LastDriftCheckAt = t }
 
 // VaultClusterPolicyAdapter adapts VaultClusterPolicy to the PolicyAdapter interface.
 type VaultClusterPolicyAdapter struct {
@@ -169,4 +179,11 @@ func (a *VaultClusterPolicyAdapter) GetConditions() []vaultv1alpha1.Condition {
 }
 func (a *VaultClusterPolicyAdapter) SetConditions(conditions []vaultv1alpha1.Condition) {
 	a.Status.Conditions = conditions
+}
+func (a *VaultClusterPolicyAdapter) GetDriftDetected() bool { return a.Status.DriftDetected }
+func (a *VaultClusterPolicyAdapter) SetDriftDetected(driftDetected bool) {
+	a.Status.DriftDetected = driftDetected
+}
+func (a *VaultClusterPolicyAdapter) SetLastDriftCheckAt(t *metav1.Time) {
+	a.Status.LastDriftCheckAt = t
 }

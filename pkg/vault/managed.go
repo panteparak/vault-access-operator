@@ -170,3 +170,60 @@ func (c *Client) GetRoleManagedBy(ctx context.Context, roleName string) (string,
 func (c *Client) RemoveRoleManaged(ctx context.Context, roleName string) error {
 	return c.removeManaged(ctx, ManagedRolesPath, roleName, "role")
 }
+
+// ListManagedPolicies returns all managed policies and their metadata.
+// The returned map is keyed by the Vault policy name.
+func (c *Client) ListManagedPolicies(ctx context.Context) (map[string]ManagedResource, error) {
+	return c.listManaged(ctx, ManagedPoliciesPath, "policy")
+}
+
+// ListManagedRoles returns all managed roles and their metadata.
+// The returned map is keyed by the Vault role name.
+func (c *Client) ListManagedRoles(ctx context.Context) (map[string]ManagedResource, error) {
+	return c.listManaged(ctx, ManagedRolesPath, "role")
+}
+
+// listManaged lists all managed resources at the given path.
+func (c *Client) listManaged(ctx context.Context, basePath, resourceType string) (map[string]ManagedResource, error) {
+	// For KV v2, we need to use the metadata path for LIST operations
+	// Convert secret/data/... to secret/metadata/...
+	listPath := basePath
+	if len(basePath) > 12 && basePath[:12] == "secret/data/" {
+		listPath = "secret/metadata/" + basePath[12:]
+	}
+
+	secret, err := c.Logical().ListWithContext(ctx, listPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list managed %ss: %w", resourceType, err)
+	}
+
+	// No secrets found
+	if secret == nil || secret.Data == nil {
+		return map[string]ManagedResource{}, nil
+	}
+
+	keys, ok := secret.Data["keys"].([]interface{})
+	if !ok || len(keys) == 0 {
+		return map[string]ManagedResource{}, nil
+	}
+
+	result := make(map[string]ManagedResource, len(keys))
+	for _, k := range keys {
+		name, ok := k.(string)
+		if !ok {
+			continue
+		}
+
+		// Get the metadata for this resource
+		managed, err := c.getManaged(ctx, basePath, name, resourceType)
+		if err != nil {
+			// Log but continue - we want to list what we can
+			continue
+		}
+		if managed != nil {
+			result[name] = *managed
+		}
+	}
+
+	return result, nil
+}

@@ -31,3 +31,6 @@ site/
 
 # E2E local development (docker-compose k3s output)
 tmp/e2e/
+
+# Integration test profiling output
+reports/

@@ -22,6 +22,8 @@ import (
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 )
@@ -1127,5 +1129,443 @@ func TestValidateNoWildcardBeforeNamespace(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Naming Collision Detection Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+func newTestScheme() *runtime.Scheme {
+	scheme := runtime.NewScheme()
+	_ = vaultv1alpha1.AddToScheme(scheme)
+	return scheme
+}
+
+func TestVaultPolicyValidator_CollisionDetection(t *testing.T) {
+	enforceFalse := false
+
+	tests := []struct {
+		name            string
+		existingObjects []runtime.Object
+		policy          *vaultv1alpha1.VaultPolicy
+		wantErr         bool
+		errContains     string
+	}{
+		{
+			name:            "no collision when no existing resources",
+			existingObjects: []runtime.Object{},
+			policy: &vaultv1alpha1.VaultPolicy{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-policy",
+					Namespace: "default",
+				},
+				Spec: vaultv1alpha1.VaultPolicySpec{
+					ConnectionRef:            "test-connection",
+					EnforceNamespaceBoundary: &enforceFalse,
+					Rules: []vaultv1alpha1.PolicyRule{
+						{
+							Path:         "secret/data/*",
+							Capabilities: []vaultv1alpha1.Capability{vaultv1alpha1.CapabilityRead},
+						},
+					},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "collision with existing VaultClusterPolicy",
+			existingObjects: []runtime.Object{
+				&vaultv1alpha1.VaultClusterPolicy{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "default-test-policy", // Would collide with VaultPolicy default/test-policy
+					},
+					Spec: vaultv1alpha1.VaultClusterPolicySpec{
+						ConnectionRef: "test-connection",
+						Rules: []vaultv1alpha1.PolicyRule{
+							{
+								Path:         "secret/data/*",
+								Capabilities: []vaultv1alpha1.Capability{vaultv1alpha1.CapabilityRead},
+							},
+						},
+					},
+				},
+			},
+			policy: &vaultv1alpha1.VaultPolicy{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-policy",
+					Namespace: "default",
+				},
+				Spec: vaultv1alpha1.VaultPolicySpec{
+					ConnectionRef:            "test-connection",
+					EnforceNamespaceBoundary: &enforceFalse,
+					Rules: []vaultv1alpha1.PolicyRule{
+						{
+							Path:         "secret/data/*",
+							Capabilities: []vaultv1alpha1.Capability{vaultv1alpha1.CapabilityRead},
+						},
+					},
+				},
+			},
+			wantErr:     true,
+			errContains: "naming collision",
+		},
+		{
+			name: "no collision with differently named VaultClusterPolicy",
+			existingObjects: []runtime.Object{
+				&vaultv1alpha1.VaultClusterPolicy{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "other-cluster-policy", // Different name, no collision
+					},
+					Spec: vaultv1alpha1.VaultClusterPolicySpec{
+						ConnectionRef: "test-connection",
+						Rules: []vaultv1alpha1.PolicyRule{
+							{
+								Path:         "secret/data/*",
+								Capabilities: []vaultv1alpha1.Capability{vaultv1alpha1.CapabilityRead},
+							},
+						},
+					},
+				},
+			},
+			policy: &vaultv1alpha1.VaultPolicy{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-policy",
+					Namespace: "default",
+				},
+				Spec: vaultv1alpha1.VaultPolicySpec{
+					ConnectionRef:            "test-connection",
+					EnforceNamespaceBoundary: &enforceFalse,
+					Rules: []vaultv1alpha1.PolicyRule{
+						{
+							Path:         "secret/data/*",
+							Capabilities: []vaultv1alpha1.Capability{vaultv1alpha1.CapabilityRead},
+						},
+					},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "collision with different namespace prefix",
+			existingObjects: []runtime.Object{
+				&vaultv1alpha1.VaultClusterPolicy{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "prod-app-secrets", // Would collide with VaultPolicy prod/app-secrets
+					},
+					Spec: vaultv1alpha1.VaultClusterPolicySpec{
+						ConnectionRef: "test-connection",
+						Rules: []vaultv1alpha1.PolicyRule{
+							{
+								Path:         "secret/data/*",
+								Capabilities: []vaultv1alpha1.Capability{vaultv1alpha1.CapabilityRead},
+							},
+						},
+					},
+				},
+			},
+			policy: &vaultv1alpha1.VaultPolicy{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "app-secrets",
+					Namespace: "prod",
+				},
+				Spec: vaultv1alpha1.VaultPolicySpec{
+					ConnectionRef:            "test-connection",
+					EnforceNamespaceBoundary: &enforceFalse,
+					Rules: []vaultv1alpha1.PolicyRule{
+						{
+							Path:         "secret/data/*",
+							Capabilities: []vaultv1alpha1.Capability{vaultv1alpha1.CapabilityRead},
+						},
+					},
+				},
+			},
+			wantErr:     true,
+			errContains: "naming collision",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			scheme := newTestScheme()
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithRuntimeObjects(tt.existingObjects...).
+				Build()
+
+			v := &VaultPolicyValidator{client: fakeClient}
+			_, err := v.ValidateCreate(context.Background(), tt.policy)
+
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateCreate() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if tt.wantErr && tt.errContains != "" {
+				if !strings.Contains(err.Error(), tt.errContains) {
+					t.Errorf("ValidateCreate() error = %v, want error containing %q", err, tt.errContains)
+				}
+			}
+		})
+	}
+}
+
+func TestVaultClusterPolicyValidator_CollisionDetection(t *testing.T) {
+	tests := []struct {
+		name            string
+		existingObjects []runtime.Object
+		policy          *vaultv1alpha1.VaultClusterPolicy
+		wantErr         bool
+		errContains     string
+	}{
+		{
+			name:            "no collision when no existing resources",
+			existingObjects: []runtime.Object{},
+			policy: &vaultv1alpha1.VaultClusterPolicy{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "cluster-policy",
+				},
+				Spec: vaultv1alpha1.VaultClusterPolicySpec{
+					ConnectionRef: "test-connection",
+					Rules: []vaultv1alpha1.PolicyRule{
+						{
+							Path:         "secret/data/*",
+							Capabilities: []vaultv1alpha1.Capability{vaultv1alpha1.CapabilityRead},
+						},
+					},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "collision with existing VaultPolicy",
+			existingObjects: []runtime.Object{
+				&vaultv1alpha1.VaultPolicy{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-policy",
+						Namespace: "default",
+					},
+					Spec: vaultv1alpha1.VaultPolicySpec{
+						ConnectionRef: "test-connection",
+						Rules: []vaultv1alpha1.PolicyRule{
+							{
+								Path:         "secret/data/*",
+								Capabilities: []vaultv1alpha1.Capability{vaultv1alpha1.CapabilityRead},
+							},
+						},
+					},
+				},
+			},
+			policy: &vaultv1alpha1.VaultClusterPolicy{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "default-test-policy", // Would collide with VaultPolicy default/test-policy
+				},
+				Spec: vaultv1alpha1.VaultClusterPolicySpec{
+					ConnectionRef: "test-connection",
+					Rules: []vaultv1alpha1.PolicyRule{
+						{
+							Path:         "secret/data/*",
+							Capabilities: []vaultv1alpha1.Capability{vaultv1alpha1.CapabilityRead},
+						},
+					},
+				},
+			},
+			wantErr:     true,
+			errContains: "naming collision",
+		},
+		{
+			name: "no collision with differently named VaultPolicy",
+			existingObjects: []runtime.Object{
+				&vaultv1alpha1.VaultPolicy{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "other-policy",
+						Namespace: "other-namespace",
+					},
+					Spec: vaultv1alpha1.VaultPolicySpec{
+						ConnectionRef: "test-connection",
+						Rules: []vaultv1alpha1.PolicyRule{
+							{
+								Path:         "secret/data/*",
+								Capabilities: []vaultv1alpha1.Capability{vaultv1alpha1.CapabilityRead},
+							},
+						},
+					},
+				},
+			},
+			policy: &vaultv1alpha1.VaultClusterPolicy{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "cluster-policy",
+				},
+				Spec: vaultv1alpha1.VaultClusterPolicySpec{
+					ConnectionRef: "test-connection",
+					Rules: []vaultv1alpha1.PolicyRule{
+						{
+							Path:         "secret/data/*",
+							Capabilities: []vaultv1alpha1.Capability{vaultv1alpha1.CapabilityRead},
+						},
+					},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "collision with VaultPolicy in different namespace",
+			existingObjects: []runtime.Object{
+				&vaultv1alpha1.VaultPolicy{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "app-secrets",
+						Namespace: "prod",
+					},
+					Spec: vaultv1alpha1.VaultPolicySpec{
+						ConnectionRef: "test-connection",
+						Rules: []vaultv1alpha1.PolicyRule{
+							{
+								Path:         "secret/data/*",
+								Capabilities: []vaultv1alpha1.Capability{vaultv1alpha1.CapabilityRead},
+							},
+						},
+					},
+				},
+			},
+			policy: &vaultv1alpha1.VaultClusterPolicy{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "prod-app-secrets", // Would collide with VaultPolicy prod/app-secrets
+				},
+				Spec: vaultv1alpha1.VaultClusterPolicySpec{
+					ConnectionRef: "test-connection",
+					Rules: []vaultv1alpha1.PolicyRule{
+						{
+							Path:         "secret/data/*",
+							Capabilities: []vaultv1alpha1.Capability{vaultv1alpha1.CapabilityRead},
+						},
+					},
+				},
+			},
+			wantErr:     true,
+			errContains: "naming collision",
+		},
+		{
+			name: "no collision when multiple VaultPolicies exist but none collide",
+			existingObjects: []runtime.Object{
+				&vaultv1alpha1.VaultPolicy{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "policy-a",
+						Namespace: "ns-a",
+					},
+					Spec: vaultv1alpha1.VaultPolicySpec{
+						ConnectionRef: "test-connection",
+						Rules: []vaultv1alpha1.PolicyRule{
+							{
+								Path:         "secret/data/*",
+								Capabilities: []vaultv1alpha1.Capability{vaultv1alpha1.CapabilityRead},
+							},
+						},
+					},
+				},
+				&vaultv1alpha1.VaultPolicy{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "policy-b",
+						Namespace: "ns-b",
+					},
+					Spec: vaultv1alpha1.VaultPolicySpec{
+						ConnectionRef: "test-connection",
+						Rules: []vaultv1alpha1.PolicyRule{
+							{
+								Path:         "secret/data/*",
+								Capabilities: []vaultv1alpha1.Capability{vaultv1alpha1.CapabilityRead},
+							},
+						},
+					},
+				},
+			},
+			policy: &vaultv1alpha1.VaultClusterPolicy{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "global-policy",
+				},
+				Spec: vaultv1alpha1.VaultClusterPolicySpec{
+					ConnectionRef: "test-connection",
+					Rules: []vaultv1alpha1.PolicyRule{
+						{
+							Path:         "secret/data/*",
+							Capabilities: []vaultv1alpha1.Capability{vaultv1alpha1.CapabilityRead},
+						},
+					},
+				},
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			scheme := newTestScheme()
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithRuntimeObjects(tt.existingObjects...).
+				Build()
+
+			v := &VaultClusterPolicyValidator{client: fakeClient}
+			_, err := v.ValidateCreate(context.Background(), tt.policy)
+
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateCreate() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if tt.wantErr && tt.errContains != "" {
+				if !strings.Contains(err.Error(), tt.errContains) {
+					t.Errorf("ValidateCreate() error = %v, want error containing %q", err, tt.errContains)
+				}
+			}
+		})
+	}
+}
+
+func TestVaultPolicyValidator_CollisionWithNilClient(t *testing.T) {
+	enforceFalse := false
+	// Test that validation still works when client is nil (skip collision check)
+	v := &VaultPolicyValidator{client: nil}
+	policy := &vaultv1alpha1.VaultPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-policy",
+			Namespace: "default",
+		},
+		Spec: vaultv1alpha1.VaultPolicySpec{
+			ConnectionRef:            "test-connection",
+			EnforceNamespaceBoundary: &enforceFalse,
+			Rules: []vaultv1alpha1.PolicyRule{
+				{
+					Path:         "secret/data/*",
+					Capabilities: []vaultv1alpha1.Capability{vaultv1alpha1.CapabilityRead},
+				},
+			},
+		},
+	}
+
+	_, err := v.ValidateCreate(context.Background(), policy)
+	if err != nil {
+		t.Errorf("ValidateCreate() with nil client should not error, got: %v", err)
+	}
+}
+
+func TestVaultClusterPolicyValidator_CollisionWithNilClient(t *testing.T) {
+	// Test that validation still works when client is nil (skip collision check)
+	v := &VaultClusterPolicyValidator{client: nil}
+	policy := &vaultv1alpha1.VaultClusterPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "test-cluster-policy",
+		},
+		Spec: vaultv1alpha1.VaultClusterPolicySpec{
+			ConnectionRef: "test-connection",
+			Rules: []vaultv1alpha1.PolicyRule{
+				{
+					Path:         "secret/data/*",
+					Capabilities: []vaultv1alpha1.Capability{vaultv1alpha1.CapabilityRead},
+				},
+			},
+		},
+	}
+
+	_, err := v.ValidateCreate(context.Background(), policy)
+	if err != nil {
+		t.Errorf("ValidateCreate() with nil client should not error, got: %v", err)
 	}
 }

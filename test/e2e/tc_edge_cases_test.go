@@ -18,6 +18,7 @@ package e2e
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -430,8 +431,18 @@ var _ = Describe("Edge Case Tests", Ordered, Label("edge"), func() {
 				// token_ttl is in seconds: 1h = 3600s
 				tokenTTL, ok := roleData["token_ttl"]
 				g.Expect(ok).To(BeTrue())
-				// May be float64 or int depending on JSON unmarshaling
-				ttlValue := int(tokenTTL.(float64))
+				// Handle both float64 and json.Number depending on JSON unmarshaling
+				var ttlValue int
+				switch v := tokenTTL.(type) {
+				case float64:
+					ttlValue = int(v)
+				case json.Number:
+					ttlValue64, err := v.Int64()
+					g.Expect(err).NotTo(HaveOccurred())
+					ttlValue = int(ttlValue64)
+				default:
+					g.Expect(false).To(BeTrue(), fmt.Sprintf("unexpected type for token_ttl: %T", tokenTTL))
+				}
 				g.Expect(ttlValue).To(Equal(3600))
 			}, 30*time.Second, 2*time.Second).Should(Succeed())
 		})

@@ -21,6 +21,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"strings"
 
 	"github.com/go-logr/logr"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -28,6 +29,7 @@ import (
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/features/policy/domain"
+	"github.com/panteparak/vault-access-operator/pkg/metrics"
 	"github.com/panteparak/vault-access-operator/pkg/vault"
 	"github.com/panteparak/vault-access-operator/shared/controller/conditions"
 	"github.com/panteparak/vault-access-operator/shared/controller/syncerror"
@@ -101,9 +103,39 @@ func (h *Handler) SyncPolicy(ctx context.Context, adapter domain.PolicyAdapter) 
 	// Calculate hash for change detection
 	specHash := h.calculateHash(hcl)
 
-	// Skip update if unchanged
-	if adapter.GetLastAppliedHash() == specHash && adapter.GetPhase() == vaultv1alpha1.PhaseActive {
-		log.V(1).Info("policy unchanged, skipping update", "policyName", vaultPolicyName)
+	// Check for drift detection even if spec hash matches
+	driftDetected := false
+	if adapter.GetPhase() == vaultv1alpha1.PhaseActive {
+		currentHCL, err := vaultClient.ReadPolicy(ctx, vaultPolicyName)
+		if err != nil {
+			log.V(1).Info("failed to read policy for drift detection (non-fatal)", "error", err)
+		} else {
+			// Normalize by trimming whitespace for comparison
+			driftDetected = h.normalizeHCL(currentHCL) != h.normalizeHCL(hcl)
+			if driftDetected {
+				log.Info("drift detected in Vault policy", "policyName", vaultPolicyName)
+			}
+		}
+
+		// Update drift status
+		adapter.SetDriftDetected(driftDetected)
+		adapter.SetLastDriftCheckAt(&now)
+
+		// Record drift metric
+		kind := "VaultPolicy"
+		if !adapter.IsNamespaced() {
+			kind = "VaultClusterPolicy"
+		}
+		metrics.SetDriftDetected(kind, adapter.GetNamespace(), adapter.GetName(), driftDetected)
+	}
+
+	// Skip update if unchanged and no drift
+	if adapter.GetLastAppliedHash() == specHash && adapter.GetPhase() == vaultv1alpha1.PhaseActive && !driftDetected {
+		log.V(1).Info("policy unchanged and no drift, skipping update", "policyName", vaultPolicyName)
+		// Still update status to record the drift check
+		if err := h.client.Status().Update(ctx, adapter.GetObject()); err != nil {
+			log.V(1).Info("failed to update drift check status (non-fatal)", "error", err)
+		}
 		return nil
 	}
 
@@ -128,6 +160,8 @@ func (h *Handler) SyncPolicy(ctx context.Context, adapter domain.PolicyAdapter) 
 	adapter.SetRetryCount(0)
 	adapter.SetNextRetryAt(nil)
 	adapter.SetMessage("")
+	adapter.SetDriftDetected(false) // Clear drift flag after successful sync
+	adapter.SetLastDriftCheckAt(&now)
 	h.setCondition(adapter, vaultv1alpha1.ConditionTypeReady, metav1.ConditionTrue,
 		vaultv1alpha1.ReasonSucceeded, "Policy synced to Vault")
 	h.setCondition(adapter, vaultv1alpha1.ConditionTypeSynced, metav1.ConditionTrue,
@@ -329,4 +363,18 @@ func (h *Handler) setCondition(
 		adapter.GetConditions(), adapter.GetGeneration(),
 		condType, status, reason, message,
 	))
+}
+
+// normalizeHCL normalizes HCL for comparison by trimming whitespace.
+// This handles minor formatting differences between generated and stored HCL.
+func (h *Handler) normalizeHCL(hcl string) string {
+	lines := strings.Split(hcl, "\n")
+	var normalized []string
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" {
+			normalized = append(normalized, trimmed)
+		}
+	}
+	return strings.Join(normalized, "\n")
 }

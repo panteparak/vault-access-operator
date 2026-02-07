@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
+	"github.com/panteparak/vault-access-operator/pkg/metrics"
 	"github.com/panteparak/vault-access-operator/pkg/vault"
 	"github.com/panteparak/vault-access-operator/pkg/vault/auth"
 	"github.com/panteparak/vault-access-operator/pkg/vault/bootstrap"
@@ -133,13 +134,21 @@ func (h *Handler) Sync(ctx context.Context, conn *vaultv1alpha1.VaultConnection)
 	}
 
 	// Explicit health validation — ensure Vault is initialized and unsealed
+	now := metav1.Now()
+	conn.Status.LastHealthCheck = &now
+
 	healthy, err := vaultClient.IsHealthy(ctx)
 	if err != nil {
+		h.updateHealthStatus(conn, false, fmt.Sprintf("health check failed: %v", err))
 		return h.handleSyncError(ctx, conn, fmt.Errorf("vault health check failed: %w", err))
 	}
 	if !healthy {
+		h.updateHealthStatus(conn, false, "vault is not healthy (sealed or uninitialized)")
 		return h.handleSyncError(ctx, conn, fmt.Errorf("vault is not healthy (sealed or uninitialized)"))
 	}
+
+	// Update health status on success
+	h.updateHealthStatus(conn, true, "")
 
 	// Update AuthStatus for Kubernetes auth
 	if conn.Spec.Auth.Kubernetes != nil {
@@ -150,7 +159,6 @@ func (h *Handler) Sync(ctx context.Context, conn *vaultv1alpha1.VaultConnection)
 	}
 
 	// Update status to Active
-	now := metav1.Now()
 	conn.Status.Phase = vaultv1alpha1.PhaseActive
 	conn.Status.VaultVersion = version
 	conn.Status.LastHeartbeat = &now
@@ -381,6 +389,13 @@ func (h *Handler) handleSyncError(ctx context.Context, conn *vaultv1alpha1.Vault
 	h.setCondition(conn, vaultv1alpha1.ConditionTypeReady, metav1.ConditionFalse,
 		vaultv1alpha1.ReasonFailed, err.Error())
 
+	// Update health status if not already updated (for errors before explicit health check)
+	if conn.Status.LastHealthCheck == nil {
+		now := metav1.Now()
+		conn.Status.LastHealthCheck = &now
+		h.updateHealthStatus(conn, false, err.Error())
+	}
+
 	if updateErr := h.client.Status().Update(ctx, conn); updateErr != nil {
 		h.log.Error(updateErr, "failed to update error status")
 	}
@@ -507,6 +522,28 @@ func (h *Handler) trackRenewal(conn *vaultv1alpha1.VaultConnection) {
 	conn.Status.AuthStatus.TokenRenewalCount++
 	now := metav1.Now()
 	conn.Status.AuthStatus.TokenLastRenewed = &now
+}
+
+// updateHealthStatus updates health monitoring fields and metrics.
+func (h *Handler) updateHealthStatus(conn *vaultv1alpha1.VaultConnection, healthy bool, errMsg string) {
+	now := metav1.Now()
+
+	// Update health status fields
+	conn.Status.Healthy = healthy
+
+	if healthy {
+		conn.Status.LastHealthyTime = &now
+		conn.Status.HealthCheckError = ""
+		conn.Status.ConsecutiveFails = 0
+	} else {
+		conn.Status.HealthCheckError = errMsg
+		conn.Status.ConsecutiveFails++
+	}
+
+	// Update Prometheus metrics
+	metrics.SetConnectionHealth(conn.Name, healthy)
+	metrics.IncrementHealthCheck(conn.Name, healthy)
+	metrics.SetConsecutiveFails(conn.Name, conn.Status.ConsecutiveFails)
 }
 
 // authenticate authenticates the Vault client using the configured auth method.

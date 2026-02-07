@@ -257,6 +257,14 @@ type SyncStatus struct {
 	// Conditions represent the latest available observations
 	// +optional
 	Conditions []Condition `json:"conditions,omitempty"`
+
+	// DriftDetected indicates whether the Vault resource differs from the desired state
+	// +optional
+	DriftDetected bool `json:"driftDetected,omitempty"`
+
+	// LastDriftCheckAt is the time of the last drift detection check
+	// +optional
+	LastDriftCheckAt *metav1.Time `json:"lastDriftCheckAt,omitempty"`
 }
 
 // Finalizer name for the operator

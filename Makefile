@@ -283,8 +283,21 @@ e2e-import-operator: ## Import operator image into k3s containerd
 	docker save $(E2E_OPERATOR_IMAGE) | \
 		$(E2E_COMPOSE) exec -T k3s ctr --namespace k8s.io images import -
 
+# cert-manager version for E2E webhook testing
+CERT_MANAGER_VERSION ?= v1.14.4
+
+.PHONY: e2e-install-cert-manager
+e2e-install-cert-manager: e2e-check-context ## Install cert-manager for webhook TLS certificates
+	@echo "Installing cert-manager $(CERT_MANAGER_VERSION)..."
+	$(E2E_KUBECTL) apply -f https://github.com/cert-manager/cert-manager/releases/download/$(CERT_MANAGER_VERSION)/cert-manager.yaml
+	@echo "Waiting for cert-manager to be ready..."
+	$(E2E_KUBECTL) wait --for=condition=Available deployment \
+		-l app.kubernetes.io/instance=cert-manager \
+		-n cert-manager --timeout=120s
+	@echo "cert-manager is ready"
+
 .PHONY: e2e-deploy-operator
-e2e-deploy-operator: e2e-check-context ## Deploy operator via Helm into k3s
+e2e-deploy-operator: e2e-check-context ## Deploy operator via Helm into k3s (without webhooks)
 	@# Parse repository and tag from E2E_OPERATOR_IMAGE
 	@REPO=$$(echo "$(E2E_OPERATOR_IMAGE)" | sed 's/:.*//'); \
 	TAG=$$(echo "$(E2E_OPERATOR_IMAGE)" | sed 's/.*://'); \
@@ -299,11 +312,32 @@ e2e-deploy-operator: e2e-check-context ## Deploy operator via Helm into k3s
 		-l app.kubernetes.io/name=vault-access-operator \
 		-n vault-access-operator-system --timeout=120s
 
+.PHONY: e2e-deploy-operator-with-webhooks
+e2e-deploy-operator-with-webhooks: e2e-check-context e2e-install-cert-manager ## Deploy operator with webhooks enabled (requires cert-manager)
+	@# Parse repository and tag from E2E_OPERATOR_IMAGE
+	@REPO=$$(echo "$(E2E_OPERATOR_IMAGE)" | sed 's/:.*//'); \
+	TAG=$$(echo "$(E2E_OPERATOR_IMAGE)" | sed 's/.*://'); \
+	$(E2E_HELM) upgrade --install vault-access-operator ./charts/vault-access-operator \
+		--namespace vault-access-operator-system --create-namespace \
+		--set image.repository=$$REPO \
+		--set image.tag=$$TAG \
+		--set image.pullPolicy=Never \
+		--set webhook.enabled=true \
+		--wait --timeout 5m
+	$(E2E_KUBECTL) wait --for=condition=Available deployment \
+		-l app.kubernetes.io/name=vault-access-operator \
+		-n vault-access-operator-system --timeout=120s
+	@echo "Operator deployed with webhooks enabled"
+
 ##@ E2E Local Development (Composite)
 
 .PHONY: e2e-local-up
-e2e-local-up: ## Set up full local E2E stack (k3s + Vault + Dex + operator)
+e2e-local-up: ## Set up full local E2E stack (k3s + Vault + Dex + operator, no webhooks)
 e2e-local-up: e2e-compose-up e2e-wait-cluster e2e-deploy-vault-rbac e2e-bridge-vault e2e-bridge-dex e2e-configure-vault e2e-build-operator e2e-import-operator e2e-deploy-operator
+
+.PHONY: e2e-local-up-with-webhooks
+e2e-local-up-with-webhooks: ## Set up full local E2E stack with webhooks enabled (includes cert-manager)
+e2e-local-up-with-webhooks: e2e-compose-up e2e-wait-cluster e2e-deploy-vault-rbac e2e-bridge-vault e2e-bridge-dex e2e-configure-vault e2e-build-operator e2e-import-operator e2e-deploy-operator-with-webhooks
 	@echo ""
 	@echo "========================================"
 	@echo "  E2E stack is ready!"

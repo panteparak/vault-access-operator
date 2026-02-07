@@ -1170,4 +1170,170 @@ func TestStatusAccessors(t *testing.T) {
 			t.Error("expected NextRetryAt to be nil")
 		}
 	})
+
+	t.Run("DriftDetected get/set", func(t *testing.T) {
+		adapter.SetDriftDetected(true)
+		if !adapter.GetDriftDetected() {
+			t.Error("expected DriftDetected to be true")
+		}
+		adapter.SetDriftDetected(false)
+		if adapter.GetDriftDetected() {
+			t.Error("expected DriftDetected to be false")
+		}
+	})
+
+	t.Run("LastDriftCheckAt set", func(t *testing.T) {
+		now := metav1.Now()
+		adapter.SetLastDriftCheckAt(&now)
+		if policy.Status.LastDriftCheckAt == nil {
+			t.Error("expected LastDriftCheckAt to be set")
+		}
+	})
+}
+
+// TestNormalizeHCL tests the HCL normalization function for drift detection
+func TestNormalizeHCL(t *testing.T) {
+	handler := &Handler{log: logr.Discard()}
+
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name: "removes leading and trailing whitespace",
+			input: `
+  path "secret/*" {
+    capabilities = ["read"]
+  }
+`,
+			expected: `path "secret/*" {
+capabilities = ["read"]
+}`,
+		},
+		{
+			name: "preserves content without extra whitespace",
+			input: `path "secret/*" {
+capabilities = ["read"]
+}`,
+			expected: `path "secret/*" {
+capabilities = ["read"]
+}`,
+		},
+		{
+			name:     "handles empty string",
+			input:    "",
+			expected: "",
+		},
+		{
+			name:     "handles whitespace-only string",
+			input:    "   \n\t  \n  ",
+			expected: "",
+		},
+		{
+			name: "normalizes indentation differences",
+			input: `    path "secret/*" {
+        capabilities = ["read"]
+    }`,
+			expected: `path "secret/*" {
+capabilities = ["read"]
+}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := handler.normalizeHCL(tt.input)
+			if result != tt.expected {
+				t.Errorf("normalizeHCL() = %q, want %q", result, tt.expected)
+			}
+		})
+	}
+}
+
+// TestNormalizeHCL_DriftDetectionScenarios tests HCL comparison for drift detection
+func TestNormalizeHCL_DriftDetectionScenarios(t *testing.T) {
+	handler := &Handler{log: logr.Discard()}
+
+	t.Run("identical content after normalization means no drift", func(t *testing.T) {
+		generated := `path "secret/data/default/*" {
+  capabilities = ["read", "list"]
+}`
+		fromVault := `path "secret/data/default/*" {
+    capabilities = ["read", "list"]
+}`
+		normalizedGenerated := handler.normalizeHCL(generated)
+		normalizedFromVault := handler.normalizeHCL(fromVault)
+
+		if normalizedGenerated != normalizedFromVault {
+			t.Errorf("expected no drift for whitespace differences\ngenerated: %q\nfromVault: %q",
+				normalizedGenerated, normalizedFromVault)
+		}
+	})
+
+	t.Run("different capabilities means drift", func(t *testing.T) {
+		generated := `path "secret/data/default/*" {
+  capabilities = ["read", "list"]
+}`
+		fromVault := `path "secret/data/default/*" {
+  capabilities = ["read", "list", "create"]
+}`
+		normalizedGenerated := handler.normalizeHCL(generated)
+		normalizedFromVault := handler.normalizeHCL(fromVault)
+
+		if normalizedGenerated == normalizedFromVault {
+			t.Error("expected drift for different capabilities")
+		}
+	})
+
+	t.Run("different path means drift", func(t *testing.T) {
+		generated := `path "secret/data/default/*" {
+  capabilities = ["read"]
+}`
+		fromVault := `path "secret/data/other/*" {
+  capabilities = ["read"]
+}`
+		normalizedGenerated := handler.normalizeHCL(generated)
+		normalizedFromVault := handler.normalizeHCL(fromVault)
+
+		if normalizedGenerated == normalizedFromVault {
+			t.Error("expected drift for different paths")
+		}
+	})
+}
+
+// TestDriftDetectionStatusAccessors tests drift detection accessors for cluster policy adapter
+func TestDriftDetectionStatusAccessors_ClusterPolicy(t *testing.T) {
+	clusterPolicy := &vaultv1alpha1.VaultClusterPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "global-policy",
+		},
+		Spec: vaultv1alpha1.VaultClusterPolicySpec{
+			ConnectionRef: testConnectionName,
+			Rules: []vaultv1alpha1.PolicyRule{
+				{Path: "secret/data/global/*", Capabilities: []vaultv1alpha1.Capability{"read"}},
+			},
+		},
+	}
+
+	adapter := domain.NewVaultClusterPolicyAdapter(clusterPolicy)
+
+	t.Run("DriftDetected get/set for cluster policy", func(t *testing.T) {
+		adapter.SetDriftDetected(true)
+		if !adapter.GetDriftDetected() {
+			t.Error("expected DriftDetected to be true")
+		}
+		adapter.SetDriftDetected(false)
+		if adapter.GetDriftDetected() {
+			t.Error("expected DriftDetected to be false")
+		}
+	})
+
+	t.Run("LastDriftCheckAt set for cluster policy", func(t *testing.T) {
+		now := metav1.Now()
+		adapter.SetLastDriftCheckAt(&now)
+		if clusterPolicy.Status.LastDriftCheckAt == nil {
+			t.Error("expected LastDriftCheckAt to be set")
+		}
+	})
 }

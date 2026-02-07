@@ -20,12 +20,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/test/utils"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // checkOIDCDiscoveryAvailable uses client-go to verify
@@ -516,26 +520,28 @@ path "sys/policies/acl/*" {
 		})
 
 		// TC-AU06: VaultConnection with JWT Auth
-		// (Future feature)
 		Context("TC-AU06: VaultConnection with JWT Auth",
 			Ordered, func() {
 				const (
-					jwtConnSAName     = "tc-au06-jwt-conn-sa"
 					jwtConnName       = "tc-au06-jwt-connection"
 					jwtConnRoleName   = "tc-au06-jwt-conn-role"
 					jwtConnPolicyName = "tc-au06-jwt-conn-policy"
 				)
 
+				// Operator service account info
+				operatorNamespace := "vault-access-operator-system"
+				operatorSAName := "vault-access-operator"
+
 				ctx := context.Background()
 
 				BeforeAll(func() {
-					By("creating dedicated service " +
-						"account for VaultConnection " +
-						"JWT test")
-					_ = utils.CreateServiceAccount(
-						ctx, testNamespace,
-						jwtConnSAName,
-					)
+					// Check for operator SA override from environment
+					if ns := os.Getenv("OPERATOR_NAMESPACE"); ns != "" {
+						operatorNamespace = ns
+					}
+					if sa := os.Getenv("OPERATOR_SERVICE_ACCOUNT"); sa != "" {
+						operatorSAName = sa
+					}
 
 					vaultClient, err :=
 						utils.GetTestVaultClient()
@@ -566,18 +572,30 @@ path "sys/policies/acl/*" {
 					Expect(err).NotTo(HaveOccurred())
 
 					By("creating Vault policy for " +
-						"VaultConnection")
+						"VaultConnection JWT auth")
 					connPolicyHCL := `
+# Allow token self-lookup for connection health check
 path "auth/token/lookup-self" {
   capabilities = ["read"]
 }
+
+# Allow health check
 path "sys/health" {
   capabilities = ["read"]
 }
+
+# Allow policy management (for VaultPolicy reconciliation)
 path "sys/policies/acl/*" {
   capabilities = ["create", "read", "update", "delete", "list"]
 }
+
+# Allow role management (for VaultRole reconciliation)
 path "auth/kubernetes/role/*" {
+  capabilities = ["create", "read", "update", "delete", "list"]
+}
+
+# Allow reading managed secrets metadata
+path "secret/metadata/managed/*" {
   capabilities = ["create", "read", "update", "delete", "list"]
 }
 `
@@ -588,22 +606,26 @@ path "auth/kubernetes/role/*" {
 					)
 					Expect(err).NotTo(HaveOccurred())
 
-					By("creating JWT role for " +
-						"VaultConnection")
+					By(fmt.Sprintf("creating JWT role for "+
+						"operator SA (%s/%s)",
+						operatorNamespace, operatorSAName))
+					// The JWT role must accept tokens from the operator's SA
+					// because that's what the handler uses to get JWT tokens
 					err = vaultClient.WriteAuthRole(
 						ctx, "jwt", jwtConnRoleName,
 						map[string]interface{}{
 							"role_type": "jwt",
-							"bound_audiences": "https://" +
-								"kubernetes.default." +
-								"svc.cluster.local,vault",
-							"bound_claims": map[string]interface{}{
-								"sub": fmt.Sprintf(
-									"system:serviceaccount:%s:%s",
-									testNamespace,
-									jwtConnSAName,
-								),
+							// Accept both k8s default audience and "vault"
+							"bound_audiences": []string{
+								"https://kubernetes.default.svc.cluster.local",
+								"vault",
 							},
+							// Bind to operator's service account
+							"bound_subject": fmt.Sprintf(
+								"system:serviceaccount:%s:%s",
+								operatorNamespace,
+								operatorSAName,
+							),
 							"user_claim": "sub",
 							"policies":   jwtConnPolicyName,
 							"ttl":        "1h",
@@ -630,20 +652,64 @@ path "auth/kubernetes/role/*" {
 							ctx, jwtConnPolicyName,
 						)
 					}
-
-					_ = utils.DeleteServiceAccount(
-						ctx, testNamespace,
-						jwtConnSAName,
-					)
 				})
 
 				It("TC-AU06-01: should create "+
 					"VaultConnection using JWT "+
 					"auth spec", func() {
-					Skip("VaultConnection JWT auth " +
-						"not yet implemented - " +
-						"this test documents the " +
-						"expected API")
+					By("getting Vault address from environment")
+					vaultAddr := os.Getenv("VAULT_ADDR")
+					if vaultAddr == "" {
+						vaultAddr = "http://vault.vault.svc:8200"
+					}
+
+					By("creating VaultConnection with JWT auth")
+					conn := &vaultv1alpha1.VaultConnection{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      jwtConnName,
+							Namespace: testNamespace,
+						},
+						Spec: vaultv1alpha1.VaultConnectionSpec{
+							Address: vaultAddr,
+							Auth: vaultv1alpha1.AuthConfig{
+								JWT: &vaultv1alpha1.JWTAuth{
+									Role:     jwtConnRoleName,
+									AuthPath: "jwt",
+									Audiences: []string{
+										"vault",
+									},
+									TokenDuration: metav1.Duration{
+										Duration: time.Hour,
+									},
+								},
+							},
+						},
+					}
+
+					err := utils.CreateVaultConnectionCR(ctx, conn)
+					Expect(err).NotTo(HaveOccurred())
+
+					By("waiting for VaultConnection to become Active")
+					Eventually(func(g Gomega) {
+						status, err := utils.GetVaultConnectionStatus(
+							ctx, jwtConnName, testNamespace,
+						)
+						g.Expect(err).NotTo(HaveOccurred())
+						g.Expect(status).To(Equal("Active"),
+							"VaultConnection should become Active with JWT auth")
+					}, 2*time.Minute, 5*time.Second).Should(Succeed())
+
+					By("verifying VaultConnection status fields")
+					connStatus, err := utils.GetVaultConnection(
+						ctx, jwtConnName, testNamespace,
+					)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(connStatus.Status.Phase).To(
+						Equal(vaultv1alpha1.PhaseActive))
+					// Verify auth method is reflected in status
+					GinkgoWriter.Printf(
+						"VaultConnection %s is Active with JWT auth\n",
+						jwtConnName)
 				})
 			})
 	})
