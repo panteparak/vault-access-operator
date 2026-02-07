@@ -436,11 +436,71 @@ spec:
                     default: auth/kubernetes
                     description: AuthPath is the default path for auth methods
                     type: string
+                  driftMode:
+                    default: detect
+                    description: |-
+                      DriftMode is the default drift detection mode for resources using this connection.
+                      Resources can override this with their own driftMode setting.
+                      Values: ignore (skip detection), detect (report only), correct (auto-fix).
+                    enum:
+                    - ignore
+                    - detect
+                    - correct
+                    type: string
                   secretEnginePath:
                     description: SecretEnginePath is the default path for secret engines
                     type: string
                   transitPath:
                     description: TransitPath is the default path for the transit engine
+                    type: string
+                type: object
+              discovery:
+                description: |-
+                  Discovery configures resource discovery for finding unmanaged Vault resources.
+                  When enabled, the operator periodically scans Vault for policies and roles
+                  that are not managed by any K8s resource.
+                properties:
+                  autoCreateCRs:
+                    description: |-
+                      AutoCreateCRs automatically creates K8s VaultPolicy/VaultRole CRs
+                      for discovered unmanaged resources. Requires TargetNamespace to be set.
+                      Created resources will have the adopt annotation set.
+                    type: boolean
+                  enabled:
+                    description: Enabled activates resource discovery scanning.
+                    type: boolean
+                  excludeSystemPolicies:
+                    default: true
+                    description: |-
+                      ExcludeSystemPolicies excludes Vault system policies from discovery.
+                      System policies include: default, root, response-wrapping.
+                    type: boolean
+                  interval:
+                    default: 1h
+                    description: |-
+                      Interval defines how often to scan for unmanaged resources (default: "1h").
+                      Accepts Go duration strings like "30m", "1h", "24h".
+                    type: string
+                  policyPatterns:
+                    description: |-
+                      PolicyPatterns is a list of glob patterns to match policy names.
+                      Only policies matching these patterns will be reported as discovered.
+                      Example: ["app-*", "team-*", "prod-*"]
+                    items:
+                      type: string
+                    type: array
+                  rolePatterns:
+                    description: |-
+                      RolePatterns is a list of glob patterns to match role names.
+                      Only roles matching these patterns will be reported as discovered.
+                      Example: ["*-reader", "*-writer"]
+                    items:
+                      type: string
+                    type: array
+                  targetNamespace:
+                    description: |-
+                      TargetNamespace is the namespace where auto-created CRs will be placed.
+                      Required when AutoCreateCRs is true.
                     type: string
                 type: object
               healthCheckInterval:
@@ -556,6 +616,57 @@ spec:
                 description: ConsecutiveFails is the number of consecutive failed
                   health checks
                 type: integer
+              discoveryStatus:
+                description: DiscoveryStatus contains resource discovery status.
+                properties:
+                  discoveredResources:
+                    description: DiscoveredResources lists the unmanaged resources
+                      found in Vault.
+                    items:
+                      description: DiscoveredResource represents a Vault resource
+                        discovered during scanning.
+                      properties:
+                        adoptionStatus:
+                          description: 'AdoptionStatus indicates the adoption state:
+                            "", "pending", "adopted", "failed".'
+                          type: string
+                        discoveredAt:
+                          description: DiscoveredAt is when the resource was first
+                            discovered.
+                          format: date-time
+                          type: string
+                        name:
+                          description: Name is the name of the resource in Vault.
+                          type: string
+                        suggestedCRName:
+                          description: SuggestedCRName is the recommended name for
+                            a K8s CR if adopting this resource.
+                          type: string
+                        type:
+                          description: 'Type is the resource type: "policy" or "role".'
+                          enum:
+                          - policy
+                          - role
+                          type: string
+                      required:
+                      - discoveredAt
+                      - name
+                      - type
+                      type: object
+                    type: array
+                  lastScanAt:
+                    description: LastScanAt is when the last discovery scan was performed.
+                    format: date-time
+                    type: string
+                  unmanagedPolicies:
+                    description: UnmanagedPolicies is the count of Vault policies
+                      not managed by any K8s resource.
+                    type: integer
+                  unmanagedRoles:
+                    description: UnmanagedRoles is the count of Vault roles not managed
+                      by any K8s resource.
+                    type: integer
+                type: object
               healthCheckError:
                 description: HealthCheckError contains the error message from the
                   last failed health check
