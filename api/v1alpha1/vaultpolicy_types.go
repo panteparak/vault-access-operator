@@ -45,6 +45,12 @@ type VaultPolicySpec struct {
 	// +kubebuilder:default=false
 	// +optional
 	EnforceNamespaceBoundary *bool `json:"enforceNamespaceBoundary,omitempty"`
+
+	// DriftMode overrides the VaultConnection's default drift mode for this policy.
+	// Values: ignore (skip detection), detect (report only), correct (auto-fix).
+	// If not specified, uses the VaultConnection's default (which defaults to "detect").
+	// +optional
+	DriftMode DriftMode `json:"driftMode,omitempty"`
 }
 
 // VaultPolicyStatus defines the observed state of VaultPolicy.
@@ -63,6 +69,11 @@ type VaultPolicyStatus struct {
 	// LastAppliedHash is the hash of the last applied spec
 	// +optional
 	LastAppliedHash string `json:"lastAppliedHash,omitempty"`
+
+	// Binding contains the explicit reference to the Vault resource.
+	// Acts like a foreign key to the Vault policy.
+	// +optional
+	Binding VaultResourceBinding `json:"binding,omitempty"`
 }
 
 // IsEnforceNamespaceBoundary returns whether namespace boundary enforcement is enabled

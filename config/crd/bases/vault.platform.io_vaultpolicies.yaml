@@ -73,6 +73,16 @@ spec:
                 - Delete
                 - Retain
                 type: string
+              driftMode:
+                description: |-
+                  DriftMode overrides the VaultConnection's default drift mode for this policy.
+                  Values: ignore (skip detection), detect (report only), correct (auto-fix).
+                  If not specified, uses the VaultConnection's default (which defaults to "detect").
+                enum:
+                - ignore
+                - detect
+                - correct
+                type: string
               enforceNamespaceBoundary:
                 default: false
                 description: EnforceNamespaceBoundary ensures all paths contain {{namespace}}
@@ -137,6 +147,39 @@ spec:
           status:
             description: VaultPolicyStatus defines the observed state of VaultPolicy.
             properties:
+              binding:
+                description: |-
+                  Binding contains the explicit reference to the Vault resource.
+                  Acts like a foreign key to the Vault policy.
+                properties:
+                  authMount:
+                    description: |-
+                      AuthMount is the auth mount path (only for roles)
+                      Example: "kubernetes" or "kubernetes-prod"
+                    type: string
+                  bindingVerified:
+                    description: BindingVerified indicates the binding was verified
+                      against Vault
+                    type: boolean
+                  boundAt:
+                    description: BoundAt is when the binding was established
+                    format: date-time
+                    type: string
+                  lastVerifiedAt:
+                    description: LastVerifiedAt is when the binding was last verified
+                    format: date-time
+                    type: string
+                  vaultPath:
+                    description: |-
+                      VaultPath is the full API path to the Vault resource
+                      Example: "sys/policies/acl/prod-my-policy" or "auth/kubernetes/role/prod-my-role"
+                    type: string
+                  vaultResourceName:
+                    description: |-
+                      VaultResourceName is the name of the resource in Vault
+                      Example: "prod-my-policy" or "prod-my-role"
+                    type: string
+                type: object
               conditions:
                 description: Conditions represent the latest available observations
                 items:
@@ -171,10 +214,27 @@ spec:
                   - type
                   type: object
                 type: array
+              driftCorrectedAt:
+                description: DriftCorrectedAt is the time when drift was last corrected
+                format: date-time
+                type: string
               driftDetected:
                 description: DriftDetected indicates whether the Vault resource differs
                   from the desired state
                 type: boolean
+              driftSummary:
+                description: |-
+                  DriftSummary provides a human-readable description of detected drift
+                  Example: "policy content differs" or "fields differ: policies, bound_service_account_names"
+                type: string
+              effectiveDriftMode:
+                description: EffectiveDriftMode is the resolved drift mode after considering
+                  resource and connection defaults
+                enum:
+                - ignore
+                - detect
+                - correct
+                type: string
               lastAppliedHash:
                 description: LastAppliedHash is the hash of the last applied spec
                 type: string

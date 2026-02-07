@@ -43,6 +43,12 @@ type VaultConnectionSpec struct {
 	// +kubebuilder:default="30s"
 	// +optional
 	HealthCheckInterval string `json:"healthCheckInterval,omitempty"`
+
+	// Discovery configures resource discovery for finding unmanaged Vault resources.
+	// When enabled, the operator periodically scans Vault for policies and roles
+	// that are not managed by any K8s resource.
+	// +optional
+	Discovery *DiscoveryConfig `json:"discovery,omitempty"`
 }
 
 // TLSConfig defines TLS settings for Vault connection
@@ -359,6 +365,95 @@ type ConnectionDefaults struct {
 	// +kubebuilder:default="auth/kubernetes"
 	// +optional
 	AuthPath string `json:"authPath,omitempty"`
+
+	// DriftMode is the default drift detection mode for resources using this connection.
+	// Resources can override this with their own driftMode setting.
+	// Values: ignore (skip detection), detect (report only), correct (auto-fix).
+	// +kubebuilder:default=detect
+	// +optional
+	DriftMode DriftMode `json:"driftMode,omitempty"`
+}
+
+// DiscoveryConfig configures resource discovery for unmanaged Vault resources.
+type DiscoveryConfig struct {
+	// Enabled activates resource discovery scanning.
+	// +optional
+	Enabled bool `json:"enabled,omitempty"`
+
+	// Interval defines how often to scan for unmanaged resources (default: "1h").
+	// Accepts Go duration strings like "30m", "1h", "24h".
+	// +kubebuilder:default="1h"
+	// +optional
+	Interval string `json:"interval,omitempty"`
+
+	// PolicyPatterns is a list of glob patterns to match policy names.
+	// Only policies matching these patterns will be reported as discovered.
+	// Example: ["app-*", "team-*", "prod-*"]
+	// +optional
+	PolicyPatterns []string `json:"policyPatterns,omitempty"`
+
+	// RolePatterns is a list of glob patterns to match role names.
+	// Only roles matching these patterns will be reported as discovered.
+	// Example: ["*-reader", "*-writer"]
+	// +optional
+	RolePatterns []string `json:"rolePatterns,omitempty"`
+
+	// ExcludeSystemPolicies excludes Vault system policies from discovery.
+	// System policies include: default, root, response-wrapping.
+	// +kubebuilder:default=true
+	// +optional
+	ExcludeSystemPolicies *bool `json:"excludeSystemPolicies,omitempty"`
+
+	// AutoCreateCRs automatically creates K8s VaultPolicy/VaultRole CRs
+	// for discovered unmanaged resources. Requires TargetNamespace to be set.
+	// Created resources will have the adopt annotation set.
+	// +optional
+	AutoCreateCRs bool `json:"autoCreateCRs,omitempty"`
+
+	// TargetNamespace is the namespace where auto-created CRs will be placed.
+	// Required when AutoCreateCRs is true.
+	// +optional
+	TargetNamespace string `json:"targetNamespace,omitempty"`
+}
+
+// DiscoveryStatus reports the state of resource discovery.
+type DiscoveryStatus struct {
+	// LastScanAt is when the last discovery scan was performed.
+	// +optional
+	LastScanAt *metav1.Time `json:"lastScanAt,omitempty"`
+
+	// UnmanagedPolicies is the count of Vault policies not managed by any K8s resource.
+	// +optional
+	UnmanagedPolicies int `json:"unmanagedPolicies,omitempty"`
+
+	// UnmanagedRoles is the count of Vault roles not managed by any K8s resource.
+	// +optional
+	UnmanagedRoles int `json:"unmanagedRoles,omitempty"`
+
+	// DiscoveredResources lists the unmanaged resources found in Vault.
+	// +optional
+	DiscoveredResources []DiscoveredResource `json:"discoveredResources,omitempty"`
+}
+
+// DiscoveredResource represents a Vault resource discovered during scanning.
+type DiscoveredResource struct {
+	// Type is the resource type: "policy" or "role".
+	// +kubebuilder:validation:Enum=policy;role
+	Type string `json:"type"`
+
+	// Name is the name of the resource in Vault.
+	Name string `json:"name"`
+
+	// DiscoveredAt is when the resource was first discovered.
+	DiscoveredAt metav1.Time `json:"discoveredAt"`
+
+	// SuggestedCRName is the recommended name for a K8s CR if adopting this resource.
+	// +optional
+	SuggestedCRName string `json:"suggestedCRName,omitempty"`
+
+	// AdoptionStatus indicates the adoption state: "", "pending", "adopted", "failed".
+	// +optional
+	AdoptionStatus string `json:"adoptionStatus,omitempty"`
 }
 
 // VaultConnectionStatus defines the observed state of VaultConnection.
@@ -409,6 +504,10 @@ type VaultConnectionStatus struct {
 	// ConsecutiveFails is the number of consecutive failed health checks
 	// +optional
 	ConsecutiveFails int `json:"consecutiveFails,omitempty"`
+
+	// DiscoveryStatus contains resource discovery status.
+	// +optional
+	DiscoveryStatus *DiscoveryStatus `json:"discoveryStatus,omitempty"`
 }
 
 // AuthStatus contains authentication-related status information.

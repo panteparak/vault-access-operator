@@ -345,6 +345,39 @@ func (c *Client) PolicyExists(ctx context.Context, name string) (bool, error) {
 	return false, nil
 }
 
+// ListPolicies returns all policy names in Vault
+func (c *Client) ListPolicies(ctx context.Context) ([]string, error) {
+	return c.Sys().ListPoliciesWithContext(ctx)
+}
+
+// ListKubernetesAuthRoles returns all role names under the Kubernetes auth mount
+func (c *Client) ListKubernetesAuthRoles(ctx context.Context, authPath string) ([]string, error) {
+	if authPath == "" {
+		authPath = DefaultKubernetesAuthPath
+	}
+	path := fmt.Sprintf("%s/role", authPath)
+	secret, err := c.Logical().ListWithContext(ctx, path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list roles at %s: %w", path, err)
+	}
+	if secret == nil || secret.Data == nil {
+		return nil, nil
+	}
+
+	keys, ok := secret.Data["keys"].([]interface{})
+	if !ok {
+		return nil, nil
+	}
+
+	roles := make([]string, 0, len(keys))
+	for _, key := range keys {
+		if s, ok := key.(string); ok {
+			roles = append(roles, s)
+		}
+	}
+	return roles, nil
+}
+
 // WriteKubernetesAuthRole writes a Kubernetes auth role to Vault
 func (c *Client) WriteKubernetesAuthRole(
 	ctx context.Context, authPath, roleName string, data map[string]interface{},

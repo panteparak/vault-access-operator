@@ -127,6 +127,61 @@ var (
 		},
 		[]string{"resource_type", "result"},
 	)
+
+	// DriftCorrectedTotal counts drift correction operations.
+	DriftCorrectedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "vault_access_operator",
+			Subsystem: "vault",
+			Name:      "drift_corrected_total",
+			Help:      "Total number of drift correction operations",
+		},
+		[]string{"kind", "namespace"},
+	)
+
+	// DestructiveBlockedTotal counts blocked destructive operations.
+	DestructiveBlockedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "vault_access_operator",
+			Subsystem: "safety",
+			Name:      "destructive_blocked_total",
+			Help:      "Total number of blocked destructive operations (missing allow-destructive annotation)",
+		},
+		[]string{"kind", "namespace"},
+	)
+
+	// AdoptionTotal counts resource adoption operations.
+	AdoptionTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "vault_access_operator",
+			Subsystem: "discovery",
+			Name:      "adoptions_total",
+			Help:      "Total number of resource adoption operations",
+		},
+		[]string{"kind", "namespace", "result"},
+	)
+
+	// DiscoveredResourcesGauge tracks unmanaged resources found by discovery.
+	DiscoveredResourcesGauge = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: "vault_access_operator",
+			Subsystem: "discovery",
+			Name:      "unmanaged_resources",
+			Help:      "Number of unmanaged Vault resources found during discovery",
+		},
+		[]string{"connection", "type"},
+	)
+
+	// DiscoveryScanTotal counts discovery scan operations.
+	DiscoveryScanTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "vault_access_operator",
+			Subsystem: "discovery",
+			Name:      "scans_total",
+			Help:      "Total number of discovery scan operations",
+		},
+		[]string{"connection", "result"},
+	)
 )
 
 func init() {
@@ -141,6 +196,11 @@ func init() {
 		DriftDetectedGauge,
 		CleanupQueueSizeGauge,
 		CleanupRetriesTotal,
+		DriftCorrectedTotal,
+		DestructiveBlockedTotal,
+		AdoptionTotal,
+		DiscoveredResourcesGauge,
+		DiscoveryScanTotal,
 	)
 }
 
@@ -211,4 +271,37 @@ func IncrementCleanupRetry(resourceType string, success bool) {
 		result = "success"
 	}
 	CleanupRetriesTotal.WithLabelValues(resourceType, result).Inc()
+}
+
+// IncrementDriftCorrected increments the drift correction counter.
+func IncrementDriftCorrected(kind, namespace string) {
+	DriftCorrectedTotal.WithLabelValues(kind, namespace).Inc()
+}
+
+// IncrementDestructiveBlocked increments the blocked destructive operations counter.
+func IncrementDestructiveBlocked(kind, namespace string) {
+	DestructiveBlockedTotal.WithLabelValues(kind, namespace).Inc()
+}
+
+// IncrementAdoption increments the adoption counter.
+func IncrementAdoption(kind, namespace string, success bool) {
+	result := ResultFailure
+	if success {
+		result = ResultSuccess
+	}
+	AdoptionTotal.WithLabelValues(kind, namespace, result).Inc()
+}
+
+// SetDiscoveredResources sets the discovered unmanaged resource count.
+func SetDiscoveredResources(connection, resourceType string, count int) {
+	DiscoveredResourcesGauge.WithLabelValues(connection, resourceType).Set(float64(count))
+}
+
+// IncrementDiscoveryScan increments the discovery scan counter.
+func IncrementDiscoveryScan(connection string, success bool) {
+	result := ResultFailure
+	if success {
+		result = ResultSuccess
+	}
+	DiscoveryScanTotal.WithLabelValues(connection, result).Inc()
 }

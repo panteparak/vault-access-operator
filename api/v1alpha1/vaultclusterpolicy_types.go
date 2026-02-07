@@ -40,6 +40,12 @@ type VaultClusterPolicySpec struct {
 	// +kubebuilder:default=Delete
 	// +optional
 	DeletionPolicy DeletionPolicy `json:"deletionPolicy,omitempty"`
+
+	// DriftMode overrides the VaultConnection's default drift mode for this policy.
+	// Values: ignore (skip detection), detect (report only), correct (auto-fix).
+	// If not specified, uses the VaultConnection's default (which defaults to "detect").
+	// +optional
+	DriftMode DriftMode `json:"driftMode,omitempty"`
 }
 
 // VaultClusterPolicyStatus defines the observed state of VaultClusterPolicy.
@@ -58,6 +64,11 @@ type VaultClusterPolicyStatus struct {
 	// LastAppliedHash is the hash of the last applied spec
 	// +optional
 	LastAppliedHash string `json:"lastAppliedHash,omitempty"`
+
+	// Binding contains the explicit reference to the Vault resource.
+	// Acts like a foreign key to the Vault policy.
+	// +optional
+	Binding VaultResourceBinding `json:"binding,omitempty"`
 }
 
 // +kubebuilder:object:root=true

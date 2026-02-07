@@ -19,6 +19,8 @@ package controller
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strings"
 
 	"github.com/go-logr/logr"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -26,8 +28,11 @@ import (
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/features/role/domain"
+	"github.com/panteparak/vault-access-operator/pkg/metrics"
 	"github.com/panteparak/vault-access-operator/pkg/vault"
+	"github.com/panteparak/vault-access-operator/shared/controller/binding"
 	"github.com/panteparak/vault-access-operator/shared/controller/conditions"
+	"github.com/panteparak/vault-access-operator/shared/controller/driftmode"
 	"github.com/panteparak/vault-access-operator/shared/controller/syncerror"
 	"github.com/panteparak/vault-access-operator/shared/controller/vaultclient"
 	"github.com/panteparak/vault-access-operator/shared/events"
@@ -66,6 +71,10 @@ func (h *Handler) SyncRole(ctx context.Context, adapter domain.RoleAdapter) erro
 	now := metav1.Now()
 	adapter.SetLastAttemptAt(&now)
 
+	// Resolve effective drift mode
+	effectiveDriftMode := driftmode.Resolve(ctx, h.client, adapter.GetDriftMode(), adapter.GetConnectionRef())
+	adapter.SetEffectiveDriftMode(effectiveDriftMode)
+
 	// Set phase to Syncing if not already active
 	phase := adapter.GetPhase()
 	if phase != vaultv1alpha1.PhaseSyncing && phase != vaultv1alpha1.PhaseActive {
@@ -81,7 +90,7 @@ func (h *Handler) SyncRole(ctx context.Context, adapter domain.RoleAdapter) erro
 		return h.handleSyncError(ctx, adapter, err)
 	}
 
-	// Check for conflicts
+	// Check for conflicts (with adoption support)
 	if err := h.checkConflict(ctx, vaultClient, adapter, authPath, vaultRoleName); err != nil {
 		return h.handleSyncError(ctx, adapter, err)
 	}
@@ -98,6 +107,68 @@ func (h *Handler) SyncRole(ctx context.Context, adapter domain.RoleAdapter) erro
 	// Build Kubernetes auth role data
 	roleData := h.buildRoleData(adapter, policyNames, serviceAccountBindings)
 
+	// Drift detection logic based on effective drift mode
+	driftDetected := false
+	driftSummary := ""
+	kind := "VaultRole"
+	if !adapter.IsNamespaced() {
+		kind = "VaultClusterRole"
+	}
+
+	if adapter.GetPhase() == vaultv1alpha1.PhaseActive && driftmode.ShouldDetect(effectiveDriftMode) {
+		driftDetected, driftSummary = h.detectRoleDrift(ctx, vaultClient, authPath, vaultRoleName, roleData)
+		if driftDetected {
+			log.Info("drift detected in Vault role",
+				"roleName", vaultRoleName, "summary", driftSummary, "mode", effectiveDriftMode)
+		}
+
+		// Update drift status
+		adapter.SetDriftDetected(driftDetected)
+		adapter.SetDriftSummary(driftSummary)
+		adapter.SetLastDriftCheckAt(&now)
+
+		// Record drift metric
+		metrics.SetDriftDetected(kind, adapter.GetNamespace(), adapter.GetName(), driftDetected)
+	} else if driftmode.IsIgnore(effectiveDriftMode) {
+		log.V(1).Info("drift detection disabled", "roleName", vaultRoleName, "mode", effectiveDriftMode)
+		adapter.SetDriftDetected(false)
+		adapter.SetDriftSummary("")
+	}
+
+	// Handle drift mode behavior
+	if driftDetected && driftmode.IsDetect(effectiveDriftMode) {
+		// Detect mode: report drift but don't correct
+		log.Info("drift detected (detect mode - not correcting)", "roleName", vaultRoleName)
+		adapter.SetMessage("Drift detected: " + driftSummary)
+
+		// Update status to show drift without correcting
+		if err := h.client.Status().Update(ctx, adapter.GetObject()); err != nil {
+			log.V(1).Info("failed to update drift status (non-fatal)", "error", err)
+		}
+		return nil
+	}
+
+	// Safety check for drift correction
+	if driftDetected && driftmode.IsCorrect(effectiveDriftMode) {
+		annotations := adapter.GetAnnotations()
+		if annotations[vaultv1alpha1.AnnotationAllowDestructive] != "true" {
+			log.Info("drift correction blocked - missing allow-destructive annotation",
+				"roleName", vaultRoleName)
+			adapter.SetPhase(vaultv1alpha1.PhaseConflict)
+			adapter.SetMessage("Drift detected but vault.platform.io/allow-destructive annotation required")
+			h.setCondition(adapter, vaultv1alpha1.ConditionTypeReady, metav1.ConditionFalse,
+				vaultv1alpha1.ReasonConflict, "Drift correction requires allow-destructive annotation")
+
+			if err := h.client.Status().Update(ctx, adapter.GetObject()); err != nil {
+				return fmt.Errorf("failed to update conflict status: %w", err)
+			}
+
+			metrics.IncrementDestructiveBlocked(kind, adapter.GetNamespace())
+			return nil
+		}
+		log.Info("correcting drift with destructive annotation", "roleName", vaultRoleName)
+	}
+
 	// Create/update the Kubernetes auth role
 	if err := vaultClient.WriteKubernetesAuthRole(ctx, authPath, vaultRoleName, roleData); err != nil {
 		return h.handleSyncError(ctx, adapter, infraerrors.NewTransientError("write role", err))
@@ -107,6 +178,20 @@ func (h *Handler) SyncRole(ctx context.Context, adapter domain.RoleAdapter) erro
 	k8sResource := adapter.GetK8sResourceIdentifier()
 	if err := vaultClient.MarkRoleManaged(ctx, vaultRoleName, k8sResource); err != nil {
 		log.V(1).Info("failed to mark role as managed (non-fatal)", "error", err.Error())
+	}
+
+	// Update binding after successful sync
+	roleBinding := binding.NewRoleBinding(authPath, vaultRoleName)
+	adapter.SetBinding(roleBinding)
+
+	// Build policy bindings
+	policyBindings := h.buildPolicyBindings(adapter, policyNames)
+	adapter.SetPolicyBindings(policyBindings)
+
+	// Track drift correction if we fixed drift
+	if driftDetected {
+		adapter.SetDriftCorrectedAt(&now)
+		metrics.IncrementDriftCorrected(kind, adapter.GetNamespace())
 	}
 
 	// Update status to Active
@@ -119,6 +204,9 @@ func (h *Handler) SyncRole(ctx context.Context, adapter domain.RoleAdapter) erro
 	adapter.SetRetryCount(0)
 	adapter.SetNextRetryAt(nil)
 	adapter.SetMessage("")
+	adapter.SetDriftDetected(false) // Clear drift flag after successful sync
+	adapter.SetDriftSummary("")
+	adapter.SetLastDriftCheckAt(&now)
 	h.setCondition(adapter, vaultv1alpha1.ConditionTypeReady, metav1.ConditionTrue,
 		vaultv1alpha1.ReasonSucceeded, "Role synced to Vault")
 	h.setCondition(adapter, vaultv1alpha1.ConditionTypeSynced, metav1.ConditionTrue,
@@ -203,12 +291,15 @@ func (h *Handler) getVaultClient(ctx context.Context, adapter domain.RoleAdapter
 }
 
 // checkConflict checks for conflicts with existing Vault roles.
+// Supports adoption via annotation (vault.platform.io/adopt: "true") or ConflictPolicy.
 func (h *Handler) checkConflict(
 	ctx context.Context,
 	vaultClient *vault.Client,
 	adapter domain.RoleAdapter,
 	authPath, vaultRoleName string,
 ) error {
+	log := logr.FromContextOrDiscard(ctx)
+
 	exists, err := vaultClient.KubernetesAuthRoleExists(ctx, authPath, vaultRoleName)
 	if err != nil {
 		return infraerrors.NewTransientError("check role existence", err)
@@ -221,8 +312,9 @@ func (h *Handler) checkConflict(
 	// Role exists, check ownership
 	managedBy, err := vaultClient.GetRoleManagedBy(ctx, vaultRoleName)
 	if err != nil {
-		// Can't determine ownership
-		if adapter.GetConflictPolicy() == vaultv1alpha1.ConflictPolicyAdopt {
+		// Can't determine ownership - check if adoption is allowed
+		if h.shouldAdopt(adapter) {
+			log.Info("adopting role (ownership unknown)", "roleName", vaultRoleName)
 			return nil
 		}
 		return infraerrors.NewTransientError("check role ownership", err)
@@ -235,13 +327,14 @@ func (h *Handler) checkConflict(
 		return nil
 	}
 
-	// Different owner
+	// Different owner - cannot adopt
 	if managedBy != "" {
 		return infraerrors.NewConflictError("role", vaultRoleName, fmt.Sprintf("already managed by %s", managedBy))
 	}
 
-	// Exists but not managed - check conflict policy
-	if adapter.GetConflictPolicy() == vaultv1alpha1.ConflictPolicyAdopt {
+	// Exists but not managed - check if adoption is allowed
+	if h.shouldAdopt(adapter) {
+		log.Info("adopting existing Vault role", "roleName", vaultRoleName)
 		return nil
 	}
 
@@ -250,6 +343,160 @@ func (h *Handler) checkConflict(
 		vaultRoleName,
 		"already exists in Vault and is not managed by this operator",
 	)
+}
+
+// shouldAdopt checks if the adapter should adopt an existing Vault resource.
+// Adoption is allowed via annotation (takes precedence) or ConflictPolicy.
+func (h *Handler) shouldAdopt(adapter domain.RoleAdapter) bool {
+	// Check annotation first (takes precedence)
+	annotations := adapter.GetAnnotations()
+	if annotations[vaultv1alpha1.AnnotationAdopt] == "true" {
+		return true
+	}
+
+	// Fall back to ConflictPolicy
+	return adapter.GetConflictPolicy() == vaultv1alpha1.ConflictPolicyAdopt
+}
+
+// detectRoleDrift compares the expected role data with the current Vault role.
+// Returns whether drift was detected and a summary of differing fields.
+func (h *Handler) detectRoleDrift(
+	ctx context.Context,
+	vaultClient *vault.Client,
+	authPath, roleName string,
+	expectedData map[string]interface{},
+) (bool, string) {
+	log := logr.FromContextOrDiscard(ctx)
+
+	currentData, err := vaultClient.ReadKubernetesAuthRole(ctx, authPath, roleName)
+	if err != nil {
+		log.V(1).Info("failed to read role for drift detection (non-fatal)", "error", err)
+		return false, ""
+	}
+	if currentData == nil {
+		return false, ""
+	}
+
+	var diffs []string
+
+	// Compare policies
+	if !h.compareStringSlices(currentData["policies"], expectedData["policies"]) {
+		diffs = append(diffs, "policies")
+	}
+
+	// Compare bound_service_account_names
+	if !h.compareStringSlices(currentData["bound_service_account_names"], expectedData["bound_service_account_names"]) {
+		diffs = append(diffs, "bound_service_account_names")
+	}
+
+	// Compare bound_service_account_namespaces
+	currentNs := currentData["bound_service_account_namespaces"]
+	expectedNs := expectedData["bound_service_account_namespaces"]
+	if !h.compareStringSlices(currentNs, expectedNs) {
+		diffs = append(diffs, "bound_service_account_namespaces")
+	}
+
+	// Compare token_ttl if set
+	if expectedTTL, ok := expectedData["token_ttl"]; ok {
+		if !h.compareValues(currentData["token_ttl"], expectedTTL) {
+			diffs = append(diffs, "token_ttl")
+		}
+	}
+
+	// Compare token_max_ttl if set
+	if expectedMaxTTL, ok := expectedData["token_max_ttl"]; ok {
+		if !h.compareValues(currentData["token_max_ttl"], expectedMaxTTL) {
+			diffs = append(diffs, "token_max_ttl")
+		}
+	}
+
+	if len(diffs) > 0 {
+		return true, "fields differ: " + strings.Join(diffs, ", ")
+	}
+	return false, ""
+}
+
+// compareStringSlices compares two interface{} values as string slices.
+func (h *Handler) compareStringSlices(a, b interface{}) bool {
+	sliceA := h.toStringSlice(a)
+	sliceB := h.toStringSlice(b)
+
+	if len(sliceA) != len(sliceB) {
+		return false
+	}
+
+	// Sort both slices for comparison
+	sort.Strings(sliceA)
+	sort.Strings(sliceB)
+
+	for i := range sliceA {
+		if sliceA[i] != sliceB[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// toStringSlice converts an interface{} to []string.
+func (h *Handler) toStringSlice(v interface{}) []string {
+	if v == nil {
+		return nil
+	}
+
+	switch val := v.(type) {
+	case []string:
+		return val
+	case []interface{}:
+		result := make([]string, len(val))
+		for i, item := range val {
+			if s, ok := item.(string); ok {
+				result[i] = s
+			}
+		}
+		return result
+	default:
+		return nil
+	}
+}
+
+// compareValues compares two interface{} values.
+func (h *Handler) compareValues(a, b interface{}) bool {
+	// Handle nil cases
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+
+	// Compare as strings for TTL values
+	return fmt.Sprintf("%v", a) == fmt.Sprintf("%v", b)
+}
+
+// buildPolicyBindings creates PolicyBinding entries for tracking.
+func (h *Handler) buildPolicyBindings(
+	adapter domain.RoleAdapter, resolvedPolicies []string,
+) []vaultv1alpha1.PolicyBinding {
+	policyRefs := adapter.GetPolicies()
+	bindings := make([]vaultv1alpha1.PolicyBinding, len(policyRefs))
+
+	for i, ref := range policyRefs {
+		vaultPolicyName := binding.VaultPolicyName(ref, adapter.GetNamespace())
+		resolved := h.contains(resolvedPolicies, vaultPolicyName)
+		bindings[i] = binding.NewPolicyBindingRef(ref, adapter.GetNamespace(), vaultPolicyName, resolved)
+	}
+
+	return bindings
+}
+
+// contains checks if a string slice contains a value.
+func (h *Handler) contains(slice []string, val string) bool {
+	for _, s := range slice {
+		if s == val {
+			return true
+		}
+	}
+	return false
 }
 
 // resolvePolicyNames resolves PolicyReferences to Vault policy names.
@@ -308,13 +555,13 @@ func (h *Handler) buildRoleData(
 	var boundServiceAccountNamespaces []string
 	namespaceSet := make(map[string]bool)
 
-	for _, binding := range serviceAccountBindings {
-		// binding format is "namespace/name"
+	for _, saBinding := range serviceAccountBindings {
+		// saBinding format is "namespace/name"
 		var namespace, name string
-		for i := 0; i < len(binding); i++ {
-			if binding[i] == '/' {
-				namespace = binding[:i]
-				name = binding[i+1:]
+		for i := 0; i < len(saBinding); i++ {
+			if saBinding[i] == '/' {
+				namespace = saBinding[:i]
+				name = saBinding[i+1:]
 				break
 			}
 		}

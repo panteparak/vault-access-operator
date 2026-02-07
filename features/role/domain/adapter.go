@@ -86,6 +86,25 @@ type RoleAdapter interface {
 	SetMessage(msg string)
 	GetConditions() []vaultv1alpha1.Condition
 	SetConditions(conditions []vaultv1alpha1.Condition)
+
+	// Drift detection and mode
+	GetDriftDetected() bool
+	SetDriftDetected(driftDetected bool)
+	SetLastDriftCheckAt(t *metav1.Time)
+	GetDriftMode() vaultv1alpha1.DriftMode
+	GetEffectiveDriftMode() vaultv1alpha1.DriftMode
+	SetEffectiveDriftMode(mode vaultv1alpha1.DriftMode)
+	GetDriftSummary() string
+	SetDriftSummary(summary string)
+	SetDriftCorrectedAt(t *metav1.Time)
+
+	// Vault resource binding
+	GetBinding() vaultv1alpha1.VaultResourceBinding
+	SetBinding(binding vaultv1alpha1.VaultResourceBinding)
+
+	// Policy bindings - track relationships to referenced policies
+	GetPolicyBindings() []vaultv1alpha1.PolicyBinding
+	SetPolicyBindings(bindings []vaultv1alpha1.PolicyBinding)
 }
 
 // VaultRoleAdapter adapts VaultRole to the RoleAdapter interface.
@@ -147,6 +166,43 @@ func (a *VaultRoleAdapter) SetConditions(conditions []vaultv1alpha1.Condition) {
 	a.Status.Conditions = conditions
 }
 
+// Drift detection
+func (a *VaultRoleAdapter) GetDriftDetected() bool { return a.Status.DriftDetected }
+func (a *VaultRoleAdapter) SetDriftDetected(driftDetected bool) {
+	a.Status.DriftDetected = driftDetected
+}
+func (a *VaultRoleAdapter) SetLastDriftCheckAt(t *metav1.Time) { a.Status.LastDriftCheckAt = t }
+func (a *VaultRoleAdapter) GetDriftMode() vaultv1alpha1.DriftMode {
+	return a.Spec.DriftMode
+}
+func (a *VaultRoleAdapter) GetEffectiveDriftMode() vaultv1alpha1.DriftMode {
+	return a.Status.EffectiveDriftMode
+}
+func (a *VaultRoleAdapter) SetEffectiveDriftMode(mode vaultv1alpha1.DriftMode) {
+	a.Status.EffectiveDriftMode = mode
+}
+func (a *VaultRoleAdapter) GetDriftSummary() string { return a.Status.DriftSummary }
+func (a *VaultRoleAdapter) SetDriftSummary(summary string) {
+	a.Status.DriftSummary = summary
+}
+func (a *VaultRoleAdapter) SetDriftCorrectedAt(t *metav1.Time) { a.Status.DriftCorrectedAt = t }
+
+// Vault resource binding
+func (a *VaultRoleAdapter) GetBinding() vaultv1alpha1.VaultResourceBinding {
+	return a.Status.Binding
+}
+func (a *VaultRoleAdapter) SetBinding(binding vaultv1alpha1.VaultResourceBinding) {
+	a.Status.Binding = binding
+}
+
+// Policy bindings
+func (a *VaultRoleAdapter) GetPolicyBindings() []vaultv1alpha1.PolicyBinding {
+	return a.Status.PolicyBindings
+}
+func (a *VaultRoleAdapter) SetPolicyBindings(bindings []vaultv1alpha1.PolicyBinding) {
+	a.Status.PolicyBindings = bindings
+}
+
 // VaultClusterRoleAdapter adapts VaultClusterRole to the RoleAdapter interface.
 type VaultClusterRoleAdapter struct {
 	*vaultv1alpha1.VaultClusterRole
@@ -206,4 +262,45 @@ func (a *VaultClusterRoleAdapter) GetConditions() []vaultv1alpha1.Condition {
 }
 func (a *VaultClusterRoleAdapter) SetConditions(conditions []vaultv1alpha1.Condition) {
 	a.Status.Conditions = conditions
+}
+
+// Drift detection
+func (a *VaultClusterRoleAdapter) GetDriftDetected() bool { return a.Status.DriftDetected }
+func (a *VaultClusterRoleAdapter) SetDriftDetected(driftDetected bool) {
+	a.Status.DriftDetected = driftDetected
+}
+func (a *VaultClusterRoleAdapter) SetLastDriftCheckAt(t *metav1.Time) {
+	a.Status.LastDriftCheckAt = t
+}
+func (a *VaultClusterRoleAdapter) GetDriftMode() vaultv1alpha1.DriftMode {
+	return a.Spec.DriftMode
+}
+func (a *VaultClusterRoleAdapter) GetEffectiveDriftMode() vaultv1alpha1.DriftMode {
+	return a.Status.EffectiveDriftMode
+}
+func (a *VaultClusterRoleAdapter) SetEffectiveDriftMode(mode vaultv1alpha1.DriftMode) {
+	a.Status.EffectiveDriftMode = mode
+}
+func (a *VaultClusterRoleAdapter) GetDriftSummary() string { return a.Status.DriftSummary }
+func (a *VaultClusterRoleAdapter) SetDriftSummary(summary string) {
+	a.Status.DriftSummary = summary
+}
+func (a *VaultClusterRoleAdapter) SetDriftCorrectedAt(t *metav1.Time) {
+	a.Status.DriftCorrectedAt = t
+}
+
+// Vault resource binding
+func (a *VaultClusterRoleAdapter) GetBinding() vaultv1alpha1.VaultResourceBinding {
+	return a.Status.Binding
+}
+func (a *VaultClusterRoleAdapter) SetBinding(binding vaultv1alpha1.VaultResourceBinding) {
+	a.Status.Binding = binding
+}
+
+// Policy bindings
+func (a *VaultClusterRoleAdapter) GetPolicyBindings() []vaultv1alpha1.PolicyBinding {
+	return a.Status.PolicyBindings
+}
+func (a *VaultClusterRoleAdapter) SetPolicyBindings(bindings []vaultv1alpha1.PolicyBinding) {
+	a.Status.PolicyBindings = bindings
 }

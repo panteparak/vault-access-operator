@@ -40,6 +40,7 @@ import (
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/features/connection"
+	"github.com/panteparak/vault-access-operator/features/discovery"
 	"github.com/panteparak/vault-access-operator/features/policy"
 	"github.com/panteparak/vault-access-operator/features/role"
 	vaultwebhook "github.com/panteparak/vault-access-operator/internal/webhook"
@@ -277,6 +278,20 @@ func main() {
 		os.Exit(1)
 	}
 	setupLog.Info("Setup Role feature")
+
+	// Discovery feature scans Vault for unmanaged resources
+	discoveryFeature := discovery.New(discovery.Config{
+		K8sClient:   mgr.GetClient(),
+		Scheme:      mgr.GetScheme(),
+		ClientCache: connFeature.ClientCache,
+		Log:         setupLog,
+		Recorder:    mgr.GetEventRecorderFor("discovery-controller"), //nolint:staticcheck
+	})
+	if err := discoveryFeature.SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to setup feature", "feature", "Discovery")
+		os.Exit(1)
+	}
+	setupLog.Info("Setup Discovery feature")
 
 	// Setup webhooks only if enabled
 	if enableWebhooks {

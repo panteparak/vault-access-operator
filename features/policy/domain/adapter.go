@@ -78,10 +78,20 @@ type PolicyAdapter interface {
 	GetConditions() []vaultv1alpha1.Condition
 	SetConditions(conditions []vaultv1alpha1.Condition)
 
-	// Drift detection
+	// Drift detection and mode
 	GetDriftDetected() bool
 	SetDriftDetected(driftDetected bool)
 	SetLastDriftCheckAt(t *metav1.Time)
+	GetDriftMode() vaultv1alpha1.DriftMode
+	GetEffectiveDriftMode() vaultv1alpha1.DriftMode
+	SetEffectiveDriftMode(mode vaultv1alpha1.DriftMode)
+	GetDriftSummary() string
+	SetDriftSummary(summary string)
+	SetDriftCorrectedAt(t *metav1.Time)
+
+	// Vault resource binding
+	GetBinding() vaultv1alpha1.VaultResourceBinding
+	SetBinding(binding vaultv1alpha1.VaultResourceBinding)
 }
 
 // VaultPolicyAdapter adapts VaultPolicy to the PolicyAdapter interface.
@@ -133,6 +143,26 @@ func (a *VaultPolicyAdapter) SetDriftDetected(driftDetected bool) {
 	a.Status.DriftDetected = driftDetected
 }
 func (a *VaultPolicyAdapter) SetLastDriftCheckAt(t *metav1.Time) { a.Status.LastDriftCheckAt = t }
+func (a *VaultPolicyAdapter) GetDriftMode() vaultv1alpha1.DriftMode {
+	return a.Spec.DriftMode
+}
+func (a *VaultPolicyAdapter) GetEffectiveDriftMode() vaultv1alpha1.DriftMode {
+	return a.Status.EffectiveDriftMode
+}
+func (a *VaultPolicyAdapter) SetEffectiveDriftMode(mode vaultv1alpha1.DriftMode) {
+	a.Status.EffectiveDriftMode = mode
+}
+func (a *VaultPolicyAdapter) GetDriftSummary() string { return a.Status.DriftSummary }
+func (a *VaultPolicyAdapter) SetDriftSummary(summary string) {
+	a.Status.DriftSummary = summary
+}
+func (a *VaultPolicyAdapter) SetDriftCorrectedAt(t *metav1.Time) { a.Status.DriftCorrectedAt = t }
+func (a *VaultPolicyAdapter) GetBinding() vaultv1alpha1.VaultResourceBinding {
+	return a.Status.Binding
+}
+func (a *VaultPolicyAdapter) SetBinding(binding vaultv1alpha1.VaultResourceBinding) {
+	a.Status.Binding = binding
+}
 
 // VaultClusterPolicyAdapter adapts VaultClusterPolicy to the PolicyAdapter interface.
 type VaultClusterPolicyAdapter struct {
@@ -186,4 +216,26 @@ func (a *VaultClusterPolicyAdapter) SetDriftDetected(driftDetected bool) {
 }
 func (a *VaultClusterPolicyAdapter) SetLastDriftCheckAt(t *metav1.Time) {
 	a.Status.LastDriftCheckAt = t
+}
+func (a *VaultClusterPolicyAdapter) GetDriftMode() vaultv1alpha1.DriftMode {
+	return a.Spec.DriftMode
+}
+func (a *VaultClusterPolicyAdapter) GetEffectiveDriftMode() vaultv1alpha1.DriftMode {
+	return a.Status.EffectiveDriftMode
+}
+func (a *VaultClusterPolicyAdapter) SetEffectiveDriftMode(mode vaultv1alpha1.DriftMode) {
+	a.Status.EffectiveDriftMode = mode
+}
+func (a *VaultClusterPolicyAdapter) GetDriftSummary() string { return a.Status.DriftSummary }
+func (a *VaultClusterPolicyAdapter) SetDriftSummary(summary string) {
+	a.Status.DriftSummary = summary
+}
+func (a *VaultClusterPolicyAdapter) SetDriftCorrectedAt(t *metav1.Time) {
+	a.Status.DriftCorrectedAt = t
+}
+func (a *VaultClusterPolicyAdapter) GetBinding() vaultv1alpha1.VaultResourceBinding {
+	return a.Status.Binding
+}
+func (a *VaultClusterPolicyAdapter) SetBinding(binding vaultv1alpha1.VaultResourceBinding) {
+	a.Status.Binding = binding
 }

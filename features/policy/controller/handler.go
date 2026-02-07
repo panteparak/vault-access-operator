@@ -31,7 +31,9 @@ import (
 	"github.com/panteparak/vault-access-operator/features/policy/domain"
 	"github.com/panteparak/vault-access-operator/pkg/metrics"
 	"github.com/panteparak/vault-access-operator/pkg/vault"
+	"github.com/panteparak/vault-access-operator/shared/controller/binding"
 	"github.com/panteparak/vault-access-operator/shared/controller/conditions"
+	"github.com/panteparak/vault-access-operator/shared/controller/driftmode"
 	"github.com/panteparak/vault-access-operator/shared/controller/syncerror"
 	"github.com/panteparak/vault-access-operator/shared/controller/vaultclient"
 	"github.com/panteparak/vault-access-operator/shared/events"
@@ -58,6 +60,7 @@ func NewHandler(c client.Client, cache *vault.ClientCache, bus *events.EventBus,
 }
 
 // SyncPolicy synchronizes a policy to Vault.
+// nolint:gocyclo // Reconciliation logic naturally handles drift modes, conflicts, and bindings
 func (h *Handler) SyncPolicy(ctx context.Context, adapter domain.PolicyAdapter) error {
 	log := logr.FromContextOrDiscard(ctx)
 	vaultPolicyName := adapter.GetVaultPolicyName()
@@ -65,6 +68,10 @@ func (h *Handler) SyncPolicy(ctx context.Context, adapter domain.PolicyAdapter) 
 	// Update last attempt time
 	now := metav1.Now()
 	adapter.SetLastAttemptAt(&now)
+
+	// Resolve effective drift mode
+	effectiveDriftMode := driftmode.Resolve(ctx, h.client, adapter.GetDriftMode(), adapter.GetConnectionRef())
+	adapter.SetEffectiveDriftMode(effectiveDriftMode)
 
 	// Set phase to Syncing if not already active
 	phase := adapter.GetPhase()
@@ -88,7 +95,7 @@ func (h *Handler) SyncPolicy(ctx context.Context, adapter domain.PolicyAdapter) 
 		}
 	}
 
-	// Check for conflicts
+	// Check for conflicts (with adoption support)
 	if err := h.checkConflict(ctx, vaultClient, adapter, vaultPolicyName); err != nil {
 		return h.handleSyncError(ctx, adapter, err)
 	}
@@ -103,30 +110,76 @@ func (h *Handler) SyncPolicy(ctx context.Context, adapter domain.PolicyAdapter) 
 	// Calculate hash for change detection
 	specHash := h.calculateHash(hcl)
 
-	// Check for drift detection even if spec hash matches
+	// Drift detection logic based on effective drift mode
 	driftDetected := false
-	if adapter.GetPhase() == vaultv1alpha1.PhaseActive {
+	driftSummary := ""
+	kind := "VaultPolicy"
+	if !adapter.IsNamespaced() {
+		kind = "VaultClusterPolicy"
+	}
+
+	if adapter.GetPhase() == vaultv1alpha1.PhaseActive && driftmode.ShouldDetect(effectiveDriftMode) {
 		currentHCL, err := vaultClient.ReadPolicy(ctx, vaultPolicyName)
 		if err != nil {
 			log.V(1).Info("failed to read policy for drift detection (non-fatal)", "error", err)
 		} else {
 			// Normalize by trimming whitespace for comparison
-			driftDetected = h.normalizeHCL(currentHCL) != h.normalizeHCL(hcl)
-			if driftDetected {
-				log.Info("drift detected in Vault policy", "policyName", vaultPolicyName)
+			if h.normalizeHCL(currentHCL) != h.normalizeHCL(hcl) {
+				driftDetected = true
+				driftSummary = "policy content differs"
+				log.Info("drift detected in Vault policy", "policyName", vaultPolicyName, "mode", effectiveDriftMode)
 			}
 		}
 
 		// Update drift status
 		adapter.SetDriftDetected(driftDetected)
+		adapter.SetDriftSummary(driftSummary)
 		adapter.SetLastDriftCheckAt(&now)
 
 		// Record drift metric
-		kind := "VaultPolicy"
-		if !adapter.IsNamespaced() {
-			kind = "VaultClusterPolicy"
-		}
 		metrics.SetDriftDetected(kind, adapter.GetNamespace(), adapter.GetName(), driftDetected)
+	} else if driftmode.IsIgnore(effectiveDriftMode) {
+		log.V(1).Info("drift detection disabled", "policyName", vaultPolicyName, "mode", effectiveDriftMode)
+		adapter.SetDriftDetected(false)
+		adapter.SetDriftSummary("")
+	}
+
+	// Handle drift mode behavior
+	if driftDetected && driftmode.IsDetect(effectiveDriftMode) {
+		// Detect mode: report drift but don't correct
+		log.Info("drift detected (detect mode - not correcting)", "policyName", vaultPolicyName)
+		adapter.SetMessage("Drift detected: " + driftSummary)
+
+		// Update status to show drift without correcting
+		if err := h.client.Status().Update(ctx, adapter.GetObject()); err != nil {
+			log.V(1).Info("failed to update drift status (non-fatal)", "error", err)
+		}
+
+		// Skip update if hash matches - only drift detected
+		if adapter.GetLastAppliedHash() == specHash {
+			return nil
+		}
+	}
+
+	// Safety check for drift correction
+	if driftDetected && driftmode.IsCorrect(effectiveDriftMode) {
+		annotations := adapter.GetAnnotations()
+		if annotations[vaultv1alpha1.AnnotationAllowDestructive] != "true" {
+			log.Info("drift correction blocked - missing allow-destructive annotation",
+				"policyName", vaultPolicyName)
+			adapter.SetPhase(vaultv1alpha1.PhaseConflict)
+			adapter.SetMessage("Drift detected but vault.platform.io/allow-destructive annotation required")
+			h.setCondition(adapter, vaultv1alpha1.ConditionTypeReady, metav1.ConditionFalse,
+				vaultv1alpha1.ReasonConflict, "Drift correction requires allow-destructive annotation")
+
+			if err := h.client.Status().Update(ctx, adapter.GetObject()); err != nil {
+				return fmt.Errorf("failed to update conflict status: %w", err)
+			}
+
+			metrics.IncrementDestructiveBlocked(kind, adapter.GetNamespace())
+			return nil
+		}
+		log.Info("correcting drift with destructive annotation", "policyName", vaultPolicyName)
 	}
 
 	// Skip update if unchanged and no drift
@@ -150,6 +203,16 @@ func (h *Handler) SyncPolicy(ctx context.Context, adapter domain.PolicyAdapter) 
 		log.V(1).Info("failed to mark policy as managed (non-fatal)", "error", err.Error())
 	}
 
+	// Update binding after successful sync
+	policyBinding := binding.NewPolicyBinding(vaultPolicyName)
+	adapter.SetBinding(policyBinding)
+
+	// Track drift correction if we fixed drift
+	if driftDetected {
+		adapter.SetDriftCorrectedAt(&now)
+		metrics.IncrementDriftCorrected(kind, adapter.GetNamespace())
+	}
+
 	// Update status to Active
 	adapter.SetPhase(vaultv1alpha1.PhaseActive)
 	adapter.SetVaultName(vaultPolicyName)
@@ -161,6 +224,7 @@ func (h *Handler) SyncPolicy(ctx context.Context, adapter domain.PolicyAdapter) 
 	adapter.SetNextRetryAt(nil)
 	adapter.SetMessage("")
 	adapter.SetDriftDetected(false) // Clear drift flag after successful sync
+	adapter.SetDriftSummary("")
 	adapter.SetLastDriftCheckAt(&now)
 	h.setCondition(adapter, vaultv1alpha1.ConditionTypeReady, metav1.ConditionTrue,
 		vaultv1alpha1.ReasonSucceeded, "Policy synced to Vault")
@@ -263,12 +327,15 @@ func (h *Handler) validateNamespaceBoundary(adapter domain.PolicyAdapter) error 
 }
 
 // checkConflict checks for conflicts with existing Vault policies.
+// Supports adoption via annotation (vault.platform.io/adopt: "true") or ConflictPolicy.
 func (h *Handler) checkConflict(
 	ctx context.Context,
 	vaultClient *vault.Client,
 	adapter domain.PolicyAdapter,
 	vaultPolicyName string,
 ) error {
+	log := logr.FromContextOrDiscard(ctx)
+
 	exists, err := vaultClient.PolicyExists(ctx, vaultPolicyName)
 	if err != nil {
 		return infraerrors.NewTransientError("check policy existence", err)
@@ -281,8 +348,9 @@ func (h *Handler) checkConflict(
 	// Policy exists, check ownership
 	managedBy, err := vaultClient.GetPolicyManagedBy(ctx, vaultPolicyName)
 	if err != nil {
-		// Can't determine ownership
-		if adapter.GetConflictPolicy() == vaultv1alpha1.ConflictPolicyAdopt {
+		// Can't determine ownership - check if adoption is allowed
+		if h.shouldAdopt(adapter) {
+			log.Info("adopting policy (ownership unknown)", "policyName", vaultPolicyName)
 			return nil
 		}
 		return infraerrors.NewTransientError("check policy ownership", err)
@@ -295,13 +363,14 @@ func (h *Handler) checkConflict(
 		return nil
 	}
 
-	// Different owner
+	// Different owner - cannot adopt
 	if managedBy != "" {
 		return infraerrors.NewConflictError("policy", vaultPolicyName, fmt.Sprintf("already managed by %s", managedBy))
 	}
 
-	// Exists but not managed - check conflict policy
-	if adapter.GetConflictPolicy() == vaultv1alpha1.ConflictPolicyAdopt {
+	// Exists but not managed - check if adoption is allowed
+	if h.shouldAdopt(adapter) {
+		log.Info("adopting existing Vault policy", "policyName", vaultPolicyName)
 		return nil
 	}
 
@@ -309,6 +378,19 @@ func (h *Handler) checkConflict(
 		"policy", vaultPolicyName,
 		"already exists in Vault and is not managed by this operator",
 	)
+}
+
+// shouldAdopt checks if the adapter should adopt an existing Vault resource.
+// Adoption is allowed via annotation (takes precedence) or ConflictPolicy.
+func (h *Handler) shouldAdopt(adapter domain.PolicyAdapter) bool {
+	// Check annotation first (takes precedence)
+	annotations := adapter.GetAnnotations()
+	if annotations[vaultv1alpha1.AnnotationAdopt] == "true" {
+		return true
+	}
+
+	// Fall back to ConflictPolicy
+	return adapter.GetConflictPolicy() == vaultv1alpha1.ConflictPolicyAdopt
 }
 
 // generatePolicyHCL generates HCL for the policy rules.

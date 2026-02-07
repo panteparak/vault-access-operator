@@ -57,6 +57,12 @@ type VaultRoleSpec struct {
 	// +kubebuilder:default=Delete
 	// +optional
 	DeletionPolicy DeletionPolicy `json:"deletionPolicy,omitempty"`
+
+	// DriftMode overrides the VaultConnection's default drift mode for this role.
+	// Values: ignore (skip detection), detect (report only), correct (auto-fix).
+	// If not specified, uses the VaultConnection's default (which defaults to "detect").
+	// +optional
+	DriftMode DriftMode `json:"driftMode,omitempty"`
 }
 
 // VaultRoleStatus defines the observed state of VaultRole.
@@ -75,6 +81,16 @@ type VaultRoleStatus struct {
 	// ResolvedPolicies lists the resolved Vault policy names
 	// +optional
 	ResolvedPolicies []string `json:"resolvedPolicies,omitempty"`
+
+	// Binding contains the explicit reference to the Vault role.
+	// Acts like a foreign key to the Vault Kubernetes auth role.
+	// +optional
+	Binding VaultResourceBinding `json:"binding,omitempty"`
+
+	// PolicyBindings tracks the relationship between this role and its referenced policies.
+	// Each entry shows the K8s reference and the corresponding Vault policy path.
+	// +optional
+	PolicyBindings []PolicyBinding `json:"policyBindings,omitempty"`
 }
 
 // +kubebuilder:object:root=true

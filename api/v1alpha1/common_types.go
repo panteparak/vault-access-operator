@@ -52,6 +52,22 @@ const (
 	DeletionPolicyRetain DeletionPolicy = "Retain"
 )
 
+// DriftMode defines how drift detection and correction is handled
+// +kubebuilder:validation:Enum=ignore;detect;correct
+type DriftMode string
+
+const (
+	// DriftModeIgnore skips drift detection (performance optimization)
+	DriftModeIgnore DriftMode = "ignore"
+	// DriftModeDetect detects and reports drift but does NOT auto-correct
+	DriftModeDetect DriftMode = "detect"
+	// DriftModeCorrect detects AND auto-corrects drift
+	DriftModeCorrect DriftMode = "correct"
+)
+
+// DefaultDriftMode is the default drift mode when not specified
+const DefaultDriftMode = DriftModeDetect
+
 // Capability represents a Vault policy capability
 // +kubebuilder:validation:Enum=create;read;update;delete;list;sudo;deny
 type Capability string
@@ -153,6 +169,54 @@ type ServiceAccountRef struct {
 	// Namespace of the service account
 	// +kubebuilder:validation:Required
 	Namespace string `json:"namespace"`
+}
+
+// VaultResourceBinding represents the explicit binding between a K8s resource
+// and its corresponding Vault resource. Acts like a foreign key reference.
+type VaultResourceBinding struct {
+	// VaultPath is the full API path to the Vault resource
+	// Example: "sys/policies/acl/prod-my-policy" or "auth/kubernetes/role/prod-my-role"
+	// +optional
+	VaultPath string `json:"vaultPath,omitempty"`
+
+	// VaultResourceName is the name of the resource in Vault
+	// Example: "prod-my-policy" or "prod-my-role"
+	// +optional
+	VaultResourceName string `json:"vaultResourceName,omitempty"`
+
+	// AuthMount is the auth mount path (only for roles)
+	// Example: "kubernetes" or "kubernetes-prod"
+	// +optional
+	AuthMount string `json:"authMount,omitempty"`
+
+	// BoundAt is when the binding was established
+	// +optional
+	BoundAt *metav1.Time `json:"boundAt,omitempty"`
+
+	// BindingVerified indicates the binding was verified against Vault
+	// +optional
+	BindingVerified bool `json:"bindingVerified,omitempty"`
+
+	// LastVerifiedAt is when the binding was last verified
+	// +optional
+	LastVerifiedAt *metav1.Time `json:"lastVerifiedAt,omitempty"`
+}
+
+// PolicyBinding represents the binding between a role and its referenced policies
+type PolicyBinding struct {
+	// K8sRef is the K8s resource reference (kind/namespace/name)
+	// Example: "VaultPolicy/prod/app-read" or "VaultClusterPolicy/admin-base"
+	// +optional
+	K8sRef string `json:"k8sRef,omitempty"`
+
+	// VaultPolicyPath is the full Vault path to the policy
+	// Example: "sys/policies/acl/prod-app-read"
+	// +optional
+	VaultPolicyPath string `json:"vaultPolicyPath,omitempty"`
+
+	// Resolved indicates if the policy reference was successfully resolved
+	// +optional
+	Resolved bool `json:"resolved,omitempty"`
 }
 
 // Condition represents a condition of a resource
@@ -265,9 +329,37 @@ type SyncStatus struct {
 	// LastDriftCheckAt is the time of the last drift detection check
 	// +optional
 	LastDriftCheckAt *metav1.Time `json:"lastDriftCheckAt,omitempty"`
+
+	// EffectiveDriftMode is the resolved drift mode after considering resource and connection defaults
+	// +optional
+	EffectiveDriftMode DriftMode `json:"effectiveDriftMode,omitempty"`
+
+	// DriftSummary provides a human-readable description of detected drift
+	// Example: "policy content differs" or "fields differ: policies, bound_service_account_names"
+	// +optional
+	DriftSummary string `json:"driftSummary,omitempty"`
+
+	// DriftCorrectedAt is the time when drift was last corrected
+	// +optional
+	DriftCorrectedAt *metav1.Time `json:"driftCorrectedAt,omitempty"`
 }
 
 // Finalizer name for the operator
 const (
 	FinalizerName = "vault.platform.io/finalizer"
+)
+
+// Annotation keys for adoption and safety controls
+const (
+	// AnnotationAdopt marks a CR for adoption of an existing Vault resource
+	// Value should be "true" to enable adoption
+	AnnotationAdopt = "vault.platform.io/adopt"
+
+	// AnnotationAllowDestructive permits destructive drift corrections
+	// Value should be "true" to allow overwriting existing Vault resources
+	AnnotationAllowDestructive = "vault.platform.io/allow-destructive"
+
+	// AnnotationDiscovered indicates resource was auto-generated from discovery
+	// Value is the timestamp when the resource was discovered
+	AnnotationDiscovered = "vault.platform.io/discovered-at"
 )
