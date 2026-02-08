@@ -24,9 +24,12 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -119,20 +122,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	// Update metrics
 	scanner.UpdateMetrics(conn.Name, result)
 
-	// Update status
+	// Update status with retry to handle concurrent modifications
 	now := metav1.Now()
-	if conn.Status.DiscoveryStatus == nil {
-		conn.Status.DiscoveryStatus = &vaultv1alpha1.DiscoveryStatus{}
-	}
-
-	conn.Status.DiscoveryStatus.LastScanAt = &now
-	conn.Status.DiscoveryStatus.UnmanagedPolicies = len(result.UnmanagedPolicies)
-	conn.Status.DiscoveryStatus.UnmanagedRoles = len(result.UnmanagedRoles)
-	conn.Status.DiscoveryStatus.DiscoveredResources = result.DiscoveredResources
-
-	if err := r.Status().Update(ctx, &conn); err != nil {
+	if err := r.updateDiscoveryStatus(ctx, req.Name, now, result); err != nil {
 		log.Error(err, "failed to update VaultConnection status")
-		return ctrl.Result{RequeueAfter: time.Minute}, err
+		return ctrl.Result{RequeueAfter: time.Minute}, nil // Don't return error to avoid double requeue
 	}
 
 	// Emit event
@@ -252,6 +246,40 @@ func (r *Reconciler) createRoleCR(
 	}
 
 	return nil
+}
+
+// updateDiscoveryStatus updates the discovery status with retry on conflict.
+// This is necessary because the connection controller also updates VaultConnection status,
+// leading to potential optimistic lock conflicts.
+func (r *Reconciler) updateDiscoveryStatus(
+	ctx context.Context,
+	connectionName string,
+	scanTime metav1.Time,
+	result *ScanResult,
+) error {
+	return retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+		// Re-fetch the VaultConnection to get the latest version
+		var conn vaultv1alpha1.VaultConnection
+		if err := r.Get(ctx, types.NamespacedName{Name: connectionName}, &conn); err != nil {
+			if apierrors.IsNotFound(err) {
+				return nil // Connection was deleted, nothing to update
+			}
+			return err
+		}
+
+		// Initialize discovery status if needed
+		if conn.Status.DiscoveryStatus == nil {
+			conn.Status.DiscoveryStatus = &vaultv1alpha1.DiscoveryStatus{}
+		}
+
+		// Update discovery status fields
+		conn.Status.DiscoveryStatus.LastScanAt = &scanTime
+		conn.Status.DiscoveryStatus.UnmanagedPolicies = len(result.UnmanagedPolicies)
+		conn.Status.DiscoveryStatus.UnmanagedRoles = len(result.UnmanagedRoles)
+		conn.Status.DiscoveryStatus.DiscoveredResources = result.DiscoveredResources
+
+		return r.Status().Update(ctx, &conn)
+	})
 }
 
 // SetupWithManager sets up the controller with the Manager
