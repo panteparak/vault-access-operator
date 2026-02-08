@@ -77,6 +77,16 @@ spec:
                 - Delete
                 - Retain
                 type: string
+              driftMode:
+                description: |-
+                  DriftMode overrides the VaultConnection's default drift mode for this role.
+                  Values: ignore (skip detection), detect (report only), correct (auto-fix).
+                  If not specified, uses the VaultConnection's default (which defaults to "detect").
+                enum:
+                - ignore
+                - detect
+                - correct
+                type: string
               policies:
                 description: Policies defines which policies to attach to this role
                 items:
@@ -136,6 +146,39 @@ spec:
           status:
             description: VaultClusterRoleStatus defines the observed state of VaultClusterRole.
             properties:
+              binding:
+                description: |-
+                  Binding contains the explicit reference to the Vault role.
+                  Acts like a foreign key to the Vault Kubernetes auth role.
+                properties:
+                  authMount:
+                    description: |-
+                      AuthMount is the auth mount path (only for roles)
+                      Example: "kubernetes" or "kubernetes-prod"
+                    type: string
+                  bindingVerified:
+                    description: BindingVerified indicates the binding was verified
+                      against Vault
+                    type: boolean
+                  boundAt:
+                    description: BoundAt is when the binding was established
+                    format: date-time
+                    type: string
+                  lastVerifiedAt:
+                    description: LastVerifiedAt is when the binding was last verified
+                    format: date-time
+                    type: string
+                  vaultPath:
+                    description: |-
+                      VaultPath is the full API path to the Vault resource
+                      Example: "sys/policies/acl/prod-my-policy" or "auth/kubernetes/role/prod-my-role"
+                    type: string
+                  vaultResourceName:
+                    description: |-
+                      VaultResourceName is the name of the resource in Vault
+                      Example: "prod-my-policy" or "prod-my-role"
+                    type: string
+                type: object
               boundServiceAccounts:
                 description: BoundServiceAccounts lists the service accounts bound
                   to this role
@@ -176,10 +219,27 @@ spec:
                   - type
                   type: object
                 type: array
+              driftCorrectedAt:
+                description: DriftCorrectedAt is the time when drift was last corrected
+                format: date-time
+                type: string
               driftDetected:
                 description: DriftDetected indicates whether the Vault resource differs
                   from the desired state
                 type: boolean
+              driftSummary:
+                description: |-
+                  DriftSummary provides a human-readable description of detected drift
+                  Example: "policy content differs" or "fields differ: policies, bound_service_account_names"
+                type: string
+              effectiveDriftMode:
+                description: EffectiveDriftMode is the resolved drift mode after considering
+                  resource and connection defaults
+                enum:
+                - ignore
+                - detect
+                - correct
+                type: string
               lastAttemptAt:
                 description: LastAttemptAt is the time of the last sync attempt
                 format: date-time
@@ -220,6 +280,30 @@ spec:
                 - Error
                 - Deleting
                 type: string
+              policyBindings:
+                description: |-
+                  PolicyBindings tracks the relationship between this role and its referenced policies.
+                  Each entry shows the K8s reference and the corresponding Vault policy path.
+                items:
+                  description: PolicyBinding represents the binding between a role
+                    and its referenced policies
+                  properties:
+                    k8sRef:
+                      description: |-
+                        K8sRef is the K8s resource reference (kind/namespace/name)
+                        Example: "VaultPolicy/prod/app-read" or "VaultClusterPolicy/admin-base"
+                      type: string
+                    resolved:
+                      description: Resolved indicates if the policy reference was
+                        successfully resolved
+                      type: boolean
+                    vaultPolicyPath:
+                      description: |-
+                        VaultPolicyPath is the full Vault path to the policy
+                        Example: "sys/policies/acl/prod-app-read"
+                      type: string
+                  type: object
+                type: array
               resolvedPolicies:
                 description: ResolvedPolicies lists the resolved Vault policy names
                 items:
