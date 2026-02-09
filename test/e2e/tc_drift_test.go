@@ -307,6 +307,12 @@ var _ = Describe("Drift Detection Tests", Ordered, Label("drift"), func() {
 					DriftMode:       vaultv1alpha1.DriftModeDetect,
 					ServiceAccounts: []string{"default"},
 					TokenTTL:        "1h",
+					Policies: []vaultv1alpha1.PolicyReference{
+						{
+							Kind: "VaultClusterPolicy",
+							Name: "default", // Use default Vault policy
+						},
+					},
 				},
 			}
 			err := utils.CreateVaultRoleCR(ctx, role)

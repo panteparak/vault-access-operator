@@ -240,6 +240,11 @@ spec:
                 - detect
                 - correct
                 type: string
+              lastAppliedHash:
+                description: |-
+                  LastAppliedHash is the hash of the last applied spec
+                  Used to distinguish between spec changes and external Vault drift
+                type: string
               lastAttemptAt:
                 description: LastAttemptAt is the time of the last sync attempt
                 format: date-time

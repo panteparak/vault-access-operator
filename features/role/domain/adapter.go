@@ -105,6 +105,10 @@ type RoleAdapter interface {
 	// Policy bindings - track relationships to referenced policies
 	GetPolicyBindings() []vaultv1alpha1.PolicyBinding
 	SetPolicyBindings(bindings []vaultv1alpha1.PolicyBinding)
+
+	// Spec hash for distinguishing spec changes from Vault drift
+	GetLastAppliedHash() string
+	SetLastAppliedHash(hash string)
 }
 
 // VaultRoleAdapter adapts VaultRole to the RoleAdapter interface.
@@ -201,6 +205,12 @@ func (a *VaultRoleAdapter) GetPolicyBindings() []vaultv1alpha1.PolicyBinding {
 }
 func (a *VaultRoleAdapter) SetPolicyBindings(bindings []vaultv1alpha1.PolicyBinding) {
 	a.Status.PolicyBindings = bindings
+}
+
+// Spec hash
+func (a *VaultRoleAdapter) GetLastAppliedHash() string { return a.Status.LastAppliedHash }
+func (a *VaultRoleAdapter) SetLastAppliedHash(hash string) {
+	a.Status.LastAppliedHash = hash
 }
 
 // VaultClusterRoleAdapter adapts VaultClusterRole to the RoleAdapter interface.
@@ -303,4 +313,10 @@ func (a *VaultClusterRoleAdapter) GetPolicyBindings() []vaultv1alpha1.PolicyBind
 }
 func (a *VaultClusterRoleAdapter) SetPolicyBindings(bindings []vaultv1alpha1.PolicyBinding) {
 	a.Status.PolicyBindings = bindings
+}
+
+// Spec hash
+func (a *VaultClusterRoleAdapter) GetLastAppliedHash() string { return a.Status.LastAppliedHash }
+func (a *VaultClusterRoleAdapter) SetLastAppliedHash(hash string) {
+	a.Status.LastAppliedHash = hash
 }

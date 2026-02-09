@@ -25,6 +25,7 @@ import (
 
 	"github.com/go-logr/logr"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
@@ -118,13 +119,20 @@ func (h *Handler) SyncPolicy(ctx context.Context, adapter domain.PolicyAdapter) 
 		kind = "VaultClusterPolicy"
 	}
 
+	log.V(1).Info("drift detection check",
+		"policyName", vaultPolicyName,
+		"phase", adapter.GetPhase(),
+		"driftMode", effectiveDriftMode,
+		"shouldDetect", driftmode.ShouldDetect(effectiveDriftMode))
+
 	if adapter.GetPhase() == vaultv1alpha1.PhaseActive && driftmode.ShouldDetect(effectiveDriftMode) {
 		currentHCL, err := vaultClient.ReadPolicy(ctx, vaultPolicyName)
 		if err != nil {
 			log.V(1).Info("failed to read policy for drift detection (non-fatal)", "error", err)
 		} else {
-			// Normalize by trimming whitespace for comparison
-			if h.normalizeHCL(currentHCL) != h.normalizeHCL(hcl) {
+			normalizedCurrent := h.normalizeHCL(currentHCL)
+			normalizedExpected := h.normalizeHCL(hcl)
+			if normalizedCurrent != normalizedExpected {
 				driftDetected = true
 				driftSummary = "policy content differs"
 				log.Info("drift detected in Vault policy", "policyName", vaultPolicyName, "mode", effectiveDriftMode)
@@ -167,12 +175,18 @@ func (h *Handler) SyncPolicy(ctx context.Context, adapter domain.PolicyAdapter) 
 		if annotations[vaultv1alpha1.AnnotationAllowDestructive] != "true" {
 			log.Info("drift correction blocked - missing allow-destructive annotation",
 				"policyName", vaultPolicyName)
-			adapter.SetPhase(vaultv1alpha1.PhaseConflict)
-			adapter.SetMessage("Drift detected but vault.platform.io/allow-destructive annotation required")
-			h.setCondition(adapter, vaultv1alpha1.ConditionTypeReady, metav1.ConditionFalse,
-				vaultv1alpha1.ReasonConflict, "Drift correction requires allow-destructive annotation")
 
-			if err := h.client.Status().Update(ctx, adapter.GetObject()); err != nil {
+			// Use retry logic to handle resourceVersion conflicts
+			err := h.updateStatusWithRetry(ctx, adapter, func(a domain.PolicyAdapter) {
+				a.SetPhase(vaultv1alpha1.PhaseConflict)
+				a.SetDriftDetected(true)
+				a.SetDriftSummary(driftSummary)
+				a.SetLastDriftCheckAt(&now)
+				a.SetMessage("Drift detected but vault.platform.io/allow-destructive annotation required")
+				h.setCondition(a, vaultv1alpha1.ConditionTypeReady, metav1.ConditionFalse,
+					vaultv1alpha1.ReasonConflict, "Drift correction requires allow-destructive annotation")
+			})
+			if err != nil {
 				return fmt.Errorf("failed to update conflict status: %w", err)
 			}
 
@@ -190,6 +204,94 @@ func (h *Handler) SyncPolicy(ctx context.Context, adapter domain.PolicyAdapter) 
 			log.V(1).Info("failed to update drift check status (non-fatal)", "error", err)
 		}
 		return nil
+	}
+
+	// Check if Vault already has the correct content before writing
+	// This prevents overwriting during status update conflict retries
+	currentVaultHCL, err := vaultClient.ReadPolicy(ctx, vaultPolicyName)
+	if err == nil && currentVaultHCL != "" {
+		normalizedCurrent := h.normalizeHCL(currentVaultHCL)
+		normalizedExpected := h.normalizeHCL(hcl)
+		if normalizedCurrent == normalizedExpected {
+			log.V(1).Info("Vault policy already has correct content, skipping write", "policyName", vaultPolicyName)
+			// Still need to update status - use retry logic
+			err := h.updateStatusWithRetry(ctx, adapter, func(a domain.PolicyAdapter) {
+				a.SetPhase(vaultv1alpha1.PhaseActive)
+				a.SetVaultName(vaultPolicyName)
+				a.SetManaged(true)
+				a.SetRulesCount(len(a.GetRules()))
+				a.SetLastAppliedHash(specHash)
+				a.SetLastSyncedAt(&now)
+				a.SetRetryCount(0)
+				a.SetNextRetryAt(nil)
+				a.SetMessage("")
+				a.SetDriftDetected(false)
+				a.SetDriftSummary("")
+				a.SetLastDriftCheckAt(&now)
+				h.setCondition(a, vaultv1alpha1.ConditionTypeReady, metav1.ConditionTrue,
+					vaultv1alpha1.ReasonSucceeded, "Policy synced to Vault")
+				h.setCondition(a, vaultv1alpha1.ConditionTypeSynced, metav1.ConditionTrue,
+					vaultv1alpha1.ReasonSucceeded, "Policy synced successfully")
+			})
+			if err != nil {
+				return fmt.Errorf("failed to update status: %w", err)
+			}
+			return nil
+		}
+
+		// Content differs - this is drift detected during phase transition or retry
+		// Apply the same safety checks as for regular drift detection
+		if !driftDetected && driftmode.ShouldDetect(effectiveDriftMode) {
+			driftDetected = true
+			driftSummary = "policy content differs (detected during reconcile)"
+			log.Info("drift detected in Vault policy during phase transition",
+				"policyName", vaultPolicyName, "mode", effectiveDriftMode)
+
+			// Update drift status
+			adapter.SetDriftDetected(driftDetected)
+			adapter.SetDriftSummary(driftSummary)
+			adapter.SetLastDriftCheckAt(&now)
+
+			// Record drift metric
+			metrics.SetDriftDetected(kind, adapter.GetNamespace(), adapter.GetName(), driftDetected)
+
+			// Handle drift mode behavior - detect mode: report but don't correct
+			if driftmode.IsDetect(effectiveDriftMode) {
+				log.Info("drift detected (detect mode - not correcting)", "policyName", vaultPolicyName)
+				adapter.SetMessage("Drift detected: " + driftSummary)
+
+				if err := h.client.Status().Update(ctx, adapter.GetObject()); err != nil {
+					log.V(1).Info("failed to update drift status (non-fatal)", "error", err)
+				}
+				return nil
+			}
+
+			// Safety check for drift correction - correct mode without allow-destructive
+			if driftmode.IsCorrect(effectiveDriftMode) {
+				annotations := adapter.GetAnnotations()
+				if annotations[vaultv1alpha1.AnnotationAllowDestructive] != "true" {
+					log.Info("drift correction blocked - missing allow-destructive annotation",
+						"policyName", vaultPolicyName)
+
+					err := h.updateStatusWithRetry(ctx, adapter, func(a domain.PolicyAdapter) {
+						a.SetPhase(vaultv1alpha1.PhaseConflict)
+						a.SetDriftDetected(true)
+						a.SetDriftSummary(driftSummary)
+						a.SetLastDriftCheckAt(&now)
+						a.SetMessage("Drift detected but vault.platform.io/allow-destructive annotation required")
+						h.setCondition(a, vaultv1alpha1.ConditionTypeReady, metav1.ConditionFalse,
+							vaultv1alpha1.ReasonConflict, "Drift correction requires allow-destructive annotation")
+					})
+					if err != nil {
+						return fmt.Errorf("failed to update conflict status: %w", err)
+					}
+
+					metrics.IncrementDestructiveBlocked(kind, adapter.GetNamespace())
+					return nil
+				}
+				log.Info("correcting drift with destructive annotation", "policyName", vaultPolicyName)
+			}
+		}
 	}
 
 	// Write policy to Vault
@@ -459,4 +561,36 @@ func (h *Handler) normalizeHCL(hcl string) string {
 		}
 	}
 	return strings.Join(normalized, "\n")
+}
+
+// updateStatusWithRetry updates the status with retry on conflict.
+// The applyStatus function is called with a fresh copy of the object to apply status changes.
+func (h *Handler) updateStatusWithRetry(
+	ctx context.Context,
+	adapter domain.PolicyAdapter,
+	applyStatus func(domain.PolicyAdapter),
+) error {
+	return retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+		// Re-fetch the object to get the latest resourceVersion
+		obj := adapter.GetObject()
+		key := client.ObjectKeyFromObject(obj)
+
+		if adapter.IsNamespaced() {
+			var policy vaultv1alpha1.VaultPolicy
+			if err := h.client.Get(ctx, key, &policy); err != nil {
+				return err
+			}
+			freshAdapter := domain.NewVaultPolicyAdapter(&policy)
+			applyStatus(freshAdapter)
+			return h.client.Status().Update(ctx, freshAdapter.GetObject())
+		}
+
+		var policy vaultv1alpha1.VaultClusterPolicy
+		if err := h.client.Get(ctx, key, &policy); err != nil {
+			return err
+		}
+		freshAdapter := domain.NewVaultClusterPolicyAdapter(&policy)
+		applyStatus(freshAdapter)
+		return h.client.Status().Update(ctx, freshAdapter.GetObject())
+	})
 }

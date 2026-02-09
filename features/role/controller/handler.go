@@ -18,6 +18,9 @@ package controller
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -103,9 +106,16 @@ func (h *Handler) SyncRole(ctx context.Context, adapter domain.RoleAdapter) erro
 
 	// Get service account bindings
 	serviceAccountBindings := adapter.GetServiceAccountBindings()
+	log.Info("service account bindings from spec",
+		"roleName", vaultRoleName,
+		"bindings", serviceAccountBindings,
+		"count", len(serviceAccountBindings))
 
 	// Build Kubernetes auth role data
 	roleData := h.buildRoleData(adapter, policyNames, serviceAccountBindings)
+
+	// Calculate spec hash for distinguishing spec changes from Vault drift
+	specHash := h.calculateSpecHash(roleData)
 
 	// Drift detection logic based on effective drift mode
 	driftDetected := false
@@ -145,7 +155,19 @@ func (h *Handler) SyncRole(ctx context.Context, adapter domain.RoleAdapter) erro
 		if err := h.client.Status().Update(ctx, adapter.GetObject()); err != nil {
 			log.V(1).Info("failed to update drift status (non-fatal)", "error", err)
 		}
-		return nil
+
+		// Only skip sync if spec hash matches (true Vault-side drift)
+		// If spec changed (hash differs), continue to sync the new spec
+		lastHash := adapter.GetLastAppliedHash()
+		log.Info("comparing spec hashes for drift handling",
+			"roleName", vaultRoleName,
+			"lastAppliedHash", lastHash,
+			"currentSpecHash", specHash,
+			"hashesMatch", lastHash == specHash)
+		if lastHash == specHash {
+			return nil
+		}
+		log.Info("spec changed, continuing sync despite drift", "roleName", vaultRoleName)
 	}
 
 	// Safety check for drift correction
@@ -200,6 +222,7 @@ func (h *Handler) SyncRole(ctx context.Context, adapter domain.RoleAdapter) erro
 	adapter.SetManaged(true)
 	adapter.SetBoundServiceAccounts(serviceAccountBindings)
 	adapter.SetResolvedPolicies(policyNames)
+	adapter.SetLastAppliedHash(specHash) // Store hash to detect future spec changes
 	adapter.SetLastSyncedAt(&now)
 	adapter.SetRetryCount(0)
 	adapter.SetNextRetryAt(nil)
@@ -608,4 +631,15 @@ func (h *Handler) setCondition(
 		adapter.GetConditions(), adapter.GetGeneration(),
 		condType, status, reason, message,
 	))
+}
+
+// calculateSpecHash computes a SHA256 hash of the role data for change detection.
+// This distinguishes K8s spec changes from external Vault drift.
+func (h *Handler) calculateSpecHash(roleData map[string]interface{}) string {
+	data, err := json.Marshal(roleData)
+	if err != nil {
+		return ""
+	}
+	hash := sha256.Sum256(data)
+	return hex.EncodeToString(hash[:])
 }
