@@ -173,7 +173,7 @@ func (h *Handler) SyncRole(ctx context.Context, adapter domain.RoleAdapter) erro
 	// Safety check for drift correction
 	if driftDetected && driftmode.IsCorrect(effectiveDriftMode) {
 		annotations := adapter.GetAnnotations()
-		if annotations[vaultv1alpha1.AnnotationAllowDestructive] != "true" {
+		if annotations[vaultv1alpha1.AnnotationAllowDestructive] != vaultv1alpha1.AnnotationValueTrue {
 			log.Info("drift correction blocked - missing allow-destructive annotation",
 				"roleName", vaultRoleName)
 			adapter.SetPhase(vaultv1alpha1.PhaseConflict)
@@ -373,7 +373,7 @@ func (h *Handler) checkConflict(
 func (h *Handler) shouldAdopt(adapter domain.RoleAdapter) bool {
 	// Check annotation first (takes precedence)
 	annotations := adapter.GetAnnotations()
-	if annotations[vaultv1alpha1.AnnotationAdopt] == "true" {
+	if annotations[vaultv1alpha1.AnnotationAdopt] == vaultv1alpha1.AnnotationValueTrue {
 		return true
 	}
 

@@ -362,4 +362,7 @@ const (
 	// AnnotationDiscovered indicates resource was auto-generated from discovery
 	// Value is the timestamp when the resource was discovered
 	AnnotationDiscovered = "vault.platform.io/discovered-at"
+
+	// AnnotationValueTrue is the canonical value for boolean annotation flags
+	AnnotationValueTrue = "true"
 )

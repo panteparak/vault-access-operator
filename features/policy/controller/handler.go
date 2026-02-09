@@ -172,7 +172,7 @@ func (h *Handler) SyncPolicy(ctx context.Context, adapter domain.PolicyAdapter) 
 	// Safety check for drift correction
 	if driftDetected && driftmode.IsCorrect(effectiveDriftMode) {
 		annotations := adapter.GetAnnotations()
-		if annotations[vaultv1alpha1.AnnotationAllowDestructive] != "true" {
+		if annotations[vaultv1alpha1.AnnotationAllowDestructive] != vaultv1alpha1.AnnotationValueTrue {
 			log.Info("drift correction blocked - missing allow-destructive annotation",
 				"policyName", vaultPolicyName)
 
@@ -269,7 +269,7 @@ func (h *Handler) SyncPolicy(ctx context.Context, adapter domain.PolicyAdapter) 
 			// Safety check for drift correction - correct mode without allow-destructive
 			if driftmode.IsCorrect(effectiveDriftMode) {
 				annotations := adapter.GetAnnotations()
-				if annotations[vaultv1alpha1.AnnotationAllowDestructive] != "true" {
+				if annotations[vaultv1alpha1.AnnotationAllowDestructive] != vaultv1alpha1.AnnotationValueTrue {
 					log.Info("drift correction blocked - missing allow-destructive annotation",
 						"policyName", vaultPolicyName)
 
@@ -487,7 +487,7 @@ func (h *Handler) checkConflict(
 func (h *Handler) shouldAdopt(adapter domain.PolicyAdapter) bool {
 	// Check annotation first (takes precedence)
 	annotations := adapter.GetAnnotations()
-	if annotations[vaultv1alpha1.AnnotationAdopt] == "true" {
+	if annotations[vaultv1alpha1.AnnotationAdopt] == vaultv1alpha1.AnnotationValueTrue {
 		return true
 	}
 
