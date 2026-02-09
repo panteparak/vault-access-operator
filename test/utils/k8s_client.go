@@ -631,12 +631,15 @@ func UpdateVaultPolicyCR(ctx context.Context, name, namespace string, mutate fun
 }
 
 // UpdateVaultPolicy updates a VaultPolicy object directly using merge patch.
+// This avoids resourceVersion conflicts with the operator's status updates.
 func UpdateVaultPolicy(ctx context.Context, policy *vaultv1alpha1.VaultPolicy) error {
-	// Get the latest version first to avoid conflicts
+	// Get the latest version first
 	latest, err := GetVaultPolicy(ctx, policy.Name, policy.Namespace)
 	if err != nil {
 		return fmt.Errorf("failed to get VaultPolicy for update: %w", err)
 	}
+	// Keep a copy for the patch base
+	old := latest.DeepCopy()
 	// Copy annotations to latest
 	if latest.Annotations == nil {
 		latest.Annotations = make(map[string]string)
@@ -644,7 +647,8 @@ func UpdateVaultPolicy(ctx context.Context, policy *vaultv1alpha1.VaultPolicy) e
 	for k, v := range policy.Annotations {
 		latest.Annotations[k] = v
 	}
-	return k8sClient.Update(ctx, latest)
+	// Use merge patch instead of Update to avoid resourceVersion conflicts
+	return PatchObject(ctx, latest, client.MergeFrom(old))
 }
 
 // UpdateVaultRoleCR fetches the latest VaultRole, applies the mutate function,
