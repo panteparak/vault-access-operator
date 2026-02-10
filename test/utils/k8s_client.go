@@ -589,27 +589,38 @@ func PatchObject(ctx context.Context, obj client.Object, patch client.Patch) err
 // =============================================================================
 
 // CreateVaultConnectionCR creates a VaultConnection CRD in Kubernetes.
+// CreateVaultConnectionCR creates a VaultConnection CRD in Kubernetes.
+// Validates the fixture before creating to catch invalid test data early.
 func CreateVaultConnectionCR(ctx context.Context, obj *vaultv1alpha1.VaultConnection) error {
+	ValidateTestVaultConnection(obj)
 	return CreateObject(ctx, obj)
 }
 
 // CreateVaultPolicyCR creates a VaultPolicy CRD in Kubernetes.
+// Validates the fixture before creating to catch invalid test data early.
 func CreateVaultPolicyCR(ctx context.Context, obj *vaultv1alpha1.VaultPolicy) error {
+	ValidateTestVaultPolicy(obj)
 	return CreateObject(ctx, obj)
 }
 
 // CreateVaultRoleCR creates a VaultRole CRD in Kubernetes.
+// Validates the fixture before creating to catch invalid test data early.
 func CreateVaultRoleCR(ctx context.Context, obj *vaultv1alpha1.VaultRole) error {
+	ValidateTestVaultRole(obj)
 	return CreateObject(ctx, obj)
 }
 
 // CreateVaultClusterPolicyCR creates a VaultClusterPolicy CRD in Kubernetes.
+// Validates the fixture before creating to catch invalid test data early.
 func CreateVaultClusterPolicyCR(ctx context.Context, obj *vaultv1alpha1.VaultClusterPolicy) error {
+	ValidateTestVaultClusterPolicy(obj)
 	return CreateObject(ctx, obj)
 }
 
 // CreateVaultClusterRoleCR creates a VaultClusterRole CRD in Kubernetes.
+// Validates the fixture before creating to catch invalid test data early.
 func CreateVaultClusterRoleCR(ctx context.Context, obj *vaultv1alpha1.VaultClusterRole) error {
+	ValidateTestVaultClusterRole(obj)
 	return CreateObject(ctx, obj)
 }
 

@@ -55,7 +55,7 @@ var _ = Describe("Adoption Tests", Ordered, Label("adoption"), func() {
 					Name:      policyName,
 					Namespace: testNamespace,
 					Annotations: map[string]string{
-						vaultv1alpha1.AnnotationAdopt: "true",
+						vaultv1alpha1.AnnotationAdopt: vaultv1alpha1.AnnotationValueTrue,
 					},
 				},
 				Spec: vaultv1alpha1.VaultPolicySpec{
@@ -120,13 +120,19 @@ var _ = Describe("Adoption Tests", Ordered, Label("adoption"), func() {
 					Name:      roleName,
 					Namespace: testNamespace,
 					Annotations: map[string]string{
-						vaultv1alpha1.AnnotationAdopt: "true",
+						vaultv1alpha1.AnnotationAdopt: vaultv1alpha1.AnnotationValueTrue,
 					},
 				},
 				Spec: vaultv1alpha1.VaultRoleSpec{
 					ConnectionRef:   sharedVaultConnectionName,
 					ConflictPolicy:  vaultv1alpha1.ConflictPolicyAdopt,
 					ServiceAccounts: []string{"adopted-sa"},
+					Policies: []vaultv1alpha1.PolicyReference{
+						{
+							Kind: "VaultClusterPolicy",
+							Name: "default",
+						},
+					},
 				},
 			}
 			err = utils.CreateVaultRoleCR(ctx, role)
@@ -166,7 +172,7 @@ var _ = Describe("Adoption Tests", Ordered, Label("adoption"), func() {
 					Name:      policyName,
 					Namespace: testNamespace,
 					Annotations: map[string]string{
-						vaultv1alpha1.AnnotationAdopt: "true",
+						vaultv1alpha1.AnnotationAdopt: vaultv1alpha1.AnnotationValueTrue,
 					},
 				},
 				Spec: vaultv1alpha1.VaultPolicySpec{

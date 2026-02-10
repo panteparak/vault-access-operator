@@ -316,3 +316,70 @@ func NewTestVaultConnectionWithTokenDuration(
 		},
 	}
 }
+
+// =============================================================================
+// Test Fixture Validators
+// =============================================================================
+// These validators ensure test fixtures match CRD requirements.
+// They panic on invalid fixtures to fail tests early during setup.
+
+// ValidateTestVaultRole panics if the VaultRole is missing required fields.
+// Use this to catch invalid fixtures at test setup time rather than runtime.
+func ValidateTestVaultRole(role *vaultv1alpha1.VaultRole) {
+	if role.Spec.ConnectionRef == "" {
+		panic("test fixture error: VaultRole.Spec.ConnectionRef is required")
+	}
+	if len(role.Spec.ServiceAccounts) == 0 {
+		panic("test fixture error: VaultRole.Spec.ServiceAccounts must not be empty")
+	}
+	if len(role.Spec.Policies) == 0 {
+		panic("test fixture error: VaultRole.Spec.Policies must not be empty (CRD requires MinItems=1)")
+	}
+}
+
+// ValidateTestVaultClusterRole panics if the VaultClusterRole is missing required fields.
+func ValidateTestVaultClusterRole(role *vaultv1alpha1.VaultClusterRole) {
+	if role.Spec.ConnectionRef == "" {
+		panic("test fixture error: VaultClusterRole.Spec.ConnectionRef is required")
+	}
+	if len(role.Spec.ServiceAccounts) == 0 {
+		panic("test fixture error: VaultClusterRole.Spec.ServiceAccounts must not be empty (CRD requires MinItems=1)")
+	}
+	if len(role.Spec.Policies) == 0 {
+		panic("test fixture error: VaultClusterRole.Spec.Policies must not be empty (CRD requires MinItems=1)")
+	}
+}
+
+// ValidateTestVaultPolicy panics if the VaultPolicy is missing required fields.
+func ValidateTestVaultPolicy(policy *vaultv1alpha1.VaultPolicy) {
+	if policy.Spec.ConnectionRef == "" {
+		panic("test fixture error: VaultPolicy.Spec.ConnectionRef is required")
+	}
+	if len(policy.Spec.Rules) == 0 {
+		panic("test fixture error: VaultPolicy.Spec.Rules must not be empty (CRD requires MinItems=1)")
+	}
+}
+
+// ValidateTestVaultClusterPolicy panics if the VaultClusterPolicy is missing required fields.
+func ValidateTestVaultClusterPolicy(policy *vaultv1alpha1.VaultClusterPolicy) {
+	if policy.Spec.ConnectionRef == "" {
+		panic("test fixture error: VaultClusterPolicy.Spec.ConnectionRef is required")
+	}
+	if len(policy.Spec.Rules) == 0 {
+		panic("test fixture error: VaultClusterPolicy.Spec.Rules must not be empty (CRD requires MinItems=1)")
+	}
+}
+
+// ValidateTestVaultConnection panics if the VaultConnection is missing required fields.
+func ValidateTestVaultConnection(conn *vaultv1alpha1.VaultConnection) {
+	if conn.Spec.Address == "" {
+		panic("test fixture error: VaultConnection.Spec.Address is required")
+	}
+	hasAuth := conn.Spec.Auth.Token != nil ||
+		conn.Spec.Auth.Kubernetes != nil ||
+		conn.Spec.Auth.AppRole != nil ||
+		conn.Spec.Auth.JWT != nil
+	if !hasAuth {
+		panic("test fixture error: VaultConnection.Spec.Auth must have at least one auth method")
+	}
+}

@@ -101,6 +101,9 @@ func TestRoleReconciler_Reconcile_AddsFinalizer(t *testing.T) {
 		Spec: vaultv1alpha1.VaultRoleSpec{
 			ConnectionRef:   "test-conn",
 			ServiceAccounts: []string{"default"},
+			Policies: []vaultv1alpha1.PolicyReference{
+				{Kind: "VaultClusterPolicy", Name: "test-policy"},
+			},
 		},
 	}
 
@@ -153,6 +156,9 @@ func TestRoleReconciler_Reconcile_EmitsEvents(t *testing.T) {
 		Spec: vaultv1alpha1.VaultRoleSpec{
 			ConnectionRef:   "test-conn",
 			ServiceAccounts: []string{"default"},
+			Policies: []vaultv1alpha1.PolicyReference{
+				{Kind: "VaultClusterPolicy", Name: "test-policy"},
+			},
 		},
 	}
 
@@ -206,6 +212,9 @@ func TestRoleReconciler_Reconcile_Deletion(t *testing.T) {
 		Spec: vaultv1alpha1.VaultRoleSpec{
 			ConnectionRef:   "test-conn",
 			ServiceAccounts: []string{"default"},
+			Policies: []vaultv1alpha1.PolicyReference{
+				{Kind: "VaultClusterPolicy", Name: "test-policy"},
+			},
 		},
 	}
 
@@ -263,6 +272,9 @@ func TestRoleReconciler_Reconcile_DeletionEmitsEvents(t *testing.T) {
 		Spec: vaultv1alpha1.VaultRoleSpec{
 			ConnectionRef:   "test-conn",
 			ServiceAccounts: []string{"default"},
+			Policies: []vaultv1alpha1.PolicyReference{
+				{Kind: "VaultClusterPolicy", Name: "test-policy"},
+			},
 		},
 	}
 
