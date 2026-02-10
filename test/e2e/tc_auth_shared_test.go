@@ -32,7 +32,9 @@ import (
 
 // AuthTestSuite defines a reusable test suite that runs against any AuthProvider.
 // This allows the same tests to verify behavior across different auth methods.
-var _ = Describe("TC-AU-SHARED: Authentication Method Compatibility",
+// NOTE: Skipped because all scenarios are covered by standalone tc_auth_*_test.go tests.
+// See: tc_auth_kubernetes_test.go, tc_auth_jwt_test.go, tc_auth_approle_test.go, tc_auth_oidc_test.go
+var _ = PDescribe("TC-AU-SHARED: Authentication Method Compatibility",
 	Label("auth"), func() {
 		// Test with each available auth provider
 		authProviders := []struct {
@@ -384,7 +386,7 @@ path "sys/health" {
 												Namespace: testNamespace,
 											},
 										},
-										TokenTTL: "1h",
+										TokenTTL: "5m",
 									},
 								},
 							)

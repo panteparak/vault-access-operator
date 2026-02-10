@@ -375,7 +375,7 @@ func setupSharedTestInfrastructure() {
 	// Create operator token (non-root) with the operator policy
 	utils.TimedBy("creating operator token (non-root)")
 	operatorToken, err := vaultClient.CreateToken(
-		ctx, []string{operatorPolicyName}, "24h",
+		ctx, []string{operatorPolicyName}, "4h",
 	)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to create operator token")
 	ExpectWithOffset(1, operatorToken).NotTo(BeEmpty(), "Operator token should not be empty")

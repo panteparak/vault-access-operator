@@ -406,17 +406,17 @@ var _ = Describe("Edge Case Tests", Ordered, Label("edge"), func() {
 			Expect(err).NotTo(HaveOccurred())
 			defer CleanupServiceAccount(ctx, saName)
 
-			By("creating role with 30m TTL")
-			role := BuildRoleWithTTL(roleName, saName, policyName, "30m")
+			By("creating role with 2m TTL")
+			role := BuildRoleWithTTL(roleName, saName, policyName, "2m")
 			err = utils.CreateVaultRoleCR(ctx, role)
 			Expect(err).NotTo(HaveOccurred())
 			defer CleanupRole(ctx, roleName)
 			ExpectRoleActive(ctx, roleName)
 
-			By("updating role TTL to 1h")
+			By("updating role TTL to 5m")
 			err = utils.UpdateVaultRoleCR(ctx, roleName, testNamespace,
 				func(r *vaultv1alpha1.VaultRole) {
-					r.Spec.TokenTTL = "1h"
+					r.Spec.TokenTTL = "5m"
 				})
 			Expect(err).NotTo(HaveOccurred())
 
@@ -428,7 +428,7 @@ var _ = Describe("Edge Case Tests", Ordered, Label("edge"), func() {
 			Eventually(func(g Gomega) {
 				roleData, err := vaultClient.ReadAuthRole(ctx, "kubernetes", vaultRoleName)
 				g.Expect(err).NotTo(HaveOccurred())
-				// token_ttl is in seconds: 1h = 3600s
+				// token_ttl is in seconds: 5m = 300s
 				tokenTTL, ok := roleData["token_ttl"]
 				g.Expect(ok).To(BeTrue())
 				// Handle both float64 and json.Number depending on JSON unmarshaling
@@ -443,7 +443,7 @@ var _ = Describe("Edge Case Tests", Ordered, Label("edge"), func() {
 				default:
 					g.Expect(false).To(BeTrue(), fmt.Sprintf("unexpected type for token_ttl: %T", tokenTTL))
 				}
-				g.Expect(ttlValue).To(Equal(3600))
+				g.Expect(ttlValue).To(Equal(300))
 			}, 30*time.Second, 2*time.Second).Should(Succeed())
 		})
 

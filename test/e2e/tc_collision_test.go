@@ -394,7 +394,7 @@ var _ = Describe("Naming Collision Detection Tests", Ordered, Label("collision")
 							Name: sharedPolicyName,
 						},
 					},
-					TokenTTL: "30m",
+					TokenTTL: "2m",
 				},
 			}
 

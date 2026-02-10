@@ -148,6 +148,15 @@ type KubernetesAuth struct {
 	// +kubebuilder:default=true
 	// +optional
 	TokenReviewerRotation *bool `json:"tokenReviewerRotation,omitempty"`
+
+	// RenewalStrategy controls how Vault tokens are refreshed when approaching expiration.
+	// "renew" (default): Proactively renew tokens via Vault API, fallback to re-auth on failure.
+	// "reauth": Always re-authenticate with fresh K8s credentials instead of renewing.
+	// Use "reauth" for security-critical workloads that require fresh tokens.
+	// +kubebuilder:validation:Enum=renew;reauth
+	// +kubebuilder:default="renew"
+	// +optional
+	RenewalStrategy RenewalStrategy `json:"renewalStrategy,omitempty"`
 }
 
 // TokenAuth defines token auth method settings

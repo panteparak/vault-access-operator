@@ -594,6 +594,14 @@ var _ = Describe("Token Lifecycle", Ordered,
 				const (
 					renewalConnectionName = "e2e-renewal-conn"
 					renewalRoleName       = "e2e-short-ttl-role"
+					// TC-LC07 TTL configuration
+					// Short TTL to speed up renewal testing
+					renewalTTL          = "15s"
+					renewalMaxTTL       = "2m"
+					renewalThresholdPct = 75
+					renewalExpectedSec  = 11 // 75% of 15s
+					renewalPollInterval = 3 * time.Second
+					renewalTimeout      = 1 * time.Minute
 				)
 
 				AfterEach(func() {
@@ -631,9 +639,9 @@ var _ = Describe("Token Lifecycle", Ordered,
 				It("TC-LC07: Renew token when "+
 					"approaching expiration",
 					Label("slow"), func() {
-						By("creating a Vault role " +
-							"with short TTL (2m) " +
-							"for renewal testing")
+						By(fmt.Sprintf("creating a Vault role "+
+							"with short TTL (%s) "+
+							"for renewal testing", renewalTTL))
 						vc, err :=
 							utils.GetTestVaultClient()
 						Expect(err).NotTo(
@@ -646,8 +654,8 @@ var _ = Describe("Token Lifecycle", Ordered,
 								"bound_service_account_names":      "vault-access-operator",
 								"bound_service_account_namespaces": "vault-access-operator-system",
 								"policies":                         operatorPolicy,
-								"ttl":                              "2m",
-								"max_ttl":                          "10m",
+								"ttl":                              renewalTTL,
+								"max_ttl":                          renewalMaxTTL,
 							},
 						)
 						Expect(err).NotTo(
@@ -729,9 +737,10 @@ var _ = Describe("Token Lifecycle", Ordered,
 								)
 						}
 
-						By("waiting for token " +
-							"renewal (Vault TTL=2m, " +
-							"renewal at ~75% = ~90s)")
+						By(fmt.Sprintf("waiting for token "+
+							"renewal (Vault TTL=%s, "+
+							"renewal at ~%d%% = ~%ds)",
+							renewalTTL, renewalThresholdPct, renewalExpectedSec))
 						Eventually(func(g Gomega) {
 							c, err :=
 								utils.GetVaultConnection(
@@ -752,8 +761,8 @@ var _ = Describe("Token Lifecycle", Ordered,
 								"Expected token to "+
 									"have been renewed",
 							)
-						}, 3*time.Minute,
-							10*time.Second,
+						}, renewalTimeout,
+							renewalPollInterval,
 						).Should(Succeed())
 
 						By("verifying " +

@@ -90,7 +90,7 @@ var _ = Describe("Authentication Tests", Ordered, Label("auth"), func() {
 						Namespace: testNamespace,
 					},
 				},
-				TokenTTL: "15m",
+				TokenTTL: "5m",
 			},
 		}
 		err = utils.CreateVaultRoleCR(ctx, role)
@@ -166,11 +166,11 @@ var _ = Describe("Authentication Tests", Ordered, Label("auth"), func() {
 				).To(ContainElement(expectedPolicyName),
 					"Token should have auth test policy")
 
-				// tokenTTL "15m" = 900 seconds
+				// tokenTTL "5m" = 300 seconds
 				g.Expect(
 					secret.Auth.LeaseDuration,
-				).To(Equal(900),
-					"Token lease should be 900s (15m)")
+				).To(Equal(300),
+					"Token lease should be 300s (5m)")
 			}, 30*time.Second, 2*time.Second).Should(
 				Succeed(),
 			)

@@ -182,7 +182,7 @@ path "sys/policies/acl/*" {
 							),
 							"user_claim": "sub",
 							"policies":   "default",
-							"ttl":        "1h",
+							"ttl":        "5m",
 						},
 					)
 					Expect(err).NotTo(HaveOccurred())
@@ -413,7 +413,7 @@ path "sys/policies/acl/*" {
 						},
 						"user_claim": "sub",
 						"policies":   "default",
-						"ttl":        "15m",
+						"ttl":        "5m",
 					},
 				)
 				Expect(err).NotTo(HaveOccurred())
@@ -442,10 +442,10 @@ path "sys/policies/acl/*" {
 				Expect(
 					secret.Auth.ClientToken,
 				).NotTo(BeEmpty())
-				// 15m = 900s
+				// 5m = 300s
 				Expect(
 					secret.Auth.LeaseDuration,
-				).To(BeNumerically("<=", 900))
+				).To(BeNumerically("<=", 300))
 				Expect(
 					secret.Auth.Policies,
 				).To(ContainElement("default"))
@@ -462,7 +462,7 @@ path "sys/policies/acl/*" {
 						"token with custom audience")
 					customAudience :=
 						"vault-custom-audience"
-					expSeconds := int64(3600) // 1h
+					expSeconds := int64(300) // 5m
 					customToken, err :=
 						utils.CreateServiceAccountTokenWithOpts(
 							ctx, testNamespace,
@@ -628,7 +628,7 @@ path "secret/metadata/managed/*" {
 							),
 							"user_claim": "sub",
 							"policies":   jwtConnPolicyName,
-							"ttl":        "1h",
+							"ttl":        "5m",
 						},
 					)
 					Expect(err).NotTo(HaveOccurred())

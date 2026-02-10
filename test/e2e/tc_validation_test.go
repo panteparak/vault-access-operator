@@ -382,7 +382,7 @@ var _ = Describe("Input Validation Tests", Ordered, Label("validation"), func() 
 								Namespace: testNamespace,
 							},
 						},
-						TokenTTL: "30m",
+						TokenTTL: "2m",
 					},
 				}
 

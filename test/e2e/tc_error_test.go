@@ -107,7 +107,7 @@ var _ = Describe("Error Handling Tests", Ordered, Label("module"), func() {
 							Namespace: testNamespace,
 						},
 					},
-					TokenTTL: "30m",
+					TokenTTL: "2m",
 				},
 			}
 			err := utils.CreateVaultRoleCR(ctx, role)

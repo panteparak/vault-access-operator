@@ -648,3 +648,38 @@ func TestVaultClusterPolicySpec_RequiredFields(t *testing.T) {
 		})
 	}
 }
+
+// TestRenewalStrategy_ValidValues tests RenewalStrategy enum values
+func TestRenewalStrategy_ValidValues(t *testing.T) {
+	tests := []struct {
+		name     string
+		strategy RenewalStrategy
+		valid    bool
+	}{
+		{name: "Renew strategy", strategy: RenewalStrategyRenew, valid: true},
+		{name: "Reauth strategy", strategy: RenewalStrategyReauth, valid: true},
+		{name: "invalid strategy", strategy: RenewalStrategy("invalid"), valid: false},
+		{name: "empty strategy", strategy: RenewalStrategy(""), valid: false},
+	}
+
+	validStrategies := map[RenewalStrategy]bool{
+		RenewalStrategyRenew:  true,
+		RenewalStrategyReauth: true,
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			isValid := validStrategies[tt.strategy]
+			if isValid != tt.valid {
+				t.Errorf("strategy validation mismatch for %q: got %v, want %v", tt.strategy, isValid, tt.valid)
+			}
+		})
+	}
+}
+
+// TestDefaultRenewalStrategy tests the default value
+func TestDefaultRenewalStrategy(t *testing.T) {
+	if DefaultRenewalStrategy != RenewalStrategyRenew {
+		t.Errorf("DefaultRenewalStrategy = %q, want %q", DefaultRenewalStrategy, RenewalStrategyRenew)
+	}
+}

@@ -68,6 +68,25 @@ const (
 // DefaultDriftMode is the default drift mode when not specified
 const DefaultDriftMode = DriftModeDetect
 
+// RenewalStrategy defines how Vault tokens are refreshed when approaching expiration
+// +kubebuilder:validation:Enum=renew;reauth
+type RenewalStrategy string
+
+const (
+	// RenewalStrategyRenew proactively renews Vault tokens before expiration.
+	// Falls back to re-authentication if renewal fails. This is the default
+	// and recommended strategy for most use cases.
+	RenewalStrategyRenew RenewalStrategy = "renew"
+
+	// RenewalStrategyReauth always re-authenticates with fresh credentials
+	// instead of renewing existing tokens. More secure but higher Vault API load.
+	// Use this for security-critical workloads that require fresh tokens.
+	RenewalStrategyReauth RenewalStrategy = "reauth"
+)
+
+// DefaultRenewalStrategy is the default renewal strategy when not specified
+const DefaultRenewalStrategy = RenewalStrategyRenew
+
 // Capability represents a Vault policy capability
 // +kubebuilder:validation:Enum=create;read;update;delete;list;sudo;deny
 type Capability string

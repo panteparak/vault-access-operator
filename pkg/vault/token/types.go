@@ -18,6 +18,19 @@ package token
 
 import "time"
 
+// RenewalStrategy defines how Vault tokens are refreshed.
+type RenewalStrategy string
+
+const (
+	// RenewalStrategyRenew proactively renews Vault tokens before expiration.
+	// Falls back to re-authentication if renewal fails.
+	RenewalStrategyRenew RenewalStrategy = "renew"
+
+	// RenewalStrategyReauth always re-authenticates with fresh credentials
+	// instead of renewing existing tokens.
+	RenewalStrategyReauth RenewalStrategy = "reauth"
+)
+
 // Default values for token lifecycle management.
 // These are internal defaults not exposed in the CRD.
 const (
@@ -42,6 +55,9 @@ const (
 
 	// DefaultAudience is the standard audience for Vault authentication.
 	DefaultAudience = "vault"
+
+	// DefaultRenewalStrategy is the default renewal strategy.
+	DefaultRenewalStrategy = RenewalStrategyRenew
 )
 
 // TokenInfo contains the acquired token and its metadata.
@@ -174,6 +190,9 @@ type LifecycleConfig struct {
 	// RetryInterval is the delay between retry attempts.
 	RetryInterval time.Duration
 
+	// RenewalStrategy controls how tokens are refreshed (renew vs reauth).
+	RenewalStrategy RenewalStrategy
+
 	// TLSConfig contains TLS settings for Vault connection.
 	TLSConfig *TLSConfig
 }
@@ -227,6 +246,9 @@ func (c *LifecycleConfig) WithDefaults() *LifecycleConfig {
 	}
 	if cfg.VaultAuthPath == "" {
 		cfg.VaultAuthPath = "kubernetes"
+	}
+	if cfg.RenewalStrategy == "" {
+		cfg.RenewalStrategy = DefaultRenewalStrategy
 	}
 	return &cfg
 }

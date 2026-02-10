@@ -149,7 +149,7 @@ var _ = Describe("Rejection Tests", Ordered, Label("rejection"), func() {
 							Namespace: testNamespace,
 						},
 					},
-					TokenTTL: "30m",
+					TokenTTL: "2m",
 				},
 			}
 
@@ -186,7 +186,7 @@ var _ = Describe("Rejection Tests", Ordered, Label("rejection"), func() {
 					ServiceAccounts: []string{sharedSAName},
 					// Policies intentionally empty
 					Policies: []vaultv1alpha1.PolicyReference{},
-					TokenTTL: "30m",
+					TokenTTL: "2m",
 				},
 			}
 

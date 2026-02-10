@@ -78,7 +78,7 @@ path "sys/health" {
 						"%s,default",
 						approlePolicyName,
 					),
-					"token_ttl": "1h",
+					"token_ttl": "5m",
 				},
 			)
 			Expect(err).NotTo(HaveOccurred())

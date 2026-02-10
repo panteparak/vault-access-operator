@@ -162,7 +162,7 @@ path "sys/health" {
 							"%s,default",
 							oidcPolicyName,
 						),
-						"ttl": "1h",
+						"ttl": "5m",
 					},
 				)
 				Expect(err).NotTo(HaveOccurred())

@@ -306,7 +306,7 @@ var _ = Describe("Drift Detection Tests", Ordered, Label("drift"), func() {
 					ConnectionRef:   sharedVaultConnectionName,
 					DriftMode:       vaultv1alpha1.DriftModeDetect,
 					ServiceAccounts: []string{"default"},
-					TokenTTL:        "1h",
+					TokenTTL:        "5m",
 					Policies: []vaultv1alpha1.PolicyReference{
 						{
 							Kind: "VaultClusterPolicy",

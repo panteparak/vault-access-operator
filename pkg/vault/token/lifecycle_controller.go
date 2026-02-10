@@ -238,23 +238,33 @@ func (c *lifecycleControllerImpl) renewConnection(ctx context.Context, connectio
 	config := state.config
 	c.mu.RUnlock()
 
-	c.log.Info("renewing token", "connection", connectionName)
+	c.log.Info("renewing token",
+		"connection", connectionName,
+		"strategy", config.RenewalStrategy,
+	)
 
 	var result *AuthResult
 	var err error
 	var method string
 
-	// Try renewal first
-	result, err = c.authenticator.RenewSelf(ctx)
-	if err == nil {
-		method = "renew"
-	} else {
-		// Renewal failed, try re-authentication
-		c.log.Info("renewal failed, attempting re-authentication",
-			"connection", connectionName,
-			"error", err,
-		)
+	// Check renewal strategy
+	shouldTryRenew := config.RenewalStrategy != RenewalStrategyReauth
 
+	// Try renewal first (if strategy allows)
+	if shouldTryRenew {
+		result, err = c.authenticator.RenewSelf(ctx)
+		if err == nil {
+			method = "renew"
+		} else {
+			c.log.Info("renewal failed, attempting re-authentication",
+				"connection", connectionName,
+				"error", err,
+			)
+		}
+	}
+
+	// Re-authenticate if renewal wasn't attempted or failed
+	if result == nil {
 		// Get new service account token
 		tokenInfo, tokenErr := c.provider.GetToken(ctx, GetTokenOptions{
 			ServiceAccount: config.ServiceAccount,
@@ -275,7 +285,11 @@ func (c *lifecycleControllerImpl) renewConnection(ctx context.Context, connectio
 		if err != nil {
 			return c.handleRenewalFailure(connectionName, err)
 		}
-		method = "re-authenticate"
+		if shouldTryRenew {
+			method = "re-authenticate" // Fallback from failed renewal
+		} else {
+			method = "re-authenticate (reauth strategy)"
+		}
 	}
 
 	// Update state and notify

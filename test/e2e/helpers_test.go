@@ -103,7 +103,7 @@ func BuildTestRole(name, serviceAccount, policyName string) *vaultv1alpha1.Vault
 					Namespace: testNamespace,
 				},
 			},
-			TokenTTL: "30m",
+			TokenTTL: "2m",
 		},
 	}
 }
@@ -132,7 +132,7 @@ func BuildRoleWithMultipleSAs(name string, serviceAccounts []string, policyName 
 					Namespace: testNamespace,
 				},
 			},
-			TokenTTL: "30m",
+			TokenTTL: "2m",
 		},
 	}
 }
@@ -151,7 +151,7 @@ func BuildRoleWithMultiplePolicies(
 			ConnectionRef:   sharedVaultConnectionName,
 			ServiceAccounts: []string{serviceAccount},
 			Policies:        policies,
-			TokenTTL:        "30m",
+			TokenTTL:        "2m",
 		},
 	}
 }

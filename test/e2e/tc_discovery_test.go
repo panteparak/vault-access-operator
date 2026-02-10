@@ -45,7 +45,7 @@ var _ = Describe("Discovery Tests", Ordered, Label("discovery"), func() {
 		Expect(err).NotTo(HaveOccurred())
 
 		// Create a new operator token for the discovery connection
-		operatorToken, err := vaultClient.CreateToken(ctx, []string{operatorPolicyName}, "24h")
+		operatorToken, err := vaultClient.CreateToken(ctx, []string{operatorPolicyName}, "1h")
 		Expect(err).NotTo(HaveOccurred())
 
 		err = utils.CreateSecret(ctx, testNamespace, discoveryTokenSecret,
@@ -152,7 +152,7 @@ var _ = Describe("Discovery Tests", Ordered, Label("discovery"), func() {
 				"bound_service_account_names":      []string{"unmanaged-sa"},
 				"bound_service_account_namespaces": []string{testNamespace},
 				"policies":                         []string{"default"},
-				"ttl":                              "1h",
+				"ttl":                              "5m",
 			}
 			err = vaultClient.WriteAuthRole(ctx, "kubernetes", unmanagedRoleName, roleData)
 			Expect(err).NotTo(HaveOccurred())

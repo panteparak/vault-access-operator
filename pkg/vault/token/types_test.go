@@ -37,6 +37,7 @@ func TestLifecycleConfig_WithDefaults(t *testing.T) {
 				RetryInterval:    DefaultRetryInterval,
 				Audiences:        []string{DefaultAudience},
 				VaultAuthPath:    "kubernetes",
+				RenewalStrategy:  DefaultRenewalStrategy,
 			},
 		},
 		{
@@ -50,6 +51,7 @@ func TestLifecycleConfig_WithDefaults(t *testing.T) {
 				MaxRetries:       5,
 				RetryInterval:    20 * time.Second,
 				Audiences:        []string{"custom-audience"},
+				RenewalStrategy:  RenewalStrategyReauth,
 				ServiceAccount: ServiceAccountRef{
 					Namespace: "my-ns",
 					Name:      "my-sa",
@@ -64,6 +66,7 @@ func TestLifecycleConfig_WithDefaults(t *testing.T) {
 				MaxRetries:       5,
 				RetryInterval:    20 * time.Second,
 				Audiences:        []string{"custom-audience"},
+				RenewalStrategy:  RenewalStrategyReauth,
 				ServiceAccount: ServiceAccountRef{
 					Namespace: "my-ns",
 					Name:      "my-sa",
@@ -86,6 +89,7 @@ func TestLifecycleConfig_WithDefaults(t *testing.T) {
 				MaxRetries:       DefaultMaxRetries,
 				RetryInterval:    DefaultRetryInterval,
 				Audiences:        []string{DefaultAudience},
+				RenewalStrategy:  DefaultRenewalStrategy,
 			},
 		},
 		{
@@ -103,6 +107,7 @@ func TestLifecycleConfig_WithDefaults(t *testing.T) {
 				RetryInterval:    DefaultRetryInterval,
 				Audiences:        []string{DefaultAudience},
 				VaultAuthPath:    "kubernetes",
+				RenewalStrategy:  DefaultRenewalStrategy,
 				TLSConfig: &TLSConfig{
 					CACert:     "-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----",
 					SkipVerify: false,
@@ -141,6 +146,9 @@ func TestLifecycleConfig_WithDefaults(t *testing.T) {
 			}
 			if result.RetryInterval != tt.expected.RetryInterval {
 				t.Errorf("RetryInterval = %v, want %v", result.RetryInterval, tt.expected.RetryInterval)
+			}
+			if result.RenewalStrategy != tt.expected.RenewalStrategy {
+				t.Errorf("RenewalStrategy = %q, want %q", result.RenewalStrategy, tt.expected.RenewalStrategy)
 			}
 			if result.ServiceAccount.Namespace != tt.expected.ServiceAccount.Namespace {
 				t.Errorf("ServiceAccount.Namespace = %q, want %q",
@@ -291,6 +299,9 @@ func TestDefaultConstants(t *testing.T) {
 	}
 	if DefaultAudience != "vault" {
 		t.Errorf("DefaultAudience = %q, want 'vault'", DefaultAudience)
+	}
+	if DefaultRenewalStrategy != RenewalStrategyRenew {
+		t.Errorf("DefaultRenewalStrategy = %q, want %q", DefaultRenewalStrategy, RenewalStrategyRenew)
 	}
 }
 

@@ -208,7 +208,7 @@ func (p *KubernetesAuthProvider) CreateRole(
 			"bound_service_account_names":      serviceAccount,
 			"bound_service_account_namespaces": namespace,
 			"policies":                         strings.Join(policies, ","),
-			"ttl":                              "1h",
+			"ttl":                              "5m",
 		},
 	)
 }
@@ -318,7 +318,7 @@ func (p *JWTAuthProvider) CreateRole(
 			),
 			"user_claim": "sub",
 			"policies":   strings.Join(policies, ","),
-			"ttl":        "1h",
+			"ttl":        "5m",
 		},
 	)
 }
@@ -438,7 +438,7 @@ func (p *AppRoleAuthProvider) CreateRole(
 		ctx, "approle", roleName,
 		map[string]interface{}{
 			"policies":  strings.Join(policies, ","),
-			"token_ttl": "1h",
+			"token_ttl": "5m",
 		},
 	)
 	if err != nil {
@@ -577,7 +577,7 @@ func (p *OIDCAuthProvider) CreateRole(
 				"email": dexTestEmail,
 			},
 			"policies": strings.Join(policies, ","),
-			"ttl":      "1h",
+			"ttl":      "5m",
 		},
 	)
 }

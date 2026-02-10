@@ -106,7 +106,7 @@ var _ = Describe("VaultRole Tests", Ordered, Label("module"), func() {
 							Namespace: testNamespace,
 						},
 					},
-					TokenTTL: "30m",
+					TokenTTL: "2m",
 				},
 			}
 			err := utils.CreateVaultRoleCR(ctx, role)
@@ -197,9 +197,9 @@ var _ = Describe("VaultRole Tests", Ordered, Label("module"), func() {
 			)
 
 			By("verifying token TTL configuration")
-			// tokenTTL is "30m" = 1800 seconds
-			Expect(roleConfig.TokenTTL).To(Equal(1800),
-				"Role should have token_ttl of 30m (1800 seconds)")
+			// tokenTTL is "2m" = 120 seconds
+			Expect(roleConfig.TokenTTL).To(Equal(120),
+				"Role should have token_ttl of 2m (120 seconds)")
 		})
 
 		It("TC-VR03-DEL: Remove role from Vault when VaultRole is deleted", func() {
@@ -264,7 +264,7 @@ var _ = Describe("VaultRole Tests", Ordered, Label("module"), func() {
 							Namespace: testNamespace,
 						},
 					},
-					TokenTTL: "10m",
+					TokenTTL: "5m",
 				},
 			}
 			err = utils.CreateVaultRoleCR(ctx, role)

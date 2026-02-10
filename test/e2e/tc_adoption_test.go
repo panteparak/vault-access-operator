@@ -104,7 +104,7 @@ var _ = Describe("Adoption Tests", Ordered, Label("adoption"), func() {
 				"bound_service_account_names":      []string{"existing-sa"},
 				"bound_service_account_namespaces": []string{testNamespace},
 				"policies":                         []string{"default"},
-				"ttl":                              "1h",
+				"ttl":                              "5m",
 			}
 			err = vaultClient.WriteAuthRole(ctx, authPath, expectedVaultRoleName, roleData)
 			Expect(err).NotTo(HaveOccurred(), "Failed to create unmanaged role in Vault")

@@ -476,23 +476,35 @@ func (h *Handler) getOrRenewClient(
 						return cachedClient, false, nil
 					}
 
-					// Token approaching expiration, try renewal
-					log.Info("token approaching expiration, attempting renewal",
-						"connectionName", conn.Name,
-						"remaining", remaining.Round(time.Second),
-						"ttl", ttl,
-					)
-					if err := cachedClient.RenewSelf(ctx); err == nil {
-						log.Info("token renewed successfully",
+					// Token approaching expiration, check renewal strategy
+					shouldTryRenew := true
+					if conn.Spec.Auth.Kubernetes != nil &&
+						conn.Spec.Auth.Kubernetes.RenewalStrategy == vaultv1alpha1.RenewalStrategyReauth {
+						shouldTryRenew = false
+						log.Info("reauth strategy configured, skipping renewal attempt",
 							"connectionName", conn.Name,
-							"newExpiration", cachedClient.TokenExpiration(),
 						)
-						return cachedClient, true, nil
-					} else {
-						log.Info("token renewal failed, re-authenticating",
+					}
+
+					if shouldTryRenew {
+						// Try renewal first (default strategy)
+						log.Info("token approaching expiration, attempting renewal",
 							"connectionName", conn.Name,
-							"error", err,
+							"remaining", remaining.Round(time.Second),
+							"ttl", ttl,
 						)
+						if err := cachedClient.RenewSelf(ctx); err == nil {
+							log.Info("token renewed successfully",
+								"connectionName", conn.Name,
+								"newExpiration", cachedClient.TokenExpiration(),
+							)
+							return cachedClient, true, nil
+						} else {
+							log.Info("token renewal failed, re-authenticating",
+								"connectionName", conn.Name,
+								"error", err,
+							)
+						}
 					}
 				}
 				// Token expired or renewal failed, fall through to re-auth

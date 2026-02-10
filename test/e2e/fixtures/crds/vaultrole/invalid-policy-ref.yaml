@@ -19,4 +19,4 @@ spec:
     - kind: VaultPolicy
       name: non-existent-policy
       namespace: {{.Namespace}}
-  tokenTTL: "30m"
+  tokenTTL: "2m"
