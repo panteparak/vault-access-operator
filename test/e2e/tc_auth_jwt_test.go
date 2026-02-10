@@ -462,7 +462,7 @@ path "sys/policies/acl/*" {
 						"token with custom audience")
 					customAudience :=
 						"vault-custom-audience"
-					expSeconds := int64(300) // 5m
+					expSeconds := int64(600) // 10m - Kubernetes TokenRequest minimum
 					customToken, err :=
 						utils.CreateServiceAccountTokenWithOpts(
 							ctx, testNamespace,
