@@ -241,7 +241,9 @@ func (h *Handler) SyncPolicy(ctx context.Context, adapter domain.PolicyAdapter) 
 
 		// Content differs - this is drift detected during phase transition or retry
 		// Apply the same safety checks as for regular drift detection
-		if !driftDetected && driftmode.ShouldDetect(effectiveDriftMode) {
+		// BUT skip drift detection during first sync (adoption) - we intentionally overwrite
+		isFirstSync := adapter.GetLastAppliedHash() == ""
+		if !driftDetected && driftmode.ShouldDetect(effectiveDriftMode) && !isFirstSync {
 			driftDetected = true
 			driftSummary = "policy content differs (detected during reconcile)"
 			log.Info("drift detected in Vault policy during phase transition",
@@ -467,6 +469,10 @@ func (h *Handler) checkConflict(
 
 	// Different owner - cannot adopt
 	if managedBy != "" {
+		log.Info("WARN: policy already managed by another resource, adoption blocked",
+			"policyName", vaultPolicyName,
+			"managedBy", managedBy,
+			"currentResource", k8sResource)
 		return infraerrors.NewConflictError("policy", vaultPolicyName, fmt.Sprintf("already managed by %s", managedBy))
 	}
 

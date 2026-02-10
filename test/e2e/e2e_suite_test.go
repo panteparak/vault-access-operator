@@ -160,8 +160,8 @@ const envTrue = "true"
 var (
 	// projectImage is the name of the image which will be build and loaded
 	// with the code source changes to be tested.
-	// Can be overridden via E2E_IMAGE environment variable.
-	projectImage = "example.com/vault-access-operator:v0.0.1"
+	// Can be overridden via E2E_OPERATOR_IMAGE environment variable.
+	projectImage = "vault-access-operator:local"
 
 	// skipBuild skips building the image (useful when image is pre-built in CI).
 	// Set E2E_SKIP_BUILD=true to skip.
@@ -188,8 +188,8 @@ var (
 )
 
 func init() {
-	// Allow overriding image via environment variable
-	if img := os.Getenv("E2E_IMAGE"); img != "" {
+	// Allow overriding image via environment variable (same as Makefile)
+	if img := os.Getenv("E2E_OPERATOR_IMAGE"); img != "" {
 		projectImage = img
 	}
 }

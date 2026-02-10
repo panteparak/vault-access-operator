@@ -365,6 +365,7 @@ e2e-local-status: ## Show status of local E2E stack
 e2e-local-test: ## Run all E2E tests against local stack
 	KUBECONFIG=$(E2E_KUBECONFIG) VAULT_ADDR=http://localhost:8200 \
 		E2E_K8S_HOST=https://k3s:6443 \
+		E2E_OPERATOR_IMAGE=$(E2E_OPERATOR_IMAGE) \
 		E2E_SKIP_BUILD=true E2E_SKIP_IMAGE_LOAD=true \
 		go test ./test/e2e/ -v -ginkgo.v -ginkgo.fail-fast -timeout 10m
 
@@ -372,6 +373,7 @@ e2e-local-test: ## Run all E2E tests against local stack
 e2e-local-test-auth: ## Run auth E2E tests only
 	KUBECONFIG=$(E2E_KUBECONFIG) VAULT_ADDR=http://localhost:8200 \
 		E2E_K8S_HOST=https://k3s:6443 \
+		E2E_OPERATOR_IMAGE=$(E2E_OPERATOR_IMAGE) \
 		E2E_SKIP_BUILD=true E2E_SKIP_IMAGE_LOAD=true \
 		go test ./test/e2e/ -v -ginkgo.v -ginkgo.fail-fast -ginkgo.label-filter="auth" -timeout 10m
 
@@ -379,6 +381,7 @@ e2e-local-test-auth: ## Run auth E2E tests only
 e2e-local-test-modules: ## Run module E2E tests only
 	KUBECONFIG=$(E2E_KUBECONFIG) VAULT_ADDR=http://localhost:8200 \
 		E2E_K8S_HOST=https://k3s:6443 \
+		E2E_OPERATOR_IMAGE=$(E2E_OPERATOR_IMAGE) \
 		E2E_SKIP_BUILD=true E2E_SKIP_IMAGE_LOAD=true \
 		go test ./test/e2e/ -v -ginkgo.v -ginkgo.fail-fast -ginkgo.label-filter="module || setup" -timeout 15m
 

@@ -1028,7 +1028,7 @@ jobs:
           KUBECONFIG: ${{ github.workspace }}/tmp/e2e/kubeconfig.yaml
           VAULT_ADDR: http://localhost:8200
           E2E_K8S_HOST: https://k3s:6443
-          E2E_IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.image-tag.outputs.tag }}
+          E2E_OPERATOR_IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.image-tag.outputs.tag }}
           E2E_SKIP_BUILD: "true"
           E2E_SKIP_IMAGE_LOAD: "true"
         run: |
