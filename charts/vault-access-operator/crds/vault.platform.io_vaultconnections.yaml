@@ -306,6 +306,21 @@ spec:
                           in-cluster API server address. Example: "https://k8s-api.example.com:6443"
                           When empty, the operator auto-discovers the host from in-cluster config.
                         type: string
+                      renewalStrategy:
+                        allOf:
+                        - enum:
+                          - renew
+                          - reauth
+                        - enum:
+                          - renew
+                          - reauth
+                        default: renew
+                        description: |-
+                          RenewalStrategy controls how Vault tokens are refreshed when approaching expiration.
+                          "renew" (default): Proactively renew tokens via Vault API, fallback to re-auth on failure.
+                          "reauth": Always re-authenticate with fresh K8s credentials instead of renewing.
+                          Use "reauth" for security-critical workloads that require fresh tokens.
+                        type: string
                       role:
                         description: |-
                           Role is the Vault role to authenticate as.
