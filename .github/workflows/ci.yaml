@@ -1004,6 +1004,14 @@ jobs:
           make e2e-deploy-operator \
             E2E_OPERATOR_IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.image-tag.outputs.tag }}
 
+      - name: Debug Docker state
+        run: |
+          echo "=== Docker Containers ==="
+          docker ps -a
+          echo ""
+          echo "=== Docker Images ==="
+          docker image ls
+
       - name: Verify deployment state
         env:
           KUBECONFIG: ${{ github.workspace }}/tmp/e2e/kubeconfig.yaml
