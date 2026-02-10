@@ -589,38 +589,37 @@ func PatchObject(ctx context.Context, obj client.Object, patch client.Patch) err
 // =============================================================================
 
 // CreateVaultConnectionCR creates a VaultConnection CRD in Kubernetes.
-// CreateVaultConnectionCR creates a VaultConnection CRD in Kubernetes.
-// Validates the fixture before creating to catch invalid test data early.
+// Note: Callers testing valid resources should call ValidateTestVaultConnection()
+// before creating. Rejection tests intentionally create invalid resources.
 func CreateVaultConnectionCR(ctx context.Context, obj *vaultv1alpha1.VaultConnection) error {
-	ValidateTestVaultConnection(obj)
 	return CreateObject(ctx, obj)
 }
 
 // CreateVaultPolicyCR creates a VaultPolicy CRD in Kubernetes.
-// Validates the fixture before creating to catch invalid test data early.
+// Note: Callers testing valid resources should call ValidateTestVaultPolicy()
+// before creating. Rejection tests intentionally create invalid resources.
 func CreateVaultPolicyCR(ctx context.Context, obj *vaultv1alpha1.VaultPolicy) error {
-	ValidateTestVaultPolicy(obj)
 	return CreateObject(ctx, obj)
 }
 
 // CreateVaultRoleCR creates a VaultRole CRD in Kubernetes.
-// Validates the fixture before creating to catch invalid test data early.
+// Note: Callers testing valid resources should call ValidateTestVaultRole()
+// before creating. Rejection tests intentionally create invalid resources.
 func CreateVaultRoleCR(ctx context.Context, obj *vaultv1alpha1.VaultRole) error {
-	ValidateTestVaultRole(obj)
 	return CreateObject(ctx, obj)
 }
 
 // CreateVaultClusterPolicyCR creates a VaultClusterPolicy CRD in Kubernetes.
-// Validates the fixture before creating to catch invalid test data early.
+// Note: Callers testing valid resources should call ValidateTestVaultClusterPolicy()
+// before creating. Rejection tests intentionally create invalid resources.
 func CreateVaultClusterPolicyCR(ctx context.Context, obj *vaultv1alpha1.VaultClusterPolicy) error {
-	ValidateTestVaultClusterPolicy(obj)
 	return CreateObject(ctx, obj)
 }
 
 // CreateVaultClusterRoleCR creates a VaultClusterRole CRD in Kubernetes.
-// Validates the fixture before creating to catch invalid test data early.
+// Note: Callers testing valid resources should call ValidateTestVaultClusterRole()
+// before creating. Rejection tests intentionally create invalid resources.
 func CreateVaultClusterRoleCR(ctx context.Context, obj *vaultv1alpha1.VaultClusterRole) error {
-	ValidateTestVaultClusterRole(obj)
 	return CreateObject(ctx, obj)
 }
 
