@@ -1004,7 +1004,7 @@ jobs:
           make e2e-deploy-operator \
             E2E_OPERATOR_IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.image-tag.outputs.tag }}
 
-      - name: Debug Docker state
+      - name: Debug - Docker state (pre-test)
         run: |
           echo "=== Docker Containers ==="
           docker ps -a
@@ -1122,6 +1122,16 @@ jobs:
           echo "=== E2E Test Output ==="
           cat e2e-output.txt 2>/dev/null | tee /tmp/debug-logs/e2e-output.txt || true
           cp e2e-report.json /tmp/debug-logs/ 2>/dev/null || true
+
+      - name: Debug - Docker state
+        if: failure()
+        run: |
+          mkdir -p /tmp/debug-logs/docker
+          echo "=== Docker Containers ==="
+          docker ps -a 2>&1 | tee /tmp/debug-logs/docker/containers.txt
+          echo ""
+          echo "=== Docker Images ==="
+          docker image ls 2>&1 | tee /tmp/debug-logs/docker/images.txt
 
       - name: Debug - Vault logs
         if: failure()
