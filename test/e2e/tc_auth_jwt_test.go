@@ -657,12 +657,6 @@ path "secret/metadata/managed/*" {
 				It("TC-AU06-01: should create "+
 					"VaultConnection using JWT "+
 					"auth spec", func() {
-					By("getting Vault address from environment")
-					vaultAddr := os.Getenv("VAULT_ADDR")
-					if vaultAddr == "" {
-						vaultAddr = "http://vault.vault.svc:8200"
-					}
-
 					By("creating VaultConnection with JWT auth")
 					conn := &vaultv1alpha1.VaultConnection{
 						ObjectMeta: metav1.ObjectMeta{
@@ -670,7 +664,7 @@ path "secret/metadata/managed/*" {
 							Namespace: testNamespace,
 						},
 						Spec: vaultv1alpha1.VaultConnectionSpec{
-							Address: vaultAddr,
+							Address: vaultK8sAddr,
 							Auth: vaultv1alpha1.AuthConfig{
 								JWT: &vaultv1alpha1.JWTAuth{
 									Role:     jwtConnRoleName,

@@ -72,6 +72,18 @@ const (
 	dexTestPassword       = "password" //nolint:gosec // Test-only static password for Dex
 )
 
+// vaultK8sAddr is the in-cluster Vault address for VaultConnection resources.
+// The operator runs inside k3s and uses this address to connect to Vault.
+// Read from VAULT_K8S_ADDR env var, defaults to bridged service address.
+var vaultK8sAddr string
+
+func init() {
+	vaultK8sAddr = os.Getenv("VAULT_K8S_ADDR")
+	if vaultK8sAddr == "" {
+		vaultK8sAddr = fmt.Sprintf("http://vault.%s.svc.cluster.local:8200", vaultNamespace)
+	}
+}
+
 // operatorPolicyHCL defines the minimum permissions required for the operator.
 // This follows the Principle of Least Privilege - only granting what's needed.
 const operatorPolicyHCL = `
@@ -391,9 +403,7 @@ func setupSharedTestInfrastructure() {
 			Name: sharedVaultConnectionName,
 		},
 		Spec: vaultv1alpha1.VaultConnectionSpec{
-			Address: fmt.Sprintf(
-				"http://vault.%s.svc.cluster.local:8200", vaultNamespace,
-			),
+			Address: vaultK8sAddr,
 			Auth: vaultv1alpha1.AuthConfig{
 				Token: &vaultv1alpha1.TokenAuth{
 					SecretRef: vaultv1alpha1.SecretKeySelector{

@@ -148,10 +148,7 @@ var _ = Describe("Token Lifecycle", Ordered,
 							Name: bootstrapConnectionName,
 						},
 						Spec: vaultv1alpha1.VaultConnectionSpec{
-							Address: fmt.Sprintf(
-								"http://vault.%s.svc.cluster.local:8200",
-								vaultNamespace,
-							),
+							Address: vaultK8sAddr,
 							Auth: vaultv1alpha1.AuthConfig{
 								Bootstrap: &vaultv1alpha1.BootstrapAuth{
 									SecretRef: vaultv1alpha1.SecretKeySelector{
@@ -450,10 +447,7 @@ var _ = Describe("Token Lifecycle", Ordered,
 										Name: k8sAuthConnectionName,
 									},
 									Spec: vaultv1alpha1.VaultConnectionSpec{
-										Address: fmt.Sprintf(
-											"http://vault.%s.svc.cluster.local:8200",
-											vaultNamespace,
-										),
+										Address: vaultK8sAddr,
 										Auth: vaultv1alpha1.AuthConfig{
 											Kubernetes: &vaultv1alpha1.KubernetesAuth{
 												Role:     operatorRole,
@@ -675,10 +669,7 @@ var _ = Describe("Token Lifecycle", Ordered,
 										Name: renewalConnectionName,
 									},
 									Spec: vaultv1alpha1.VaultConnectionSpec{
-										Address: fmt.Sprintf(
-											"http://vault.%s.svc.cluster.local:8200",
-											vaultNamespace,
-										),
+										Address: vaultK8sAddr,
 										Auth: vaultv1alpha1.AuthConfig{
 											Kubernetes: &vaultv1alpha1.KubernetesAuth{
 												Role:     renewalRoleName,

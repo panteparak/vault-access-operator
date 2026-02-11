@@ -602,9 +602,7 @@ var _ = Describe("Edge Case Tests", Ordered, Label("edge"), func() {
 					Name: connName,
 				},
 				Spec: vaultv1alpha1.VaultConnectionSpec{
-					Address: fmt.Sprintf(
-						"http://vault.%s.svc.cluster.local:8200", vaultNamespace,
-					),
+					Address: vaultK8sAddr,
 					Auth: vaultv1alpha1.AuthConfig{
 						Token: &vaultv1alpha1.TokenAuth{
 							SecretRef: vaultv1alpha1.SecretKeySelector{

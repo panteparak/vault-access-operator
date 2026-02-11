@@ -18,7 +18,6 @@ package e2e
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -78,7 +77,7 @@ var _ = Describe("Discovery Tests", Ordered, Label("discovery"), func() {
 					Name: discoveryConnectionName,
 				},
 				Spec: vaultv1alpha1.VaultConnectionSpec{
-					Address: fmt.Sprintf("http://vault.%s.svc.cluster.local:8200", vaultNamespace),
+					Address: vaultK8sAddr,
 					Auth: vaultv1alpha1.AuthConfig{
 						Token: &vaultv1alpha1.TokenAuth{
 							SecretRef: vaultv1alpha1.SecretKeySelector{
@@ -164,7 +163,7 @@ var _ = Describe("Discovery Tests", Ordered, Label("discovery"), func() {
 					Name: discoveryConnectionName,
 				},
 				Spec: vaultv1alpha1.VaultConnectionSpec{
-					Address: fmt.Sprintf("http://vault.%s.svc.cluster.local:8200", vaultNamespace),
+					Address: vaultK8sAddr,
 					Auth: vaultv1alpha1.AuthConfig{
 						Token: &vaultv1alpha1.TokenAuth{
 							SecretRef: vaultv1alpha1.SecretKeySelector{
@@ -244,7 +243,7 @@ var _ = Describe("Discovery Tests", Ordered, Label("discovery"), func() {
 					Name: discoveryConnectionName,
 				},
 				Spec: vaultv1alpha1.VaultConnectionSpec{
-					Address: fmt.Sprintf("http://vault.%s.svc.cluster.local:8200", vaultNamespace),
+					Address: vaultK8sAddr,
 					Auth: vaultv1alpha1.AuthConfig{
 						Token: &vaultv1alpha1.TokenAuth{
 							SecretRef: vaultv1alpha1.SecretKeySelector{
@@ -307,7 +306,7 @@ var _ = Describe("Discovery Tests", Ordered, Label("discovery"), func() {
 					Name: discoveryConnectionName,
 				},
 				Spec: vaultv1alpha1.VaultConnectionSpec{
-					Address: fmt.Sprintf("http://vault.%s.svc.cluster.local:8200", vaultNamespace),
+					Address: vaultK8sAddr,
 					Auth: vaultv1alpha1.AuthConfig{
 						Token: &vaultv1alpha1.TokenAuth{
 							SecretRef: vaultv1alpha1.SecretKeySelector{
