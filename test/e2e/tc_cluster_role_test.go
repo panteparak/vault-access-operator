@@ -155,7 +155,7 @@ var _ = Describe("VaultClusterRole Tests", Ordered, Label("module"), func() {
 							Namespace: testNamespace,
 						},
 					},
-					TokenTTL:    "1h",
+					TokenTTL:    "5m",
 					TokenMaxTTL: "30m",
 				},
 			}
