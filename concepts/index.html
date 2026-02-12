@@ -10,29 +10,31 @@
       
       
       
-        <link rel="canonical" href="https://panteparak.github.io/vault-access-operator/">
+        <link rel="canonical" href="https://panteparak.github.io/vault-access-operator/concepts/">
       
       
+        <link rel="prev" href="../getting-started/">
       
-        <link rel="next" href="getting-started/">
+      
+        <link rel="next" href="architecture/">
       
       
         
       
       
-      <link rel="icon" href="assets/images/favicon.png">
+      <link rel="icon" href="../assets/images/favicon.png">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.1">
     
     
       
-        <title>Vault Access Operator</title>
+        <title>Overview - Vault Access Operator</title>
       
     
     
-      <link rel="stylesheet" href="assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
       
         
-        <link rel="stylesheet" href="assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -51,7 +53,7 @@
       
     
     
-    <script>__md_scope=new URL(".",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -76,7 +78,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#vault-access-operator" class="md-skip">
+        <a href="#concepts-overview" class="md-skip">
           Skip to content
         </a>
       
@@ -92,7 +94,7 @@
 
 <header class="md-header md-header--shadow" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="." title="Vault Access Operator" class="md-header__button md-logo" aria-label="Vault Access Operator" data-md-component="logo">
+    <a href=".." title="Vault Access Operator" class="md-header__button md-logo" aria-label="Vault Access Operator" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -112,7 +114,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Home
+              Overview
             
           </span>
         </div>
@@ -228,7 +230,7 @@
 
 <nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="." title="Vault Access Operator" class="md-nav__button md-logo" aria-label="Vault Access Operator" data-md-component="logo">
+    <a href=".." title="Vault Access Operator" class="md-nav__button md-logo" aria-label="Vault Access Operator" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -255,6 +257,109 @@
       
   
   
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Concepts
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
     
   
   
@@ -274,7 +379,7 @@
   <span class="md-ellipsis">
     
   
-    Home
+    Overview
   
 
     
@@ -285,14 +390,14 @@
           <span class="md-nav__icon md-icon"></span>
         </label>
       
-      <a href="." class="md-nav__link md-nav__link--active">
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
   <span class="md-ellipsis">
     
   
-    Home
+    Overview
   
 
     
@@ -318,10 +423,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#overview" class="md-nav__link">
+  <a href="#what-is-vault-access-operator" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Overview
+        What is Vault Access Operator?
       
     </span>
   </a>
@@ -329,22 +434,22 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#key-features" class="md-nav__link">
+  <a href="#core-design-principles" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Key Features
+        Core Design Principles
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Key Features">
+    <nav class="md-nav" aria-label="Core Design Principles">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#access-management" class="md-nav__link">
+  <a href="#1-declarative-configuration" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Access Management
+        1. Declarative Configuration
       
     </span>
   </a>
@@ -352,10 +457,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#authentication" class="md-nav__link">
+  <a href="#2-kubernetes-native-experience" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Authentication
+        2. Kubernetes-Native Experience
       
     </span>
   </a>
@@ -363,21 +468,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#operations" class="md-nav__link">
+  <a href="#3-feature-driven-architecture" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Operations
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#reliability" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Reliability
+        3. Feature-Driven Architecture
       
     </span>
   </a>
@@ -386,17 +480,6 @@
         
       </ul>
     </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#quick-installation" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Quick Installation
-      
-    </span>
-  </a>
   
 </li>
       
@@ -409,36 +492,14 @@
     </span>
   </a>
   
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#prerequisites" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Prerequisites
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#documentation" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Documentation
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Documentation">
+    <nav class="md-nav" aria-label="Custom Resource Definitions">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#getting-started" class="md-nav__link">
+  <a href="#resource-hierarchy" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Getting Started
+        Resource Hierarchy
       
     </span>
   </a>
@@ -446,32 +507,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#concepts" class="md-nav__link">
+  <a href="#naming-convention" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Concepts
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#authentication-methods" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Authentication Methods
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#reference" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Reference
+        Naming Convention
       
     </span>
   </a>
@@ -484,10 +523,110 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#community" class="md-nav__link">
+  <a href="#key-concepts" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Community
+        Key Concepts
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Key Concepts">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Architecture
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#drift-detection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Drift Detection
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#discovery" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Discovery
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#resource-lifecycle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Resource Lifecycle
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Resource Lifecycle">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#creation-flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Creation Flow
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#update-flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Update Flow
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#deletion-flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deletion Flow
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#status-fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Status Fields
       
     </span>
   </a>
@@ -495,10 +634,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#license" class="md-nav__link">
+  <a href="#next-steps" class="md-nav__link">
     <span class="md-ellipsis">
       
-        License
+        Next Steps
       
     </span>
   </a>
@@ -512,107 +651,6 @@
     </li>
   
 
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="getting-started/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Getting Started
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    
-    
-    
-    
-    
-    <li class="md-nav__item md-nav__item--nested">
-      
-        
-        
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
-        
-          
-          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
-            
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Concepts
-  
-
-    
-  </span>
-  
-  
-
-            <span class="md-nav__icon md-icon"></span>
-          </label>
-        
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3">
-            <span class="md-nav__icon md-icon"></span>
-            
-  
-    Concepts
-  
-
-          </label>
-          <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="concepts/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Overview
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
               
             
               
@@ -622,7 +660,7 @@
   
   
     <li class="md-nav__item">
-      <a href="concepts/architecture/" class="md-nav__link">
+      <a href="architecture/" class="md-nav__link">
         
   
   
@@ -650,7 +688,7 @@
   
   
     <li class="md-nav__item">
-      <a href="concepts/drift-detection/" class="md-nav__link">
+      <a href="drift-detection/" class="md-nav__link">
         
   
   
@@ -678,7 +716,7 @@
   
   
     <li class="md-nav__item">
-      <a href="concepts/discovery/" class="md-nav__link">
+      <a href="discovery/" class="md-nav__link">
         
   
   
@@ -760,7 +798,7 @@
   
   
     <li class="md-nav__item">
-      <a href="auth-methods/" class="md-nav__link">
+      <a href="../auth-methods/" class="md-nav__link">
         
   
   
@@ -788,7 +826,7 @@
   
   
     <li class="md-nav__item">
-      <a href="auth-methods/kubernetes/" class="md-nav__link">
+      <a href="../auth-methods/kubernetes/" class="md-nav__link">
         
   
   
@@ -816,7 +854,7 @@
   
   
     <li class="md-nav__item">
-      <a href="auth-methods/jwt/" class="md-nav__link">
+      <a href="../auth-methods/jwt/" class="md-nav__link">
         
   
   
@@ -844,7 +882,7 @@
   
   
     <li class="md-nav__item">
-      <a href="auth-methods/oidc/" class="md-nav__link">
+      <a href="../auth-methods/oidc/" class="md-nav__link">
         
   
   
@@ -872,7 +910,7 @@
   
   
     <li class="md-nav__item">
-      <a href="auth-methods/aws-iam/" class="md-nav__link">
+      <a href="../auth-methods/aws-iam/" class="md-nav__link">
         
   
   
@@ -900,7 +938,7 @@
   
   
     <li class="md-nav__item">
-      <a href="auth-methods/gcp-iam/" class="md-nav__link">
+      <a href="../auth-methods/gcp-iam/" class="md-nav__link">
         
   
   
@@ -928,7 +966,7 @@
   
   
     <li class="md-nav__item">
-      <a href="auth-methods/approle/" class="md-nav__link">
+      <a href="../auth-methods/approle/" class="md-nav__link">
         
   
   
@@ -956,7 +994,7 @@
   
   
     <li class="md-nav__item">
-      <a href="auth-methods/token/" class="md-nav__link">
+      <a href="../auth-methods/token/" class="md-nav__link">
         
   
   
@@ -984,7 +1022,7 @@
   
   
     <li class="md-nav__item">
-      <a href="auth-methods/bootstrap/" class="md-nav__link">
+      <a href="../auth-methods/bootstrap/" class="md-nav__link">
         
   
   
@@ -1019,7 +1057,7 @@
   
   
     <li class="md-nav__item">
-      <a href="configuration/" class="md-nav__link">
+      <a href="../configuration/" class="md-nav__link">
         
   
   
@@ -1046,7 +1084,7 @@
   
   
     <li class="md-nav__item">
-      <a href="api-reference/" class="md-nav__link">
+      <a href="../api-reference/" class="md-nav__link">
         
   
   
@@ -1073,7 +1111,7 @@
   
   
     <li class="md-nav__item">
-      <a href="examples/" class="md-nav__link">
+      <a href="../examples/" class="md-nav__link">
         
   
   
@@ -1100,7 +1138,7 @@
   
   
     <li class="md-nav__item">
-      <a href="webhooks/" class="md-nav__link">
+      <a href="../webhooks/" class="md-nav__link">
         
   
   
@@ -1127,7 +1165,7 @@
   
   
     <li class="md-nav__item">
-      <a href="troubleshooting/" class="md-nav__link">
+      <a href="../troubleshooting/" class="md-nav__link">
         
   
   
@@ -1174,10 +1212,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#overview" class="md-nav__link">
+  <a href="#what-is-vault-access-operator" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Overview
+        What is Vault Access Operator?
       
     </span>
   </a>
@@ -1185,22 +1223,22 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#key-features" class="md-nav__link">
+  <a href="#core-design-principles" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Key Features
+        Core Design Principles
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Key Features">
+    <nav class="md-nav" aria-label="Core Design Principles">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#access-management" class="md-nav__link">
+  <a href="#1-declarative-configuration" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Access Management
+        1. Declarative Configuration
       
     </span>
   </a>
@@ -1208,10 +1246,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#authentication" class="md-nav__link">
+  <a href="#2-kubernetes-native-experience" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Authentication
+        2. Kubernetes-Native Experience
       
     </span>
   </a>
@@ -1219,21 +1257,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#operations" class="md-nav__link">
+  <a href="#3-feature-driven-architecture" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Operations
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#reliability" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Reliability
+        3. Feature-Driven Architecture
       
     </span>
   </a>
@@ -1242,17 +1269,6 @@
         
       </ul>
     </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#quick-installation" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Quick Installation
-      
-    </span>
-  </a>
   
 </li>
       
@@ -1265,36 +1281,14 @@
     </span>
   </a>
   
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#prerequisites" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Prerequisites
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#documentation" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Documentation
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Documentation">
+    <nav class="md-nav" aria-label="Custom Resource Definitions">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#getting-started" class="md-nav__link">
+  <a href="#resource-hierarchy" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Getting Started
+        Resource Hierarchy
       
     </span>
   </a>
@@ -1302,32 +1296,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#concepts" class="md-nav__link">
+  <a href="#naming-convention" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Concepts
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#authentication-methods" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Authentication Methods
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#reference" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Reference
+        Naming Convention
       
     </span>
   </a>
@@ -1340,10 +1312,110 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#community" class="md-nav__link">
+  <a href="#key-concepts" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Community
+        Key Concepts
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Key Concepts">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Architecture
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#drift-detection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Drift Detection
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#discovery" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Discovery
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#resource-lifecycle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Resource Lifecycle
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Resource Lifecycle">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#creation-flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Creation Flow
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#update-flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Update Flow
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#deletion-flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deletion Flow
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#status-fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Status Fields
       
     </span>
   </a>
@@ -1351,10 +1423,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#license" class="md-nav__link">
+  <a href="#next-steps" class="md-nav__link">
     <span class="md-ellipsis">
       
-        License
+        Next Steps
       
     </span>
   </a>
@@ -1378,7 +1450,7 @@
 
 
   
-    <a href="https://github.com/panteparak/vault-access-operator/edit/main/docs/index.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/panteparak/vault-access-operator/edit/main/docs/concepts/index.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -1386,139 +1458,198 @@
   
 
 
-<h1 id="vault-access-operator">Vault Access Operator<a class="headerlink" href="#vault-access-operator" title="Permanent link">&para;</a></h1>
-<p>A Kubernetes operator for managing HashiCorp Vault access policies and Kubernetes authentication roles declaratively through Custom Resource Definitions (CRDs).</p>
-<h2 id="overview">Overview<a class="headerlink" href="#overview" title="Permanent link">&para;</a></h2>
-<p>The Vault Access Operator enables platform teams to manage Vault policies and Kubernetes authentication roles using native Kubernetes resources. It provides a GitOps-friendly approach to Vault access management, allowing teams to version control their Vault configurations alongside their application deployments.</p>
-<h2 id="key-features">Key Features<a class="headerlink" href="#key-features" title="Permanent link">&para;</a></h2>
-<h3 id="access-management">Access Management<a class="headerlink" href="#access-management" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>Declarative Vault Policy Management</strong> - Define Vault policies as Kubernetes resources</li>
-<li><strong>Kubernetes Auth Role Management</strong> - Configure Vault Kubernetes authentication roles through CRDs</li>
-<li><strong>Namespace Boundary Enforcement</strong> - Automatically restrict namespaced policies to their namespace scope</li>
-<li><strong>Variable Substitution</strong> - Use <code>{{namespace}}</code> and <code>{{name}}</code> variables in policy paths</li>
-</ul>
-<h3 id="authentication">Authentication<a class="headerlink" href="#authentication" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>8 Authentication Methods</strong> - Support for <a href="auth-methods/kubernetes/">Kubernetes</a>, <a href="auth-methods/jwt/">JWT</a>, <a href="auth-methods/oidc/">OIDC</a>, <a href="auth-methods/aws-iam/">AWS IAM</a>, <a href="auth-methods/gcp-iam/">GCP IAM</a>, <a href="auth-methods/approle/">AppRole</a>, <a href="auth-methods/token/">Token</a>, and <a href="auth-methods/bootstrap/">Bootstrap</a></li>
-<li><strong>Token Renewal Strategies</strong> - Choose between renew or re-authenticate strategies</li>
-<li><strong>Automatic Token Management</strong> - Proactive token renewal before expiration</li>
-</ul>
-<h3 id="operations">Operations<a class="headerlink" href="#operations" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong><a href="concepts/drift-detection/">Drift Detection</a></strong> - Detect and optionally correct configuration drift between K8s and Vault</li>
-<li><strong><a href="concepts/discovery/">Resource Discovery</a></strong> - Find unmanaged Vault resources for adoption</li>
-<li><strong>Conflict Detection and Handling</strong> - Choose between fail-fast or adopt strategies for existing resources</li>
-<li><strong>Deletion Policies</strong> - Control whether Vault resources are retained or deleted when K8s resources are removed</li>
-</ul>
-<h3 id="reliability">Reliability<a class="headerlink" href="#reliability" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>Exponential Backoff Retry</strong> - Intelligent retry with jitter for transient failures</li>
-<li><strong>Health Monitoring</strong> - Continuous health checks with automatic recovery</li>
-<li><strong>Admission Webhooks</strong> - Validate resources before creation with detailed error messages</li>
-</ul>
-<h2 id="quick-installation">Quick Installation<a class="headerlink" href="#quick-installation" title="Permanent link">&para;</a></h2>
-<div class="tabbed-set tabbed-alternate" data-tabs="1:2"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">Helm (Recommended)</label><label for="__tabbed_1_2">kubectl</label></div>
-<div class="tabbed-content">
-<div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>helm<span class="w"> </span>repo<span class="w"> </span>add<span class="w"> </span>vault-access-operator<span class="w"> </span>https://panteparak.github.io/vault-access-operator/charts
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>helm<span class="w"> </span>install<span class="w"> </span>vault-access-operator<span class="w"> </span>vault-access-operator/vault-access-operator<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span>--namespace<span class="w"> </span>vault-access-operator-system<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">  </span>--create-namespace
+<h1 id="concepts-overview">Concepts Overview<a class="headerlink" href="#concepts-overview" title="Permanent link">&para;</a></h1>
+<p>This section explains the core concepts and design principles behind the Vault Access Operator.</p>
+<h2 id="what-is-vault-access-operator">What is Vault Access Operator?<a class="headerlink" href="#what-is-vault-access-operator" title="Permanent link">&para;</a></h2>
+<p>Vault Access Operator is a Kubernetes operator that manages HashiCorp Vault resources using native Kubernetes workflows. It follows the declarative approach of Kubernetes: you define the desired state, and the operator ensures Vault matches that state.</p>
+<h2 id="core-design-principles">Core Design Principles<a class="headerlink" href="#core-design-principles" title="Permanent link">&para;</a></h2>
+<h3 id="1-declarative-configuration">1. Declarative Configuration<a class="headerlink" href="#1-declarative-configuration" title="Permanent link">&para;</a></h3>
+<p>Instead of running imperative <code>vault</code> CLI commands, you define Vault resources as Kubernetes Custom Resources (CRs):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault.platform.io/v1alpha1</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">VaultPolicy</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="nt">metadata</span><span class="p">:</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-app-read</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">production</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="nt">spec</span><span class="p">:</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">  </span><span class="nt">vaultConnectionRef</span><span class="p">:</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-primary</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">  </span><span class="nt">rules</span><span class="p">:</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;secret/data/production/*&quot;</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="w">      </span><span class="nt">capabilities</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;read&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;list&quot;</span><span class="p p-Indicator">]</span>
 </code></pre></div>
-</div>
-<div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>kubectl<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>https://raw.githubusercontent.com/panteparak/vault-access-operator/main/dist/install.yaml
-</code></pre></div>
-</div>
-</div>
-</div>
-<p>For detailed installation instructions, see the <a href="getting-started/">Getting Started</a> guide.</p>
-<h2 id="custom-resource-definitions">Custom Resource Definitions<a class="headerlink" href="#custom-resource-definitions" title="Permanent link">&para;</a></h2>
-<p>The operator provides five CRDs for managing Vault access:</p>
+<p>The operator continuously reconciles this desired state with Vault.</p>
+<h3 id="2-kubernetes-native-experience">2. Kubernetes-Native Experience<a class="headerlink" href="#2-kubernetes-native-experience" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Familiar tooling</strong>: Use <code>kubectl</code>, Helm, Kustomize, ArgoCD</li>
+<li><strong>RBAC integration</strong>: Kubernetes RBAC controls who can create Vault resources</li>
+<li><strong>Namespace isolation</strong>: VaultPolicy and VaultRole are namespaced; VaultClusterPolicy and VaultClusterRole are cluster-scoped</li>
+<li><strong>GitOps compatible</strong>: Store Vault configuration in Git</li>
+</ul>
+<h3 id="3-feature-driven-architecture">3. Feature-Driven Architecture<a class="headerlink" href="#3-feature-driven-architecture" title="Permanent link">&para;</a></h3>
+<p>The operator is organized as independent features that can be enabled/disabled:</p>
 <table>
 <thead>
 <tr>
-<th>CRD</th>
-<th>Scope</th>
+<th>Feature</th>
+<th>Resources</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Connection</td>
+<td>VaultConnection</td>
+<td>Authenticate and connect to Vault</td>
+</tr>
+<tr>
+<td>Policy</td>
+<td>VaultPolicy, VaultClusterPolicy</td>
+<td>Manage Vault ACL policies</td>
+</tr>
+<tr>
+<td>Role</td>
+<td>VaultRole, VaultClusterRole</td>
+<td>Manage Kubernetes auth roles</td>
+</tr>
+<tr>
+<td>Discovery</td>
+<td>(built into VaultConnection)</td>
+<td>Find unmanaged Vault resources</td>
+</tr>
+</tbody>
+</table>
+<h2 id="custom-resource-definitions">Custom Resource Definitions<a class="headerlink" href="#custom-resource-definitions" title="Permanent link">&para;</a></h2>
+<h3 id="resource-hierarchy">Resource Hierarchy<a class="headerlink" href="#resource-hierarchy" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>VaultConnection (cluster-scoped)
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>├── Authenticates to Vault
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>├── Provides connection for other resources
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>└── Optional: discovers unmanaged resources
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>VaultClusterPolicy (cluster-scoped)
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>├── Defines Vault ACL policies
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>└── Shared across namespaces
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>VaultPolicy (namespaced)
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>├── Defines Vault ACL policies
+<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>└── Scoped to a namespace
+<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>
+<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>VaultClusterRole (cluster-scoped)
+<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a>├── Binds service accounts to policies
+<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a>└── References VaultClusterPolicy or VaultPolicy
+<a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a>
+<a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a>VaultRole (namespaced)
+<a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a>├── Binds service accounts to policies
+<a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a>└── Scoped to a namespace
+</code></pre></div>
+<h3 id="naming-convention">Naming Convention<a class="headerlink" href="#naming-convention" title="Permanent link">&para;</a></h3>
+<p>Resources in Vault are named with a prefix derived from their Kubernetes context:</p>
+<table>
+<thead>
+<tr>
+<th>K8s Resource</th>
+<th>Vault Name Pattern</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>VaultPolicy <code>foo</code> in namespace <code>bar</code></td>
+<td><code>bar-foo</code></td>
+</tr>
+<tr>
+<td>VaultClusterPolicy <code>foo</code></td>
+<td><code>foo</code></td>
+</tr>
+<tr>
+<td>VaultRole <code>foo</code> in namespace <code>bar</code></td>
+<td><code>bar-foo</code></td>
+</tr>
+<tr>
+<td>VaultClusterRole <code>foo</code></td>
+<td><code>foo</code></td>
+</tr>
+</tbody>
+</table>
+<h2 id="key-concepts">Key Concepts<a class="headerlink" href="#key-concepts" title="Permanent link">&para;</a></h2>
+<h3 id="architecture"><a href="architecture/">Architecture</a><a class="headerlink" href="#architecture" title="Permanent link">&para;</a></h3>
+<p>Learn about the operator's internal structure, controller patterns, and reconciliation flow.</p>
+<h3 id="drift-detection"><a href="drift-detection/">Drift Detection</a><a class="headerlink" href="#drift-detection" title="Permanent link">&para;</a></h3>
+<p>Understand how the operator detects and optionally corrects configuration drift between Kubernetes and Vault.</p>
+<h3 id="discovery"><a href="discovery/">Discovery</a><a class="headerlink" href="#discovery" title="Permanent link">&para;</a></h3>
+<p>Discover how to find existing Vault resources that aren't yet managed by Kubernetes CRs.</p>
+<h2 id="resource-lifecycle">Resource Lifecycle<a class="headerlink" href="#resource-lifecycle" title="Permanent link">&para;</a></h2>
+<h3 id="creation-flow">Creation Flow<a class="headerlink" href="#creation-flow" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>1. User creates CR (kubectl apply)
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>         ↓
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>2. Operator detects new resource
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>         ↓
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>3. Validates configuration
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>         ↓
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>4. Creates resource in Vault
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>         ↓
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>5. Updates CR status (phase: Active)
+</code></pre></div>
+<h3 id="update-flow">Update Flow<a class="headerlink" href="#update-flow" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>1. User updates CR
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>         ↓
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>2. Operator detects change (generation changed)
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>         ↓
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>3. Compares desired vs actual state
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>         ↓
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>4. Updates Vault resource
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>         ↓
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>5. Updates CR status
+</code></pre></div>
+<h3 id="deletion-flow">Deletion Flow<a class="headerlink" href="#deletion-flow" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>1. User deletes CR (kubectl delete)
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>         ↓
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>2. Operator detects deletion (has finalizer)
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>         ↓
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>3. Checks deletionPolicy
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>         ↓
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>4a. If &quot;Delete&quot;: removes from Vault
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>4b. If &quot;Retain&quot;: leaves in Vault
+<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>         ↓
+<a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a>5. Removes finalizer, CR deleted
+</code></pre></div>
+<h2 id="status-fields">Status Fields<a class="headerlink" href="#status-fields" title="Permanent link">&para;</a></h2>
+<p>All managed resources share common status patterns:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
 <th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><a href="api-reference/#vaultconnection">VaultConnection</a></td>
-<td>Cluster</td>
-<td>Establishes connection to Vault server</td>
+<td><code>phase</code></td>
+<td>Current state: Pending, Syncing, Active, Error, Conflict</td>
 </tr>
 <tr>
-<td><a href="api-reference/#vaultclusterpolicy">VaultClusterPolicy</a></td>
-<td>Cluster</td>
-<td>Manages cluster-wide Vault policies</td>
+<td><code>conditions</code></td>
+<td>Detailed conditions (Ready, Synced, etc.)</td>
 </tr>
 <tr>
-<td><a href="api-reference/#vaultpolicy">VaultPolicy</a></td>
-<td>Namespaced</td>
-<td>Manages namespace-scoped Vault policies</td>
+<td><code>lastSyncedAt</code></td>
+<td>When the resource was last synced to Vault</td>
 </tr>
 <tr>
-<td><a href="api-reference/#vaultclusterrole">VaultClusterRole</a></td>
-<td>Cluster</td>
-<td>Manages cluster-wide Kubernetes auth roles</td>
+<td><code>driftDetected</code></td>
+<td>Whether configuration drift exists</td>
 </tr>
 <tr>
-<td><a href="api-reference/#vaultrole">VaultRole</a></td>
-<td>Namespaced</td>
-<td>Manages namespace-scoped Kubernetes auth roles</td>
+<td><code>lastReconcileID</code></td>
+<td>Correlation ID for log filtering</td>
 </tr>
 </tbody>
 </table>
-<h2 id="prerequisites">Prerequisites<a class="headerlink" href="#prerequisites" title="Permanent link">&para;</a></h2>
+<h2 id="next-steps">Next Steps<a class="headerlink" href="#next-steps" title="Permanent link">&para;</a></h2>
 <ul>
-<li>Kubernetes cluster (v1.25+)</li>
-<li>HashiCorp Vault server</li>
-<li>cert-manager (for webhook certificates, optional)</li>
-<li>kubectl configured to access your cluster</li>
+<li><a href="architecture/">Architecture</a> - Deep dive into operator internals</li>
+<li><a href="drift-detection/">Drift Detection</a> - Understand drift modes</li>
+<li><a href="discovery/">Discovery</a> - Find unmanaged Vault resources</li>
+<li><a href="../auth-methods/">Authentication Methods</a> - Choose your auth method</li>
 </ul>
-<h2 id="documentation">Documentation<a class="headerlink" href="#documentation" title="Permanent link">&para;</a></h2>
-<h3 id="getting-started">Getting Started<a class="headerlink" href="#getting-started" title="Permanent link">&para;</a></h3>
-<ul>
-<li><a href="getting-started/">Getting Started</a> - Installation and quick start guide</li>
-<li><a href="examples/">Examples</a> - CRD usage examples</li>
-</ul>
-<h3 id="concepts">Concepts<a class="headerlink" href="#concepts" title="Permanent link">&para;</a></h3>
-<ul>
-<li><a href="concepts/">Concepts Overview</a> - Core design principles and architecture</li>
-<li><a href="concepts/architecture/">Architecture</a> - Internal structure and reconciliation flow</li>
-<li><a href="concepts/drift-detection/">Drift Detection</a> - Detecting and correcting configuration drift</li>
-<li><a href="concepts/discovery/">Discovery</a> - Finding unmanaged Vault resources</li>
-</ul>
-<h3 id="authentication-methods">Authentication Methods<a class="headerlink" href="#authentication-methods" title="Permanent link">&para;</a></h3>
-<ul>
-<li><a href="auth-methods/">Authentication Overview</a> - Comparison and decision guide</li>
-<li><a href="auth-methods/kubernetes/">Kubernetes Auth</a> - Standard K8s authentication</li>
-<li><a href="auth-methods/aws-iam/">AWS IAM</a> - EKS with IRSA</li>
-<li><a href="auth-methods/gcp-iam/">GCP IAM</a> - GKE with Workload Identity</li>
-<li><a href="auth-methods/oidc/">OIDC</a> - Workload identity federation</li>
-<li><a href="auth-methods/jwt/">JWT</a> - External JWT providers</li>
-<li><a href="auth-methods/approle/">AppRole</a> - CI/CD pipelines</li>
-<li><a href="auth-methods/bootstrap/">Bootstrap</a> - Initial Vault setup</li>
-<li><a href="auth-methods/token/">Token</a> - Development only</li>
-</ul>
-<h3 id="reference">Reference<a class="headerlink" href="#reference" title="Permanent link">&para;</a></h3>
-<ul>
-<li><a href="configuration/">Configuration</a> - Helm chart configuration options</li>
-<li><a href="api-reference/">API Reference</a> - Detailed CRD documentation</li>
-<li><a href="webhooks/">Webhooks</a> - Admission webhook documentation</li>
-<li><a href="troubleshooting/">Troubleshooting</a> - Common issues and solutions</li>
-</ul>
-<h2 id="community">Community<a class="headerlink" href="#community" title="Permanent link">&para;</a></h2>
-<ul>
-<li><a href="https://github.com/panteparak/vault-access-operator">GitHub Repository</a></li>
-<li><a href="https://github.com/panteparak/vault-access-operator/issues">Issue Tracker</a></li>
-</ul>
-<h2 id="license">License<a class="headerlink" href="#license" title="Permanent link">&para;</a></h2>
-<p>Copyright 2024-2026 Vault Access Operator Contributors.</p>
-<p>Licensed under the Apache License, Version 2.0.</p>
 
 
 
@@ -1594,10 +1725,10 @@
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": ".", "features": ["navigation.instant", "navigation.top", "search.highlight", "content.code.copy", "content.action.edit"], "search": "assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.instant", "navigation.top", "search.highlight", "content.code.copy", "content.action.edit"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
       
     
   </body>

@@ -10,9 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://panteparak.github.io/vault-access-operator/test-evaluation/">
+        <link rel="canonical" href="https://panteparak.github.io/vault-access-operator/auth-methods/">
       
       
+        <link rel="prev" href="../concepts/discovery/">
+      
+      
+        <link rel="next" href="kubernetes/">
       
       
         
@@ -23,7 +27,7 @@
     
     
       
-        <title>E2E vs Integration Test Evaluation - Vault Access Operator</title>
+        <title>Overview - Vault Access Operator</title>
       
     
     
@@ -74,7 +78,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#e2e-vs-integration-test-evaluation" class="md-skip">
+        <a href="#authentication-methods" class="md-skip">
           Skip to content
         </a>
       
@@ -110,7 +114,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              E2E vs Integration Test Evaluation
+              Overview
             
           </span>
         </div>
@@ -473,18 +477,20 @@
       
   
   
+    
   
   
+  
     
     
     
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
         
           
           <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
@@ -505,7 +511,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             
@@ -520,10 +526,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../auth-methods/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -539,6 +572,170 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#quick-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quick Reference
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#decision-guide" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Decision Guide
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#method-comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Method Comparison
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Method Comparison">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#security-level" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Security Level
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#prerequisites" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prerequisites
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#which-method-should-i-use" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Which Method Should I Use?
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Which Method Should I Use?">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#production-workloads" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Production Workloads
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cicd-pipelines" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CI/CD Pipelines
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#development-and-testing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Development and Testing
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#initial-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Initial Setup
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#common-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Common Configuration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#next-steps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Next Steps
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -551,7 +748,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../auth-methods/kubernetes/" class="md-nav__link">
+      <a href="kubernetes/" class="md-nav__link">
         
   
   
@@ -579,7 +776,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../auth-methods/jwt/" class="md-nav__link">
+      <a href="jwt/" class="md-nav__link">
         
   
   
@@ -607,7 +804,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../auth-methods/oidc/" class="md-nav__link">
+      <a href="oidc/" class="md-nav__link">
         
   
   
@@ -635,7 +832,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../auth-methods/aws-iam/" class="md-nav__link">
+      <a href="aws-iam/" class="md-nav__link">
         
   
   
@@ -663,7 +860,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../auth-methods/gcp-iam/" class="md-nav__link">
+      <a href="gcp-iam/" class="md-nav__link">
         
   
   
@@ -691,7 +888,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../auth-methods/approle/" class="md-nav__link">
+      <a href="approle/" class="md-nav__link">
         
   
   
@@ -719,7 +916,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../auth-methods/token/" class="md-nav__link">
+      <a href="token/" class="md-nav__link">
         
   
   
@@ -747,7 +944,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../auth-methods/bootstrap/" class="md-nav__link">
+      <a href="bootstrap/" class="md-nav__link">
         
   
   
@@ -937,10 +1134,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#evaluation-criteria" class="md-nav__link">
+  <a href="#quick-reference" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Evaluation Criteria
+        Quick Reference
       
     </span>
   </a>
@@ -948,22 +1145,33 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#test-case-evaluation" class="md-nav__link">
+  <a href="#decision-guide" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Test Case Evaluation
+        Decision Guide
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Test Case Evaluation">
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#method-comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Method Comparison
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Method Comparison">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#1-tc_connection_testgo-2-tests" class="md-nav__link">
+  <a href="#security-level" class="md-nav__link">
     <span class="md-ellipsis">
       
-        1. tc_connection_test.go (2 tests)
+        Security Level
       
     </span>
   </a>
@@ -971,109 +1179,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#2-tc_policy_testgo-5-tests" class="md-nav__link">
+  <a href="#prerequisites" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2. tc_policy_test.go (5 tests)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#3-tc_cluster_policy_testgo-4-tests" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        3. tc_cluster_policy_test.go (4 tests)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#4-tc_role_testgo-3-tests" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        4. tc_role_test.go (3 tests)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#5-tc_cluster_role_testgo-5-tests" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        5. tc_cluster_role_test.go (5 tests)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#6-tc_conflict_testgo-3-tests" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        6. tc_conflict_test.go (3 tests)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#7-tc_error_testgo-6-tests" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        7. tc_error_test.go (6 tests)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#8-tc_auth_testgo-5-tests" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        8. tc_auth_test.go (5 tests)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#9-tc_jwt_auth_testgo-7-tests" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        9. tc_jwt_auth_test.go (7 tests)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#10-token_lifecycle_testgo-13-tests" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        10. token_lifecycle_test.go (13 tests)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#11-operator_token_testgo-10-tests" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        11. operator_token_test.go (10 tests)
+        Prerequisites
       
     </span>
   </a>
@@ -1086,33 +1195,55 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#summary-table" class="md-nav__link">
+  <a href="#which-method-should-i-use" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Summary Table
+        Which Method Should I Use?
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Which Method Should I Use?">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#production-workloads" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Production Workloads
       
     </span>
   </a>
   
 </li>
-      
-        <li class="md-nav__item">
-  <a href="#completed-migrations" class="md-nav__link">
+        
+          <li class="md-nav__item">
+  <a href="#cicd-pipelines" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Completed Migrations
+        CI/CD Pipelines
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Completed Migrations">
-      <ul class="md-nav__list">
+</li>
         
           <li class="md-nav__item">
-  <a href="#operator_token_testgo-10-tests" class="md-nav__link">
+  <a href="#development-and-testing" class="md-nav__link">
     <span class="md-ellipsis">
       
-        operator_token_test.go (10 tests) ✅
+        Development and Testing
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#initial-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Initial Setup
       
     </span>
   </a>
@@ -1125,10 +1256,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#recommended-actions" class="md-nav__link">
+  <a href="#common-configuration" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Recommended Actions
+        Common Configuration
       
     </span>
   </a>
@@ -1136,10 +1267,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#result" class="md-nav__link">
+  <a href="#next-steps" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Result
+        Next Steps
       
     </span>
   </a>
@@ -1163,7 +1294,7 @@
 
 
   
-    <a href="https://github.com/panteparak/vault-access-operator/edit/main/docs/test-evaluation.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/panteparak/vault-access-operator/edit/main/docs/auth-methods/index.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -1171,653 +1302,285 @@
   
 
 
-<h1 id="e2e-vs-integration-test-evaluation">E2E vs Integration Test Evaluation<a class="headerlink" href="#e2e-vs-integration-test-evaluation" title="Permanent link">&para;</a></h1>
-<h2 id="evaluation-criteria">Evaluation Criteria<a class="headerlink" href="#evaluation-criteria" title="Permanent link">&para;</a></h2>
+<h1 id="authentication-methods">Authentication Methods<a class="headerlink" href="#authentication-methods" title="Permanent link">&para;</a></h1>
+<p>The Vault Access Operator supports multiple authentication methods to connect to HashiCorp Vault. Choose the method that best fits your environment and security requirements.</p>
+<h2 id="quick-reference">Quick Reference<a class="headerlink" href="#quick-reference" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
 <tr>
-<th>Criteria</th>
-<th>E2E Required</th>
-<th>Integration OK</th>
+<th>Method</th>
+<th>Best For</th>
+<th>Cloud Provider</th>
+<th>Complexity</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>Real K8s networking (Service DNS)</td>
-<td>✅</td>
-<td>❌</td>
+<td><a href="kubernetes/">Kubernetes</a></td>
+<td>Standard K8s clusters</td>
+<td>Any</td>
+<td>Low</td>
 </tr>
 <tr>
-<td>kubectl exec into pods</td>
-<td>✅</td>
-<td>❌</td>
+<td><a href="aws-iam/">AWS IAM</a></td>
+<td>EKS with IRSA</td>
+<td>AWS</td>
+<td>Medium</td>
 </tr>
 <tr>
-<td>K8s auth method (TokenReview API)</td>
-<td>✅</td>
-<td>❌</td>
+<td><a href="gcp-iam/">GCP IAM</a></td>
+<td>GKE with Workload Identity</td>
+<td>GCP</td>
+<td>Medium</td>
 </tr>
 <tr>
-<td>Operator deployed as real pod</td>
-<td>✅</td>
-<td>❌</td>
+<td><a href="oidc/">OIDC</a></td>
+<td>EKS/GKE/Azure workload identity</td>
+<td>Any</td>
+<td>Medium</td>
 </tr>
 <tr>
-<td>Controller reconciliation logic</td>
-<td>✅</td>
-<td>✅</td>
+<td><a href="jwt/">JWT</a></td>
+<td>External identity providers</td>
+<td>Any</td>
+<td>Medium</td>
 </tr>
 <tr>
-<td>Vault API interactions</td>
-<td>✅</td>
-<td>✅</td>
+<td><a href="approle/">AppRole</a></td>
+<td>CI/CD pipelines</td>
+<td>Any</td>
+<td>Low</td>
 </tr>
 <tr>
-<td>CRD validation/webhooks</td>
-<td>✅</td>
-<td>✅</td>
+<td><a href="token/">Token</a></td>
+<td>Development/testing only</td>
+<td>Any</td>
+<td>Very Low</td>
 </tr>
 <tr>
-<td>Error handling paths</td>
-<td>✅</td>
-<td>✅</td>
-</tr>
-<tr>
-<td>Simple permission checks</td>
-<td>❌</td>
-<td>✅</td>
+<td><a href="bootstrap/">Bootstrap</a></td>
+<td>Initial Vault setup</td>
+<td>Any</td>
+<td>Medium</td>
 </tr>
 </tbody>
 </table>
-<hr />
-<h2 id="test-case-evaluation">Test Case Evaluation<a class="headerlink" href="#test-case-evaluation" title="Permanent link">&para;</a></h2>
-<h3 id="1-tc_connection_testgo-2-tests">1. tc_connection_test.go (2 tests)<a class="headerlink" href="#1-tc_connection_testgo-2-tests" title="Permanent link">&para;</a></h3>
+<h2 id="decision-guide">Decision Guide<a class="headerlink" href="#decision-guide" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>                    ┌─────────────────────────┐
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>                    │ What environment are    │
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>                    │ you running in?         │
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>                    └───────────┬─────────────┘
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>                                │
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>        ┌───────────────────────┼───────────────────────┐
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>        │                       │                       │
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>        ▼                       ▼                       ▼
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>   ┌─────────┐            ┌─────────┐            ┌─────────┐
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>   │   EKS   │            │   GKE   │            │  Other  │
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>   └────┬────┘            └────┬────┘            └────┬────┘
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>        │                      │                      │
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>        ▼                      ▼                      ▼
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>  ┌───────────┐          ┌───────────┐         ┌───────────┐
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>  │ IRSA      │          │ Workload  │         │ Standard  │
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>  │ enabled?  │          │ Identity? │         │ K8s auth  │
+<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>  └─────┬─────┘          └─────┬─────┘         └───────────┘
+<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>        │                      │                      │
+<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>   Yes  │  No             Yes  │  No                  │
+<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>   ┌────┴────┐            ┌────┴────┐                 │
+<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>   ▼         ▼            ▼         ▼                 │
+<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>AWS IAM   Kubernetes    GCP IAM  Kubernetes    ◄──────┘
+</code></pre></div>
+<h2 id="method-comparison">Method Comparison<a class="headerlink" href="#method-comparison" title="Permanent link">&para;</a></h2>
+<h3 id="security-level">Security Level<a class="headerlink" href="#security-level" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
 <tr>
-<th>Test</th>
-<th>Verdict</th>
-<th>Reason</th>
+<th>Method</th>
+<th>Token Lifetime</th>
+<th>Credential Type</th>
+<th>Auto-Rotation</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>TC-VC01: Create VaultConnection with token auth</td>
-<td><strong>E2E</strong></td>
-<td>Core CRD, needs real operator reconciliation</td>
+<td>Kubernetes</td>
+<td>Short (1h default)</td>
+<td>Service Account Token</td>
+<td>Yes</td>
 </tr>
 <tr>
-<td>TC-VC02: Verify VaultConnection health check</td>
-<td><strong>E2E</strong></td>
-<td>Tests real health check to Vault service</td>
+<td>AWS IAM</td>
+<td>Short</td>
+<td>IAM Credentials</td>
+<td>Yes (IRSA)</td>
+</tr>
+<tr>
+<td>GCP IAM</td>
+<td>Short</td>
+<td>Workload Identity Token</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>OIDC</td>
+<td>Short</td>
+<td>JWT from IdP</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>JWT</td>
+<td>Configurable</td>
+<td>External JWT</td>
+<td>Depends</td>
+</tr>
+<tr>
+<td>AppRole</td>
+<td>Configurable</td>
+<td>SecretID</td>
+<td>Manual</td>
+</tr>
+<tr>
+<td>Token</td>
+<td>Long-lived</td>
+<td>Static Token</td>
+<td>No</td>
+</tr>
+<tr>
+<td>Bootstrap</td>
+<td>One-time</td>
+<td>Bootstrap Token</td>
+<td>N/A</td>
 </tr>
 </tbody>
 </table>
-<p><strong>Summary:</strong> Keep ALL in E2E (2 tests) - fundamental functionality</p>
-<hr />
-<h3 id="2-tc_policy_testgo-5-tests">2. tc_policy_test.go (5 tests)<a class="headerlink" href="#2-tc_policy_testgo-5-tests" title="Permanent link">&para;</a></h3>
+<h3 id="prerequisites">Prerequisites<a class="headerlink" href="#prerequisites" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
 <tr>
-<th>Test</th>
-<th>Verdict</th>
-<th>Reason</th>
+<th>Method</th>
+<th>Vault Config Required</th>
+<th>K8s Config Required</th>
+<th>Cloud Config Required</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>TC-VP01: Create and sync VaultPolicy</td>
-<td><strong>E2E</strong></td>
-<td>Core lifecycle, happy path</td>
+<td>Kubernetes</td>
+<td>Kubernetes auth enabled</td>
+<td>ServiceAccount</td>
+<td>None</td>
 </tr>
 <tr>
-<td>TC-VP02: Substitute {{namespace}} variable</td>
-<td><strong>Integration</strong></td>
-<td>Tests string substitution logic</td>
+<td>AWS IAM</td>
+<td>AWS auth enabled</td>
+<td>IRSA annotation</td>
+<td>IAM Role + Trust Policy</td>
 </tr>
 <tr>
-<td>TC-VP03: Update VaultPolicy when spec changes</td>
-<td><strong>E2E</strong></td>
-<td>Tests update reconciliation</td>
+<td>GCP IAM</td>
+<td>GCP auth enabled</td>
+<td>Workload Identity annotation</td>
+<td>GCP SA + IAM Binding</td>
 </tr>
 <tr>
-<td>TC-VP04-DEL: Handle deletion with finalizer</td>
-<td><strong>E2E</strong></td>
-<td>Tests finalizer with real cleanup</td>
+<td>OIDC</td>
+<td>OIDC auth enabled</td>
+<td>ServiceAccount</td>
+<td>OIDC Provider</td>
 </tr>
 <tr>
-<td>TC-VP05-RET: Respect deletionPolicy=Retain</td>
-<td><strong>Integration</strong></td>
-<td>Tests flag logic, no cleanup verification needed</td>
-</tr>
-</tbody>
-</table>
-<p><strong>Summary:</strong> E2E: 3, Integration: 2</p>
-<hr />
-<h3 id="3-tc_cluster_policy_testgo-4-tests">3. tc_cluster_policy_test.go (4 tests)<a class="headerlink" href="#3-tc_cluster_policy_testgo-4-tests" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>Test</th>
-<th>Verdict</th>
-<th>Reason</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>TC-CP01: Create and sync cluster policy</td>
-<td><strong>E2E</strong></td>
-<td>Core lifecycle</td>
+<td>JWT</td>
+<td>JWT auth enabled</td>
+<td>ServiceAccount or Secret</td>
+<td>IdP configuration</td>
 </tr>
 <tr>
-<td>TC-CP02: Verify policy HCL content</td>
-<td><strong>E2E</strong></td>
-<td>Part of lifecycle verification</td>
+<td>AppRole</td>
+<td>AppRole auth enabled</td>
+<td>Secret with credentials</td>
+<td>None</td>
 </tr>
 <tr>
-<td>TC-CP03: Handle invalid connection reference</td>
-<td><strong>Integration</strong></td>
-<td>Error handling path</td>
+<td>Token</td>
+<td>None</td>
+<td>Secret with token</td>
+<td>None</td>
 </tr>
 <tr>
-<td>TC-CP04: Handle empty rules</td>
-<td><strong>Integration</strong></td>
-<td>Validation error path</td>
+<td>Bootstrap</td>
+<td>Permissive token</td>
+<td>Secret with token</td>
+<td>None</td>
 </tr>
 </tbody>
 </table>
-<p><strong>Summary:</strong> E2E: 2, Integration: 2</p>
-<hr />
-<h3 id="4-tc_role_testgo-3-tests">4. tc_role_test.go (3 tests)<a class="headerlink" href="#4-tc_role_testgo-3-tests" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>Test</th>
-<th>Verdict</th>
-<th>Reason</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>TC-VR01: Create namespaced VaultRole</td>
-<td><strong>E2E</strong></td>
-<td>Core lifecycle</td>
-</tr>
-<tr>
-<td>TC-VR02: Verify role configuration</td>
-<td><strong>E2E</strong></td>
-<td>Verification of Vault state</td>
-</tr>
-<tr>
-<td>TC-VR03-DEL: Remove role on deletion</td>
-<td><strong>E2E</strong></td>
-<td>Tests cleanup in Vault</td>
-</tr>
-</tbody>
-</table>
-<p><strong>Summary:</strong> Keep ALL in E2E (3 tests) - core functionality with Vault state verification</p>
-<hr />
-<h3 id="5-tc_cluster_role_testgo-5-tests">5. tc_cluster_role_test.go (5 tests)<a class="headerlink" href="#5-tc_cluster_role_testgo-5-tests" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>Test</th>
-<th>Verdict</th>
-<th>Reason</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>TC-CR01: Create VaultClusterRole</td>
-<td><strong>E2E</strong></td>
-<td>Core lifecycle</td>
-</tr>
-<tr>
-<td>TC-CR02: Verify cluster role config</td>
-<td><strong>E2E</strong></td>
-<td>Vault state verification</td>
-</tr>
-<tr>
-<td>TC-CR03-DEL: Remove on deletion</td>
-<td><strong>E2E</strong></td>
-<td>Cleanup verification</td>
-</tr>
-<tr>
-<td>TC-CR04: Handle invalid connection</td>
-<td><strong>Integration</strong></td>
-<td>Error handling</td>
-</tr>
-<tr>
-<td>TC-CR05: Handle missing policy ref</td>
-<td><strong>Integration</strong></td>
-<td>Error handling</td>
-</tr>
-</tbody>
-</table>
-<p><strong>Summary:</strong> E2E: 3, Integration: 2</p>
-<hr />
-<h3 id="6-tc_conflict_testgo-3-tests">6. tc_conflict_test.go (3 tests)<a class="headerlink" href="#6-tc_conflict_testgo-3-tests" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>Test</th>
-<th>Verdict</th>
-<th>Reason</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>TC-CF01-ADOPT: Adopt existing policy</td>
-<td><strong>E2E</strong></td>
-<td>Tests real Vault state management</td>
-</tr>
-<tr>
-<td>TC-CF02-FAIL: Fail when policy exists</td>
-<td><strong>E2E</strong></td>
-<td>Tests real conflict detection</td>
-</tr>
-<tr>
-<td>TC-CF03-NORM: Create normally (no conflict)</td>
-<td><strong>Integration</strong></td>
-<td>Simple happy path, can use testcontainer</td>
-</tr>
-</tbody>
-</table>
-<p><strong>Summary:</strong> E2E: 2, Integration: 1</p>
-<hr />
-<h3 id="7-tc_error_testgo-6-tests">7. tc_error_test.go (6 tests)<a class="headerlink" href="#7-tc_error_testgo-6-tests" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>Test</th>
-<th>Verdict</th>
-<th>Reason</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>TC-EH01: Invalid connection reference</td>
-<td><strong>Integration</strong></td>
-<td>Simple error path</td>
-</tr>
-<tr>
-<td>TC-EH02: Missing policy reference</td>
-<td><strong>Integration</strong></td>
-<td>Simple error path</td>
-</tr>
-<tr>
-<td>TC-EH03: Namespace boundary violation</td>
-<td><strong>E2E</strong></td>
-<td>Needs real RBAC enforcement</td>
-</tr>
-<tr>
-<td>TC-EH04: VaultConnection unavailable</td>
-<td><strong>E2E</strong></td>
-<td>Tests real connection failure handling</td>
-</tr>
-<tr>
-<td>TC-EH05: Invalid TTL format</td>
-<td><strong>Integration</strong></td>
-<td>Validation error</td>
-</tr>
-<tr>
-<td>TC-EH06: Empty policy rules</td>
-<td><strong>Integration</strong></td>
-<td>Validation error</td>
-</tr>
-</tbody>
-</table>
-<p><strong>Summary:</strong> E2E: 2, Integration: 4</p>
-<hr />
-<h3 id="8-tc_auth_testgo-5-tests">8. tc_auth_test.go (5 tests)<a class="headerlink" href="#8-tc_auth_testgo-5-tests" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>Test</th>
-<th>Verdict</th>
-<th>Reason</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>TC-AU01-01: Allow bound SA to authenticate</td>
-<td><strong>E2E</strong></td>
-<td>Needs real K8s auth + TokenReview</td>
-</tr>
-<tr>
-<td>TC-AU01-02: Reject incorrect SA</td>
-<td><strong>E2E</strong></td>
-<td>Needs real K8s auth rejection</td>
-</tr>
-<tr>
-<td>TC-AU01-03: Reject invalid JWT</td>
-<td><strong>E2E</strong></td>
-<td>Needs real token validation</td>
-</tr>
-<tr>
-<td>TC-AU01-04: Re-authenticate after expiration</td>
-<td><strong>E2E</strong></td>
-<td>Tests real token lifecycle</td>
-</tr>
-<tr>
-<td>TC-AU01-05: Multiple SAs same role</td>
-<td><strong>E2E</strong></td>
-<td>Needs real K8s SA tokens</td>
-</tr>
-</tbody>
-</table>
-<p><strong>Summary:</strong> Keep ALL in E2E (5 tests) - K8s auth method requires real TokenReview API</p>
-<hr />
-<h3 id="9-tc_jwt_auth_testgo-7-tests">9. tc_jwt_auth_test.go (7 tests)<a class="headerlink" href="#9-tc_jwt_auth_testgo-7-tests" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>Test</th>
-<th>Verdict</th>
-<th>Reason</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>TC-AU04-01: JWT auth with SA token</td>
-<td><strong>E2E</strong></td>
-<td>Needs real K8s OIDC issuer</td>
-</tr>
-<tr>
-<td>TC-AU04-02: Reject wrong audience</td>
-<td><strong>Integration</strong></td>
-<td>JWT validation logic</td>
-</tr>
-<tr>
-<td>TC-AU04-03: Reject wrong subject</td>
-<td><strong>Integration</strong></td>
-<td>JWT validation logic</td>
-</tr>
-<tr>
-<td>TC-AU05-01: Discover OIDC config</td>
-<td><strong>E2E</strong></td>
-<td>Tests real K8s /.well-known/openid-configuration</td>
-</tr>
-<tr>
-<td>TC-AU05-02: Auth with OIDC keys</td>
-<td><strong>E2E</strong></td>
-<td>Needs real JWKS endpoint</td>
-</tr>
-<tr>
-<td>TC-AU05-03: Custom audiences</td>
-<td><strong>E2E</strong></td>
-<td>Needs real TokenRequest API</td>
-</tr>
-<tr>
-<td>TC-AU06-01: VaultConnection with JWT</td>
-<td><strong>E2E</strong></td>
-<td>Tests full JWT connection flow</td>
-</tr>
-</tbody>
-</table>
-<p><strong>Summary:</strong> E2E: 5, Integration: 2</p>
-<hr />
-<h3 id="10-token_lifecycle_testgo-13-tests">10. token_lifecycle_test.go (13 tests)<a class="headerlink" href="#10-token_lifecycle_testgo-13-tests" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>Test</th>
-<th>Verdict</th>
-<th>Reason</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Bootstrap: should bootstrap K8s auth</td>
-<td><strong>E2E</strong></td>
-<td>Core bootstrap flow</td>
-</tr>
-<tr>
-<td>Bootstrap: complete and transition</td>
-<td><strong>E2E</strong></td>
-<td>Bootstrap verification</td>
-</tr>
-<tr>
-<td>Bootstrap: K8s auth enabled</td>
-<td><strong>E2E</strong></td>
-<td>Vault state check</td>
-</tr>
-<tr>
-<td>Bootstrap: operator role created</td>
-<td><strong>E2E</strong></td>
-<td>Vault state check</td>
-</tr>
-<tr>
-<td>Bootstrap: not re-bootstrap</td>
-<td><strong>E2E</strong></td>
-<td>Idempotency test</td>
-</tr>
-<tr>
-<td>Bootstrap: token expiration info</td>
-<td><strong>Integration</strong></td>
-<td>Status field check</td>
-</tr>
-<tr>
-<td>Bootstrap: Vault version in status</td>
-<td><strong>Integration</strong></td>
-<td>Status field check</td>
-</tr>
-<tr>
-<td>K8s Auth: connect pre-configured</td>
-<td><strong>E2E</strong></td>
-<td>Non-bootstrap flow</td>
-</tr>
-<tr>
-<td>K8s Auth: NOT bootstrapComplete</td>
-<td><strong>Integration</strong></td>
-<td>Status field check</td>
-</tr>
-<tr>
-<td>K8s Auth: authMethod set</td>
-<td><strong>Integration</strong></td>
-<td>Status field check</td>
-</tr>
-<tr>
-<td>K8s Auth: Vault version</td>
-<td><strong>Integration</strong></td>
-<td>Status field check (duplicate)</td>
-</tr>
-<tr>
-<td>K8s Auth: token expiration</td>
-<td><strong>Integration</strong></td>
-<td>Status field check (duplicate)</td>
-</tr>
-<tr>
-<td>TC-LC07: Renew token</td>
-<td><strong>E2E</strong></td>
-<td>Real token renewal</td>
-</tr>
-</tbody>
-</table>
-<p><strong>Summary:</strong> E2E: 6, Integration: 7 (many are status field checks that could be consolidated)</p>
-<hr />
-<h3 id="11-operator_token_testgo-10-tests">11. operator_token_test.go (10 tests)<a class="headerlink" href="#11-operator_token_testgo-10-tests" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>Test</th>
-<th>Verdict</th>
-<th>Reason</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>TC-OP01: create capability on policies</td>
-<td><strong>Integration</strong></td>
-<td>Just Vault permission check</td>
-</tr>
-<tr>
-<td>TC-OP01: list capability on policies</td>
-<td><strong>Integration</strong></td>
-<td>Just Vault permission check</td>
-</tr>
-<tr>
-<td>TC-OP02: CRUD on auth/kubernetes/role</td>
-<td><strong>Integration</strong></td>
-<td>Just Vault permission check</td>
-</tr>
-<tr>
-<td>TC-OP02: list on auth/kubernetes/role</td>
-<td><strong>Integration</strong></td>
-<td>Just Vault permission check</td>
-</tr>
-<tr>
-<td>TC-OP03: read on sys/health</td>
-<td><strong>Integration</strong></td>
-<td>Just Vault permission check</td>
-</tr>
-<tr>
-<td>TC-OP04: NOT access secret/*</td>
-<td><strong>Integration</strong></td>
-<td>Vault permission denial check</td>
-</tr>
-<tr>
-<td>TC-OP04: NOT access sys/seal</td>
-<td><strong>Integration</strong></td>
-<td>Vault permission denial check</td>
-</tr>
-<tr>
-<td>TC-OP04: NOT access sys/unseal</td>
-<td><strong>Integration</strong></td>
-<td>Vault permission denial check</td>
-</tr>
-<tr>
-<td>TC-OP04: NOT root capability</td>
-<td><strong>Integration</strong></td>
-<td>Vault permission check</td>
-</tr>
-<tr>
-<td>TC-OP05: create/read test policy</td>
-<td><strong>Integration</strong></td>
-<td>Functional permission test</td>
-</tr>
-</tbody>
-</table>
-<p><strong>Summary:</strong> Move ALL to Integration (10 tests) - only needs Vault, no K8s required</p>
-<hr />
-<h2 id="summary-table">Summary Table<a class="headerlink" href="#summary-table" title="Permanent link">&para;</a></h2>
-<table>
-<thead>
-<tr>
-<th>Test File</th>
-<th>Current E2E</th>
-<th>Keep E2E</th>
-<th>Move to Integration</th>
-<th>Status</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>tc_connection_test.go</td>
-<td>2</td>
-<td>2</td>
-<td>0</td>
-<td>-</td>
-</tr>
-<tr>
-<td>tc_policy_test.go</td>
-<td>5</td>
-<td>3</td>
-<td>2</td>
-<td>Pending</td>
-</tr>
-<tr>
-<td>tc_cluster_policy_test.go</td>
-<td>4</td>
-<td>2</td>
-<td>2</td>
-<td>Pending</td>
-</tr>
-<tr>
-<td>tc_role_test.go</td>
-<td>3</td>
-<td>3</td>
-<td>0</td>
-<td>-</td>
-</tr>
-<tr>
-<td>tc_cluster_role_test.go</td>
-<td>5</td>
-<td>3</td>
-<td>2</td>
-<td>Pending</td>
-</tr>
-<tr>
-<td>tc_conflict_test.go</td>
-<td>3</td>
-<td>2</td>
-<td>1</td>
-<td>Pending</td>
-</tr>
-<tr>
-<td>tc_error_test.go</td>
-<td>6</td>
-<td>2</td>
-<td>4</td>
-<td>Pending</td>
-</tr>
-<tr>
-<td>tc_auth_test.go</td>
-<td>5</td>
-<td>5</td>
-<td>0</td>
-<td>-</td>
-</tr>
-<tr>
-<td>tc_jwt_auth_test.go</td>
-<td>7</td>
-<td>5</td>
-<td>2</td>
-<td>Pending</td>
-</tr>
-<tr>
-<td>token_lifecycle_test.go</td>
-<td>13</td>
-<td>6</td>
-<td>7</td>
-<td>Pending</td>
-</tr>
-<tr>
-<td>operator_token_test.go</td>
-<td>10</td>
-<td>0</td>
-<td>10</td>
-<td><strong>✅ DONE</strong></td>
-</tr>
-<tr>
-<td><strong>TOTAL</strong></td>
-<td><strong>63</strong></td>
-<td><strong>33</strong></td>
-<td><strong>30</strong></td>
-<td>10 done</td>
-</tr>
-</tbody>
-</table>
-<h2 id="completed-migrations">Completed Migrations<a class="headerlink" href="#completed-migrations" title="Permanent link">&para;</a></h2>
-<h3 id="operator_token_testgo-10-tests">operator_token_test.go (10 tests) ✅<a class="headerlink" href="#operator_token_testgo-10-tests" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>Location</strong>: <code>test/integration/permissions/operator_token_test.go</code></li>
-<li><strong>New infrastructure</strong>: Added <code>WithVaultOnly()</code> option for Vault-only tests</li>
-<li><strong>Test time</strong>: ~5.7 seconds (vs ~30s+ for E2E setup)</li>
-</ul>
-<h2 id="recommended-actions">Recommended Actions<a class="headerlink" href="#recommended-actions" title="Permanent link">&para;</a></h2>
+<h2 id="which-method-should-i-use">Which Method Should I Use?<a class="headerlink" href="#which-method-should-i-use" title="Permanent link">&para;</a></h2>
+<h3 id="production-workloads">Production Workloads<a class="headerlink" href="#production-workloads" title="Permanent link">&para;</a></h3>
 <ol>
-<li>~~<strong>Move operator_token_test.go entirely</strong> to <code>test/integration/permissions/</code>~~ ✅ DONE</li>
-<li><strong>Create <code>test/integration/error/</code></strong> for error handling tests</li>
-<li><strong>Create <code>test/integration/validation/</code></strong> for validation tests (some exist in security/)</li>
-<li><strong>Consolidate token_lifecycle status checks</strong> - many are duplicates</li>
-<li><strong>Keep K8s auth tests in E2E</strong> - TokenReview API requires real K8s</li>
+<li><strong>EKS clusters</strong>: Use <a href="aws-iam/">AWS IAM</a> with IRSA for the strongest security</li>
+<li><strong>GKE clusters</strong>: Use <a href="gcp-iam/">GCP IAM</a> with Workload Identity</li>
+<li><strong>Standard Kubernetes</strong>: Use <a href="kubernetes/">Kubernetes</a> auth - it's secure and well-tested</li>
+<li><strong>Multi-cloud or hybrid</strong>: Use <a href="oidc/">OIDC</a> for consistent identity federation</li>
 </ol>
-<h2 id="result">Result<a class="headerlink" href="#result" title="Permanent link">&para;</a></h2>
+<h3 id="cicd-pipelines">CI/CD Pipelines<a class="headerlink" href="#cicd-pipelines" title="Permanent link">&para;</a></h3>
+<p>Use <a href="approle/">AppRole</a> auth for:</p>
 <ul>
-<li><strong>E2E tests reduced from 63 to 33</strong> (~48% reduction)</li>
-<li><strong>CI time should improve significantly</strong></li>
-<li><strong>Integration tests provide faster feedback</strong> for error/validation paths</li>
+<li>GitHub Actions</li>
+<li>GitLab CI</li>
+<li>Jenkins</li>
+<li>ArgoCD</li>
+</ul>
+<h3 id="development-and-testing">Development and Testing<a class="headerlink" href="#development-and-testing" title="Permanent link">&para;</a></h3>
+<p>Use <a href="token/">Token</a> auth only for:</p>
+<ul>
+<li>Local development</li>
+<li>Quick testing</li>
+<li>Demos</li>
+</ul>
+<div class="admonition warning">
+<p class="admonition-title">Never use Token auth in production</p>
+<p>Token auth uses long-lived static credentials and should never be used in production environments.</p>
+</div>
+<h3 id="initial-setup">Initial Setup<a class="headerlink" href="#initial-setup" title="Permanent link">&para;</a></h3>
+<p>Use <a href="bootstrap/">Bootstrap</a> auth to:</p>
+<ul>
+<li>Configure Vault's Kubernetes auth method</li>
+<li>Set up initial policies</li>
+<li>Transition to Kubernetes auth afterward</li>
+</ul>
+<h2 id="common-configuration">Common Configuration<a class="headerlink" href="#common-configuration" title="Permanent link">&para;</a></h2>
+<p>All authentication methods share these common fields:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault.platform.io/v1alpha1</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">VaultConnection</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="nt">metadata</span><span class="p">:</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-vault</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="nt">spec</span><span class="p">:</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">  </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://vault.example.com:8200</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">  </span><span class="nt">tls</span><span class="p">:</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">    </span><span class="nt">caCert</span><span class="p">:</span>
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="w">      </span><span class="nt">secretRef</span><span class="p">:</span>
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="w">        </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-ca-cert</span>
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="w">        </span><span class="nt">key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ca.crt</span>
+<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="w">  </span><span class="nt">auth</span><span class="p">:</span>
+<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="w">    </span><span class="c1"># Choose ONE of the following auth methods</span>
+<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a><span class="w">    </span><span class="nt">kubernetes</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="w"> </span><span class="nv">...</span><span class="w"> </span><span class="p p-Indicator">}</span>
+<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a><span class="w">    </span><span class="nt">aws</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="w"> </span><span class="nv">...</span><span class="w"> </span><span class="p p-Indicator">}</span>
+<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a><span class="w">    </span><span class="nt">gcp</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="w"> </span><span class="nv">...</span><span class="w"> </span><span class="p p-Indicator">}</span>
+<a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a><span class="w">    </span><span class="nt">oidc</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="w"> </span><span class="nv">...</span><span class="w"> </span><span class="p p-Indicator">}</span>
+<a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a><span class="w">    </span><span class="nt">jwt</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="w"> </span><span class="nv">...</span><span class="w"> </span><span class="p p-Indicator">}</span>
+<a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a><span class="w">    </span><span class="nt">appRole</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="w"> </span><span class="nv">...</span><span class="w"> </span><span class="p p-Indicator">}</span>
+<a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a><span class="w">    </span><span class="nt">token</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="w"> </span><span class="nv">...</span><span class="w"> </span><span class="p p-Indicator">}</span>
+<a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a><span class="w">    </span><span class="nt">bootstrap</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="w"> </span><span class="nv">...</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</code></pre></div>
+<h2 id="next-steps">Next Steps<a class="headerlink" href="#next-steps" title="Permanent link">&para;</a></h2>
+<p>Choose your authentication method and follow the detailed setup guide:</p>
+<ul>
+<li><a href="kubernetes/">Kubernetes Authentication</a> - Standard K8s clusters</li>
+<li><a href="aws-iam/">AWS IAM Authentication</a> - EKS with IRSA</li>
+<li><a href="gcp-iam/">GCP IAM Authentication</a> - GKE with Workload Identity</li>
+<li><a href="oidc/">OIDC Authentication</a> - Workload identity federation</li>
+<li><a href="jwt/">JWT Authentication</a> - External identity providers</li>
+<li><a href="approle/">AppRole Authentication</a> - CI/CD pipelines</li>
+<li><a href="token/">Token Authentication</a> - Development only</li>
+<li><a href="bootstrap/">Bootstrap Authentication</a> - Initial setup</li>
 </ul>
 
 
