@@ -268,21 +268,7 @@ e2e-configure-vault: ## Configure Vault auth methods and policies for E2E
 	@# Convert JWKS to PEM and provide directly via jwt_validation_pubkeys
 	@JWKS=$$($(E2E_KUBECTL) get --raw /openid/v1/jwks); \
 	ISSUER=$$($(E2E_KUBECTL) get --raw /.well-known/openid-configuration | jq -r '.issuer'); \
-	N=$$(echo "$$JWKS" | jq -r '.keys[0].n'); \
-	E=$$(echo "$$JWKS" | jq -r '.keys[0].e'); \
-	PEM=$$(python3 -c " \
-import base64, sys; \
-def b64d(d): return base64.urlsafe_b64decode(d + '=' * (4 - len(d) % 4)); \
-n = int.from_bytes(b64d('$$N'), 'big'); \
-e = int.from_bytes(b64d('$$E'), 'big'); \
-def enc_len(l): return bytes([l]) if l < 128 else bytes([0x80 | len(lb := l.to_bytes((l.bit_length()+7)//8, 'big'))]) + lb; \
-def enc_int(x): b = x.to_bytes((x.bit_length()+7)//8, 'big'); b = b'\\x00' + b if b[0] & 0x80 else b; return b'\\x02' + enc_len(len(b)) + b; \
-seq = enc_int(n) + enc_int(e); seq_der = b'\\x30' + enc_len(len(seq)) + seq; \
-oid = b'\\x30' + enc_len(13) + b'\\x06\\x09\\x2a\\x86\\x48\\x86\\xf7\\x0d\\x01\\x01\\x01\\x05\\x00'; \
-bs = b'\\x03' + enc_len(len(seq_der)+1) + b'\\x00' + seq_der; \
-spki = b'\\x30' + enc_len(len(oid)+len(bs)) + oid + bs; \
-print('-----BEGIN PUBLIC KEY-----'); print(base64.b64encode(spki).decode()); print('-----END PUBLIC KEY-----') \
-	"); \
+	PEM=$$(echo "$$JWKS" | python3 hack/jwk-to-pem.py); \
 	$(E2E_VAULT_EXEC) write auth/jwt/config \
 		jwt_validation_pubkeys="$$PEM" \
 		bound_issuer="$$ISSUER"
