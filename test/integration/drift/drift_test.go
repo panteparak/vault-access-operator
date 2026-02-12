@@ -324,6 +324,24 @@ var _ = Describe("Drift Integration Tests", func() {
 
 		Describe("INT-DRF21: Role Binding Status", func() {
 			It("should populate binding status after role creation", func() {
+				By("Creating a VaultClusterPolicy for the role")
+				clusterPolicy := &vaultv1alpha1.VaultClusterPolicy{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "int-drf21-cluster-policy",
+					},
+					Spec: vaultv1alpha1.VaultClusterPolicySpec{
+						ConnectionRef: "default-connection",
+						Rules: []vaultv1alpha1.PolicyRule{
+							{
+								Path:         "secret/data/*",
+								Capabilities: []vaultv1alpha1.Capability{"read"},
+							},
+						},
+					},
+				}
+				err := testEnv.K8sClient.Create(ctx, clusterPolicy)
+				Expect(err).NotTo(HaveOccurred())
+
 				By("Creating a VaultRole")
 				role := &vaultv1alpha1.VaultRole{
 					ObjectMeta: metav1.ObjectMeta{
@@ -333,10 +351,16 @@ var _ = Describe("Drift Integration Tests", func() {
 					Spec: vaultv1alpha1.VaultRoleSpec{
 						ConnectionRef:   "default-connection",
 						ServiceAccounts: []string{"default"},
+						Policies: []vaultv1alpha1.PolicyReference{
+							{
+								Kind: "VaultClusterPolicy",
+								Name: "int-drf21-cluster-policy",
+							},
+						},
 					},
 				}
 
-				err := testEnv.K8sClient.Create(ctx, role)
+				err = testEnv.K8sClient.Create(ctx, role)
 				Expect(err).NotTo(HaveOccurred())
 
 				By("Verifying the role was created")
@@ -350,6 +374,7 @@ var _ = Describe("Drift Integration Tests", func() {
 
 				By("Cleaning up")
 				Expect(testEnv.K8sClient.Delete(ctx, role)).To(Succeed())
+				Expect(testEnv.K8sClient.Delete(ctx, clusterPolicy)).To(Succeed())
 			})
 		})
 	})

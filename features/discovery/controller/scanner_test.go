@@ -139,6 +139,7 @@ func TestShouldExcludeSystemPolicy(t *testing.T) {
 	tests := []struct {
 		name                  string
 		excludeSystemPolicies *bool
+		customSystemPolicies  []string
 		policyName            string
 		want                  bool
 	}{
@@ -172,6 +173,27 @@ func TestShouldExcludeSystemPolicy(t *testing.T) {
 			policyName:            "root",
 			want:                  false,
 		},
+		{
+			name:                  "custom system policy excluded",
+			excludeSystemPolicies: nil,
+			customSystemPolicies:  []string{"vault-agent-policy", "approle-policy"},
+			policyName:            "vault-agent-policy",
+			want:                  true,
+		},
+		{
+			name:                  "custom system policy list doesn't affect other policies",
+			excludeSystemPolicies: nil,
+			customSystemPolicies:  []string{"vault-agent-policy"},
+			policyName:            "my-app-policy",
+			want:                  false,
+		},
+		{
+			name:                  "custom system policies disabled when excludeSystemPolicies is false",
+			excludeSystemPolicies: boolPtr(false),
+			customSystemPolicies:  []string{"vault-agent-policy"},
+			policyName:            "vault-agent-policy",
+			want:                  false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -179,6 +201,7 @@ func TestShouldExcludeSystemPolicy(t *testing.T) {
 			s := &Scanner{
 				config: &vaultv1alpha1.DiscoveryConfig{
 					ExcludeSystemPolicies: tt.excludeSystemPolicies,
+					CustomSystemPolicies:  tt.customSystemPolicies,
 				},
 			}
 			if got := s.shouldExcludeSystemPolicy(tt.policyName); got != tt.want {
@@ -241,6 +264,56 @@ func TestSuggestCRName(t *testing.T) {
 			vaultName: "prod-app-reader",
 			want:      "prod-app-reader",
 		},
+		{
+			name:      "uppercase converted to lowercase",
+			vaultName: "My-Policy",
+			want:      "my-policy",
+		},
+		{
+			name:      "underscores replaced with hyphens",
+			vaultName: "my_policy_name",
+			want:      "my-policy-name",
+		},
+		{
+			name:      "spaces replaced with hyphens",
+			vaultName: "my policy name",
+			want:      "my-policy-name",
+		},
+		{
+			name:      "special characters removed",
+			vaultName: "policy@v2!",
+			want:      "policy-v2",
+		},
+		{
+			name:      "leading hyphen removed",
+			vaultName: "-policy",
+			want:      "policy",
+		},
+		{
+			name:      "trailing hyphen removed",
+			vaultName: "policy-",
+			want:      "policy",
+		},
+		{
+			name:      "consecutive hyphens collapsed",
+			vaultName: "my---policy",
+			want:      "my-policy",
+		},
+		{
+			name:      "empty string returns fallback",
+			vaultName: "",
+			want:      "vault-resource",
+		},
+		{
+			name:      "only special chars returns fallback",
+			vaultName: "!!!",
+			want:      "vault-resource",
+		},
+		{
+			name:      "complex example",
+			vaultName: "Team_Platform::Admin@v2",
+			want:      "team-platform-admin-v2",
+		},
 	}
 
 	for _, tt := range tests {
@@ -250,6 +323,35 @@ func TestSuggestCRName(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestValidatePatterns(t *testing.T) {
+	t.Run("valid patterns", func(t *testing.T) {
+		patterns := []string{"app-*", "*-service", "team-*-*"}
+		errors := ValidatePatterns(patterns)
+		if errors != nil {
+			t.Errorf("expected no errors for valid patterns, got %v", errors)
+		}
+	})
+
+	t.Run("invalid pattern", func(t *testing.T) {
+		patterns := []string{"valid-*", "invalid["}
+		errors := ValidatePatterns(patterns)
+		if errors == nil {
+			t.Error("expected error for invalid pattern")
+		}
+		if _, ok := errors[1]; !ok {
+			t.Errorf("expected error at index 1, got errors: %v", errors)
+		}
+	})
+
+	t.Run("empty patterns", func(t *testing.T) {
+		patterns := []string{}
+		errors := ValidatePatterns(patterns)
+		if errors != nil {
+			t.Errorf("expected no errors for empty patterns, got %v", errors)
+		}
+	})
 }
 
 func boolPtr(b bool) *bool {

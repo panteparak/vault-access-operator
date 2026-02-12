@@ -20,6 +20,8 @@ package controller
 import (
 	"context"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -192,12 +194,24 @@ func (s *Scanner) scanRoles(ctx context.Context, result *ScanResult) error {
 
 // shouldExcludeSystemPolicy returns true if the policy should be excluded
 func (s *Scanner) shouldExcludeSystemPolicy(policyName string) bool {
-	// Check the config
+	// Check the config - if explicitly disabled, don't exclude any
 	if s.config.ExcludeSystemPolicies != nil && !*s.config.ExcludeSystemPolicies {
 		return false
 	}
-	// Default to excluding system policies
-	return SystemPolicies[policyName]
+
+	// Check built-in system policies
+	if SystemPolicies[policyName] {
+		return true
+	}
+
+	// Check custom system policies (user-defined)
+	for _, customPolicy := range s.config.CustomSystemPolicies {
+		if customPolicy == policyName {
+			return true
+		}
+	}
+
+	return false
 }
 
 // matchesPolicyPatterns checks if a policy name matches the configured patterns
@@ -228,11 +242,64 @@ func (s *Scanner) matchesRolePatterns(roleName string) bool {
 	return false
 }
 
-// suggestCRName generates a suggested Kubernetes resource name from a Vault resource name
+// invalidK8sChars matches characters that are not valid in Kubernetes names.
+var invalidK8sChars = regexp.MustCompile(`[^a-z0-9-]`)
+
+// suggestCRName generates a suggested Kubernetes resource name from a Vault resource name.
+// The result is RFC 1123 compliant:
+//   - Lowercase only
+//   - Only alphanumeric characters and hyphens
+//   - Must start and end with alphanumeric character
+//   - Maximum 253 characters
 func suggestCRName(vaultName string) string {
-	// Vault names might have special characters; just return as-is for now
-	// A more sophisticated implementation could sanitize for K8s naming rules
-	return vaultName
+	if vaultName == "" {
+		return "vault-resource"
+	}
+
+	// Convert to lowercase
+	name := strings.ToLower(vaultName)
+
+	// Replace invalid characters with hyphens
+	name = invalidK8sChars.ReplaceAllString(name, "-")
+
+	// Collapse multiple consecutive hyphens into one
+	for strings.Contains(name, "--") {
+		name = strings.ReplaceAll(name, "--", "-")
+	}
+
+	// Trim leading and trailing hyphens
+	name = strings.Trim(name, "-")
+
+	// Truncate to 253 characters (Kubernetes resource name limit)
+	if len(name) > 253 {
+		name = name[:253]
+		// Ensure we don't end with a hyphen after truncation
+		name = strings.TrimRight(name, "-")
+	}
+
+	// If empty after sanitization, use a fallback
+	if name == "" {
+		return "vault-resource"
+	}
+
+	return name
+}
+
+// ValidatePatterns validates glob patterns for correctness.
+// Returns an error for each invalid pattern, indexed by position.
+func ValidatePatterns(patterns []string) map[int]error {
+	errors := make(map[int]error)
+	for i, pattern := range patterns {
+		// filepath.Match returns an error only for malformed patterns
+		_, err := filepath.Match(pattern, "test")
+		if err != nil {
+			errors[i] = err
+		}
+	}
+	if len(errors) == 0 {
+		return nil
+	}
+	return errors
 }
 
 // UpdateMetrics updates Prometheus metrics based on scan results

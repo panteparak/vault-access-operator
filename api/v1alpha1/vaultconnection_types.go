@@ -413,6 +413,12 @@ type DiscoveryConfig struct {
 	// +optional
 	ExcludeSystemPolicies *bool `json:"excludeSystemPolicies,omitempty"`
 
+	// CustomSystemPolicies is a list of additional policy names to treat as system policies.
+	// These will be excluded from discovery when ExcludeSystemPolicies is true (default).
+	// Example: ["vault-agent-policy", "approle-policy"]
+	// +optional
+	CustomSystemPolicies []string `json:"customSystemPolicies,omitempty"`
+
 	// AutoCreateCRs automatically creates K8s VaultPolicy/VaultRole CRs
 	// for discovered unmanaged resources. Requires TargetNamespace to be set.
 	// Created resources will have the adopt annotation set.

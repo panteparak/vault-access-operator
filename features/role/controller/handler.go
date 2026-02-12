@@ -22,11 +22,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"sort"
-	"strings"
 
 	"github.com/go-logr/logr"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
@@ -35,6 +34,7 @@ import (
 	"github.com/panteparak/vault-access-operator/pkg/vault"
 	"github.com/panteparak/vault-access-operator/shared/controller/binding"
 	"github.com/panteparak/vault-access-operator/shared/controller/conditions"
+	"github.com/panteparak/vault-access-operator/shared/controller/drift"
 	"github.com/panteparak/vault-access-operator/shared/controller/driftmode"
 	"github.com/panteparak/vault-access-operator/shared/controller/syncerror"
 	"github.com/panteparak/vault-access-operator/shared/controller/vaultclient"
@@ -81,8 +81,9 @@ func (h *Handler) SyncRole(ctx context.Context, adapter domain.RoleAdapter) erro
 	// Set phase to Syncing if not already active
 	phase := adapter.GetPhase()
 	if phase != vaultv1alpha1.PhaseSyncing && phase != vaultv1alpha1.PhaseActive {
-		adapter.SetPhase(vaultv1alpha1.PhaseSyncing)
-		if err := h.client.Status().Update(ctx, adapter.GetObject()); err != nil {
+		if err := h.updateStatusWithRetry(ctx, adapter, func(a domain.RoleAdapter) {
+			a.SetPhase(vaultv1alpha1.PhaseSyncing)
+		}); err != nil {
 			return fmt.Errorf("failed to update status to Syncing: %w", err)
 		}
 	}
@@ -149,10 +150,14 @@ func (h *Handler) SyncRole(ctx context.Context, adapter domain.RoleAdapter) erro
 	if driftDetected && driftmode.IsDetect(effectiveDriftMode) {
 		// Detect mode: report drift but don't correct
 		log.Info("drift detected (detect mode - not correcting)", "roleName", vaultRoleName)
-		adapter.SetMessage("Drift detected: " + driftSummary)
 
-		// Update status to show drift without correcting
-		if err := h.client.Status().Update(ctx, adapter.GetObject()); err != nil {
+		// Update status to show drift without correcting (with retry for robustness)
+		if err := h.updateStatusWithRetry(ctx, adapter, func(a domain.RoleAdapter) {
+			a.SetMessage("Drift detected: " + driftSummary)
+			a.SetDriftDetected(driftDetected)
+			a.SetDriftSummary(driftSummary)
+			a.SetLastDriftCheckAt(&now)
+		}); err != nil {
 			log.V(1).Info("failed to update drift status (non-fatal)", "error", err)
 		}
 
@@ -176,12 +181,16 @@ func (h *Handler) SyncRole(ctx context.Context, adapter domain.RoleAdapter) erro
 		if annotations[vaultv1alpha1.AnnotationAllowDestructive] != vaultv1alpha1.AnnotationValueTrue {
 			log.Info("drift correction blocked - missing allow-destructive annotation",
 				"roleName", vaultRoleName)
-			adapter.SetPhase(vaultv1alpha1.PhaseConflict)
-			adapter.SetMessage("Drift detected but vault.platform.io/allow-destructive annotation required")
-			h.setCondition(adapter, vaultv1alpha1.ConditionTypeReady, metav1.ConditionFalse,
-				vaultv1alpha1.ReasonConflict, "Drift correction requires allow-destructive annotation")
 
-			if err := h.client.Status().Update(ctx, adapter.GetObject()); err != nil {
+			if err := h.updateStatusWithRetry(ctx, adapter, func(a domain.RoleAdapter) {
+				a.SetPhase(vaultv1alpha1.PhaseConflict)
+				a.SetMessage("Drift detected but vault.platform.io/allow-destructive annotation required")
+				a.SetConditions(conditions.Set(
+					a.GetConditions(), a.GetGeneration(),
+					vaultv1alpha1.ConditionTypeReady, metav1.ConditionFalse,
+					vaultv1alpha1.ReasonConflict, "Drift correction requires allow-destructive annotation",
+				))
+			}); err != nil {
 				return fmt.Errorf("failed to update conflict status: %w", err)
 			}
 
@@ -202,40 +211,51 @@ func (h *Handler) SyncRole(ctx context.Context, adapter domain.RoleAdapter) erro
 		log.V(1).Info("failed to mark role as managed (non-fatal)", "error", err.Error())
 	}
 
-	// Update binding after successful sync
+	// Build binding and policy bindings for status update
 	roleBinding := binding.NewRoleBinding(authPath, vaultRoleName)
-	adapter.SetBinding(roleBinding)
-
-	// Build policy bindings
 	policyBindings := h.buildPolicyBindings(adapter, policyNames)
-	adapter.SetPolicyBindings(policyBindings)
 
 	// Track drift correction if we fixed drift
+	driftCorrectedAt := adapter.GetDriftCorrectedAt()
 	if driftDetected {
-		adapter.SetDriftCorrectedAt(&now)
+		driftCorrectedAt = &now
 		metrics.IncrementDriftCorrected(kind, adapter.GetNamespace())
 	}
 
-	// Update status to Active
-	adapter.SetPhase(vaultv1alpha1.PhaseActive)
-	adapter.SetVaultRoleName(vaultRoleName)
-	adapter.SetManaged(true)
-	adapter.SetBoundServiceAccounts(serviceAccountBindings)
-	adapter.SetResolvedPolicies(policyNames)
-	adapter.SetLastAppliedHash(specHash) // Store hash to detect future spec changes
-	adapter.SetLastSyncedAt(&now)
-	adapter.SetRetryCount(0)
-	adapter.SetNextRetryAt(nil)
-	adapter.SetMessage("")
-	adapter.SetDriftDetected(false) // Clear drift flag after successful sync
-	adapter.SetDriftSummary("")
-	adapter.SetLastDriftCheckAt(&now)
-	h.setCondition(adapter, vaultv1alpha1.ConditionTypeReady, metav1.ConditionTrue,
-		vaultv1alpha1.ReasonSucceeded, "Role synced to Vault")
-	h.setCondition(adapter, vaultv1alpha1.ConditionTypeSynced, metav1.ConditionTrue,
-		vaultv1alpha1.ReasonSucceeded, "Role synced successfully")
+	// Update status to Active (with retry for robustness under concurrent access)
+	// All status changes must be inside the callback to survive re-fetch
+	if err := h.updateStatusWithRetry(ctx, adapter, func(a domain.RoleAdapter) {
+		// Set binding after successful sync (must be inside callback)
+		a.SetBinding(roleBinding)
+		a.SetPolicyBindings(policyBindings)
 
-	if err := h.client.Status().Update(ctx, adapter.GetObject()); err != nil {
+		a.SetPhase(vaultv1alpha1.PhaseActive)
+		a.SetVaultRoleName(vaultRoleName)
+		a.SetManaged(true)
+		a.SetBoundServiceAccounts(serviceAccountBindings)
+		a.SetResolvedPolicies(policyNames)
+		a.SetLastAppliedHash(specHash) // Store hash to detect future spec changes
+		a.SetLastSyncedAt(&now)
+		a.SetRetryCount(0)
+		a.SetNextRetryAt(nil)
+		a.SetMessage("")
+		a.SetDriftDetected(false) // Clear drift flag after successful sync
+		a.SetDriftSummary("")
+		a.SetLastDriftCheckAt(&now)
+		if driftCorrectedAt != nil {
+			a.SetDriftCorrectedAt(driftCorrectedAt)
+		}
+		a.SetConditions(conditions.Set(
+			a.GetConditions(), a.GetGeneration(),
+			vaultv1alpha1.ConditionTypeReady, metav1.ConditionTrue,
+			vaultv1alpha1.ReasonSucceeded, "Role synced to Vault",
+		))
+		a.SetConditions(conditions.Set(
+			a.GetConditions(), a.GetGeneration(),
+			vaultv1alpha1.ConditionTypeSynced, metav1.ConditionTrue,
+			vaultv1alpha1.ReasonSucceeded, "Role synced successfully",
+		))
+	}); err != nil {
 		return fmt.Errorf("failed to update status to Active: %w", err)
 	}
 
@@ -264,7 +284,10 @@ func (h *Handler) CleanupRole(ctx context.Context, adapter domain.RoleAdapter) e
 		authPath = vault.DefaultKubernetesAuthPath
 	}
 
-	// Update phase to Deleting
+	// Update phase to Deleting (non-fatal if it fails)
+	// Note: Not using retry here because this is an informational status update
+	// and the error is ignored. Using retry would cause resource version conflicts
+	// with the subsequent finalizer removal in the reconciler.
 	adapter.SetPhase(vaultv1alpha1.PhaseDeleting)
 	if err := h.client.Status().Update(ctx, adapter.GetObject()); err != nil {
 		log.V(1).Info("failed to update status to Deleting (ignoring)", "error", err)
@@ -383,6 +406,7 @@ func (h *Handler) shouldAdopt(adapter domain.RoleAdapter) bool {
 
 // detectRoleDrift compares the expected role data with the current Vault role.
 // Returns whether drift was detected and a summary of differing fields.
+// Uses the shared drift.Comparator for consistent field comparison.
 func (h *Handler) detectRoleDrift(
 	ctx context.Context,
 	vaultClient *vault.Client,
@@ -400,100 +424,22 @@ func (h *Handler) detectRoleDrift(
 		return false, ""
 	}
 
-	var diffs []string
+	// Use shared drift comparator for consistent field comparison
+	comparator := drift.NewComparator()
 
-	// Compare policies
-	if !h.compareStringSlices(currentData["policies"], expectedData["policies"]) {
-		diffs = append(diffs, "policies")
-	}
+	// Compare string slice fields (order-independent)
+	comparator.CompareStringSlices("policies", expectedData["policies"], currentData["policies"])
+	comparator.CompareStringSlices("bound_service_account_names",
+		expectedData["bound_service_account_names"], currentData["bound_service_account_names"])
+	comparator.CompareStringSlices("bound_service_account_namespaces",
+		expectedData["bound_service_account_namespaces"], currentData["bound_service_account_namespaces"])
 
-	// Compare bound_service_account_names
-	if !h.compareStringSlices(currentData["bound_service_account_names"], expectedData["bound_service_account_names"]) {
-		diffs = append(diffs, "bound_service_account_names")
-	}
+	// Compare optional TTL fields (only if expected is set)
+	comparator.CompareValuesIfExpected("token_ttl", expectedData["token_ttl"], currentData["token_ttl"])
+	comparator.CompareValuesIfExpected("token_max_ttl", expectedData["token_max_ttl"], currentData["token_max_ttl"])
 
-	// Compare bound_service_account_namespaces
-	currentNs := currentData["bound_service_account_namespaces"]
-	expectedNs := expectedData["bound_service_account_namespaces"]
-	if !h.compareStringSlices(currentNs, expectedNs) {
-		diffs = append(diffs, "bound_service_account_namespaces")
-	}
-
-	// Compare token_ttl if set
-	if expectedTTL, ok := expectedData["token_ttl"]; ok {
-		if !h.compareValues(currentData["token_ttl"], expectedTTL) {
-			diffs = append(diffs, "token_ttl")
-		}
-	}
-
-	// Compare token_max_ttl if set
-	if expectedMaxTTL, ok := expectedData["token_max_ttl"]; ok {
-		if !h.compareValues(currentData["token_max_ttl"], expectedMaxTTL) {
-			diffs = append(diffs, "token_max_ttl")
-		}
-	}
-
-	if len(diffs) > 0 {
-		return true, "fields differ: " + strings.Join(diffs, ", ")
-	}
-	return false, ""
-}
-
-// compareStringSlices compares two interface{} values as string slices.
-func (h *Handler) compareStringSlices(a, b interface{}) bool {
-	sliceA := h.toStringSlice(a)
-	sliceB := h.toStringSlice(b)
-
-	if len(sliceA) != len(sliceB) {
-		return false
-	}
-
-	// Sort both slices for comparison
-	sort.Strings(sliceA)
-	sort.Strings(sliceB)
-
-	for i := range sliceA {
-		if sliceA[i] != sliceB[i] {
-			return false
-		}
-	}
-	return true
-}
-
-// toStringSlice converts an interface{} to []string.
-func (h *Handler) toStringSlice(v interface{}) []string {
-	if v == nil {
-		return nil
-	}
-
-	switch val := v.(type) {
-	case []string:
-		return val
-	case []interface{}:
-		result := make([]string, len(val))
-		for i, item := range val {
-			if s, ok := item.(string); ok {
-				result[i] = s
-			}
-		}
-		return result
-	default:
-		return nil
-	}
-}
-
-// compareValues compares two interface{} values.
-func (h *Handler) compareValues(a, b interface{}) bool {
-	// Handle nil cases
-	if a == nil && b == nil {
-		return true
-	}
-	if a == nil || b == nil {
-		return false
-	}
-
-	// Compare as strings for TTL values
-	return fmt.Sprintf("%v", a) == fmt.Sprintf("%v", b)
+	result := comparator.Result()
+	return result.HasDrift, result.Summary
 }
 
 // buildPolicyBindings creates PolicyBinding entries for tracking.
@@ -642,4 +588,37 @@ func (h *Handler) calculateSpecHash(roleData map[string]interface{}) string {
 	}
 	hash := sha256.Sum256(data)
 	return hex.EncodeToString(hash[:])
+}
+
+// updateStatusWithRetry updates the status with retry on conflict.
+// The applyStatus function is called with a fresh copy of the object to apply status changes.
+// This prevents "the object has been modified" errors under concurrent updates.
+func (h *Handler) updateStatusWithRetry(
+	ctx context.Context,
+	adapter domain.RoleAdapter,
+	applyStatus func(domain.RoleAdapter),
+) error {
+	return retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+		// Re-fetch the object to get the latest resourceVersion
+		obj := adapter.GetObject()
+		key := client.ObjectKeyFromObject(obj)
+
+		if adapter.IsNamespaced() {
+			var role vaultv1alpha1.VaultRole
+			if err := h.client.Get(ctx, key, &role); err != nil {
+				return err
+			}
+			freshAdapter := domain.NewVaultRoleAdapter(&role)
+			applyStatus(freshAdapter)
+			return h.client.Status().Update(ctx, freshAdapter.GetObject())
+		}
+
+		var role vaultv1alpha1.VaultClusterRole
+		if err := h.client.Get(ctx, key, &role); err != nil {
+			return err
+		}
+		freshAdapter := domain.NewVaultClusterRoleAdapter(&role)
+		applyStatus(freshAdapter)
+		return h.client.Status().Update(ctx, freshAdapter.GetObject())
+	})
 }

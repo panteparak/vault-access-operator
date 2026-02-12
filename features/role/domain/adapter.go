@@ -96,6 +96,7 @@ type RoleAdapter interface {
 	SetEffectiveDriftMode(mode vaultv1alpha1.DriftMode)
 	GetDriftSummary() string
 	SetDriftSummary(summary string)
+	GetDriftCorrectedAt() *metav1.Time
 	SetDriftCorrectedAt(t *metav1.Time)
 
 	// Vault resource binding
@@ -189,6 +190,7 @@ func (a *VaultRoleAdapter) GetDriftSummary() string { return a.Status.DriftSumma
 func (a *VaultRoleAdapter) SetDriftSummary(summary string) {
 	a.Status.DriftSummary = summary
 }
+func (a *VaultRoleAdapter) GetDriftCorrectedAt() *metav1.Time  { return a.Status.DriftCorrectedAt }
 func (a *VaultRoleAdapter) SetDriftCorrectedAt(t *metav1.Time) { a.Status.DriftCorrectedAt = t }
 
 // Vault resource binding
@@ -294,6 +296,9 @@ func (a *VaultClusterRoleAdapter) SetEffectiveDriftMode(mode vaultv1alpha1.Drift
 func (a *VaultClusterRoleAdapter) GetDriftSummary() string { return a.Status.DriftSummary }
 func (a *VaultClusterRoleAdapter) SetDriftSummary(summary string) {
 	a.Status.DriftSummary = summary
+}
+func (a *VaultClusterRoleAdapter) GetDriftCorrectedAt() *metav1.Time {
+	return a.Status.DriftCorrectedAt
 }
 func (a *VaultClusterRoleAdapter) SetDriftCorrectedAt(t *metav1.Time) {
 	a.Status.DriftCorrectedAt = t

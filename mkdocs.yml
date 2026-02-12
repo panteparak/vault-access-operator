@@ -48,10 +48,25 @@ markdown_extensions:
   - toc:
       permalink: true
 
-# Flat navigation
+# Hierarchical navigation
 nav:
   - Home: index.md
   - Getting Started: getting-started.md
+  - Concepts:
+    - Overview: concepts/index.md
+    - Architecture: concepts/architecture.md
+    - Drift Detection: concepts/drift-detection.md
+    - Discovery: concepts/discovery.md
+  - Authentication Methods:
+    - Overview: auth-methods/index.md
+    - Kubernetes: auth-methods/kubernetes.md
+    - JWT: auth-methods/jwt.md
+    - OIDC: auth-methods/oidc.md
+    - AWS IAM: auth-methods/aws-iam.md
+    - GCP IAM: auth-methods/gcp-iam.md
+    - AppRole: auth-methods/approle.md
+    - Token: auth-methods/token.md
+    - Bootstrap: auth-methods/bootstrap.md
   - Configuration: configuration.md
   - API Reference: api-reference.md
   - Examples: examples.md

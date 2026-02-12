@@ -481,6 +481,14 @@ spec:
                       for discovered unmanaged resources. Requires TargetNamespace to be set.
                       Created resources will have the adopt annotation set.
                     type: boolean
+                  customSystemPolicies:
+                    description: |-
+                      CustomSystemPolicies is a list of additional policy names to treat as system policies.
+                      These will be excluded from discovery when ExcludeSystemPolicies is true (default).
+                      Example: ["vault-agent-policy", "approle-policy"]
+                    items:
+                      type: string
+                    type: array
                   enabled:
                     description: Enabled activates resource discovery scanning.
                     type: boolean

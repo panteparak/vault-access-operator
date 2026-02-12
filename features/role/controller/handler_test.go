@@ -1387,3 +1387,202 @@ func BenchmarkSetCondition(b *testing.B) {
 			vaultv1alpha1.ReasonSucceeded, "test message")
 	}
 }
+
+// Tests for updateStatusWithRetry
+func TestUpdateStatusWithRetry_Success_VaultRole(t *testing.T) {
+	ctx := context.Background()
+	role := newVaultRole("test-role", "default")
+	fakeClient := newFakeClient(role)
+	handler := NewHandler(fakeClient, vault.NewClientCache(), nil, logr.Discard())
+	adapter := domain.NewVaultRoleAdapter(role)
+
+	// Update status using retry
+	err := handler.updateStatusWithRetry(ctx, adapter, func(a domain.RoleAdapter) {
+		a.SetPhase(vaultv1alpha1.PhaseActive)
+		a.SetMessage("sync completed")
+	})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify the status was updated in the API server
+	var updatedRole vaultv1alpha1.VaultRole
+	if err := fakeClient.Get(ctx, client.ObjectKeyFromObject(role), &updatedRole); err != nil {
+		t.Fatalf("failed to get updated role: %v", err)
+	}
+
+	if updatedRole.Status.Phase != vaultv1alpha1.PhaseActive {
+		t.Errorf("expected phase Active, got %s", updatedRole.Status.Phase)
+	}
+	if updatedRole.Status.Message != "sync completed" {
+		t.Errorf("expected message 'sync completed', got %q", updatedRole.Status.Message)
+	}
+}
+
+func TestUpdateStatusWithRetry_Success_VaultClusterRole(t *testing.T) {
+	ctx := context.Background()
+	clusterRole := newVaultClusterRole("test-cluster-role")
+	fakeClient := newFakeClient(clusterRole)
+	handler := NewHandler(fakeClient, vault.NewClientCache(), nil, logr.Discard())
+	adapter := domain.NewVaultClusterRoleAdapter(clusterRole)
+
+	// Update status using retry
+	err := handler.updateStatusWithRetry(ctx, adapter, func(a domain.RoleAdapter) {
+		a.SetPhase(vaultv1alpha1.PhaseActive)
+		a.SetVaultRoleName("test-cluster-role")
+	})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify the status was updated in the API server
+	var updatedRole vaultv1alpha1.VaultClusterRole
+	if err := fakeClient.Get(ctx, client.ObjectKeyFromObject(clusterRole), &updatedRole); err != nil {
+		t.Fatalf("failed to get updated cluster role: %v", err)
+	}
+
+	if updatedRole.Status.Phase != vaultv1alpha1.PhaseActive {
+		t.Errorf("expected phase Active, got %s", updatedRole.Status.Phase)
+	}
+	if updatedRole.Status.VaultRoleName != "test-cluster-role" {
+		t.Errorf("expected vault role name 'test-cluster-role', got %q", updatedRole.Status.VaultRoleName)
+	}
+}
+
+func TestUpdateStatusWithRetry_UpdatesLatestVersion(t *testing.T) {
+	ctx := context.Background()
+	role := newVaultRole("test-role", "default")
+	fakeClient := newFakeClient(role)
+	handler := NewHandler(fakeClient, vault.NewClientCache(), nil, logr.Discard())
+	adapter := domain.NewVaultRoleAdapter(role)
+
+	// First update
+	err := handler.updateStatusWithRetry(ctx, adapter, func(a domain.RoleAdapter) {
+		a.SetPhase(vaultv1alpha1.PhaseSyncing)
+	})
+	if err != nil {
+		t.Fatalf("first update failed: %v", err)
+	}
+
+	// Second update (adapter still has old resourceVersion, but retry should handle it)
+	err = handler.updateStatusWithRetry(ctx, adapter, func(a domain.RoleAdapter) {
+		a.SetPhase(vaultv1alpha1.PhaseActive)
+		a.SetMessage("second update")
+	})
+	if err != nil {
+		t.Fatalf("second update failed: %v", err)
+	}
+
+	// Verify final status
+	var updatedRole vaultv1alpha1.VaultRole
+	if err := fakeClient.Get(ctx, client.ObjectKeyFromObject(role), &updatedRole); err != nil {
+		t.Fatalf("failed to get updated role: %v", err)
+	}
+
+	if updatedRole.Status.Phase != vaultv1alpha1.PhaseActive {
+		t.Errorf("expected phase Active, got %s", updatedRole.Status.Phase)
+	}
+	if updatedRole.Status.Message != "second update" {
+		t.Errorf("expected message 'second update', got %q", updatedRole.Status.Message)
+	}
+}
+
+func TestUpdateStatusWithRetry_PreservesExistingStatus(t *testing.T) {
+	ctx := context.Background()
+	role := newVaultRole("test-role", "default")
+	role.Status.VaultRoleName = "existing-vault-role"
+	role.Status.Managed = true
+	fakeClient := newFakeClient(role)
+	handler := NewHandler(fakeClient, vault.NewClientCache(), nil, logr.Discard())
+	adapter := domain.NewVaultRoleAdapter(role)
+
+	// Update only the phase, keeping other fields
+	err := handler.updateStatusWithRetry(ctx, adapter, func(a domain.RoleAdapter) {
+		a.SetPhase(vaultv1alpha1.PhaseActive)
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify existing status is preserved
+	var updatedRole vaultv1alpha1.VaultRole
+	if err := fakeClient.Get(ctx, client.ObjectKeyFromObject(role), &updatedRole); err != nil {
+		t.Fatalf("failed to get updated role: %v", err)
+	}
+
+	if updatedRole.Status.VaultRoleName != "existing-vault-role" {
+		t.Errorf("expected vault role name 'existing-vault-role', got %q", updatedRole.Status.VaultRoleName)
+	}
+	if !updatedRole.Status.Managed {
+		t.Error("expected Managed to remain true")
+	}
+}
+
+func TestUpdateStatusWithRetry_NotFound(t *testing.T) {
+	ctx := context.Background()
+	role := newVaultRole("non-existent-role", "default")
+	fakeClient := newFakeClient() // Empty client, role doesn't exist
+	handler := NewHandler(fakeClient, vault.NewClientCache(), nil, logr.Discard())
+	adapter := domain.NewVaultRoleAdapter(role)
+
+	err := handler.updateStatusWithRetry(ctx, adapter, func(a domain.RoleAdapter) {
+		a.SetPhase(vaultv1alpha1.PhaseActive)
+	})
+
+	if err == nil {
+		t.Fatal("expected error for non-existent role")
+	}
+}
+
+func TestUpdateStatusWithRetry_MultipleFields(t *testing.T) {
+	ctx := context.Background()
+	role := newVaultRole("test-role", "default")
+	fakeClient := newFakeClient(role)
+	handler := NewHandler(fakeClient, vault.NewClientCache(), nil, logr.Discard())
+	adapter := domain.NewVaultRoleAdapter(role)
+
+	now := metav1.Now()
+	err := handler.updateStatusWithRetry(ctx, adapter, func(a domain.RoleAdapter) {
+		a.SetPhase(vaultv1alpha1.PhaseActive)
+		a.SetVaultRoleName("default-test-role")
+		a.SetManaged(true)
+		a.SetResolvedPolicies([]string{"policy1", "policy2"})
+		a.SetBoundServiceAccounts([]string{"default/sa1", "default/sa2"})
+		a.SetLastSyncedAt(&now)
+		a.SetMessage("all fields updated")
+	})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify all fields
+	var updatedRole vaultv1alpha1.VaultRole
+	if err := fakeClient.Get(ctx, client.ObjectKeyFromObject(role), &updatedRole); err != nil {
+		t.Fatalf("failed to get updated role: %v", err)
+	}
+
+	if updatedRole.Status.Phase != vaultv1alpha1.PhaseActive {
+		t.Errorf("expected phase Active, got %s", updatedRole.Status.Phase)
+	}
+	if updatedRole.Status.VaultRoleName != "default-test-role" {
+		t.Errorf("expected vault role name 'default-test-role', got %q", updatedRole.Status.VaultRoleName)
+	}
+	if !updatedRole.Status.Managed {
+		t.Error("expected Managed to be true")
+	}
+	if len(updatedRole.Status.ResolvedPolicies) != 2 {
+		t.Errorf("expected 2 resolved policies, got %d", len(updatedRole.Status.ResolvedPolicies))
+	}
+	if len(updatedRole.Status.BoundServiceAccounts) != 2 {
+		t.Errorf("expected 2 bound service accounts, got %d", len(updatedRole.Status.BoundServiceAccounts))
+	}
+	if updatedRole.Status.LastSyncedAt == nil {
+		t.Error("expected LastSyncedAt to be set")
+	}
+	if updatedRole.Status.Message != "all fields updated" {
+		t.Errorf("expected message 'all fields updated', got %q", updatedRole.Status.Message)
+	}
+}

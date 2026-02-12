@@ -127,9 +127,12 @@ test: manifests generate fmt vet setup-envtest ## Run unit tests (excludes e2e a
 
 # E2E tests run in CI (docker-compose k3s with Vault + operator pre-deployed).
 # This target assumes a running cluster — see .github/workflows/ci.yaml for full setup.
+# E2E_K8S_HOST tells the test suite where Vault can reach the K8s API (docker network DNS for external Vault).
+E2E_K8S_HOST ?= https://k3s:6443
+
 .PHONY: test-e2e
 test-e2e: manifests generate fmt vet ## Run E2E tests (requires running cluster with Vault + operator deployed)
-	go test ./test/e2e/ -v -ginkgo.v -ginkgo.fail-fast -timeout 10m
+	E2E_K8S_HOST=$(E2E_K8S_HOST) go test ./test/e2e/ -v -ginkgo.v -ginkgo.fail-fast -timeout 10m
 
 ##@ E2E Tests - Sequential Execution
 
@@ -138,11 +141,11 @@ test-e2e-sequential: test-e2e-auth test-e2e-modules ## Run E2E tests: auth first
 
 .PHONY: test-e2e-auth
 test-e2e-auth: ## Run auth tests only
-	go test ./test/e2e/ -v -ginkgo.v -ginkgo.label-filter="auth" -timeout 10m
+	E2E_K8S_HOST=$(E2E_K8S_HOST) go test ./test/e2e/ -v -ginkgo.v -ginkgo.label-filter="auth" -timeout 10m
 
 .PHONY: test-e2e-modules
 test-e2e-modules: ## Run module tests only (after auth)
-	go test ./test/e2e/ -v -ginkgo.v -ginkgo.label-filter="module || setup" -timeout 15m
+	E2E_K8S_HOST=$(E2E_K8S_HOST) go test ./test/e2e/ -v -ginkgo.v -ginkgo.label-filter="module || setup" -timeout 15m
 
 ##@ E2E Infrastructure (Mini-Step Targets)
 # These targets are used by both local development and CI.
@@ -240,15 +243,19 @@ e2e-configure-vault: ## Configure Vault auth methods and policies for E2E
 	@$(E2E_VAULT_EXEC) auth enable -path=oidc jwt 2>/dev/null || true
 	@echo "Configuring Kubernetes auth..."
 	@# Extract the TLS server CA from kubeconfig (NOT the SA CA — they differ in k3s 1.25+)
+	@# Use a 24h token to avoid expiration during long test runs
+	@# Also configure issuer for proper JWT validation
 	@K8S_CA=$$($(E2E_KUBECTL) config view --raw --minify -o jsonpath='{.clusters[0].cluster.certificate-authority-data}' | base64 -d); \
-	VAULT_AUTH_TOKEN=$$($(E2E_KUBECTL) create token vault-auth -n vault); \
+	VAULT_AUTH_TOKEN=$$($(E2E_KUBECTL) create token vault-auth -n vault --duration=24h); \
+	ISSUER=$$($(E2E_KUBECTL) get --raw /.well-known/openid-configuration | jq -r '.issuer'); \
 	jq -n \
 		--arg host "https://k3s:6443" \
 		--arg jwt "$$VAULT_AUTH_TOKEN" \
 		--arg ca "$$K8S_CA" \
-		'{kubernetes_host: $$host, token_reviewer_jwt: $$jwt, kubernetes_ca_cert: $$ca}' | \
+		--arg issuer "$$ISSUER" \
+		'{kubernetes_host: $$host, token_reviewer_jwt: $$jwt, kubernetes_ca_cert: $$ca, issuer: $$issuer}' | \
 	$(E2E_VAULT_EXEC) write auth/kubernetes/config -
-	@echo "Kubernetes auth configured (host=https://k3s:6443)"
+	@echo "Kubernetes auth configured (host=https://k3s:6443, issuer=$$ISSUER)"
 	@echo "Creating operator role in Kubernetes auth..."
 	@$(E2E_VAULT_EXEC) write auth/kubernetes/role/vault-access-operator \
 		bound_service_account_names=vault-access-operator \
@@ -257,16 +264,29 @@ e2e-configure-vault: ## Configure Vault auth methods and policies for E2E
 		ttl=1h
 	@echo "Operator role created"
 	@echo "Configuring JWT auth..."
-	@# External Vault can't resolve kubernetes.default.svc — use jwks_url via docker network
-	@K8S_CA=$$($(E2E_KUBECTL) config view --raw --minify -o jsonpath='{.clusters[0].cluster.certificate-authority-data}' | base64 -d); \
+	@# External Vault can't reach k3s JWKS endpoint due to TLS issues
+	@# Convert JWKS to PEM and provide directly via jwt_validation_pubkeys
+	@JWKS=$$($(E2E_KUBECTL) get --raw /openid/v1/jwks); \
 	ISSUER=$$($(E2E_KUBECTL) get --raw /.well-known/openid-configuration | jq -r '.issuer'); \
-	jq -n \
-		--arg issuer "$$ISSUER" \
-		--arg ca "$$K8S_CA" \
-		--arg jwks_url "https://k3s:6443/openid/v1/jwks" \
-		'{jwks_url: $$jwks_url, jwks_ca_pem: $$ca, bound_issuer: $$issuer}' | \
-	$(E2E_VAULT_EXEC) write auth/jwt/config -
-	@echo "JWT auth configured (jwks_url=https://k3s:6443/openid/v1/jwks)"
+	N=$$(echo "$$JWKS" | jq -r '.keys[0].n'); \
+	E=$$(echo "$$JWKS" | jq -r '.keys[0].e'); \
+	PEM=$$(python3 -c " \
+import base64, sys; \
+def b64d(d): return base64.urlsafe_b64decode(d + '=' * (4 - len(d) % 4)); \
+n = int.from_bytes(b64d('$$N'), 'big'); \
+e = int.from_bytes(b64d('$$E'), 'big'); \
+def enc_len(l): return bytes([l]) if l < 128 else bytes([0x80 | len(lb := l.to_bytes((l.bit_length()+7)//8, 'big'))]) + lb; \
+def enc_int(x): b = x.to_bytes((x.bit_length()+7)//8, 'big'); b = b'\\x00' + b if b[0] & 0x80 else b; return b'\\x02' + enc_len(len(b)) + b; \
+seq = enc_int(n) + enc_int(e); seq_der = b'\\x30' + enc_len(len(seq)) + seq; \
+oid = b'\\x30' + enc_len(13) + b'\\x06\\x09\\x2a\\x86\\x48\\x86\\xf7\\x0d\\x01\\x01\\x01\\x05\\x00'; \
+bs = b'\\x03' + enc_len(len(seq_der)+1) + b'\\x00' + seq_der; \
+spki = b'\\x30' + enc_len(len(oid)+len(bs)) + oid + bs; \
+print('-----BEGIN PUBLIC KEY-----'); print(base64.b64encode(spki).decode()); print('-----END PUBLIC KEY-----') \
+	"); \
+	$(E2E_VAULT_EXEC) write auth/jwt/config \
+		jwt_validation_pubkeys="$$PEM" \
+		bound_issuer="$$ISSUER"
+	@echo "JWT auth configured with static public key"
 	@echo "Configuring OIDC auth with Dex..."
 	@# Dex has docker network alias dex.default.svc.cluster.local — Vault resolves it via docker DNS
 	@$(E2E_VAULT_EXEC) write auth/oidc/config \
