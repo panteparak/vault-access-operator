@@ -323,6 +323,19 @@ jobs:
           helm lint charts/vault-access-operator
           helm template test charts/vault-access-operator --set image.tag=test > /dev/null
 
+      - name: Build install manifest
+        run: |
+          make build-installer IMG=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          # Reset kustomization.yaml change from build-installer
+          git checkout config/manager/kustomization.yaml
+
+      - name: Upload install manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: install-manifest
+          path: dist/install.yaml
+          retention-days: 7
+
       - name: Compare Kustomize and Helm templates
         id: template-compare
         run: |
@@ -677,6 +690,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: [lint, unit-test, integration-test, verify, docker-build, docker-manifest]
     if: always()
+    outputs:
+      image-tag: ${{ needs.docker-build.outputs.image-tag }}
     steps:
       - name: Check results
         run: |

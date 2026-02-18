@@ -1,14 +1,22 @@
 name: Release
 
 on:
-  push:
-    tags: ['v*']
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g., v0.3.0)'
+        required: true
+        type: string
 
 permissions:
   contents: write
   packages: write
   pages: write
   id-token: write
+  actions: read
 
 env:
   REGISTRY: ghcr.io
@@ -16,28 +24,61 @@ env:
 
 jobs:
   # ============================================================================
-  # Validate release tag
+  # Guard: Verify CI passed and extract release metadata
   # ============================================================================
 
-  validate:
-    name: Validate Release
+  guard:
+    name: Guard
     runs-on: ubuntu-latest
     outputs:
+      should-release: ${{ steps.version.outputs.should-release }}
       version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      image-tag: ${{ steps.image-tag.outputs.image-tag }}
+      ci-run-id: ${{ steps.ci-run.outputs.run-id }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Check CI conclusion
+        if: github.event_name == 'workflow_run'
+        env:
+          WR_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+        run: |
+          if [[ "$WR_CONCLUSION" != "success" ]]; then
+            echo "::error::CI workflow did not succeed (conclusion: $WR_CONCLUSION)"
+            exit 1
+          fi
 
-      - name: Extract version
+      - name: Extract tag and version
         id: version
         env:
-          REF_NAME: ${{ github.ref_name }}
+          WR_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          WD_TAG: ${{ inputs.tag }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
-          # Extract version from tag (remove 'v' prefix)
-          VERSION="${REF_NAME#v}"
-          echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          echo "Release version: ${VERSION}"
+          if [[ "$EVENT_NAME" == "workflow_run" ]]; then
+            TAG="$WR_HEAD_BRANCH"
+          else
+            TAG="$WD_TAG"
+          fi
+
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9] ]]; then
+            echo "::notice::Not a version tag ($TAG), skipping release"
+            echo "should-release=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          VERSION="${TAG#v}"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "should-release=true" >> $GITHUB_OUTPUT
+          echo "Release: $TAG (version $VERSION)"
+
+      - uses: actions/checkout@v4
+        if: steps.version.outputs.should-release == 'true'
+        with:
+          ref: ${{ steps.version.outputs.tag }}
 
       - name: Validate Chart.yaml version
+        if: steps.version.outputs.should-release == 'true'
         env:
           TAG_VERSION: ${{ steps.version.outputs.version }}
         run: |
@@ -48,20 +89,49 @@ jobs:
           fi
           echo "Chart version matches tag: ${CHART_VERSION}"
 
+      - name: Compute image tag
+        if: steps.version.outputs.should-release == 'true'
+        id: image-tag
+        env:
+          WR_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [[ "$EVENT_NAME" == "workflow_run" ]]; then
+            SHA="$WR_HEAD_SHA"
+          else
+            SHA=$(git rev-parse HEAD)
+          fi
+          SHORT_SHA="${SHA:0:7}"
+          echo "image-tag=sha-${SHORT_SHA}" >> $GITHUB_OUTPUT
+          echo "Image tag: sha-${SHORT_SHA}"
+
+      - name: Set CI run ID
+        if: steps.version.outputs.should-release == 'true'
+        id: ci-run
+        env:
+          WR_RUN_ID: ${{ github.event.workflow_run.id }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [[ "$EVENT_NAME" == "workflow_run" ]]; then
+            echo "run-id=$WR_RUN_ID" >> $GITHUB_OUTPUT
+          else
+            echo "run-id=" >> $GITHUB_OUTPUT
+          fi
+
   # ============================================================================
-  # Build and push release images
+  # Docker Release: Retag CI images or rebuild (manual dispatch)
   # ============================================================================
-  # Note: CI workflow runs separately on tag push and will test the code.
-  # This release workflow proceeds with artifact creation in parallel.
+  # For workflow_run: retags CI-built SHA images to version tags using
+  # `docker buildx imagetools create`. This is a manifest-only operation —
+  # no rebuild, bit-for-bit identical to what CI tested.
+  # For workflow_dispatch: rebuilds from source as a fallback.
 
   docker-release:
     name: Docker Release
     runs-on: ubuntu-latest
-    needs: [validate]
+    needs: [guard]
+    if: needs.guard.outputs.should-release == 'true'
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
 
       - uses: docker/login-action@v3
@@ -70,14 +140,37 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push
+      # workflow_run: retag existing CI-tested images
+      - name: Retag CI images to release version
+        if: needs.guard.outputs.ci-run-id != ''
+        env:
+          IMAGE_TAG: ${{ needs.guard.outputs.image-tag }}
+          VERSION: ${{ needs.guard.outputs.version }}
+        run: |
+          echo "Retagging ${IMAGE_TAG} -> ${VERSION} and latest"
+          docker buildx imagetools create \
+            -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${VERSION} \
+            -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${IMAGE_TAG}
+
+      # workflow_dispatch fallback: rebuild from source
+      - uses: actions/checkout@v4
+        if: needs.guard.outputs.ci-run-id == ''
+        with:
+          ref: ${{ needs.guard.outputs.tag }}
+
+      - uses: docker/setup-qemu-action@v3
+        if: needs.guard.outputs.ci-run-id == ''
+
+      - name: Build and push (manual dispatch)
+        if: needs.guard.outputs.ci-run-id == ''
         uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.validate.outputs.version }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.guard.outputs.version }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -89,39 +182,79 @@ jobs:
   github-release:
     name: GitHub Release
     runs-on: ubuntu-latest
-    needs: [validate, docker-release]
+    needs: [guard, docker-release]
+    if: needs.guard.outputs.should-release == 'true'
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ needs.guard.outputs.tag }}
           fetch-depth: 0
 
-      - name: Generate changelog
-        id: changelog
-        env:
-          REF_NAME: ${{ github.ref_name }}
-        run: |
-          # Get previous tag
-          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+      # Download SBOMs from CI run (only available via workflow_run)
+      - name: Download SBOM (linux-amd64)
+        if: needs.guard.outputs.ci-run-id != ''
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ needs.guard.outputs.ci-run-id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          name: sbom-linux-amd64
+          path: /tmp/sbom-amd64/
+        continue-on-error: true
 
+      - name: Download SBOM (linux-arm64)
+        if: needs.guard.outputs.ci-run-id != ''
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ needs.guard.outputs.ci-run-id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          name: sbom-linux-arm64
+          path: /tmp/sbom-arm64/
+        continue-on-error: true
+
+      # Generate install manifest with correct version
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build install manifest
+        env:
+          VERSION: ${{ needs.guard.outputs.version }}
+        run: make build-installer IMG=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${VERSION}
+
+      # Prepare all release assets
+      - name: Prepare release assets
+        run: |
+          mkdir -p release-assets
+          cp dist/install.yaml release-assets/
+          [ -f /tmp/sbom-amd64/sbom.json ] && cp /tmp/sbom-amd64/sbom.json release-assets/sbom-linux-amd64.json || true
+          [ -f /tmp/sbom-arm64/sbom.json ] && cp /tmp/sbom-arm64/sbom.json release-assets/sbom-linux-arm64.json || true
+          echo "Release assets:"
+          ls -la release-assets/
+
+      - name: Generate changelog
+        env:
+          TAG: ${{ needs.guard.outputs.tag }}
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
           if [ -n "$PREV_TAG" ]; then
-            echo "Generating changelog from $PREV_TAG to $REF_NAME"
-            CHANGELOG=$(git log --pretty=format:"- %s" "$PREV_TAG".."$REF_NAME" | head -50)
+            echo "Generating changelog from $PREV_TAG to $TAG"
+            CHANGELOG=$(git log --pretty=format:"- %s" "$PREV_TAG".."$TAG" | head -50)
           else
             echo "No previous tag found, using all commits"
             CHANGELOG=$(git log --pretty=format:"- %s" | head -50)
           fi
-
-          # Write to file to handle multiline
           echo "$CHANGELOG" > /tmp/changelog.txt
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          name: ${{ github.ref_name }}
+          tag_name: ${{ needs.guard.outputs.tag }}
+          name: ${{ needs.guard.outputs.tag }}
           body_path: /tmp/changelog.txt
           generate_release_notes: true
           draft: false
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          prerelease: ${{ contains(needs.guard.outputs.tag, '-') }}
+          files: release-assets/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -132,10 +265,12 @@ jobs:
   helm-release:
     name: Helm Chart Release
     runs-on: ubuntu-latest
-    needs: [validate, github-release]
+    needs: [guard, github-release]
+    if: needs.guard.outputs.should-release == 'true'
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ needs.guard.outputs.tag }}
           fetch-depth: 0
 
       - name: Configure Git
@@ -192,7 +327,7 @@ jobs:
 
       - name: Push to gh-pages
         env:
-          REF_NAME: ${{ github.ref_name }}
+          TAG: ${{ needs.guard.outputs.tag }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           cd gh-pages
@@ -201,7 +336,7 @@ jobs:
           git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
 
           git add charts/
-          git commit -m "Release Helm chart $REF_NAME" || echo "No changes to commit"
+          git commit -m "Release Helm chart $TAG" || echo "No changes to commit"
           git push origin HEAD:gh-pages --force || true
 
   # ============================================================================
@@ -211,9 +346,12 @@ jobs:
   docs-release:
     name: Deploy Documentation
     runs-on: ubuntu-latest
-    needs: [validate, github-release]
+    needs: [guard, github-release]
+    if: needs.guard.outputs.should-release == 'true'
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.guard.outputs.tag }}
       - uses: actions/setup-python@v5
         with:
           python-version: '3.x'
@@ -223,7 +361,7 @@ jobs:
       - name: Deploy to gh-pages
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REF_NAME: ${{ github.ref_name }}
+          TAG: ${{ needs.guard.outputs.tag }}
         run: |
           git clone --branch gh-pages --single-branch \
             "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git" gh-pages 2>/dev/null || {
@@ -237,7 +375,7 @@ jobs:
           cd gh-pages
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add -A && git commit -m "Deploy docs for $REF_NAME" || true
+          git add -A && git commit -m "Deploy docs for $TAG" || true
           git push origin gh-pages --force
 
   # ============================================================================
@@ -247,14 +385,15 @@ jobs:
   release-summary:
     name: Release Summary
     runs-on: ubuntu-latest
-    needs: [validate, docker-release, github-release, helm-release, docs-release]
+    needs: [guard, docker-release, github-release, helm-release, docs-release]
+    if: always() && needs.guard.outputs.should-release == 'true'
     env:
-      VERSION: ${{ needs.validate.outputs.version }}
-      REF_NAME: ${{ github.ref_name }}
+      VERSION: ${{ needs.guard.outputs.version }}
+      TAG: ${{ needs.guard.outputs.tag }}
     steps:
       - name: Summary
         run: |
-          echo "## Release $REF_NAME Complete!" >> $GITHUB_STEP_SUMMARY
+          echo "## Release $TAG Complete!" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Artifacts" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -263,4 +402,4 @@ jobs:
           echo "| Docker Image | ghcr.io/${{ github.repository }}:$VERSION |" >> $GITHUB_STEP_SUMMARY
           echo "| Helm Chart | helm repo add vault-access-operator https://panteparak.github.io/vault-access-operator/charts |" >> $GITHUB_STEP_SUMMARY
           echo "| Documentation | https://panteparak.github.io/vault-access-operator/ |" >> $GITHUB_STEP_SUMMARY
-          echo "| GitHub Release | https://github.com/${{ github.repository }}/releases/tag/$REF_NAME |" >> $GITHUB_STEP_SUMMARY
+          echo "| GitHub Release | https://github.com/${{ github.repository }}/releases/tag/$TAG |" >> $GITHUB_STEP_SUMMARY
