@@ -13,22 +13,32 @@ Bootstrap authentication is used for initial Vault setup when the Kubernetes aut
 3. Operator transitions to Kubernetes auth
 4. Bootstrap token is optionally revoked
 
-```
-Phase 1: Bootstrap                    Phase 2: Operational
-┌─────────────────┐                   ┌─────────────────┐
-│   Bootstrap     │    Configure      │   Kubernetes    │
-│   Token         │ ──────────────►   │   Auth Method   │
-└────────┬────────┘                   └────────┬────────┘
-         │                                     │
-         │ Authenticate                        │ Authenticate
-         ▼                                     ▼
-┌─────────────────┐                   ┌─────────────────┐
-│      Vault      │                   │      Vault      │
-└─────────────────┘                   └─────────────────┘
-         │                                     │
-         │ Auto-revoke                         │
-         ▼                                     │
-    [Token Revoked]                     [Normal Operation]
+```mermaid
+sequenceDiagram
+    participant BT as Bootstrap Token
+    participant Op as Operator
+    participant V as Vault
+    participant K8s as K8s Auth Method
+
+    rect rgb(255, 245, 235)
+        Note over BT,V: Phase 1: Bootstrap
+        Op->>BT: Read token
+        BT-->>Op: Bootstrap token
+        Op->>V: Authenticate
+        V-->>Op: Access granted
+        Op->>V: Configure K8s auth method
+    end
+
+    rect rgb(235, 245, 255)
+        Note over Op,K8s: Phase 2: Operational
+        Op->>V: Authenticate via K8s auth
+        V->>K8s: Validate
+        K8s-->>V: Valid
+        V-->>Op: Vault Token
+    end
+
+    Op->>V: Auto-revoke bootstrap token
+    Note over Op: Normal Operation
 ```
 
 ## Prerequisites

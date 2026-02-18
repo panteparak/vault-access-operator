@@ -13,19 +13,17 @@ AppRole authentication is designed for machine-to-machine authentication, making
 3. Vault validates the credentials
 4. Vault returns a token with the configured policies
 
-```
-┌─────────────────┐
-│   K8s Secret    │
-│   (RoleID +     │
-│    SecretID)    │
-└────────┬────────┘
-         │ 1. Read credentials
-         ▼
-┌─────────────────┐     2. Login          ┌─────────────────┐
-│                 │ ─────────────────────►│                 │
-│    Operator     │                       │      Vault      │
-│                 │◄───────────────────── │                 │
-└─────────────────┘     3. Vault Token    └─────────────────┘
+```mermaid
+sequenceDiagram
+    participant S as K8s Secret<br/>(RoleID + SecretID)
+    participant Op as Operator
+    participant V as Vault
+
+    Op->>S: 1. Read credentials
+    S-->>Op: RoleID + SecretID
+    Op->>V: 2. Login
+    V-->>Op: 3. Vault Token
+    Note over Op: Authenticated
 ```
 
 ## Prerequisites

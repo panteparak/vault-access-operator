@@ -13,24 +13,20 @@ GCP IAM authentication enables GKE workloads to authenticate to Vault using Work
 3. Vault verifies the JWT with GCP
 4. Vault returns a token with the configured policies
 
-```
-┌─────────────────┐     1. Get JWT         ┌─────────────────┐
-│                 │ ──────────────────────►│   GCP IAM       │
-│    Operator     │                        │   Credentials   │
-│    (GKE Pod)    │◄────────────────────── │   API           │
-└────────┬────────┘     2. Signed JWT      └─────────────────┘
-         │
-         │ 3. Login with JWT
-         ▼
-┌─────────────────┐     4. Verify JWT      ┌─────────────────┐
-│                 │ ──────────────────────►│                 │
-│      Vault      │                        │     GCP IAM     │
-│                 │◄────────────────────── │                 │
-└─────────────────┘     5. Valid           └─────────────────┘
-         │
-         │ 6. Return Vault Token
-         ▼
-    [Authenticated]
+```mermaid
+sequenceDiagram
+    participant Op as Operator (GKE Pod)
+    participant GCPC as GCP IAM Credentials API
+    participant V as Vault
+    participant GCP as GCP IAM
+
+    Op->>GCPC: 1. Get JWT
+    GCPC-->>Op: 2. Signed JWT
+    Op->>V: 3. Login with JWT
+    V->>GCP: 4. Verify JWT
+    GCP-->>V: 5. Valid
+    V-->>Op: 6. Return Vault Token
+    Note over Op: Authenticated
 ```
 
 ## Prerequisites

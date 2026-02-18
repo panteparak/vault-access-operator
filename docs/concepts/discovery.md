@@ -18,23 +18,13 @@ When adopting Vault Access Operator in an existing environment, you likely have:
 
 ## How It Works
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                        Discovery Process                                 │
-│                                                                         │
-│  ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────────┐ │
-│  │ VaultConnection │    │   List Vault    │    │  Filter by Pattern  │ │
-│  │ (discovery.     │───►│   Resources     │───►│  & Exclude System   │ │
-│  │  enabled=true)  │    │   (policies,    │    │  Policies           │ │
-│  └─────────────────┘    │    roles)       │    └──────────┬──────────┘ │
-│                         └─────────────────┘               │            │
-│                                                           ▼            │
-│  ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────────┐ │
-│  │ Update Status   │◄───│  Compare with   │◄───│ Unmanaged Resources │ │
-│  │ (discovered     │    │  K8s Resources  │    │ (no matching CR)    │ │
-│  │  resources)     │    └─────────────────┘    └─────────────────────┘ │
-│  └─────────────────┘                                                   │
-└─────────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+    A["VaultConnection<br/>(discovery.enabled=true)"] --> B["List Vault Resources<br/>(policies, roles)"]
+    B --> C["Filter by Pattern<br/>& Exclude System Policies"]
+    C --> D["Unmanaged Resources<br/>(no matching CR)"]
+    D --> E["Compare with<br/>K8s Resources"]
+    E --> F["Update Status<br/>(discovered resources)"]
 ```
 
 ## Enabling Discovery

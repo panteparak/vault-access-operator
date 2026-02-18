@@ -13,24 +13,19 @@ Kubernetes authentication is the standard method for authenticating workloads ru
 3. Vault validates the token against the Kubernetes API server
 4. Vault returns a Vault token with the configured policies
 
-```
-┌─────────────────┐     1. TokenRequest     ┌─────────────────┐
-│                 │ ───────────────────────►│                 │
-│    Operator     │                         │  Kubernetes API │
-│                 │◄─────────────────────── │                 │
-└────────┬────────┘     2. SA Token         └─────────────────┘
-         │                                           │
-         │ 3. Login with SA Token                    │
-         ▼                                           │
-┌─────────────────┐     4. Validate Token   ─────────┘
-│                 │ ────────────────────────►
-│      Vault      │
-│                 │◄────────────────────────
-└─────────────────┘     5. Token Valid
-         │
-         │ 6. Return Vault Token
-         ▼
-    [Authenticated]
+```mermaid
+sequenceDiagram
+    participant Op as Operator
+    participant K8s as Kubernetes API
+    participant V as Vault
+
+    Op->>K8s: 1. TokenRequest
+    K8s-->>Op: 2. SA Token
+    Op->>V: 3. Login with SA Token
+    V->>K8s: 4. Validate Token
+    K8s-->>V: 5. Token Valid
+    V-->>Op: 6. Return Vault Token
+    Note over Op: Authenticated
 ```
 
 ## Prerequisites

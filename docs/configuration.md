@@ -5,8 +5,8 @@ This page documents all available Helm chart configuration options.
 ## Installation
 
 ```bash
-helm repo add vault-access-operator https://panteparak.github.io/vault-access-operator/charts
-helm install vault-access-operator vault-access-operator/vault-access-operator \
+helm install vault-access-operator \
+  oci://ghcr.io/panteparak/vault-access-operator/charts/vault-access-operator \
   --namespace vault-access-operator-system \
   --create-namespace \
   -f values.yaml

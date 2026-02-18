@@ -58,32 +58,28 @@ spec:
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                          Kubernetes Cluster                              │
-│  ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐      │
-│  │   VaultPolicy   │    │   VaultRole     │    │ VaultConnection │      │
-│  │   (namespace)   │    │   (namespace)   │    │    (cluster)    │      │
-│  └────────┬────────┘    └────────┬────────┘    └────────┬────────┘      │
-│           │                      │                      │               │
-│           └──────────────────────┼──────────────────────┘               │
-│                                  │                                      │
-│                    ┌─────────────▼─────────────┐                        │
-│                    │   Vault Access Operator   │                        │
-│                    │  ┌─────────────────────┐  │                        │
-│                    │  │ Policy Controller   │  │                        │
-│                    │  │ Role Controller     │  │                        │
-│                    │  │ Connection Manager  │  │                        │
-│                    │  └─────────────────────┘  │                        │
-│                    └─────────────┬─────────────┘                        │
-└──────────────────────────────────┼──────────────────────────────────────┘
-                                   │
-                    ┌──────────────▼──────────────┐
-                    │      HashiCorp Vault        │
-                    │  ┌────────┐  ┌────────────┐ │
-                    │  │Policies│  │ Auth Roles │ │
-                    │  └────────┘  └────────────┘ │
-                    └─────────────────────────────┘
+```mermaid
+graph TD
+    subgraph K8s["Kubernetes Cluster"]
+        VP["VaultPolicy<br/>(namespace)"]
+        VR["VaultRole<br/>(namespace)"]
+        VConn["VaultConnection<br/>(cluster)"]
+        subgraph Operator["Vault Access Operator"]
+            PC["Policy Controller"]
+            RC["Role Controller"]
+            CM["Connection Manager"]
+        end
+    end
+
+    subgraph Vault["HashiCorp Vault"]
+        P["Policies"]
+        AR["Auth Roles"]
+    end
+
+    VP --> Operator
+    VR --> Operator
+    VConn --> Operator
+    Operator --> Vault
 ```
 
 ## Quick Start
@@ -99,10 +95,8 @@ spec:
 **Option 1: Helm (Recommended)**
 
 ```bash
-helm repo add vault-access-operator https://panteparak.github.io/vault-access-operator/charts
-helm repo update
-
-helm install vault-access-operator vault-access-operator/vault-access-operator \
+helm install vault-access-operator \
+  oci://ghcr.io/panteparak/vault-access-operator/charts/vault-access-operator \
   --namespace vault-access-operator-system \
   --create-namespace
 ```

@@ -13,24 +13,19 @@ AWS IAM authentication enables EKS workloads to authenticate to Vault using IAM 
 3. Vault verifies the signed request with AWS STS
 4. Vault returns a token with the configured policies
 
-```
-┌─────────────────┐     1. Inject Token     ┌─────────────────┐
-│                 │◄─────────────────────── │     AWS STS     │
-│    Operator     │                         │     (IRSA)      │
-│    (EKS Pod)    │                         └─────────────────┘
-└────────┬────────┘
-         │
-         │ 2. Login with signed STS request
-         ▼
-┌─────────────────┐     3. Verify with STS  ┌─────────────────┐
-│                 │ ───────────────────────►│                 │
-│      Vault      │                         │     AWS STS     │
-│                 │◄─────────────────────── │                 │
-└─────────────────┘     4. Identity Valid   └─────────────────┘
-         │
-         │ 5. Return Vault Token
-         ▼
-    [Authenticated]
+```mermaid
+sequenceDiagram
+    participant IRSA as AWS STS (IRSA)
+    participant Op as Operator (EKS Pod)
+    participant V as Vault
+    participant STS as AWS STS
+
+    IRSA-->>Op: 1. Inject Token
+    Op->>V: 2. Login with signed STS request
+    V->>STS: 3. Verify with STS
+    STS-->>V: 4. Identity Valid
+    V-->>Op: 5. Return Vault Token
+    Note over Op: Authenticated
 ```
 
 ## Prerequisites

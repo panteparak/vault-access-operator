@@ -20,18 +20,16 @@ Token authentication uses a static Vault token stored in a Kubernetes secret. Th
 2. The operator reads the token from the secret
 3. The token is used directly for Vault API calls
 
-```
-┌─────────────────┐
-│   K8s Secret    │
-│   (Vault Token) │
-└────────┬────────┘
-         │ 1. Read token
-         ▼
-┌─────────────────┐     2. Use token      ┌─────────────────┐
-│                 │ ─────────────────────►│                 │
-│    Operator     │                       │      Vault      │
-│                 │◄───────────────────── │                 │
-└─────────────────┘     3. Authenticated  └─────────────────┘
+```mermaid
+sequenceDiagram
+    participant S as K8s Secret<br/>(Vault Token)
+    participant Op as Operator
+    participant V as Vault
+
+    Op->>S: 1. Read token
+    S-->>Op: Vault Token
+    Op->>V: 2. Use token
+    V-->>Op: 3. Authenticated
 ```
 
 ## Prerequisites

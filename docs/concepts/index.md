@@ -50,27 +50,22 @@ The operator is organized as independent features that can be enabled/disabled:
 
 ### Resource Hierarchy
 
-```
-VaultConnection (cluster-scoped)
-├── Authenticates to Vault
-├── Provides connection for other resources
-└── Optional: discovers unmanaged resources
+```mermaid
+graph TD
+    VC["VaultConnection<br/>(cluster-scoped)"]
+    VCP["VaultClusterPolicy<br/>(cluster-scoped)"]
+    VP["VaultPolicy<br/>(namespaced)"]
+    VCR["VaultClusterRole<br/>(cluster-scoped)"]
+    VR["VaultRole<br/>(namespaced)"]
 
-VaultClusterPolicy (cluster-scoped)
-├── Defines Vault ACL policies
-└── Shared across namespaces
-
-VaultPolicy (namespaced)
-├── Defines Vault ACL policies
-└── Scoped to a namespace
-
-VaultClusterRole (cluster-scoped)
-├── Binds service accounts to policies
-└── References VaultClusterPolicy or VaultPolicy
-
-VaultRole (namespaced)
-├── Binds service accounts to policies
-└── Scoped to a namespace
+    VC -->|authenticates| Vault["HashiCorp Vault"]
+    VCP -->|manages| Policies["Vault ACL Policies"]
+    VP -->|manages| Policies
+    VCR -->|binds SAs to| Policies
+    VR -->|binds SAs to| Policies
+    VCR -.->|references| VCP
+    VCR -.->|references| VP
+    VR -.->|references| VP
 ```
 
 ### Naming Convention
@@ -102,45 +97,34 @@ Discover how to find existing Vault resources that aren't yet managed by Kuberne
 
 ### Creation Flow
 
-```
-1. User creates CR (kubectl apply)
-         ↓
-2. Operator detects new resource
-         ↓
-3. Validates configuration
-         ↓
-4. Creates resource in Vault
-         ↓
-5. Updates CR status (phase: Active)
+```mermaid
+flowchart TD
+    A["1. User creates CR (kubectl apply)"] --> B["2. Operator detects new resource"]
+    B --> C["3. Validates configuration"]
+    C --> D["4. Creates resource in Vault"]
+    D --> E["5. Updates CR status (phase: Active)"]
 ```
 
 ### Update Flow
 
-```
-1. User updates CR
-         ↓
-2. Operator detects change (generation changed)
-         ↓
-3. Compares desired vs actual state
-         ↓
-4. Updates Vault resource
-         ↓
-5. Updates CR status
+```mermaid
+flowchart TD
+    A["1. User updates CR"] --> B["2. Operator detects change (generation changed)"]
+    B --> C["3. Compares desired vs actual state"]
+    C --> D["4. Updates Vault resource"]
+    D --> E["5. Updates CR status"]
 ```
 
 ### Deletion Flow
 
-```
-1. User deletes CR (kubectl delete)
-         ↓
-2. Operator detects deletion (has finalizer)
-         ↓
-3. Checks deletionPolicy
-         ↓
-4a. If "Delete": removes from Vault
-4b. If "Retain": leaves in Vault
-         ↓
-5. Removes finalizer, CR deleted
+```mermaid
+flowchart TD
+    A["1. User deletes CR (kubectl delete)"] --> B["2. Operator detects deletion (has finalizer)"]
+    B --> C{"3. deletionPolicy?"}
+    C -- Delete --> D["4a. Removes from Vault"]
+    C -- Retain --> E["4b. Leaves in Vault"]
+    D --> F["5. Removes finalizer, CR deleted"]
+    E --> F
 ```
 
 ## Status Fields

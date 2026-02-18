@@ -4,32 +4,24 @@ This document explains the internal architecture of the Vault Access Operator.
 
 ## High-Level Overview
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           Kubernetes Cluster                                 │
-│                                                                             │
-│  ┌──────────────────────────────────────────────────────────────────────┐  │
-│  │                    Vault Access Operator                              │  │
-│  │                                                                       │  │
-│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐ │  │
-│  │  │ Connection  │  │   Policy    │  │    Role     │  │  Discovery  │ │  │
-│  │  │  Feature    │  │   Feature   │  │   Feature   │  │   Feature   │ │  │
-│  │  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘ │  │
-│  │         │                │                │                │        │  │
-│  │         └────────────────┴────────────────┴────────────────┘        │  │
-│  │                                  │                                   │  │
-│  │                         ┌────────▼────────┐                         │  │
-│  │                         │   Vault Client  │                         │  │
-│  │                         │   (pkg/vault)   │                         │  │
-│  │                         └────────┬────────┘                         │  │
-│  └──────────────────────────────────┼────────────────────────────────────┘  │
-│                                     │                                       │
-└─────────────────────────────────────┼───────────────────────────────────────┘
-                                      │
-                                      ▼
-                           ┌─────────────────────┐
-                           │   HashiCorp Vault   │
-                           └─────────────────────┘
+```mermaid
+graph TD
+    subgraph K8s["Kubernetes Cluster"]
+        subgraph Operator["Vault Access Operator"]
+            CF["Connection Feature"]
+            PF["Policy Feature"]
+            RF["Role Feature"]
+            DF["Discovery Feature"]
+            VC["Vault Client<br/>(pkg/vault)"]
+        end
+    end
+    V["HashiCorp Vault"]
+
+    CF --> VC
+    PF --> VC
+    RF --> VC
+    DF --> VC
+    VC --> V
 ```
 
 ## Feature-Driven Design
@@ -65,16 +57,12 @@ features/
 
 Each resource type has a dedicated controller following the standard Kubernetes controller pattern:
 
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│                         Reconciliation Loop                          │
-│                                                                      │
-│  ┌──────────┐    ┌──────────────┐    ┌──────────────┐   ┌────────┐ │
-│  │  Watch   │───►│   Enqueue    │───►│  Reconcile   │──►│ Requeue│ │
-│  │  Events  │    │   (workqueue)│    │  (business   │   │ (delay)│ │
-│  └──────────┘    └──────────────┘    │   logic)     │   └────────┘ │
-│                                       └──────────────┘              │
-└──────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+    A["Watch Events"] --> B["Enqueue<br/>(workqueue)"]
+    B --> C["Reconcile<br/>(business logic)"]
+    C --> D["Requeue<br/>(delay)"]
+    D -.-> A
 ```
 
 ### BaseReconciler
@@ -124,44 +112,33 @@ type FeatureHandler[T client.Object] interface {
 
 ### Sync Flow (Create/Update)
 
-```
-1. Reconcile triggered
-         ↓
-2. Get resource from API server
-         ↓
-3. Check if being deleted (has deletion timestamp?)
-   └─ Yes → goto Cleanup Flow
-         ↓
-4. Ensure finalizer exists
-         ↓
-5. Get VaultConnection
-         ↓
-6. Get Vault client
-         ↓
-7. Check if resource exists in Vault
-   ├─ No → Create in Vault
-   └─ Yes → Check drift → Update if needed
-         ↓
-8. Update status
-         ↓
-9. Requeue after interval
+```mermaid
+flowchart TD
+    A["1. Reconcile triggered"] --> B["2. Get resource from API server"]
+    B --> C{"3. Being deleted?"}
+    C -- Yes --> cleanup["Cleanup Flow"]
+    C -- No --> D["4. Ensure finalizer exists"]
+    D --> E["5. Get VaultConnection"]
+    E --> F["6. Get Vault client"]
+    F --> G{"7. Exists in Vault?"}
+    G -- No --> H["Create in Vault"]
+    G -- Yes --> I["Check drift → Update if needed"]
+    H --> J["8. Update status"]
+    I --> J
+    J --> K["9. Requeue after interval"]
 ```
 
 ### Cleanup Flow (Delete)
 
-```
-1. Resource has deletion timestamp
-         ↓
-2. Check deletionPolicy
-   └─ Retain → Skip Vault deletion
-         ↓
-3. Get Vault client
-         ↓
-4. Delete from Vault
-         ↓
-5. Remove finalizer
-         ↓
-6. Resource deleted
+```mermaid
+flowchart TD
+    A["1. Resource has deletion timestamp"] --> B{"2. deletionPolicy?"}
+    B -- Retain --> skip["Skip Vault deletion"]
+    B -- Delete --> C["3. Get Vault client"]
+    skip --> E["5. Remove finalizer"]
+    C --> D["4. Delete from Vault"]
+    D --> E
+    E --> F["6. Resource deleted"]
 ```
 
 ## Domain Adapters
@@ -213,27 +190,19 @@ func (c *Client) RenewToken(ctx context.Context) error
 
 ## Authentication Flow
 
-```
-┌───────────────────────────────────────────────────────────────────┐
-│                    Authentication Flow                            │
-│                                                                   │
-│  ┌──────────────┐                      ┌──────────────────────┐  │
-│  │ VaultConnection│                     │     Vault Server     │  │
-│  │   Spec.Auth   │                     │                      │  │
-│  └───────┬──────┘                      │  ┌───────────────┐  │  │
-│          │                             │  │ Kubernetes    │  │  │
-│  ┌───────▼──────┐   ServiceAccount     │  │ Auth Method   │  │  │
-│  │ Token Request│   JWT Token          │  └───────┬───────┘  │  │
-│  └───────┬──────┘──────────────────────┼─────────►│          │  │
-│          │                             │          │          │  │
-│          │                             │  ┌───────▼───────┐  │  │
-│          │◄────────────────────────────┼──│ Vault Token   │  │  │
-│          │   Vault Token               │  └───────────────┘  │  │
-│  ┌───────▼──────┐                      │                      │  │
-│  │ Token Cached │                      │                      │  │
-│  │ + Renewal    │                      │                      │  │
-│  └──────────────┘                      └──────────────────────┘  │
-└───────────────────────────────────────────────────────────────────┘
+```mermaid
+sequenceDiagram
+    participant VC as VaultConnection
+    participant K8s as Kubernetes API
+    participant V as Vault Server
+
+    VC->>K8s: TokenRequest (ServiceAccount)
+    K8s-->>VC: SA JWT Token
+    VC->>V: Login with SA JWT
+    V->>K8s: Validate Token
+    K8s-->>V: Token Valid
+    V-->>VC: Vault Token
+    Note over VC: Token Cached + Renewal
 ```
 
 ### Renewal Strategy
@@ -249,16 +218,17 @@ The operator supports two token renewal strategies:
 
 ### Phase Transitions
 
-```
-Pending ──► Syncing ──► Active
-   │          │           │
-   │          ▼           │
-   │       Error ◄────────┘
-   │          │
-   │          ▼
-   └──────► Conflict
-
-Deleting ──► (resource deleted)
+```mermaid
+stateDiagram-v2
+    [*] --> Pending
+    Pending --> Syncing
+    Syncing --> Active
+    Syncing --> Error
+    Active --> Error
+    Pending --> Conflict
+    Error --> Conflict
+    Active --> Deleting
+    Deleting --> [*]
 ```
 
 ### Conditions

@@ -13,24 +13,20 @@ OIDC (OpenID Connect) authentication enables workloads to authenticate to Vault 
 3. Vault validates the token against the configured OIDC provider
 4. Vault returns a token with the configured policies
 
-```
-┌─────────────────┐     1. TokenRequest     ┌─────────────────┐
-│                 │ ───────────────────────►│                 │
-│    Operator     │     (with audiences)    │  Kubernetes API │
-│                 │◄─────────────────────── │                 │
-└────────┬────────┘     2. JWT Token        └─────────────────┘
-         │
-         │ 3. Login with JWT
-         ▼
-┌─────────────────┐     4. OIDC Discovery   ┌─────────────────┐
-│                 │ ───────────────────────►│   OIDC Provider │
-│      Vault      │                         │   (EKS/GKE/AAD) │
-│                 │◄─────────────────────── │                 │
-└─────────────────┘     5. Validate JWT     └─────────────────┘
-         │
-         │ 6. Return Vault Token
-         ▼
-    [Authenticated]
+```mermaid
+sequenceDiagram
+    participant Op as Operator
+    participant K8s as Kubernetes API
+    participant V as Vault
+    participant OIDC as OIDC Provider<br/>(EKS/GKE/AAD)
+
+    Op->>K8s: 1. TokenRequest (with audiences)
+    K8s-->>Op: 2. JWT Token
+    Op->>V: 3. Login with JWT
+    V->>OIDC: 4. OIDC Discovery
+    OIDC-->>V: 5. Validate JWT
+    V-->>Op: 6. Return Vault Token
+    Note over Op: Authenticated
 ```
 
 ## Prerequisites

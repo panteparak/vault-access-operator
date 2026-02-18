@@ -6,7 +6,8 @@
 #   - Sufficient cluster resources for 3 replicas
 #
 # Install with:
-#   helm install vault-access-operator vault-access-operator/vault-access-operator \
+#   helm install vault-access-operator \
+#     oci://ghcr.io/panteparak/vault-access-operator/charts/vault-access-operator \
 #     --namespace vault-access-operator-system \
 #     --create-namespace \
 #     -f values-production.yaml

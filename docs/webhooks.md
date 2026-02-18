@@ -220,7 +220,8 @@ policies:
 Webhooks are enabled by default when installing via Helm:
 
 ```bash
-helm install vault-access-operator vault-access-operator/vault-access-operator \
+helm install vault-access-operator \
+  oci://ghcr.io/panteparak/vault-access-operator/charts/vault-access-operator \
   --set webhooks.enabled=true
 ```
 
@@ -229,7 +230,8 @@ helm install vault-access-operator vault-access-operator/vault-access-operator \
 For development or testing environments:
 
 ```bash
-helm install vault-access-operator vault-access-operator/vault-access-operator \
+helm install vault-access-operator \
+  oci://ghcr.io/panteparak/vault-access-operator/charts/vault-access-operator \
   --set webhooks.enabled=false
 ```
 

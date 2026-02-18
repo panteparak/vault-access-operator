@@ -50,10 +50,8 @@ kubectl wait --for=condition=Available deployment --all -n cert-manager --timeou
 === "Helm (Recommended)"
 
     ```bash
-    helm repo add vault-access-operator https://panteparak.github.io/vault-access-operator/charts
-    helm repo update
-
-    helm install vault-access-operator vault-access-operator/vault-access-operator \
+    helm install vault-access-operator \
+      oci://ghcr.io/panteparak/vault-access-operator/charts/vault-access-operator \
       --namespace vault-access-operator-system \
       --create-namespace
     ```

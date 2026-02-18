@@ -17,29 +17,21 @@ The Vault Access Operator supports multiple authentication methods to connect to
 
 ## Decision Guide
 
-```
-                    ┌─────────────────────────┐
-                    │ What environment are    │
-                    │ you running in?         │
-                    └───────────┬─────────────┘
-                                │
-        ┌───────────────────────┼───────────────────────┐
-        │                       │                       │
-        ▼                       ▼                       ▼
-   ┌─────────┐            ┌─────────┐            ┌─────────┐
-   │   EKS   │            │   GKE   │            │  Other  │
-   └────┬────┘            └────┬────┘            └────┬────┘
-        │                      │                      │
-        ▼                      ▼                      ▼
-  ┌───────────┐          ┌───────────┐         ┌───────────┐
-  │ IRSA      │          │ Workload  │         │ Standard  │
-  │ enabled?  │          │ Identity? │         │ K8s auth  │
-  └─────┬─────┘          └─────┬─────┘         └───────────┘
-        │                      │                      │
-   Yes  │  No             Yes  │  No                  │
-   ┌────┴────┐            ┌────┴────┐                 │
-   ▼         ▼            ▼         ▼                 │
-AWS IAM   Kubernetes    GCP IAM  Kubernetes    ◄──────┘
+```mermaid
+flowchart TD
+    Q["What environment<br/>are you running in?"]
+    Q --> EKS["EKS"]
+    Q --> GKE["GKE"]
+    Q --> Other["Other"]
+
+    EKS --> IRSA{"IRSA enabled?"}
+    GKE --> WI{"Workload Identity?"}
+    Other --> K8s3["Kubernetes Auth"]
+
+    IRSA -- Yes --> AWS["AWS IAM"]
+    IRSA -- No --> K8s1["Kubernetes Auth"]
+    WI -- Yes --> GCP["GCP IAM"]
+    WI -- No --> K8s2["Kubernetes Auth"]
 ```
 
 ## Method Comparison
