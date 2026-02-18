@@ -23,7 +23,7 @@
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.1">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.2">
     
     
       
@@ -1613,19 +1613,16 @@
 <li>Vault validates the credentials</li>
 <li>Vault returns a token with the configured policies</li>
 </ol>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>┌─────────────────┐
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>│   K8s Secret    │
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>│   (RoleID +     │
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>│    SecretID)    │
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>└────────┬────────┘
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>         │ 1. Read credentials
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>         ▼
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>┌─────────────────┐     2. Login          ┌─────────────────┐
-<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>│                 │ ─────────────────────►│                 │
-<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>│    Operator     │                       │      Vault      │
-<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>│                 │◄───────────────────── │                 │
-<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>└─────────────────┘     3. Vault Token    └─────────────────┘
-</code></pre></div>
+<pre class="mermaid"><code>sequenceDiagram
+    participant S as K8s Secret&lt;br/&gt;(RoleID + SecretID)
+    participant Op as Operator
+    participant V as Vault
+
+    Op-&gt;&gt;S: 1. Read credentials
+    S--&gt;&gt;Op: RoleID + SecretID
+    Op-&gt;&gt;V: 2. Login
+    V--&gt;&gt;Op: 3. Vault Token
+    Note over Op: Authenticated</code></pre>
 <h2 id="prerequisites">Prerequisites<a class="headerlink" href="#prerequisites" title="Permanent link">&para;</a></h2>
 <h3 id="vault-requirements">Vault Requirements<a class="headerlink" href="#vault-requirements" title="Permanent link">&para;</a></h3>
 <ul>
@@ -1646,41 +1643,41 @@
 </ul>
 <h2 id="step-by-step-setup">Step-by-Step Setup<a class="headerlink" href="#step-by-step-setup" title="Permanent link">&para;</a></h2>
 <h3 id="step-1-enable-approle-auth-in-vault">Step 1: Enable AppRole Auth in Vault<a class="headerlink" href="#step-1-enable-approle-auth-in-vault" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>vault<span class="w"> </span>auth<span class="w"> </span><span class="nb">enable</span><span class="w"> </span>approle
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>vault<span class="w"> </span>auth<span class="w"> </span><span class="nb">enable</span><span class="w"> </span>approle
 </code></pre></div>
 <h3 id="step-2-create-vault-policy">Step 2: Create Vault Policy<a class="headerlink" href="#step-2-create-vault-policy" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>vault<span class="w"> </span>policy<span class="w"> </span>write<span class="w"> </span>vault-access-operator<span class="w"> </span>-<span class="w"> </span><span class="s">&lt;&lt;EOF</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="s">path &quot;sys/policies/acl/*&quot; {</span>
-<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="s">  capabilities = [&quot;create&quot;, &quot;read&quot;, &quot;update&quot;, &quot;delete&quot;, &quot;list&quot;]</span>
-<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="s">}</span>
-<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="s">path &quot;sys/policies/acl&quot; {</span>
-<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="s">  capabilities = [&quot;list&quot;]</span>
-<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="s">}</span>
-<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="s">path &quot;auth/kubernetes/role/*&quot; {</span>
-<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="s">  capabilities = [&quot;create&quot;, &quot;read&quot;, &quot;update&quot;, &quot;delete&quot;, &quot;list&quot;]</span>
-<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="s">}</span>
-<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="s">path &quot;auth/kubernetes/role&quot; {</span>
-<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="s">  capabilities = [&quot;list&quot;]</span>
-<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a><span class="s">}</span>
-<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a><span class="s">EOF</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>vault<span class="w"> </span>policy<span class="w"> </span>write<span class="w"> </span>vault-access-operator<span class="w"> </span>-<span class="w"> </span><span class="s">&lt;&lt;EOF</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="s">path &quot;sys/policies/acl/*&quot; {</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="s">  capabilities = [&quot;create&quot;, &quot;read&quot;, &quot;update&quot;, &quot;delete&quot;, &quot;list&quot;]</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="s">}</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="s">path &quot;sys/policies/acl&quot; {</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="s">  capabilities = [&quot;list&quot;]</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="s">}</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="s">path &quot;auth/kubernetes/role/*&quot; {</span>
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="s">  capabilities = [&quot;create&quot;, &quot;read&quot;, &quot;update&quot;, &quot;delete&quot;, &quot;list&quot;]</span>
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="s">}</span>
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="s">path &quot;auth/kubernetes/role&quot; {</span>
+<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="s">  capabilities = [&quot;list&quot;]</span>
+<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="s">}</span>
+<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a><span class="s">EOF</span>
 </code></pre></div>
 <h3 id="step-3-create-approle-in-vault">Step 3: Create AppRole in Vault<a class="headerlink" href="#step-3-create-approle-in-vault" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># Create the AppRole</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>vault<span class="w"> </span>write<span class="w"> </span>auth/approle/role/vault-access-operator<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">    </span><span class="nv">token_policies</span><span class="o">=</span><span class="s2">&quot;vault-access-operator&quot;</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">    </span><span class="nv">token_ttl</span><span class="o">=</span>1h<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">    </span><span class="nv">token_max_ttl</span><span class="o">=</span>4h<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">    </span><span class="nv">secret_id_ttl</span><span class="o">=</span><span class="m">0</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">    </span><span class="nv">secret_id_num_uses</span><span class="o">=</span><span class="m">0</span>
-<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>
-<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="c1"># Get the RoleID</span>
-<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>vault<span class="w"> </span><span class="nb">read</span><span class="w"> </span>auth/approle/role/vault-access-operator/role-id
-<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a><span class="c1"># role_id    db02de05-fa39-4855-059b-67221c5c2f63</span>
-<a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a>
-<a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a><span class="c1"># Generate a SecretID</span>
-<a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a>vault<span class="w"> </span>write<span class="w"> </span>-f<span class="w"> </span>auth/approle/role/vault-access-operator/secret-id
-<a id="__codelineno-3-15" name="__codelineno-3-15" href="#__codelineno-3-15"></a><span class="c1"># secret_id             6a174c20-f6de-a53c-74d2-6018fcceff64</span>
-<a id="__codelineno-3-16" name="__codelineno-3-16" href="#__codelineno-3-16"></a><span class="c1"># secret_id_accessor    c454f7e5-996e-7230-6074-6ef26b7bcf86</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c1"># Create the AppRole</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>vault<span class="w"> </span>write<span class="w"> </span>auth/approle/role/vault-access-operator<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">    </span><span class="nv">token_policies</span><span class="o">=</span><span class="s2">&quot;vault-access-operator&quot;</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">    </span><span class="nv">token_ttl</span><span class="o">=</span>1h<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">    </span><span class="nv">token_max_ttl</span><span class="o">=</span>4h<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">    </span><span class="nv">secret_id_ttl</span><span class="o">=</span><span class="m">0</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="w">    </span><span class="nv">secret_id_num_uses</span><span class="o">=</span><span class="m">0</span>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="c1"># Get the RoleID</span>
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>vault<span class="w"> </span><span class="nb">read</span><span class="w"> </span>auth/approle/role/vault-access-operator/role-id
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="c1"># role_id    db02de05-fa39-4855-059b-67221c5c2f63</span>
+<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a>
+<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a><span class="c1"># Generate a SecretID</span>
+<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>vault<span class="w"> </span>write<span class="w"> </span>-f<span class="w"> </span>auth/approle/role/vault-access-operator/secret-id
+<a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a><span class="c1"># secret_id             6a174c20-f6de-a53c-74d2-6018fcceff64</span>
+<a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a><span class="c1"># secret_id_accessor    c454f7e5-996e-7230-6074-6ef26b7bcf86</span>
 </code></pre></div>
 <table>
 <thead>
@@ -1713,15 +1710,15 @@
 </tbody>
 </table>
 <h3 id="step-4-create-kubernetes-secrets">Step 4: Create Kubernetes Secrets<a class="headerlink" href="#step-4-create-kubernetes-secrets" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># Create secret for RoleID</span>
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>kubectl<span class="w"> </span>create<span class="w"> </span>secret<span class="w"> </span>generic<span class="w"> </span>vault-approle-role-id<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">    </span>-n<span class="w"> </span>vault-access-operator-system<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">    </span>--from-literal<span class="o">=</span>role-id<span class="o">=</span>db02de05-fa39-4855-059b-67221c5c2f63
-<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>
-<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="c1"># Create secret for SecretID</span>
-<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>kubectl<span class="w"> </span>create<span class="w"> </span>secret<span class="w"> </span>generic<span class="w"> </span>vault-approle-secret-id<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="w">    </span>-n<span class="w"> </span>vault-access-operator-system<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="w">    </span>--from-literal<span class="o">=</span>secret-id<span class="o">=</span>6a174c20-f6de-a53c-74d2-6018fcceff64
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># Create secret for RoleID</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>kubectl<span class="w"> </span>create<span class="w"> </span>secret<span class="w"> </span>generic<span class="w"> </span>vault-approle-role-id<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">    </span>-n<span class="w"> </span>vault-access-operator-system<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">    </span>--from-literal<span class="o">=</span>role-id<span class="o">=</span>db02de05-fa39-4855-059b-67221c5c2f63
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="c1"># Create secret for SecretID</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>kubectl<span class="w"> </span>create<span class="w"> </span>secret<span class="w"> </span>generic<span class="w"> </span>vault-approle-secret-id<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="w">    </span>-n<span class="w"> </span>vault-access-operator-system<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="w">    </span>--from-literal<span class="o">=</span>secret-id<span class="o">=</span>6a174c20-f6de-a53c-74d2-6018fcceff64
 </code></pre></div>
 <div class="admonition warning">
 <p class="admonition-title">SecretID Security</p>
@@ -1733,34 +1730,34 @@
 </ul>
 </div>
 <h3 id="step-5-create-vaultconnection-resource">Step 5: Create VaultConnection Resource<a class="headerlink" href="#step-5-create-vaultconnection-resource" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault.platform.io/v1alpha1</span>
-<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">VaultConnection</span>
-<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="nt">metadata</span><span class="p">:</span>
-<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-approle</span>
-<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="nt">spec</span><span class="p">:</span>
-<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">  </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://vault.example.com:8200</span>
-<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>
-<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="w">  </span><span class="nt">tls</span><span class="p">:</span>
-<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="w">    </span><span class="nt">caCert</span><span class="p">:</span>
-<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="w">      </span><span class="nt">secretRef</span><span class="p">:</span>
-<a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a><span class="w">        </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-ca-cert</span>
-<a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a><span class="w">        </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-access-operator-system</span>
-<a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a><span class="w">        </span><span class="nt">key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ca.crt</span>
-<a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a>
-<a id="__codelineno-5-15" name="__codelineno-5-15" href="#__codelineno-5-15"></a><span class="w">  </span><span class="nt">auth</span><span class="p">:</span>
-<a id="__codelineno-5-16" name="__codelineno-5-16" href="#__codelineno-5-16"></a><span class="w">    </span><span class="nt">appRole</span><span class="p">:</span>
-<a id="__codelineno-5-17" name="__codelineno-5-17" href="#__codelineno-5-17"></a><span class="w">      </span><span class="nt">roleId</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">db02de05-fa39-4855-059b-67221c5c2f63</span>
-<a id="__codelineno-5-18" name="__codelineno-5-18" href="#__codelineno-5-18"></a><span class="w">      </span><span class="nt">secretIdRef</span><span class="p">:</span>
-<a id="__codelineno-5-19" name="__codelineno-5-19" href="#__codelineno-5-19"></a><span class="w">        </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-approle-secret-id</span>
-<a id="__codelineno-5-20" name="__codelineno-5-20" href="#__codelineno-5-20"></a><span class="w">        </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-access-operator-system</span>
-<a id="__codelineno-5-21" name="__codelineno-5-21" href="#__codelineno-5-21"></a><span class="w">        </span><span class="nt">key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">secret-id</span>
-<a id="__codelineno-5-22" name="__codelineno-5-22" href="#__codelineno-5-22"></a><span class="w">      </span><span class="c1"># mountPath: approle  # default</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault.platform.io/v1alpha1</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">VaultConnection</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="nt">metadata</span><span class="p">:</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-approle</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="nt">spec</span><span class="p">:</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">  </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://vault.example.com:8200</span>
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="w">  </span><span class="nt">tls</span><span class="p">:</span>
+<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="w">    </span><span class="nt">caCert</span><span class="p">:</span>
+<a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a><span class="w">      </span><span class="nt">secretRef</span><span class="p">:</span>
+<a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a><span class="w">        </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-ca-cert</span>
+<a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a><span class="w">        </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-access-operator-system</span>
+<a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a><span class="w">        </span><span class="nt">key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ca.crt</span>
+<a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a>
+<a id="__codelineno-4-15" name="__codelineno-4-15" href="#__codelineno-4-15"></a><span class="w">  </span><span class="nt">auth</span><span class="p">:</span>
+<a id="__codelineno-4-16" name="__codelineno-4-16" href="#__codelineno-4-16"></a><span class="w">    </span><span class="nt">appRole</span><span class="p">:</span>
+<a id="__codelineno-4-17" name="__codelineno-4-17" href="#__codelineno-4-17"></a><span class="w">      </span><span class="nt">roleId</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">db02de05-fa39-4855-059b-67221c5c2f63</span>
+<a id="__codelineno-4-18" name="__codelineno-4-18" href="#__codelineno-4-18"></a><span class="w">      </span><span class="nt">secretIdRef</span><span class="p">:</span>
+<a id="__codelineno-4-19" name="__codelineno-4-19" href="#__codelineno-4-19"></a><span class="w">        </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-approle-secret-id</span>
+<a id="__codelineno-4-20" name="__codelineno-4-20" href="#__codelineno-4-20"></a><span class="w">        </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-access-operator-system</span>
+<a id="__codelineno-4-21" name="__codelineno-4-21" href="#__codelineno-4-21"></a><span class="w">        </span><span class="nt">key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">secret-id</span>
+<a id="__codelineno-4-22" name="__codelineno-4-22" href="#__codelineno-4-22"></a><span class="w">      </span><span class="c1"># mountPath: approle  # default</span>
 </code></pre></div>
 <p>Apply the configuration:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>kubectl<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>vaultconnection.yaml
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>kubectl<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>vaultconnection.yaml
 </code></pre></div>
 <h3 id="step-6-verify-the-connection">Step 6: Verify the Connection<a class="headerlink" href="#step-6-verify-the-connection" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>vaultconnection<span class="w"> </span>vault-approle<span class="w"> </span>-o<span class="w"> </span>yaml
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>vaultconnection<span class="w"> </span>vault-approle<span class="w"> </span>-o<span class="w"> </span>yaml
 </code></pre></div>
 <h2 id="configuration-reference">Configuration Reference<a class="headerlink" href="#configuration-reference" title="Permanent link">&para;</a></h2>
 <h3 id="required-fields">Required Fields<a class="headerlink" href="#required-fields" title="Permanent link">&para;</a></h3>
@@ -1803,75 +1800,75 @@
 <p>For production, implement SecretID rotation:</p>
 <h3 id="option-1-wrapped-secretid">Option 1: Wrapped SecretID<a class="headerlink" href="#option-1-wrapped-secretid" title="Permanent link">&para;</a></h3>
 <p>Generate a wrapped SecretID that can only be unwrapped once:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>vault<span class="w"> </span>write<span class="w"> </span>-wrap-ttl<span class="o">=</span>120s<span class="w"> </span>-f<span class="w"> </span>auth/approle/role/vault-access-operator/secret-id
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>vault<span class="w"> </span>write<span class="w"> </span>-wrap-ttl<span class="o">=</span>120s<span class="w"> </span>-f<span class="w"> </span>auth/approle/role/vault-access-operator/secret-id
 </code></pre></div>
 <h3 id="option-2-external-secrets-operator">Option 2: External Secrets Operator<a class="headerlink" href="#option-2-external-secrets-operator" title="Permanent link">&para;</a></h3>
 <p>Use External Secrets to sync SecretID from Vault:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">external-secrets.io/v1beta1</span>
-<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ExternalSecret</span>
-<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="nt">metadata</span><span class="p">:</span>
-<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-approle-secret-id</span>
-<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-access-operator-system</span>
-<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="nt">spec</span><span class="p">:</span>
-<a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a><span class="w">  </span><span class="nt">refreshInterval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1h</span>
-<a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a><span class="w">  </span><span class="nt">secretStoreRef</span><span class="p">:</span>
-<a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault</span>
-<a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ClusterSecretStore</span>
-<a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a><span class="w">  </span><span class="nt">target</span><span class="p">:</span>
-<a id="__codelineno-9-12" name="__codelineno-9-12" href="#__codelineno-9-12"></a><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-approle-secret-id</span>
-<a id="__codelineno-9-13" name="__codelineno-9-13" href="#__codelineno-9-13"></a><span class="w">  </span><span class="nt">data</span><span class="p">:</span>
-<a id="__codelineno-9-14" name="__codelineno-9-14" href="#__codelineno-9-14"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">secretKey</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">secret-id</span>
-<a id="__codelineno-9-15" name="__codelineno-9-15" href="#__codelineno-9-15"></a><span class="w">      </span><span class="nt">remoteRef</span><span class="p">:</span>
-<a id="__codelineno-9-16" name="__codelineno-9-16" href="#__codelineno-9-16"></a><span class="w">        </span><span class="nt">key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">auth/approle/role/vault-access-operator/secret-id</span>
-<a id="__codelineno-9-17" name="__codelineno-9-17" href="#__codelineno-9-17"></a><span class="w">        </span><span class="nt">property</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">secret_id</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">external-secrets.io/v1beta1</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ExternalSecret</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="nt">metadata</span><span class="p">:</span>
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-approle-secret-id</span>
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-access-operator-system</span>
+<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="nt">spec</span><span class="p">:</span>
+<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a><span class="w">  </span><span class="nt">refreshInterval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1h</span>
+<a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a><span class="w">  </span><span class="nt">secretStoreRef</span><span class="p">:</span>
+<a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault</span>
+<a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ClusterSecretStore</span>
+<a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a><span class="w">  </span><span class="nt">target</span><span class="p">:</span>
+<a id="__codelineno-8-12" name="__codelineno-8-12" href="#__codelineno-8-12"></a><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-approle-secret-id</span>
+<a id="__codelineno-8-13" name="__codelineno-8-13" href="#__codelineno-8-13"></a><span class="w">  </span><span class="nt">data</span><span class="p">:</span>
+<a id="__codelineno-8-14" name="__codelineno-8-14" href="#__codelineno-8-14"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">secretKey</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">secret-id</span>
+<a id="__codelineno-8-15" name="__codelineno-8-15" href="#__codelineno-8-15"></a><span class="w">      </span><span class="nt">remoteRef</span><span class="p">:</span>
+<a id="__codelineno-8-16" name="__codelineno-8-16" href="#__codelineno-8-16"></a><span class="w">        </span><span class="nt">key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">auth/approle/role/vault-access-operator/secret-id</span>
+<a id="__codelineno-8-17" name="__codelineno-8-17" href="#__codelineno-8-17"></a><span class="w">        </span><span class="nt">property</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">secret_id</span>
 </code></pre></div>
 <h3 id="option-3-limited-use-secretid">Option 3: Limited-Use SecretID<a class="headerlink" href="#option-3-limited-use-secretid" title="Permanent link">&para;</a></h3>
 <p>Create SecretIDs that expire after a set number of uses:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>vault<span class="w"> </span>write<span class="w"> </span>auth/approle/role/vault-access-operator<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">    </span><span class="nv">secret_id_num_uses</span><span class="o">=</span><span class="m">10</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="w">    </span><span class="nv">secret_id_ttl</span><span class="o">=</span>24h
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>vault<span class="w"> </span>write<span class="w"> </span>auth/approle/role/vault-access-operator<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">    </span><span class="nv">secret_id_num_uses</span><span class="o">=</span><span class="m">10</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="w">    </span><span class="nv">secret_id_ttl</span><span class="o">=</span>24h
 </code></pre></div>
 <h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h2>
 <h3 id="invalid-role-or-secret-id-error">"invalid role or secret ID" error<a class="headerlink" href="#invalid-role-or-secret-id-error" title="Permanent link">&para;</a></h3>
 <p><strong>Symptoms:</strong>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>Error: invalid role or secret ID
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>Error: invalid role or secret ID
 </code></pre></div></p>
 <p><strong>Solutions:</strong></p>
 <ol>
 <li>
 <p>Verify the RoleID is correct:
-   <div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>vault<span class="w"> </span><span class="nb">read</span><span class="w"> </span>auth/approle/role/vault-access-operator/role-id
+   <div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>vault<span class="w"> </span><span class="nb">read</span><span class="w"> </span>auth/approle/role/vault-access-operator/role-id
 </code></pre></div></p>
 </li>
 <li>
 <p>Check if the SecretID is valid:
-   <div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>vault<span class="w"> </span>write<span class="w"> </span>auth/approle/role/vault-access-operator/secret-id-accessor/lookup<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="w">    </span><span class="nv">secret_id_accessor</span><span class="o">=</span>&lt;accessor&gt;
+   <div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>vault<span class="w"> </span>write<span class="w"> </span>auth/approle/role/vault-access-operator/secret-id-accessor/lookup<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="w">    </span><span class="nv">secret_id_accessor</span><span class="o">=</span>&lt;accessor&gt;
 </code></pre></div></p>
 </li>
 <li>
 <p>Verify the secret contents in Kubernetes:
-   <div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>secret<span class="w"> </span>vault-approle-secret-id<span class="w"> </span>-n<span class="w"> </span>vault-access-operator-system<span class="w"> </span>-o<span class="w"> </span><span class="nv">jsonpath</span><span class="o">=</span><span class="s1">&#39;{.data.secret-id}&#39;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>base64<span class="w"> </span>-d
+   <div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>secret<span class="w"> </span>vault-approle-secret-id<span class="w"> </span>-n<span class="w"> </span>vault-access-operator-system<span class="w"> </span>-o<span class="w"> </span><span class="nv">jsonpath</span><span class="o">=</span><span class="s1">&#39;{.data.secret-id}&#39;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>base64<span class="w"> </span>-d
 </code></pre></div></p>
 </li>
 </ol>
 <h3 id="secretid-has-expired">SecretID has expired<a class="headerlink" href="#secretid-has-expired" title="Permanent link">&para;</a></h3>
 <p><strong>Symptoms:</strong>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>Error: secret ID is expired
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>Error: secret ID is expired
 </code></pre></div></p>
 <p><strong>Solutions:</strong></p>
 <ol>
 <li>
 <p>Generate a new SecretID:
-   <div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>vault<span class="w"> </span>write<span class="w"> </span>-f<span class="w"> </span>auth/approle/role/vault-access-operator/secret-id
+   <div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>vault<span class="w"> </span>write<span class="w"> </span>-f<span class="w"> </span>auth/approle/role/vault-access-operator/secret-id
 </code></pre></div></p>
 </li>
 <li>
 <p>Update the Kubernetes secret:
-   <div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>kubectl<span class="w"> </span>create<span class="w"> </span>secret<span class="w"> </span>generic<span class="w"> </span>vault-approle-secret-id<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a><span class="w">    </span>-n<span class="w"> </span>vault-access-operator-system<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a><span class="w">    </span>--from-literal<span class="o">=</span>secret-id<span class="o">=</span>&lt;new-secret-id&gt;<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-17-4" name="__codelineno-17-4" href="#__codelineno-17-4"></a><span class="w">    </span>--dry-run<span class="o">=</span>client<span class="w"> </span>-o<span class="w"> </span>yaml<span class="w"> </span><span class="p">|</span><span class="w"> </span>kubectl<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>-
+   <div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>kubectl<span class="w"> </span>create<span class="w"> </span>secret<span class="w"> </span>generic<span class="w"> </span>vault-approle-secret-id<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="w">    </span>-n<span class="w"> </span>vault-access-operator-system<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a><span class="w">    </span>--from-literal<span class="o">=</span>secret-id<span class="o">=</span>&lt;new-secret-id&gt;<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a><span class="w">    </span>--dry-run<span class="o">=</span>client<span class="w"> </span>-o<span class="w"> </span>yaml<span class="w"> </span><span class="p">|</span><span class="w"> </span>kubectl<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>-
 </code></pre></div></p>
 </li>
 </ol>
@@ -1879,32 +1876,32 @@
 <div class="tabbed-set tabbed-alternate" data-tabs="1:2"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">GitHub Actions</label><label for="__tabbed_1_2">GitLab CI</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="nt">jobs</span><span class="p">:</span>
-<a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a><span class="w">  </span><span class="nt">deploy</span><span class="p">:</span>
-<a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a><span class="w">    </span><span class="nt">runs-on</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ubuntu-latest</span>
-<a id="__codelineno-18-4" name="__codelineno-18-4" href="#__codelineno-18-4"></a><span class="w">    </span><span class="nt">steps</span><span class="p">:</span>
-<a id="__codelineno-18-5" name="__codelineno-18-5" href="#__codelineno-18-5"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Get Vault Token</span>
-<a id="__codelineno-18-6" name="__codelineno-18-6" href="#__codelineno-18-6"></a><span class="w">        </span><span class="nt">env</span><span class="p">:</span>
-<a id="__codelineno-18-7" name="__codelineno-18-7" href="#__codelineno-18-7"></a><span class="w">          </span><span class="nt">VAULT_ADDR</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://vault.example.com:8200</span>
-<a id="__codelineno-18-8" name="__codelineno-18-8" href="#__codelineno-18-8"></a><span class="w">          </span><span class="nt">VAULT_ROLE_ID</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${{ secrets.VAULT_ROLE_ID }}</span>
-<a id="__codelineno-18-9" name="__codelineno-18-9" href="#__codelineno-18-9"></a><span class="w">          </span><span class="nt">VAULT_SECRET_ID</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${{ secrets.VAULT_SECRET_ID }}</span>
-<a id="__codelineno-18-10" name="__codelineno-18-10" href="#__codelineno-18-10"></a><span class="w">        </span><span class="nt">run</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
-<a id="__codelineno-18-11" name="__codelineno-18-11" href="#__codelineno-18-11"></a><span class="w">          </span><span class="no">VAULT_TOKEN=$(vault write -field=token auth/approle/login \</span>
-<a id="__codelineno-18-12" name="__codelineno-18-12" href="#__codelineno-18-12"></a><span class="w">              </span><span class="no">role_id=$VAULT_ROLE_ID \</span>
-<a id="__codelineno-18-13" name="__codelineno-18-13" href="#__codelineno-18-13"></a><span class="w">              </span><span class="no">secret_id=$VAULT_SECRET_ID)</span>
-<a id="__codelineno-18-14" name="__codelineno-18-14" href="#__codelineno-18-14"></a><span class="w">          </span><span class="no">echo &quot;VAULT_TOKEN=$VAULT_TOKEN&quot; &gt;&gt; $GITHUB_ENV</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="nt">jobs</span><span class="p">:</span>
+<a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a><span class="w">  </span><span class="nt">deploy</span><span class="p">:</span>
+<a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a><span class="w">    </span><span class="nt">runs-on</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ubuntu-latest</span>
+<a id="__codelineno-17-4" name="__codelineno-17-4" href="#__codelineno-17-4"></a><span class="w">    </span><span class="nt">steps</span><span class="p">:</span>
+<a id="__codelineno-17-5" name="__codelineno-17-5" href="#__codelineno-17-5"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Get Vault Token</span>
+<a id="__codelineno-17-6" name="__codelineno-17-6" href="#__codelineno-17-6"></a><span class="w">        </span><span class="nt">env</span><span class="p">:</span>
+<a id="__codelineno-17-7" name="__codelineno-17-7" href="#__codelineno-17-7"></a><span class="w">          </span><span class="nt">VAULT_ADDR</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://vault.example.com:8200</span>
+<a id="__codelineno-17-8" name="__codelineno-17-8" href="#__codelineno-17-8"></a><span class="w">          </span><span class="nt">VAULT_ROLE_ID</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${{ secrets.VAULT_ROLE_ID }}</span>
+<a id="__codelineno-17-9" name="__codelineno-17-9" href="#__codelineno-17-9"></a><span class="w">          </span><span class="nt">VAULT_SECRET_ID</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${{ secrets.VAULT_SECRET_ID }}</span>
+<a id="__codelineno-17-10" name="__codelineno-17-10" href="#__codelineno-17-10"></a><span class="w">        </span><span class="nt">run</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
+<a id="__codelineno-17-11" name="__codelineno-17-11" href="#__codelineno-17-11"></a><span class="w">          </span><span class="no">VAULT_TOKEN=$(vault write -field=token auth/approle/login \</span>
+<a id="__codelineno-17-12" name="__codelineno-17-12" href="#__codelineno-17-12"></a><span class="w">              </span><span class="no">role_id=$VAULT_ROLE_ID \</span>
+<a id="__codelineno-17-13" name="__codelineno-17-13" href="#__codelineno-17-13"></a><span class="w">              </span><span class="no">secret_id=$VAULT_SECRET_ID)</span>
+<a id="__codelineno-17-14" name="__codelineno-17-14" href="#__codelineno-17-14"></a><span class="w">          </span><span class="no">echo &quot;VAULT_TOKEN=$VAULT_TOKEN&quot; &gt;&gt; $GITHUB_ENV</span>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="nt">variables</span><span class="p">:</span>
-<a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a><span class="w">  </span><span class="nt">VAULT_ADDR</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://vault.example.com:8200</span>
-<a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a>
-<a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a><span class="nt">get_vault_token</span><span class="p">:</span>
-<a id="__codelineno-19-5" name="__codelineno-19-5" href="#__codelineno-19-5"></a><span class="w">  </span><span class="nt">script</span><span class="p">:</span>
-<a id="__codelineno-19-6" name="__codelineno-19-6" href="#__codelineno-19-6"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">|</span>
-<a id="__codelineno-19-7" name="__codelineno-19-7" href="#__codelineno-19-7"></a><span class="w">      </span><span class="no">export VAULT_TOKEN=$(vault write -field=token auth/approle/login \</span>
-<a id="__codelineno-19-8" name="__codelineno-19-8" href="#__codelineno-19-8"></a><span class="w">          </span><span class="no">role_id=$VAULT_ROLE_ID \</span>
-<a id="__codelineno-19-9" name="__codelineno-19-9" href="#__codelineno-19-9"></a><span class="w">          </span><span class="no">secret_id=$VAULT_SECRET_ID)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="nt">variables</span><span class="p">:</span>
+<a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a><span class="w">  </span><span class="nt">VAULT_ADDR</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://vault.example.com:8200</span>
+<a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a>
+<a id="__codelineno-18-4" name="__codelineno-18-4" href="#__codelineno-18-4"></a><span class="nt">get_vault_token</span><span class="p">:</span>
+<a id="__codelineno-18-5" name="__codelineno-18-5" href="#__codelineno-18-5"></a><span class="w">  </span><span class="nt">script</span><span class="p">:</span>
+<a id="__codelineno-18-6" name="__codelineno-18-6" href="#__codelineno-18-6"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">|</span>
+<a id="__codelineno-18-7" name="__codelineno-18-7" href="#__codelineno-18-7"></a><span class="w">      </span><span class="no">export VAULT_TOKEN=$(vault write -field=token auth/approle/login \</span>
+<a id="__codelineno-18-8" name="__codelineno-18-8" href="#__codelineno-18-8"></a><span class="w">          </span><span class="no">role_id=$VAULT_ROLE_ID \</span>
+<a id="__codelineno-18-9" name="__codelineno-18-9" href="#__codelineno-18-9"></a><span class="w">          </span><span class="no">secret_id=$VAULT_SECRET_ID)</span>
 </code></pre></div>
 </div>
 </div>

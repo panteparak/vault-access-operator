@@ -23,7 +23,7 @@
       
       
       <link rel="icon" href="../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.1">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.2">
     
     
       
@@ -1520,27 +1520,21 @@
 </table>
 <h2 id="custom-resource-definitions">Custom Resource Definitions<a class="headerlink" href="#custom-resource-definitions" title="Permanent link">&para;</a></h2>
 <h3 id="resource-hierarchy">Resource Hierarchy<a class="headerlink" href="#resource-hierarchy" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>VaultConnection (cluster-scoped)
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>├── Authenticates to Vault
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>├── Provides connection for other resources
-<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>└── Optional: discovers unmanaged resources
-<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>
-<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>VaultClusterPolicy (cluster-scoped)
-<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>├── Defines Vault ACL policies
-<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>└── Shared across namespaces
-<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>
-<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>VaultPolicy (namespaced)
-<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>├── Defines Vault ACL policies
-<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>└── Scoped to a namespace
-<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>
-<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>VaultClusterRole (cluster-scoped)
-<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a>├── Binds service accounts to policies
-<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a>└── References VaultClusterPolicy or VaultPolicy
-<a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a>
-<a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a>VaultRole (namespaced)
-<a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a>├── Binds service accounts to policies
-<a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a>└── Scoped to a namespace
-</code></pre></div>
+<pre class="mermaid"><code>graph TD
+    VC["VaultConnection&lt;br/&gt;(cluster-scoped)"]
+    VCP["VaultClusterPolicy&lt;br/&gt;(cluster-scoped)"]
+    VP["VaultPolicy&lt;br/&gt;(namespaced)"]
+    VCR["VaultClusterRole&lt;br/&gt;(cluster-scoped)"]
+    VR["VaultRole&lt;br/&gt;(namespaced)"]
+
+    VC --&gt;|authenticates| Vault["HashiCorp Vault"]
+    VCP --&gt;|manages| Policies["Vault ACL Policies"]
+    VP --&gt;|manages| Policies
+    VCR --&gt;|binds SAs to| Policies
+    VR --&gt;|binds SAs to| Policies
+    VCR -.-&gt;|references| VCP
+    VCR -.-&gt;|references| VP
+    VR -.-&gt;|references| VP</code></pre>
 <h3 id="naming-convention">Naming Convention<a class="headerlink" href="#naming-convention" title="Permanent link">&para;</a></h3>
 <p>Resources in Vault are named with a prefix derived from their Kubernetes context:</p>
 <table>
@@ -1578,39 +1572,25 @@
 <p>Discover how to find existing Vault resources that aren't yet managed by Kubernetes CRs.</p>
 <h2 id="resource-lifecycle">Resource Lifecycle<a class="headerlink" href="#resource-lifecycle" title="Permanent link">&para;</a></h2>
 <h3 id="creation-flow">Creation Flow<a class="headerlink" href="#creation-flow" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>1. User creates CR (kubectl apply)
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>         ↓
-<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>2. Operator detects new resource
-<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>         ↓
-<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>3. Validates configuration
-<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>         ↓
-<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>4. Creates resource in Vault
-<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>         ↓
-<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>5. Updates CR status (phase: Active)
-</code></pre></div>
+<pre class="mermaid"><code>flowchart TD
+    A["1. User creates CR (kubectl apply)"] --&gt; B["2. Operator detects new resource"]
+    B --&gt; C["3. Validates configuration"]
+    C --&gt; D["4. Creates resource in Vault"]
+    D --&gt; E["5. Updates CR status (phase: Active)"]</code></pre>
 <h3 id="update-flow">Update Flow<a class="headerlink" href="#update-flow" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>1. User updates CR
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>         ↓
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>2. Operator detects change (generation changed)
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>         ↓
-<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>3. Compares desired vs actual state
-<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>         ↓
-<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>4. Updates Vault resource
-<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>         ↓
-<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>5. Updates CR status
-</code></pre></div>
+<pre class="mermaid"><code>flowchart TD
+    A["1. User updates CR"] --&gt; B["2. Operator detects change (generation changed)"]
+    B --&gt; C["3. Compares desired vs actual state"]
+    C --&gt; D["4. Updates Vault resource"]
+    D --&gt; E["5. Updates CR status"]</code></pre>
 <h3 id="deletion-flow">Deletion Flow<a class="headerlink" href="#deletion-flow" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>1. User deletes CR (kubectl delete)
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>         ↓
-<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>2. Operator detects deletion (has finalizer)
-<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>         ↓
-<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>3. Checks deletionPolicy
-<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>         ↓
-<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>4a. If &quot;Delete&quot;: removes from Vault
-<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>4b. If &quot;Retain&quot;: leaves in Vault
-<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>         ↓
-<a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a>5. Removes finalizer, CR deleted
-</code></pre></div>
+<pre class="mermaid"><code>flowchart TD
+    A["1. User deletes CR (kubectl delete)"] --&gt; B["2. Operator detects deletion (has finalizer)"]
+    B --&gt; C{"3. deletionPolicy?"}
+    C -- Delete --&gt; D["4a. Removes from Vault"]
+    C -- Retain --&gt; E["4b. Leaves in Vault"]
+    D --&gt; F["5. Removes finalizer, CR deleted"]
+    E --&gt; F</code></pre>
 <h2 id="status-fields">Status Fields<a class="headerlink" href="#status-fields" title="Permanent link">&para;</a></h2>
 <p>All managed resources share common status patterns:</p>
 <table>

@@ -23,7 +23,7 @@
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.1">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.2">
     
     
       
@@ -1830,45 +1830,34 @@
 <li><strong>Detect</strong> configuration drift</li>
 </ol>
 <h2 id="how-it-works">How It Works<a class="headerlink" href="#how-it-works" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>┌─────────────────────────────────────────────────────────────────────────┐
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>│                        Discovery Process                                 │
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>│                                                                         │
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>│  ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────────┐ │
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>│  │ VaultConnection │    │   List Vault    │    │  Filter by Pattern  │ │
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>│  │ (discovery.     │───►│   Resources     │───►│  &amp; Exclude System   │ │
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>│  │  enabled=true)  │    │   (policies,    │    │  Policies           │ │
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>│  └─────────────────┘    │    roles)       │    └──────────┬──────────┘ │
-<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>│                         └─────────────────┘               │            │
-<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>│                                                           ▼            │
-<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>│  ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────────┐ │
-<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>│  │ Update Status   │◄───│  Compare with   │◄───│ Unmanaged Resources │ │
-<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>│  │ (discovered     │    │  K8s Resources  │    │ (no matching CR)    │ │
-<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>│  │  resources)     │    └─────────────────┘    └─────────────────────┘ │
-<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>│  └─────────────────┘                                                   │
-<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>└─────────────────────────────────────────────────────────────────────────┘
-</code></pre></div>
+<pre class="mermaid"><code>flowchart LR
+    A["VaultConnection&lt;br/&gt;(discovery.enabled=true)"] --&gt; B["List Vault Resources&lt;br/&gt;(policies, roles)"]
+    B --&gt; C["Filter by Pattern&lt;br/&gt;&amp; Exclude System Policies"]
+    C --&gt; D["Unmanaged Resources&lt;br/&gt;(no matching CR)"]
+    D --&gt; E["Compare with&lt;br/&gt;K8s Resources"]
+    E --&gt; F["Update Status&lt;br/&gt;(discovered resources)"]</code></pre>
 <h2 id="enabling-discovery">Enabling Discovery<a class="headerlink" href="#enabling-discovery" title="Permanent link">&para;</a></h2>
 <p>Enable discovery on your VaultConnection:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault.platform.io/v1alpha1</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">VaultConnection</span>
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="nt">metadata</span><span class="p">:</span>
-<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-primary</span>
-<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="nt">spec</span><span class="p">:</span>
-<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">  </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://vault.example.com:8200</span>
-<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>
-<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">  </span><span class="nt">auth</span><span class="p">:</span>
-<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="w">    </span><span class="nt">kubernetes</span><span class="p">:</span>
-<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="w">      </span><span class="nt">role</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-access-operator</span>
-<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>
-<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="w">  </span><span class="nt">discovery</span><span class="p">:</span>
-<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a><span class="w">    </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1h</span><span class="w">               </span><span class="c1"># How often to scan</span>
-<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a><span class="w">    </span><span class="nt">policyPatterns</span><span class="p">:</span><span class="w">            </span><span class="c1"># Only discover matching policies</span>
-<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;app-*&quot;</span>
-<a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;team-*&quot;</span>
-<a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a><span class="w">    </span><span class="nt">rolePatterns</span><span class="p">:</span><span class="w">              </span><span class="c1"># Only discover matching roles</span>
-<a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;*-service&quot;</span>
-<a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a><span class="w">    </span><span class="nt">excludeSystemPolicies</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">  </span><span class="c1"># Skip root, default, etc.</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault.platform.io/v1alpha1</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">VaultConnection</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="nt">metadata</span><span class="p">:</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-primary</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="nt">spec</span><span class="p">:</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">  </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://vault.example.com:8200</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">  </span><span class="nt">auth</span><span class="p">:</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">    </span><span class="nt">kubernetes</span><span class="p">:</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">      </span><span class="nt">role</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-access-operator</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="w">  </span><span class="nt">discovery</span><span class="p">:</span>
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="w">    </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1h</span><span class="w">               </span><span class="c1"># How often to scan</span>
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="w">    </span><span class="nt">policyPatterns</span><span class="p">:</span><span class="w">            </span><span class="c1"># Only discover matching policies</span>
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;app-*&quot;</span>
+<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;team-*&quot;</span>
+<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="w">    </span><span class="nt">rolePatterns</span><span class="p">:</span><span class="w">              </span><span class="c1"># Only discover matching roles</span>
+<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;*-service&quot;</span>
+<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a><span class="w">    </span><span class="nt">excludeSystemPolicies</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">  </span><span class="c1"># Skip root, default, etc.</span>
 </code></pre></div>
 <h2 id="configuration-reference">Configuration Reference<a class="headerlink" href="#configuration-reference" title="Permanent link">&para;</a></h2>
 <h3 id="discovery-fields">Discovery Fields<a class="headerlink" href="#discovery-fields" title="Permanent link">&para;</a></h3>
@@ -1917,70 +1906,70 @@
 </ul>
 <h2 id="viewing-discovered-resources">Viewing Discovered Resources<a class="headerlink" href="#viewing-discovered-resources" title="Permanent link">&para;</a></h2>
 <h3 id="via-kubectl">Via kubectl<a class="headerlink" href="#via-kubectl" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>vaultconnection<span class="w"> </span>vault-primary<span class="w"> </span>-o<span class="w"> </span>yaml
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>vaultconnection<span class="w"> </span>vault-primary<span class="w"> </span>-o<span class="w"> </span>yaml
 </code></pre></div>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nt">status</span><span class="p">:</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span><span class="nt">phase</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Active</span>
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span><span class="nt">discoveryStatus</span><span class="p">:</span>
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">    </span><span class="nt">lastScanAt</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2026-01-15T10:00:00Z&quot;</span>
-<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">    </span><span class="nt">unmanagedPolicies</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span>
-<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">    </span><span class="nt">unmanagedRoles</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span>
-<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">    </span><span class="nt">discoveredResources</span><span class="p">:</span>
-<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">policy</span>
-<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="w">        </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">app-database-read</span>
-<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="w">        </span><span class="nt">discoveredAt</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2026-01-15T10:00:00Z&quot;</span>
-<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a><span class="w">        </span><span class="nt">suggestedCRName</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">app-database-read</span>
-<a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a><span class="w">        </span><span class="nt">adoptionStatus</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">discovered</span>
-<a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">policy</span>
-<a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a><span class="w">        </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">team-platform-admin</span>
-<a id="__codelineno-3-15" name="__codelineno-3-15" href="#__codelineno-3-15"></a><span class="w">        </span><span class="nt">discoveredAt</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2026-01-15T10:00:00Z&quot;</span>
-<a id="__codelineno-3-16" name="__codelineno-3-16" href="#__codelineno-3-16"></a><span class="w">        </span><span class="nt">suggestedCRName</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">team-platform-admin</span>
-<a id="__codelineno-3-17" name="__codelineno-3-17" href="#__codelineno-3-17"></a><span class="w">        </span><span class="nt">adoptionStatus</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">discovered</span>
-<a id="__codelineno-3-18" name="__codelineno-3-18" href="#__codelineno-3-18"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">role</span>
-<a id="__codelineno-3-19" name="__codelineno-3-19" href="#__codelineno-3-19"></a><span class="w">        </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">api-service</span>
-<a id="__codelineno-3-20" name="__codelineno-3-20" href="#__codelineno-3-20"></a><span class="w">        </span><span class="nt">discoveredAt</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2026-01-15T10:00:00Z&quot;</span>
-<a id="__codelineno-3-21" name="__codelineno-3-21" href="#__codelineno-3-21"></a><span class="w">        </span><span class="nt">suggestedCRName</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">api-service</span>
-<a id="__codelineno-3-22" name="__codelineno-3-22" href="#__codelineno-3-22"></a><span class="w">        </span><span class="nt">adoptionStatus</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">discovered</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nt">status</span><span class="p">:</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span><span class="nt">phase</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Active</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">  </span><span class="nt">discoveryStatus</span><span class="p">:</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">    </span><span class="nt">lastScanAt</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2026-01-15T10:00:00Z&quot;</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">    </span><span class="nt">unmanagedPolicies</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">    </span><span class="nt">unmanagedRoles</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="w">    </span><span class="nt">discoveredResources</span><span class="p">:</span>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">policy</span>
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="w">        </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">app-database-read</span>
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="w">        </span><span class="nt">discoveredAt</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2026-01-15T10:00:00Z&quot;</span>
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="w">        </span><span class="nt">suggestedCRName</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">app-database-read</span>
+<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="w">        </span><span class="nt">adoptionStatus</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">discovered</span>
+<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">policy</span>
+<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a><span class="w">        </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">team-platform-admin</span>
+<a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a><span class="w">        </span><span class="nt">discoveredAt</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2026-01-15T10:00:00Z&quot;</span>
+<a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a><span class="w">        </span><span class="nt">suggestedCRName</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">team-platform-admin</span>
+<a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a><span class="w">        </span><span class="nt">adoptionStatus</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">discovered</span>
+<a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">role</span>
+<a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a><span class="w">        </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">api-service</span>
+<a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a><span class="w">        </span><span class="nt">discoveredAt</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2026-01-15T10:00:00Z&quot;</span>
+<a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a><span class="w">        </span><span class="nt">suggestedCRName</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">api-service</span>
+<a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a><span class="w">        </span><span class="nt">adoptionStatus</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">discovered</span>
 </code></pre></div>
 <h3 id="via-prometheus-metrics">Via Prometheus Metrics<a class="headerlink" href="#via-prometheus-metrics" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>vault_access_operator_discovered_resources{connection=&quot;vault-primary&quot;, type=&quot;policy&quot;} 3
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>vault_access_operator_discovered_resources{connection=&quot;vault-primary&quot;, type=&quot;role&quot;} 2
-<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>vault_access_operator_discovery_scans_total{connection=&quot;vault-primary&quot;, status=&quot;success&quot;} 10
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>vault_access_operator_discovered_resources{connection=&quot;vault-primary&quot;, type=&quot;policy&quot;} 3
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>vault_access_operator_discovered_resources{connection=&quot;vault-primary&quot;, type=&quot;role&quot;} 2
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>vault_access_operator_discovery_scans_total{connection=&quot;vault-primary&quot;, status=&quot;success&quot;} 10
 </code></pre></div>
 <h2 id="adopting-discovered-resources">Adopting Discovered Resources<a class="headerlink" href="#adopting-discovered-resources" title="Permanent link">&para;</a></h2>
 <p>Once you've identified unmanaged resources, you can adopt them into Kubernetes management.</p>
 <h3 id="step-1-review-the-resource">Step 1: Review the Resource<a class="headerlink" href="#step-1-review-the-resource" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># Check what the policy contains</span>
-<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>vault<span class="w"> </span>policy<span class="w"> </span><span class="nb">read</span><span class="w"> </span>app-database-read
-<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>
-<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="c1"># Check what the role contains</span>
-<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>vault<span class="w"> </span><span class="nb">read</span><span class="w"> </span>auth/kubernetes/role/api-service
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># Check what the policy contains</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>vault<span class="w"> </span>policy<span class="w"> </span><span class="nb">read</span><span class="w"> </span>app-database-read
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="c1"># Check what the role contains</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>vault<span class="w"> </span><span class="nb">read</span><span class="w"> </span>auth/kubernetes/role/api-service
 </code></pre></div>
 <h3 id="step-2-create-a-kubernetes-cr">Step 2: Create a Kubernetes CR<a class="headerlink" href="#step-2-create-a-kubernetes-cr" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault.platform.io/v1alpha1</span>
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">VaultPolicy</span>
-<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="nt">metadata</span><span class="p">:</span>
-<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">app-database-read</span>
-<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">production</span>
-<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="w">  </span><span class="nt">annotations</span><span class="p">:</span>
-<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="w">    </span><span class="nt">vault.platform.io/adopt</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;true&quot;</span><span class="w">  </span><span class="c1"># Adopt existing resource</span>
-<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="nt">spec</span><span class="p">:</span>
-<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="w">  </span><span class="nt">vaultConnectionRef</span><span class="p">:</span>
-<a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-primary</span>
-<a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a><span class="w">  </span><span class="nt">rules</span><span class="p">:</span>
-<a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;database/creds/readonly&quot;</span>
-<a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a><span class="w">      </span><span class="nt">capabilities</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;read&quot;</span><span class="p p-Indicator">]</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault.platform.io/v1alpha1</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">VaultPolicy</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="nt">metadata</span><span class="p">:</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">app-database-read</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">production</span>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">  </span><span class="nt">annotations</span><span class="p">:</span>
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="w">    </span><span class="nt">vault.platform.io/adopt</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;true&quot;</span><span class="w">  </span><span class="c1"># Adopt existing resource</span>
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="nt">spec</span><span class="p">:</span>
+<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="w">  </span><span class="nt">vaultConnectionRef</span><span class="p">:</span>
+<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-primary</span>
+<a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a><span class="w">  </span><span class="nt">rules</span><span class="p">:</span>
+<a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;database/creds/readonly&quot;</span>
+<a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a><span class="w">      </span><span class="nt">capabilities</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;read&quot;</span><span class="p p-Indicator">]</span>
 </code></pre></div>
 <h3 id="step-3-apply-and-verify">Step 3: Apply and Verify<a class="headerlink" href="#step-3-apply-and-verify" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>kubectl<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>policy.yaml
-<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>
-<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="c1"># Check adoption status</span>
-<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>kubectl<span class="w"> </span>get<span class="w"> </span>vaultpolicy<span class="w"> </span>app-database-read<span class="w"> </span>-o<span class="w"> </span>yaml
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>kubectl<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>policy.yaml
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="c1"># Check adoption status</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>kubectl<span class="w"> </span>get<span class="w"> </span>vaultpolicy<span class="w"> </span>app-database-read<span class="w"> </span>-o<span class="w"> </span>yaml
 </code></pre></div>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="nt">status</span><span class="p">:</span>
-<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">  </span><span class="nt">phase</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Active</span>
-<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">  </span><span class="nt">managed</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="w">  </span><span class="nt">message</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Adopted</span><span class="nv"> </span><span class="s">existing</span><span class="nv"> </span><span class="s">Vault</span><span class="nv"> </span><span class="s">resource&quot;</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="nt">status</span><span class="p">:</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span><span class="nt">phase</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Active</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">  </span><span class="nt">managed</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">  </span><span class="nt">message</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Adopted</span><span class="nv"> </span><span class="s">existing</span><span class="nv"> </span><span class="s">Vault</span><span class="nv"> </span><span class="s">resource&quot;</span>
 </code></pre></div>
 <h2 id="adoption-modes">Adoption Modes<a class="headerlink" href="#adoption-modes" title="Permanent link">&para;</a></h2>
 <h3 id="adopt-existing-vaultplatformioadopt-true">Adopt Existing (<code>vault.platform.io/adopt: "true"</code>)<a class="headerlink" href="#adopt-existing-vaultplatformioadopt-true" title="Permanent link">&para;</a></h3>
@@ -2024,26 +2013,26 @@
 </table>
 <h3 id="multiple-patterns">Multiple Patterns<a class="headerlink" href="#multiple-patterns" title="Permanent link">&para;</a></h3>
 <p>Multiple patterns are OR'd together:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="nt">discovery</span><span class="p">:</span>
-<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">  </span><span class="nt">policyPatterns</span><span class="p">:</span>
-<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;app-*&quot;</span><span class="w">      </span><span class="c1"># OR</span>
-<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;service-*&quot;</span><span class="w">  </span><span class="c1"># OR</span>
-<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;team-*&quot;</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="nt">discovery</span><span class="p">:</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">  </span><span class="nt">policyPatterns</span><span class="p">:</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;app-*&quot;</span><span class="w">      </span><span class="c1"># OR</span>
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;service-*&quot;</span><span class="w">  </span><span class="c1"># OR</span>
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;team-*&quot;</span>
 </code></pre></div>
 <h2 id="best-practices">Best Practices<a class="headerlink" href="#best-practices" title="Permanent link">&para;</a></h2>
 <h3 id="1-start-with-detection-only">1. Start with Detection Only<a class="headerlink" href="#1-start-with-detection-only" title="Permanent link">&para;</a></h3>
 <p>Don't adopt everything immediately:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="nt">discovery</span><span class="p">:</span>
-<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="w">  </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">24h</span><span class="w">  </span><span class="c1"># Daily scan</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="nt">discovery</span><span class="p">:</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="w">  </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">24h</span><span class="w">  </span><span class="c1"># Daily scan</span>
 </code></pre></div>
 <p>Review discovered resources, understand their purpose, then adopt selectively.</p>
 <h3 id="2-use-specific-patterns">2. Use Specific Patterns<a class="headerlink" href="#2-use-specific-patterns" title="Permanent link">&para;</a></h3>
 <p>Avoid discovering resources you don't want to manage:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="nt">discovery</span><span class="p">:</span>
-<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="w">  </span><span class="nt">policyPatterns</span><span class="p">:</span>
-<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;myteam-*&quot;</span><span class="w">  </span><span class="c1"># Only our team&#39;s resources</span>
-<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="w">  </span><span class="nt">excludeSystemPolicies</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="nt">discovery</span><span class="p">:</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">  </span><span class="nt">policyPatterns</span><span class="p">:</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;myteam-*&quot;</span><span class="w">  </span><span class="c1"># Only our team&#39;s resources</span>
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="w">  </span><span class="nt">excludeSystemPolicies</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 </code></pre></div>
 <h3 id="3-document-before-adopting">3. Document Before Adopting<a class="headerlink" href="#3-document-before-adopting" title="Permanent link">&para;</a></h3>
 <p>Before adoption:
@@ -2074,15 +2063,15 @@
 <h3 id="permission-denied-on-scan">"Permission Denied" on Scan<a class="headerlink" href="#permission-denied-on-scan" title="Permanent link">&para;</a></h3>
 <p><strong>Symptoms:</strong> Discovery fails with permission error</p>
 <p><strong>Required Vault permissions:</strong>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="c1"># For policy discovery</span>
-<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="err">path</span><span class="w"> </span><span class="s2">&quot;sys/policies/acl&quot;</span><span class="w"> </span><span class="p">{</span>
-<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="w">  </span><span class="na">capabilities</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;list&quot;</span><span class="p">]</span>
-<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="p">}</span>
-<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a>
-<a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a><span class="c1"># For role discovery</span>
-<a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a><span class="err">path</span><span class="w"> </span><span class="s2">&quot;auth/kubernetes/role&quot;</span><span class="w"> </span><span class="p">{</span>
-<a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a><span class="w">  </span><span class="na">capabilities</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;list&quot;</span><span class="p">]</span>
-<a id="__codelineno-12-9" name="__codelineno-12-9" href="#__codelineno-12-9"></a><span class="p">}</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="c1"># For policy discovery</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="err">path</span><span class="w"> </span><span class="s2">&quot;sys/policies/acl&quot;</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="w">  </span><span class="na">capabilities</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;list&quot;</span><span class="p">]</span>
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="p">}</span>
+<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a>
+<a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a><span class="c1"># For role discovery</span>
+<a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a><span class="err">path</span><span class="w"> </span><span class="s2">&quot;auth/kubernetes/role&quot;</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a><span class="w">  </span><span class="na">capabilities</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;list&quot;</span><span class="p">]</span>
+<a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a><span class="p">}</span>
 </code></pre></div></p>
 <h2 id="use-cases">Use Cases<a class="headerlink" href="#use-cases" title="Permanent link">&para;</a></h2>
 <h3 id="migration-from-cli-to-gitops">Migration from CLI to GitOps<a class="headerlink" href="#migration-from-cli-to-gitops" title="Permanent link">&para;</a></h3>
@@ -2095,21 +2084,21 @@
 </ol>
 <h3 id="multi-cluster-vault">Multi-Cluster Vault<a class="headerlink" href="#multi-cluster-vault" title="Permanent link">&para;</a></h3>
 <p>When multiple clusters share Vault:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="c1"># Cluster A</span>
-<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="nt">discovery</span><span class="p">:</span>
-<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="w">  </span><span class="nt">policyPatterns</span><span class="p">:</span>
-<a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;cluster-a-*&quot;</span>
-<a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a>
-<a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a><span class="c1"># Cluster B</span>
-<a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a><span class="nt">discovery</span><span class="p">:</span>
-<a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a><span class="w">  </span><span class="nt">policyPatterns</span><span class="p">:</span>
-<a id="__codelineno-13-9" name="__codelineno-13-9" href="#__codelineno-13-9"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;cluster-b-*&quot;</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="c1"># Cluster A</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="nt">discovery</span><span class="p">:</span>
+<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="w">  </span><span class="nt">policyPatterns</span><span class="p">:</span>
+<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;cluster-a-*&quot;</span>
+<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a>
+<a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a><span class="c1"># Cluster B</span>
+<a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a><span class="nt">discovery</span><span class="p">:</span>
+<a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a><span class="w">  </span><span class="nt">policyPatterns</span><span class="p">:</span>
+<a id="__codelineno-12-9" name="__codelineno-12-9" href="#__codelineno-12-9"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;cluster-b-*&quot;</span>
 </code></pre></div>
 <h3 id="compliance-audit">Compliance Audit<a class="headerlink" href="#compliance-audit" title="Permanent link">&para;</a></h3>
 <p>Use discovery to regularly check for unmanaged resources:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="nt">discovery</span><span class="p">:</span>
-<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a><span class="w">  </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4h</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="nt">discovery</span><span class="p">:</span>
+<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="w">  </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4h</span>
 </code></pre></div>
 <p>Alert on <code>vault_access_operator_discovered_resources &gt; 0</code> to catch configuration drift.</p>
 <h2 id="see-also">See Also<a class="headerlink" href="#see-also" title="Permanent link">&para;</a></h2>

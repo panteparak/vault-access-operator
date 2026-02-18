@@ -23,7 +23,7 @@
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.1">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.2">
     
     
       
@@ -1557,22 +1557,31 @@
 <li>Operator transitions to Kubernetes auth</li>
 <li>Bootstrap token is optionally revoked</li>
 </ol>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>Phase 1: Bootstrap                    Phase 2: Operational
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>┌─────────────────┐                   ┌─────────────────┐
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>│   Bootstrap     │    Configure      │   Kubernetes    │
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>│   Token         │ ──────────────►   │   Auth Method   │
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>└────────┬────────┘                   └────────┬────────┘
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>         │                                     │
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>         │ Authenticate                        │ Authenticate
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>         ▼                                     ▼
-<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>┌─────────────────┐                   ┌─────────────────┐
-<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>│      Vault      │                   │      Vault      │
-<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>└─────────────────┘                   └─────────────────┘
-<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>         │                                     │
-<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>         │ Auto-revoke                         │
-<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>         ▼                                     │
-<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>    [Token Revoked]                     [Normal Operation]
-</code></pre></div>
+<pre class="mermaid"><code>sequenceDiagram
+    participant BT as Bootstrap Token
+    participant Op as Operator
+    participant V as Vault
+    participant K8s as K8s Auth Method
+
+    rect rgb(255, 245, 235)
+        Note over BT,V: Phase 1: Bootstrap
+        Op-&gt;&gt;BT: Read token
+        BT--&gt;&gt;Op: Bootstrap token
+        Op-&gt;&gt;V: Authenticate
+        V--&gt;&gt;Op: Access granted
+        Op-&gt;&gt;V: Configure K8s auth method
+    end
+
+    rect rgb(235, 245, 255)
+        Note over Op,K8s: Phase 2: Operational
+        Op-&gt;&gt;V: Authenticate via K8s auth
+        V-&gt;&gt;K8s: Validate
+        K8s--&gt;&gt;V: Valid
+        V--&gt;&gt;Op: Vault Token
+    end
+
+    Op-&gt;&gt;V: Auto-revoke bootstrap token
+    Note over Op: Normal Operation</code></pre>
 <h2 id="prerequisites">Prerequisites<a class="headerlink" href="#prerequisites" title="Permanent link">&para;</a></h2>
 <h3 id="vault-requirements">Vault Requirements<a class="headerlink" href="#vault-requirements" title="Permanent link">&para;</a></h3>
 <ul>
@@ -1598,37 +1607,37 @@
 - Enable and configure the Kubernetes auth method
 - Create policies
 - Create auth roles</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># Create a bootstrap policy</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>vault<span class="w"> </span>policy<span class="w"> </span>write<span class="w"> </span>bootstrap-operator<span class="w"> </span>-<span class="w"> </span><span class="s">&lt;&lt;EOF</span>
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="s"># Enable auth methods</span>
-<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="s">path &quot;sys/auth/*&quot; {</span>
-<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="s">  capabilities = [&quot;create&quot;, &quot;read&quot;, &quot;update&quot;, &quot;delete&quot;, &quot;sudo&quot;]</span>
-<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="s">}</span>
-<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>
-<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="s"># Configure auth methods</span>
-<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="s">path &quot;auth/*&quot; {</span>
-<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="s">  capabilities = [&quot;create&quot;, &quot;read&quot;, &quot;update&quot;, &quot;delete&quot;, &quot;list&quot;]</span>
-<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="s">}</span>
-<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>
-<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="s"># Manage policies</span>
-<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a><span class="s">path &quot;sys/policies/acl/*&quot; {</span>
-<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a><span class="s">  capabilities = [&quot;create&quot;, &quot;read&quot;, &quot;update&quot;, &quot;delete&quot;, &quot;list&quot;]</span>
-<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a><span class="s">}</span>
-<a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a><span class="s">path &quot;sys/policies/acl&quot; {</span>
-<a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a><span class="s">  capabilities = [&quot;list&quot;]</span>
-<a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a><span class="s">}</span>
-<a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a><span class="s">EOF</span>
-<a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a>
-<a id="__codelineno-1-22" name="__codelineno-1-22" href="#__codelineno-1-22"></a><span class="c1"># Create a token with the bootstrap policy</span>
-<a id="__codelineno-1-23" name="__codelineno-1-23" href="#__codelineno-1-23"></a>vault<span class="w"> </span>token<span class="w"> </span>create<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-1-24" name="__codelineno-1-24" href="#__codelineno-1-24"></a><span class="w">    </span>-policy<span class="o">=</span>bootstrap-operator<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-1-25" name="__codelineno-1-25" href="#__codelineno-1-25"></a><span class="w">    </span>-ttl<span class="o">=</span>1h<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-1-26" name="__codelineno-1-26" href="#__codelineno-1-26"></a><span class="w">    </span>-use-limit<span class="o">=</span><span class="m">10</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-1-27" name="__codelineno-1-27" href="#__codelineno-1-27"></a><span class="w">    </span>-display-name<span class="o">=</span><span class="s2">&quot;vault-access-operator-bootstrap&quot;</span>
-<a id="__codelineno-1-28" name="__codelineno-1-28" href="#__codelineno-1-28"></a>
-<a id="__codelineno-1-29" name="__codelineno-1-29" href="#__codelineno-1-29"></a><span class="c1"># Output:</span>
-<a id="__codelineno-1-30" name="__codelineno-1-30" href="#__codelineno-1-30"></a><span class="c1"># token            hvs.CAESI...</span>
-<a id="__codelineno-1-31" name="__codelineno-1-31" href="#__codelineno-1-31"></a><span class="c1"># token_accessor   ...</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># Create a bootstrap policy</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>vault<span class="w"> </span>policy<span class="w"> </span>write<span class="w"> </span>bootstrap-operator<span class="w"> </span>-<span class="w"> </span><span class="s">&lt;&lt;EOF</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="s"># Enable auth methods</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="s">path &quot;sys/auth/*&quot; {</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="s">  capabilities = [&quot;create&quot;, &quot;read&quot;, &quot;update&quot;, &quot;delete&quot;, &quot;sudo&quot;]</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="s">}</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="s"># Configure auth methods</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="s">path &quot;auth/*&quot; {</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="s">  capabilities = [&quot;create&quot;, &quot;read&quot;, &quot;update&quot;, &quot;delete&quot;, &quot;list&quot;]</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="s">}</span>
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="s"># Manage policies</span>
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="s">path &quot;sys/policies/acl/*&quot; {</span>
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="s">  capabilities = [&quot;create&quot;, &quot;read&quot;, &quot;update&quot;, &quot;delete&quot;, &quot;list&quot;]</span>
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="s">}</span>
+<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="s">path &quot;sys/policies/acl&quot; {</span>
+<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="s">  capabilities = [&quot;list&quot;]</span>
+<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a><span class="s">}</span>
+<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a><span class="s">EOF</span>
+<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>
+<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a><span class="c1"># Create a token with the bootstrap policy</span>
+<a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>vault<span class="w"> </span>token<span class="w"> </span>create<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a><span class="w">    </span>-policy<span class="o">=</span>bootstrap-operator<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a><span class="w">    </span>-ttl<span class="o">=</span>1h<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a><span class="w">    </span>-use-limit<span class="o">=</span><span class="m">10</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a><span class="w">    </span>-display-name<span class="o">=</span><span class="s2">&quot;vault-access-operator-bootstrap&quot;</span>
+<a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a>
+<a id="__codelineno-0-29" name="__codelineno-0-29" href="#__codelineno-0-29"></a><span class="c1"># Output:</span>
+<a id="__codelineno-0-30" name="__codelineno-0-30" href="#__codelineno-0-30"></a><span class="c1"># token            hvs.CAESI...</span>
+<a id="__codelineno-0-31" name="__codelineno-0-31" href="#__codelineno-0-31"></a><span class="c1"># token_accessor   ...</span>
 </code></pre></div>
 <div class="admonition warning">
 <p class="admonition-title">Security Considerations</p>
@@ -1639,49 +1648,49 @@
 </ul>
 </div>
 <h3 id="step-2-create-kubernetes-secret-for-bootstrap-token">Step 2: Create Kubernetes Secret for Bootstrap Token<a class="headerlink" href="#step-2-create-kubernetes-secret-for-bootstrap-token" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>kubectl<span class="w"> </span>create<span class="w"> </span>secret<span class="w"> </span>generic<span class="w"> </span>vault-bootstrap-token<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">    </span>-n<span class="w"> </span>vault-access-operator-system<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">    </span>--from-literal<span class="o">=</span><span class="nv">token</span><span class="o">=</span>hvs.CAESI...
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>kubectl<span class="w"> </span>create<span class="w"> </span>secret<span class="w"> </span>generic<span class="w"> </span>vault-bootstrap-token<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">    </span>-n<span class="w"> </span>vault-access-operator-system<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">    </span>--from-literal<span class="o">=</span><span class="nv">token</span><span class="o">=</span>hvs.CAESI...
 </code></pre></div>
 <h3 id="step-3-create-vaultconnection-with-bootstrap-auth">Step 3: Create VaultConnection with Bootstrap Auth<a class="headerlink" href="#step-3-create-vaultconnection-with-bootstrap-auth" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault.platform.io/v1alpha1</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">VaultConnection</span>
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="nt">metadata</span><span class="p">:</span>
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-primary</span>
-<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="nt">spec</span><span class="p">:</span>
-<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">  </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://vault.example.com:8200</span>
-<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>
-<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="w">  </span><span class="nt">tls</span><span class="p">:</span>
-<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="w">    </span><span class="nt">caCert</span><span class="p">:</span>
-<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="w">      </span><span class="nt">secretRef</span><span class="p">:</span>
-<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a><span class="w">        </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-ca-cert</span>
-<a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a><span class="w">        </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-access-operator-system</span>
-<a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a><span class="w">        </span><span class="nt">key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ca.crt</span>
-<a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a>
-<a id="__codelineno-3-15" name="__codelineno-3-15" href="#__codelineno-3-15"></a><span class="w">  </span><span class="nt">auth</span><span class="p">:</span>
-<a id="__codelineno-3-16" name="__codelineno-3-16" href="#__codelineno-3-16"></a><span class="w">    </span><span class="c1"># Bootstrap phase - will auto-transition to kubernetes auth</span>
-<a id="__codelineno-3-17" name="__codelineno-3-17" href="#__codelineno-3-17"></a><span class="w">    </span><span class="nt">bootstrap</span><span class="p">:</span>
-<a id="__codelineno-3-18" name="__codelineno-3-18" href="#__codelineno-3-18"></a><span class="w">      </span><span class="nt">secretRef</span><span class="p">:</span>
-<a id="__codelineno-3-19" name="__codelineno-3-19" href="#__codelineno-3-19"></a><span class="w">        </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-bootstrap-token</span>
-<a id="__codelineno-3-20" name="__codelineno-3-20" href="#__codelineno-3-20"></a><span class="w">        </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-access-operator-system</span>
-<a id="__codelineno-3-21" name="__codelineno-3-21" href="#__codelineno-3-21"></a><span class="w">        </span><span class="nt">key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">token</span>
-<a id="__codelineno-3-22" name="__codelineno-3-22" href="#__codelineno-3-22"></a><span class="w">      </span><span class="nt">autoRevoke</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">  </span><span class="c1"># Revoke bootstrap token after setup</span>
-<a id="__codelineno-3-23" name="__codelineno-3-23" href="#__codelineno-3-23"></a>
-<a id="__codelineno-3-24" name="__codelineno-3-24" href="#__codelineno-3-24"></a><span class="w">    </span><span class="c1"># Target configuration - operator will set this up</span>
-<a id="__codelineno-3-25" name="__codelineno-3-25" href="#__codelineno-3-25"></a><span class="w">    </span><span class="nt">kubernetes</span><span class="p">:</span>
-<a id="__codelineno-3-26" name="__codelineno-3-26" href="#__codelineno-3-26"></a><span class="w">      </span><span class="nt">role</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-access-operator</span>
-<a id="__codelineno-3-27" name="__codelineno-3-27" href="#__codelineno-3-27"></a><span class="w">      </span><span class="nt">authPath</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">kubernetes</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault.platform.io/v1alpha1</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">VaultConnection</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="nt">metadata</span><span class="p">:</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-primary</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="nt">spec</span><span class="p">:</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">  </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://vault.example.com:8200</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="w">  </span><span class="nt">tls</span><span class="p">:</span>
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="w">    </span><span class="nt">caCert</span><span class="p">:</span>
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="w">      </span><span class="nt">secretRef</span><span class="p">:</span>
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="w">        </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-ca-cert</span>
+<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="w">        </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-access-operator-system</span>
+<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a><span class="w">        </span><span class="nt">key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ca.crt</span>
+<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>
+<a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a><span class="w">  </span><span class="nt">auth</span><span class="p">:</span>
+<a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a><span class="w">    </span><span class="c1"># Bootstrap phase - will auto-transition to kubernetes auth</span>
+<a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a><span class="w">    </span><span class="nt">bootstrap</span><span class="p">:</span>
+<a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a><span class="w">      </span><span class="nt">secretRef</span><span class="p">:</span>
+<a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a><span class="w">        </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-bootstrap-token</span>
+<a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a><span class="w">        </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-access-operator-system</span>
+<a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a><span class="w">        </span><span class="nt">key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">token</span>
+<a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a><span class="w">      </span><span class="nt">autoRevoke</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">  </span><span class="c1"># Revoke bootstrap token after setup</span>
+<a id="__codelineno-2-23" name="__codelineno-2-23" href="#__codelineno-2-23"></a>
+<a id="__codelineno-2-24" name="__codelineno-2-24" href="#__codelineno-2-24"></a><span class="w">    </span><span class="c1"># Target configuration - operator will set this up</span>
+<a id="__codelineno-2-25" name="__codelineno-2-25" href="#__codelineno-2-25"></a><span class="w">    </span><span class="nt">kubernetes</span><span class="p">:</span>
+<a id="__codelineno-2-26" name="__codelineno-2-26" href="#__codelineno-2-26"></a><span class="w">      </span><span class="nt">role</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-access-operator</span>
+<a id="__codelineno-2-27" name="__codelineno-2-27" href="#__codelineno-2-27"></a><span class="w">      </span><span class="nt">authPath</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">kubernetes</span>
 </code></pre></div>
 <p>Apply the configuration:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>kubectl<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>vaultconnection.yaml
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>kubectl<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>vaultconnection.yaml
 </code></pre></div>
 <h3 id="step-4-monitor-the-bootstrap-process">Step 4: Monitor the Bootstrap Process<a class="headerlink" href="#step-4-monitor-the-bootstrap-process" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># Watch the VaultConnection status</span>
-<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>kubectl<span class="w"> </span>get<span class="w"> </span>vaultconnection<span class="w"> </span>vault-primary<span class="w"> </span>-w
-<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>
-<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="c1"># Check operator logs for bootstrap progress</span>
-<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>kubectl<span class="w"> </span>logs<span class="w"> </span>-n<span class="w"> </span>vault-access-operator-system<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">    </span>deploy/vault-access-operator-controller-manager<span class="w"> </span>-f
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># Watch the VaultConnection status</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>kubectl<span class="w"> </span>get<span class="w"> </span>vaultconnection<span class="w"> </span>vault-primary<span class="w"> </span>-w
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="c1"># Check operator logs for bootstrap progress</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>kubectl<span class="w"> </span>logs<span class="w"> </span>-n<span class="w"> </span>vault-access-operator-system<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">    </span>deploy/vault-access-operator-controller-manager<span class="w"> </span>-f
 </code></pre></div>
 <p>Expected progression:
 1. <code>Phase: Pending</code> - Starting bootstrap
@@ -1689,18 +1698,18 @@
 3. <code>Phase: Active</code> - Bootstrap complete, using Kubernetes auth</p>
 <h3 id="step-5-verify-configuration">Step 5: Verify Configuration<a class="headerlink" href="#step-5-verify-configuration" title="Permanent link">&para;</a></h3>
 <p>After bootstrap completes:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># Verify Kubernetes auth is enabled</span>
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>vault<span class="w"> </span>auth<span class="w"> </span>list<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>kubernetes
-<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>
-<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="c1"># Verify the operator role exists</span>
-<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>vault<span class="w"> </span><span class="nb">read</span><span class="w"> </span>auth/kubernetes/role/vault-access-operator
-<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>
-<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="c1"># Verify the bootstrap token is revoked (if autoRevoke=true)</span>
-<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>vault<span class="w"> </span>token<span class="w"> </span>lookup<span class="w"> </span>hvs.CAESI...<span class="w">  </span><span class="c1"># Should fail</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># Verify Kubernetes auth is enabled</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>vault<span class="w"> </span>auth<span class="w"> </span>list<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>kubernetes
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="c1"># Verify the operator role exists</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>vault<span class="w"> </span><span class="nb">read</span><span class="w"> </span>auth/kubernetes/role/vault-access-operator
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="c1"># Verify the bootstrap token is revoked (if autoRevoke=true)</span>
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>vault<span class="w"> </span>token<span class="w"> </span>lookup<span class="w"> </span>hvs.CAESI...<span class="w">  </span><span class="c1"># Should fail</span>
 </code></pre></div>
 <h3 id="step-6-clean-up-bootstrap-secret">Step 6: Clean Up Bootstrap Secret<a class="headerlink" href="#step-6-clean-up-bootstrap-secret" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1"># Delete the bootstrap secret (no longer needed)</span>
-<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>kubectl<span class="w"> </span>delete<span class="w"> </span>secret<span class="w"> </span>vault-bootstrap-token<span class="w"> </span>-n<span class="w"> </span>vault-access-operator-system
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># Delete the bootstrap secret (no longer needed)</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>kubectl<span class="w"> </span>delete<span class="w"> </span>secret<span class="w"> </span>vault-bootstrap-token<span class="w"> </span>-n<span class="w"> </span>vault-access-operator-system
 </code></pre></div>
 <h2 id="configuration-reference">Configuration Reference<a class="headerlink" href="#configuration-reference" title="Permanent link">&para;</a></h2>
 <h3 id="required-fields">Required Fields<a class="headerlink" href="#required-fields" title="Permanent link">&para;</a></h3>
@@ -1740,29 +1749,29 @@
 <ol>
 <li>
 <p><strong>Enables Kubernetes auth</strong> (if not already enabled)
-   <div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>vault<span class="w"> </span>auth<span class="w"> </span><span class="nb">enable</span><span class="w"> </span>kubernetes
+   <div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>vault<span class="w"> </span>auth<span class="w"> </span><span class="nb">enable</span><span class="w"> </span>kubernetes
 </code></pre></div></p>
 </li>
 <li>
 <p><strong>Configures Kubernetes auth</strong> with cluster details
-   <div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>vault<span class="w"> </span>write<span class="w"> </span>auth/kubernetes/config<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">    </span><span class="nv">kubernetes_host</span><span class="o">=</span><span class="s2">&quot;https://kubernetes.default.svc&quot;</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="w">    </span><span class="nv">kubernetes_ca_cert</span><span class="o">=</span><span class="s2">&quot;@/var/run/secrets/kubernetes.io/serviceaccount/ca.crt&quot;</span>
+   <div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>vault<span class="w"> </span>write<span class="w"> </span>auth/kubernetes/config<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">    </span><span class="nv">kubernetes_host</span><span class="o">=</span><span class="s2">&quot;https://kubernetes.default.svc&quot;</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">    </span><span class="nv">kubernetes_ca_cert</span><span class="o">=</span><span class="s2">&quot;@/var/run/secrets/kubernetes.io/serviceaccount/ca.crt&quot;</span>
 </code></pre></div></p>
 </li>
 <li>
 <p><strong>Creates the operator policy</strong>
-   <div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="err">path</span><span class="w"> </span><span class="s2">&quot;sys/policies/acl/*&quot; { capabilities = [&quot;create&quot;, &quot;read&quot;, &quot;update&quot;, &quot;delete&quot;, &quot;list&quot;</span><span class="p">]</span><span class="w"> </span><span class="p">}</span>
-<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="err">path</span><span class="w"> </span><span class="s2">&quot;auth/kubernetes/role/*&quot; { capabilities = [&quot;create&quot;, &quot;read&quot;, &quot;update&quot;, &quot;delete&quot;, &quot;list&quot;</span><span class="p">]</span><span class="w"> </span><span class="p">}</span>
+   <div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="err">path</span><span class="w"> </span><span class="s2">&quot;sys/policies/acl/*&quot; { capabilities = [&quot;create&quot;, &quot;read&quot;, &quot;update&quot;, &quot;delete&quot;, &quot;list&quot;</span><span class="p">]</span><span class="w"> </span><span class="p">}</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="err">path</span><span class="w"> </span><span class="s2">&quot;auth/kubernetes/role/*&quot; { capabilities = [&quot;create&quot;, &quot;read&quot;, &quot;update&quot;, &quot;delete&quot;, &quot;list&quot;</span><span class="p">]</span><span class="w"> </span><span class="p">}</span>
 </code></pre></div></p>
 </li>
 <li>
 <p><strong>Creates the operator role</strong>
-   <div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>vault<span class="w"> </span>write<span class="w"> </span>auth/kubernetes/role/vault-access-operator<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="w">    </span><span class="nv">bound_service_account_names</span><span class="o">=</span>vault-access-operator-controller-manager<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="w">    </span><span class="nv">bound_service_account_namespaces</span><span class="o">=</span>vault-access-operator-system<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="w">    </span><span class="nv">policies</span><span class="o">=</span>vault-access-operator<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="w">    </span><span class="nv">ttl</span><span class="o">=</span>1h
+   <div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>vault<span class="w"> </span>write<span class="w"> </span>auth/kubernetes/role/vault-access-operator<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">    </span><span class="nv">bound_service_account_names</span><span class="o">=</span>vault-access-operator-controller-manager<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="w">    </span><span class="nv">bound_service_account_namespaces</span><span class="o">=</span>vault-access-operator-system<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="w">    </span><span class="nv">policies</span><span class="o">=</span>vault-access-operator<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="w">    </span><span class="nv">ttl</span><span class="o">=</span>1h
 </code></pre></div></p>
 </li>
 <li>
@@ -1772,37 +1781,37 @@
 </ol>
 <h2 id="external-vault-setup">External Vault Setup<a class="headerlink" href="#external-vault-setup" title="Permanent link">&para;</a></h2>
 <p>When Vault runs outside the Kubernetes cluster, provide the external API server address:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault.platform.io/v1alpha1</span>
-<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">VaultConnection</span>
-<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="nt">metadata</span><span class="p">:</span>
-<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-primary</span>
-<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="nt">spec</span><span class="p">:</span>
-<a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a><span class="w">  </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://vault.example.com:8200</span>
-<a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a><span class="w">  </span><span class="nt">auth</span><span class="p">:</span>
-<a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a><span class="w">    </span><span class="nt">bootstrap</span><span class="p">:</span>
-<a id="__codelineno-12-9" name="__codelineno-12-9" href="#__codelineno-12-9"></a><span class="w">      </span><span class="nt">secretRef</span><span class="p">:</span>
-<a id="__codelineno-12-10" name="__codelineno-12-10" href="#__codelineno-12-10"></a><span class="w">        </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-bootstrap-token</span>
-<a id="__codelineno-12-11" name="__codelineno-12-11" href="#__codelineno-12-11"></a><span class="w">        </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-access-operator-system</span>
-<a id="__codelineno-12-12" name="__codelineno-12-12" href="#__codelineno-12-12"></a><span class="w">        </span><span class="nt">key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">token</span>
-<a id="__codelineno-12-13" name="__codelineno-12-13" href="#__codelineno-12-13"></a><span class="w">    </span><span class="nt">kubernetes</span><span class="p">:</span>
-<a id="__codelineno-12-14" name="__codelineno-12-14" href="#__codelineno-12-14"></a><span class="w">      </span><span class="nt">role</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-access-operator</span>
-<a id="__codelineno-12-15" name="__codelineno-12-15" href="#__codelineno-12-15"></a><span class="w">      </span><span class="nt">kubernetesHost</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://k8s-api.example.com:6443</span><span class="w">  </span><span class="c1"># External API address</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault.platform.io/v1alpha1</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">VaultConnection</span>
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="nt">metadata</span><span class="p">:</span>
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-primary</span>
+<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="nt">spec</span><span class="p">:</span>
+<a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a><span class="w">  </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://vault.example.com:8200</span>
+<a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a><span class="w">  </span><span class="nt">auth</span><span class="p">:</span>
+<a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a><span class="w">    </span><span class="nt">bootstrap</span><span class="p">:</span>
+<a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a><span class="w">      </span><span class="nt">secretRef</span><span class="p">:</span>
+<a id="__codelineno-11-10" name="__codelineno-11-10" href="#__codelineno-11-10"></a><span class="w">        </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-bootstrap-token</span>
+<a id="__codelineno-11-11" name="__codelineno-11-11" href="#__codelineno-11-11"></a><span class="w">        </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-access-operator-system</span>
+<a id="__codelineno-11-12" name="__codelineno-11-12" href="#__codelineno-11-12"></a><span class="w">        </span><span class="nt">key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">token</span>
+<a id="__codelineno-11-13" name="__codelineno-11-13" href="#__codelineno-11-13"></a><span class="w">    </span><span class="nt">kubernetes</span><span class="p">:</span>
+<a id="__codelineno-11-14" name="__codelineno-11-14" href="#__codelineno-11-14"></a><span class="w">      </span><span class="nt">role</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-access-operator</span>
+<a id="__codelineno-11-15" name="__codelineno-11-15" href="#__codelineno-11-15"></a><span class="w">      </span><span class="nt">kubernetesHost</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://k8s-api.example.com:6443</span><span class="w">  </span><span class="c1"># External API address</span>
 </code></pre></div>
 <h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h2>
 <h3 id="bootstrap-token-lacks-permissions">Bootstrap token lacks permissions<a class="headerlink" href="#bootstrap-token-lacks-permissions" title="Permanent link">&para;</a></h3>
 <p><strong>Symptoms:</strong>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>Error: permission denied
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>Error: permission denied
 </code></pre></div></p>
 <p><strong>Solutions:</strong></p>
 <ol>
 <li>Verify the bootstrap policy has required permissions</li>
 <li>Check the token has the policy attached:
-   <div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>vault<span class="w"> </span>token<span class="w"> </span>lookup<span class="w"> </span>hvs.CAESI...
+   <div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>vault<span class="w"> </span>token<span class="w"> </span>lookup<span class="w"> </span>hvs.CAESI...
 </code></pre></div></li>
 </ol>
 <h3 id="kubernetes-auth-configuration-fails">Kubernetes auth configuration fails<a class="headerlink" href="#kubernetes-auth-configuration-fails" title="Permanent link">&para;</a></h3>
 <p><strong>Symptoms:</strong>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>Error: error configuring Kubernetes auth
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>Error: error configuring Kubernetes auth
 </code></pre></div></p>
 <p><strong>Solutions:</strong></p>
 <ol>
@@ -1817,13 +1826,13 @@ VaultConnection stays in bootstrap mode</p>
 <ol>
 <li>
 <p>Check operator logs for errors:
-   <div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>kubectl<span class="w"> </span>logs<span class="w"> </span>-n<span class="w"> </span>vault-access-operator-system<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="w">    </span>deploy/vault-access-operator-controller-manager
+   <div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>kubectl<span class="w"> </span>logs<span class="w"> </span>-n<span class="w"> </span>vault-access-operator-system<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="w">    </span>deploy/vault-access-operator-controller-manager
 </code></pre></div></p>
 </li>
 <li>
 <p>Verify the Kubernetes auth role was created:
-   <div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>vault<span class="w"> </span><span class="nb">read</span><span class="w"> </span>auth/kubernetes/role/vault-access-operator
+   <div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>vault<span class="w"> </span><span class="nb">read</span><span class="w"> </span>auth/kubernetes/role/vault-access-operator
 </code></pre></div></p>
 </li>
 </ol>

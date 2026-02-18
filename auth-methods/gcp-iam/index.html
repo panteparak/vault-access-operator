@@ -23,7 +23,7 @@
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.1">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.2">
     
     
       
@@ -1645,24 +1645,19 @@
 <li>Vault verifies the JWT with GCP</li>
 <li>Vault returns a token with the configured policies</li>
 </ol>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>┌─────────────────┐     1. Get JWT         ┌─────────────────┐
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>│                 │ ──────────────────────►│   GCP IAM       │
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>│    Operator     │                        │   Credentials   │
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>│    (GKE Pod)    │◄────────────────────── │   API           │
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>└────────┬────────┘     2. Signed JWT      └─────────────────┘
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>         │
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>         │ 3. Login with JWT
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>         ▼
-<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>┌─────────────────┐     4. Verify JWT      ┌─────────────────┐
-<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>│                 │ ──────────────────────►│                 │
-<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>│      Vault      │                        │     GCP IAM     │
-<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>│                 │◄────────────────────── │                 │
-<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>└─────────────────┘     5. Valid           └─────────────────┘
-<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>         │
-<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>         │ 6. Return Vault Token
-<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>         ▼
-<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>    [Authenticated]
-</code></pre></div>
+<pre class="mermaid"><code>sequenceDiagram
+    participant Op as Operator (GKE Pod)
+    participant GCPC as GCP IAM Credentials API
+    participant V as Vault
+    participant GCP as GCP IAM
+
+    Op-&gt;&gt;GCPC: 1. Get JWT
+    GCPC--&gt;&gt;Op: 2. Signed JWT
+    Op-&gt;&gt;V: 3. Login with JWT
+    V-&gt;&gt;GCP: 4. Verify JWT
+    GCP--&gt;&gt;V: 5. Valid
+    V--&gt;&gt;Op: 6. Return Vault Token
+    Note over Op: Authenticated</code></pre>
 <h2 id="prerequisites">Prerequisites<a class="headerlink" href="#prerequisites" title="Permanent link">&para;</a></h2>
 <h3 id="gcp-requirements">GCP Requirements<a class="headerlink" href="#gcp-requirements" title="Permanent link">&para;</a></h3>
 <ul>
@@ -1690,65 +1685,65 @@
 </ul>
 <h2 id="step-by-step-setup">Step-by-Step Setup<a class="headerlink" href="#step-by-step-setup" title="Permanent link">&para;</a></h2>
 <h3 id="step-1-create-gcp-service-account">Step 1: Create GCP Service Account<a class="headerlink" href="#step-1-create-gcp-service-account" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># Set variables</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="nv">PROJECT_ID</span><span class="o">=</span>my-project
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="nv">GCP_SA_NAME</span><span class="o">=</span>vault-access-operator
-<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="nv">K8S_NAMESPACE</span><span class="o">=</span>vault-access-operator-system
-<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="nv">K8S_SA_NAME</span><span class="o">=</span>vault-access-operator-controller-manager
-<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>
-<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="c1"># Create GCP service account</span>
-<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>gcloud<span class="w"> </span>iam<span class="w"> </span>service-accounts<span class="w"> </span>create<span class="w"> </span><span class="nv">$GCP_SA_NAME</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="w">    </span>--project<span class="o">=</span><span class="nv">$PROJECT_ID</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="w">    </span>--display-name<span class="o">=</span><span class="s2">&quot;Vault Access Operator&quot;</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># Set variables</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="nv">PROJECT_ID</span><span class="o">=</span>my-project
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="nv">GCP_SA_NAME</span><span class="o">=</span>vault-access-operator
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="nv">K8S_NAMESPACE</span><span class="o">=</span>vault-access-operator-system
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="nv">K8S_SA_NAME</span><span class="o">=</span>vault-access-operator-controller-manager
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="c1"># Create GCP service account</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>gcloud<span class="w"> </span>iam<span class="w"> </span>service-accounts<span class="w"> </span>create<span class="w"> </span><span class="nv">$GCP_SA_NAME</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">    </span>--project<span class="o">=</span><span class="nv">$PROJECT_ID</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">    </span>--display-name<span class="o">=</span><span class="s2">&quot;Vault Access Operator&quot;</span>
 </code></pre></div>
 <h3 id="step-2-configure-workload-identity">Step 2: Configure Workload Identity<a class="headerlink" href="#step-2-configure-workload-identity" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c1"># Allow the K8s SA to impersonate the GCP SA</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>gcloud<span class="w"> </span>iam<span class="w"> </span>service-accounts<span class="w"> </span>add-iam-policy-binding<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">    </span><span class="nv">$GCP_SA_NAME</span>@<span class="nv">$PROJECT_ID</span>.iam.gserviceaccount.com<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">    </span>--project<span class="o">=</span><span class="nv">$PROJECT_ID</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">    </span>--role<span class="o">=</span>roles/iam.workloadIdentityUser<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">    </span>--member<span class="o">=</span><span class="s2">&quot;serviceAccount:</span><span class="nv">$PROJECT_ID</span><span class="s2">.svc.id.goog[</span><span class="nv">$K8S_NAMESPACE</span><span class="s2">/</span><span class="nv">$K8S_SA_NAME</span><span class="s2">]&quot;</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># Allow the K8s SA to impersonate the GCP SA</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>gcloud<span class="w"> </span>iam<span class="w"> </span>service-accounts<span class="w"> </span>add-iam-policy-binding<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">    </span><span class="nv">$GCP_SA_NAME</span>@<span class="nv">$PROJECT_ID</span>.iam.gserviceaccount.com<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">    </span>--project<span class="o">=</span><span class="nv">$PROJECT_ID</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">    </span>--role<span class="o">=</span>roles/iam.workloadIdentityUser<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">    </span>--member<span class="o">=</span><span class="s2">&quot;serviceAccount:</span><span class="nv">$PROJECT_ID</span><span class="s2">.svc.id.goog[</span><span class="nv">$K8S_NAMESPACE</span><span class="s2">/</span><span class="nv">$K8S_SA_NAME</span><span class="s2">]&quot;</span>
 </code></pre></div>
 <h3 id="step-3-annotate-the-kubernetes-service-account">Step 3: Annotate the Kubernetes Service Account<a class="headerlink" href="#step-3-annotate-the-kubernetes-service-account" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>kubectl<span class="w"> </span>annotate<span class="w"> </span>serviceaccount<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">    </span><span class="nv">$K8S_SA_NAME</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">    </span>-n<span class="w"> </span><span class="nv">$K8S_NAMESPACE</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">    </span>iam.gke.io/gcp-service-account<span class="o">=</span><span class="nv">$GCP_SA_NAME</span>@<span class="nv">$PROJECT_ID</span>.iam.gserviceaccount.com
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>kubectl<span class="w"> </span>annotate<span class="w"> </span>serviceaccount<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">    </span><span class="nv">$K8S_SA_NAME</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">    </span>-n<span class="w"> </span><span class="nv">$K8S_NAMESPACE</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">    </span>iam.gke.io/gcp-service-account<span class="o">=</span><span class="nv">$GCP_SA_NAME</span>@<span class="nv">$PROJECT_ID</span>.iam.gserviceaccount.com
 </code></pre></div>
 <p>Or via Helm values:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nt">serviceAccount</span><span class="p">:</span>
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span><span class="nt">annotations</span><span class="p">:</span>
-<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">    </span><span class="nt">iam.gke.io/gcp-service-account</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-access-operator@my-project.iam.gserviceaccount.com</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nt">serviceAccount</span><span class="p">:</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span><span class="nt">annotations</span><span class="p">:</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">    </span><span class="nt">iam.gke.io/gcp-service-account</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-access-operator@my-project.iam.gserviceaccount.com</span>
 </code></pre></div>
 <h3 id="step-4-enable-gcp-auth-in-vault">Step 4: Enable GCP Auth in Vault<a class="headerlink" href="#step-4-enable-gcp-auth-in-vault" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># Enable GCP auth method</span>
-<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>vault<span class="w"> </span>auth<span class="w"> </span><span class="nb">enable</span><span class="w"> </span>gcp
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># Enable GCP auth method</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>vault<span class="w"> </span>auth<span class="w"> </span><span class="nb">enable</span><span class="w"> </span>gcp
 </code></pre></div>
 <h3 id="step-5-create-vault-policy">Step 5: Create Vault Policy<a class="headerlink" href="#step-5-create-vault-policy" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>vault<span class="w"> </span>policy<span class="w"> </span>write<span class="w"> </span>vault-access-operator<span class="w"> </span>-<span class="w"> </span><span class="s">&lt;&lt;EOF</span>
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="s"># Manage ACL policies</span>
-<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="s">path &quot;sys/policies/acl/*&quot; {</span>
-<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="s">  capabilities = [&quot;create&quot;, &quot;read&quot;, &quot;update&quot;, &quot;delete&quot;, &quot;list&quot;]</span>
-<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="s">}</span>
-<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="s">path &quot;sys/policies/acl&quot; {</span>
-<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="s">  capabilities = [&quot;list&quot;]</span>
-<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="s">}</span>
-<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a>
-<a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a><span class="s"># Manage Kubernetes auth roles</span>
-<a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a><span class="s">path &quot;auth/kubernetes/role/*&quot; {</span>
-<a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a><span class="s">  capabilities = [&quot;create&quot;, &quot;read&quot;, &quot;update&quot;, &quot;delete&quot;, &quot;list&quot;]</span>
-<a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a><span class="s">}</span>
-<a id="__codelineno-6-14" name="__codelineno-6-14" href="#__codelineno-6-14"></a><span class="s">path &quot;auth/kubernetes/role&quot; {</span>
-<a id="__codelineno-6-15" name="__codelineno-6-15" href="#__codelineno-6-15"></a><span class="s">  capabilities = [&quot;list&quot;]</span>
-<a id="__codelineno-6-16" name="__codelineno-6-16" href="#__codelineno-6-16"></a><span class="s">}</span>
-<a id="__codelineno-6-17" name="__codelineno-6-17" href="#__codelineno-6-17"></a><span class="s">EOF</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>vault<span class="w"> </span>policy<span class="w"> </span>write<span class="w"> </span>vault-access-operator<span class="w"> </span>-<span class="w"> </span><span class="s">&lt;&lt;EOF</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="s"># Manage ACL policies</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="s">path &quot;sys/policies/acl/*&quot; {</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="s">  capabilities = [&quot;create&quot;, &quot;read&quot;, &quot;update&quot;, &quot;delete&quot;, &quot;list&quot;]</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="s">}</span>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="s">path &quot;sys/policies/acl&quot; {</span>
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="s">  capabilities = [&quot;list&quot;]</span>
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="s">}</span>
+<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>
+<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="s"># Manage Kubernetes auth roles</span>
+<a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a><span class="s">path &quot;auth/kubernetes/role/*&quot; {</span>
+<a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a><span class="s">  capabilities = [&quot;create&quot;, &quot;read&quot;, &quot;update&quot;, &quot;delete&quot;, &quot;list&quot;]</span>
+<a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a><span class="s">}</span>
+<a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a><span class="s">path &quot;auth/kubernetes/role&quot; {</span>
+<a id="__codelineno-5-15" name="__codelineno-5-15" href="#__codelineno-5-15"></a><span class="s">  capabilities = [&quot;list&quot;]</span>
+<a id="__codelineno-5-16" name="__codelineno-5-16" href="#__codelineno-5-16"></a><span class="s">}</span>
+<a id="__codelineno-5-17" name="__codelineno-5-17" href="#__codelineno-5-17"></a><span class="s">EOF</span>
 </code></pre></div>
 <h3 id="step-6-create-vault-role-for-gcp-auth">Step 6: Create Vault Role for GCP Auth<a class="headerlink" href="#step-6-create-vault-role-for-gcp-auth" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>vault<span class="w"> </span>write<span class="w"> </span>auth/gcp/role/vault-access-operator<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">    </span><span class="nv">type</span><span class="o">=</span>iam<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">    </span><span class="nv">bound_service_accounts</span><span class="o">=</span><span class="s2">&quot;</span><span class="nv">$GCP_SA_NAME</span><span class="s2">@</span><span class="nv">$PROJECT_ID</span><span class="s2">.iam.gserviceaccount.com&quot;</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">    </span><span class="nv">policies</span><span class="o">=</span>vault-access-operator<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="w">    </span><span class="nv">ttl</span><span class="o">=</span>1h
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>vault<span class="w"> </span>write<span class="w"> </span>auth/gcp/role/vault-access-operator<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">    </span><span class="nv">type</span><span class="o">=</span>iam<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">    </span><span class="nv">bound_service_accounts</span><span class="o">=</span><span class="s2">&quot;</span><span class="nv">$GCP_SA_NAME</span><span class="s2">@</span><span class="nv">$PROJECT_ID</span><span class="s2">.iam.gserviceaccount.com&quot;</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">    </span><span class="nv">policies</span><span class="o">=</span>vault-access-operator<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">    </span><span class="nv">ttl</span><span class="o">=</span>1h
 </code></pre></div>
 <table>
 <thead>
@@ -1777,37 +1772,37 @@
 </tbody>
 </table>
 <h3 id="step-7-create-vaultconnection-resource">Step 7: Create VaultConnection Resource<a class="headerlink" href="#step-7-create-vaultconnection-resource" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault.platform.io/v1alpha1</span>
-<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">VaultConnection</span>
-<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="nt">metadata</span><span class="p">:</span>
-<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-gcp</span>
-<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="nt">spec</span><span class="p">:</span>
-<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="w">  </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://vault.example.com:8200</span>
-<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a>
-<a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a><span class="w">  </span><span class="nt">tls</span><span class="p">:</span>
-<a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a><span class="w">    </span><span class="nt">caCert</span><span class="p">:</span>
-<a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a><span class="w">      </span><span class="nt">secretRef</span><span class="p">:</span>
-<a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a><span class="w">        </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-ca-cert</span>
-<a id="__codelineno-8-12" name="__codelineno-8-12" href="#__codelineno-8-12"></a><span class="w">        </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-access-operator-system</span>
-<a id="__codelineno-8-13" name="__codelineno-8-13" href="#__codelineno-8-13"></a><span class="w">        </span><span class="nt">key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ca.crt</span>
-<a id="__codelineno-8-14" name="__codelineno-8-14" href="#__codelineno-8-14"></a>
-<a id="__codelineno-8-15" name="__codelineno-8-15" href="#__codelineno-8-15"></a><span class="w">  </span><span class="nt">auth</span><span class="p">:</span>
-<a id="__codelineno-8-16" name="__codelineno-8-16" href="#__codelineno-8-16"></a><span class="w">    </span><span class="nt">gcp</span><span class="p">:</span>
-<a id="__codelineno-8-17" name="__codelineno-8-17" href="#__codelineno-8-17"></a><span class="w">      </span><span class="nt">role</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-access-operator</span>
-<a id="__codelineno-8-18" name="__codelineno-8-18" href="#__codelineno-8-18"></a><span class="w">      </span><span class="nt">authType</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">iam</span>
-<a id="__codelineno-8-19" name="__codelineno-8-19" href="#__codelineno-8-19"></a><span class="w">      </span><span class="nt">serviceAccountEmail</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-access-operator@my-project.iam.gserviceaccount.com</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault.platform.io/v1alpha1</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">VaultConnection</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="nt">metadata</span><span class="p">:</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-gcp</span>
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="nt">spec</span><span class="p">:</span>
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="w">  </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://vault.example.com:8200</span>
+<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a>
+<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="w">  </span><span class="nt">tls</span><span class="p">:</span>
+<a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="w">    </span><span class="nt">caCert</span><span class="p">:</span>
+<a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a><span class="w">      </span><span class="nt">secretRef</span><span class="p">:</span>
+<a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a><span class="w">        </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-ca-cert</span>
+<a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a><span class="w">        </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-access-operator-system</span>
+<a id="__codelineno-7-13" name="__codelineno-7-13" href="#__codelineno-7-13"></a><span class="w">        </span><span class="nt">key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ca.crt</span>
+<a id="__codelineno-7-14" name="__codelineno-7-14" href="#__codelineno-7-14"></a>
+<a id="__codelineno-7-15" name="__codelineno-7-15" href="#__codelineno-7-15"></a><span class="w">  </span><span class="nt">auth</span><span class="p">:</span>
+<a id="__codelineno-7-16" name="__codelineno-7-16" href="#__codelineno-7-16"></a><span class="w">    </span><span class="nt">gcp</span><span class="p">:</span>
+<a id="__codelineno-7-17" name="__codelineno-7-17" href="#__codelineno-7-17"></a><span class="w">      </span><span class="nt">role</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-access-operator</span>
+<a id="__codelineno-7-18" name="__codelineno-7-18" href="#__codelineno-7-18"></a><span class="w">      </span><span class="nt">authType</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">iam</span>
+<a id="__codelineno-7-19" name="__codelineno-7-19" href="#__codelineno-7-19"></a><span class="w">      </span><span class="nt">serviceAccountEmail</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-access-operator@my-project.iam.gserviceaccount.com</span>
 </code></pre></div>
 <p>Apply the configuration:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>kubectl<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>vaultconnection.yaml
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>kubectl<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>vaultconnection.yaml
 </code></pre></div>
 <h3 id="step-8-verify-the-connection">Step 8: Verify the Connection<a class="headerlink" href="#step-8-verify-the-connection" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="c1"># Check VaultConnection status</span>
-<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>kubectl<span class="w"> </span>get<span class="w"> </span>vaultconnection<span class="w"> </span>vault-gcp<span class="w"> </span>-o<span class="w"> </span>yaml
-<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>
-<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="c1"># Expected status</span>
-<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="c1"># status:</span>
-<a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="c1">#   phase: Active</span>
-<a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a><span class="c1">#   healthy: true</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="c1"># Check VaultConnection status</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>kubectl<span class="w"> </span>get<span class="w"> </span>vaultconnection<span class="w"> </span>vault-gcp<span class="w"> </span>-o<span class="w"> </span>yaml
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="c1"># Expected status</span>
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="c1"># status:</span>
+<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="c1">#   phase: Active</span>
+<a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a><span class="c1">#   healthy: true</span>
 </code></pre></div>
 <h2 id="configuration-reference">Configuration Reference<a class="headerlink" href="#configuration-reference" title="Permanent link">&para;</a></h2>
 <h3 id="required-fields">Required Fields<a class="headerlink" href="#required-fields" title="Permanent link">&para;</a></h3>
@@ -1881,20 +1876,20 @@
 </table>
 <h3 id="using-explicit-credentials">Using Explicit Credentials<a class="headerlink" href="#using-explicit-credentials" title="Permanent link">&para;</a></h3>
 <p>If Workload Identity is not available, you can provide explicit GCP credentials:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="nt">auth</span><span class="p">:</span>
-<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="w">  </span><span class="nt">gcp</span><span class="p">:</span>
-<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="w">    </span><span class="nt">role</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-access-operator</span>
-<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="w">    </span><span class="nt">authType</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">iam</span>
-<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="w">    </span><span class="nt">serviceAccountEmail</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-access-operator@my-project.iam.gserviceaccount.com</span>
-<a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a><span class="w">    </span><span class="nt">credentialsSecretRef</span><span class="p">:</span>
-<a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a><span class="w">      </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">gcp-credentials</span>
-<a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a><span class="w">      </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-access-operator-system</span>
-<a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a><span class="w">      </span><span class="nt">key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">credentials.json</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="nt">auth</span><span class="p">:</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">  </span><span class="nt">gcp</span><span class="p">:</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="w">    </span><span class="nt">role</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-access-operator</span>
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="w">    </span><span class="nt">authType</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">iam</span>
+<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="w">    </span><span class="nt">serviceAccountEmail</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-access-operator@my-project.iam.gserviceaccount.com</span>
+<a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="w">    </span><span class="nt">credentialsSecretRef</span><span class="p">:</span>
+<a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a><span class="w">      </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">gcp-credentials</span>
+<a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a><span class="w">      </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-access-operator-system</span>
+<a id="__codelineno-10-9" name="__codelineno-10-9" href="#__codelineno-10-9"></a><span class="w">      </span><span class="nt">key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">credentials.json</span>
 </code></pre></div>
 <p>Create the secret:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>kubectl<span class="w"> </span>create<span class="w"> </span>secret<span class="w"> </span>generic<span class="w"> </span>gcp-credentials<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="w">    </span>-n<span class="w"> </span>vault-access-operator-system<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="w">    </span>--from-file<span class="o">=</span>credentials.json<span class="o">=</span>/path/to/service-account.json
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>kubectl<span class="w"> </span>create<span class="w"> </span>secret<span class="w"> </span>generic<span class="w"> </span>gcp-credentials<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="w">    </span>-n<span class="w"> </span>vault-access-operator-system<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="w">    </span>--from-file<span class="o">=</span>credentials.json<span class="o">=</span>/path/to/service-account.json
 </code></pre></div>
 <div class="admonition warning">
 <p class="admonition-title">Prefer Workload Identity</p>
@@ -1903,39 +1898,39 @@
 <h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h2>
 <h3 id="could-not-find-default-credentials-error">"could not find default credentials" error<a class="headerlink" href="#could-not-find-default-credentials-error" title="Permanent link">&para;</a></h3>
 <p><strong>Symptoms:</strong>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>Error: google: could not find default credentials
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>Error: google: could not find default credentials
 </code></pre></div></p>
 <p><strong>Solutions:</strong></p>
 <ol>
 <li>
 <p>Verify Workload Identity is configured:
-   <div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>kubectl<span class="w"> </span>describe<span class="w"> </span>sa<span class="w"> </span>vault-access-operator-controller-manager<span class="w"> </span>-n<span class="w"> </span>vault-access-operator-system<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>iam.gke.io
+   <div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>kubectl<span class="w"> </span>describe<span class="w"> </span>sa<span class="w"> </span>vault-access-operator-controller-manager<span class="w"> </span>-n<span class="w"> </span>vault-access-operator-system<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>iam.gke.io
 </code></pre></div></p>
 </li>
 <li>
 <p>Check the GCP SA IAM binding:
-   <div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>gcloud<span class="w"> </span>iam<span class="w"> </span>service-accounts<span class="w"> </span>get-iam-policy<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="w">    </span>vault-access-operator@my-project.iam.gserviceaccount.com
+   <div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>gcloud<span class="w"> </span>iam<span class="w"> </span>service-accounts<span class="w"> </span>get-iam-policy<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="w">    </span>vault-access-operator@my-project.iam.gserviceaccount.com
 </code></pre></div></p>
 </li>
 <li>
 <p>Verify the node pool has Workload Identity enabled:
-   <div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>gcloud<span class="w"> </span>container<span class="w"> </span>node-pools<span class="w"> </span>describe<span class="w"> </span>default-pool<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="w">    </span>--cluster<span class="w"> </span>my-cluster<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a><span class="w">    </span>--zone<span class="w"> </span>us-central1-a<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a><span class="w">    </span>--format<span class="o">=</span><span class="s2">&quot;value(config.workloadMetadataConfig)&quot;</span>
+   <div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>gcloud<span class="w"> </span>container<span class="w"> </span>node-pools<span class="w"> </span>describe<span class="w"> </span>default-pool<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="w">    </span>--cluster<span class="w"> </span>my-cluster<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a><span class="w">    </span>--zone<span class="w"> </span>us-central1-a<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a><span class="w">    </span>--format<span class="o">=</span><span class="s2">&quot;value(config.workloadMetadataConfig)&quot;</span>
 </code></pre></div></p>
 </li>
 </ol>
 <h3 id="permission-denied-from-vault">"permission denied" from Vault<a class="headerlink" href="#permission-denied-from-vault" title="Permanent link">&para;</a></h3>
 <p><strong>Symptoms:</strong>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>Error: permission denied
+<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>Error: permission denied
 </code></pre></div></p>
 <p><strong>Solutions:</strong></p>
 <ol>
 <li>
 <p>Verify the Vault role exists:
-   <div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a>vault<span class="w"> </span><span class="nb">read</span><span class="w"> </span>auth/gcp/role/vault-access-operator
+   <div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>vault<span class="w"> </span><span class="nb">read</span><span class="w"> </span>auth/gcp/role/vault-access-operator
 </code></pre></div></p>
 </li>
 <li>
@@ -1943,15 +1938,15 @@
 </li>
 <li>
 <p>Verify the GCP SA has the right IAM permissions:
-   <div class="highlight"><pre><span></span><code><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="c1"># GCP SA needs to be able to sign JWTs (automatic with Workload Identity)</span>
-<a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a>gcloud<span class="w"> </span>iam<span class="w"> </span>service-accounts<span class="w"> </span>get-iam-policy<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a><span class="w">    </span>vault-access-operator@my-project.iam.gserviceaccount.com
+   <div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="c1"># GCP SA needs to be able to sign JWTs (automatic with Workload Identity)</span>
+<a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a>gcloud<span class="w"> </span>iam<span class="w"> </span>service-accounts<span class="w"> </span>get-iam-policy<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a><span class="w">    </span>vault-access-operator@my-project.iam.gserviceaccount.com
 </code></pre></div></p>
 </li>
 </ol>
 <h3 id="metadata-server-connectivity-issues">Metadata server connectivity issues<a class="headerlink" href="#metadata-server-connectivity-issues" title="Permanent link">&para;</a></h3>
 <p><strong>Symptoms:</strong>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a>Error: metadata: GCE metadata not available
+<div class="highlight"><pre><span></span><code><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a>Error: metadata: GCE metadata not available
 </code></pre></div></p>
 <p><strong>Solutions:</strong></p>
 <ol>
@@ -1963,33 +1958,33 @@
 <div class="tabbed-set tabbed-alternate" data-tabs="1:2"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">GCP Resources (Terraform)</label><label for="__tabbed_1_2">VaultConnection</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="kr">resource</span><span class="w"> </span><span class="nc">&quot;google_service_account&quot;</span><span class="w"> </span><span class="nv">&quot;vault_operator&quot;</span><span class="w"> </span><span class="p">{</span>
-<a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a><span class="w">  </span><span class="na">project</span><span class="w">      </span><span class="o">=</span><span class="w"> </span><span class="nv">var.project_id</span>
-<a id="__codelineno-21-3" name="__codelineno-21-3" href="#__codelineno-21-3"></a><span class="w">  </span><span class="na">account_id</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;vault-access-operator&quot;</span>
-<a id="__codelineno-21-4" name="__codelineno-21-4" href="#__codelineno-21-4"></a><span class="w">  </span><span class="na">display_name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;Vault Access Operator&quot;</span>
-<a id="__codelineno-21-5" name="__codelineno-21-5" href="#__codelineno-21-5"></a><span class="p">}</span>
-<a id="__codelineno-21-6" name="__codelineno-21-6" href="#__codelineno-21-6"></a>
-<a id="__codelineno-21-7" name="__codelineno-21-7" href="#__codelineno-21-7"></a><span class="kr">resource</span><span class="w"> </span><span class="nc">&quot;google_service_account_iam_binding&quot;</span><span class="w"> </span><span class="nv">&quot;workload_identity&quot;</span><span class="w"> </span><span class="p">{</span>
-<a id="__codelineno-21-8" name="__codelineno-21-8" href="#__codelineno-21-8"></a><span class="w">  </span><span class="na">service_account_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nv">google_service_account.vault_operator.name</span>
-<a id="__codelineno-21-9" name="__codelineno-21-9" href="#__codelineno-21-9"></a><span class="w">  </span><span class="na">role</span><span class="w">               </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;roles/iam.workloadIdentityUser&quot;</span>
-<a id="__codelineno-21-10" name="__codelineno-21-10" href="#__codelineno-21-10"></a><span class="w">  </span><span class="na">members</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span>
-<a id="__codelineno-21-11" name="__codelineno-21-11" href="#__codelineno-21-11"></a><span class="w">    </span><span class="s2">&quot;serviceAccount:${var.project_id}.svc.id.goog[vault-access-operator-system/vault-access-operator-controller-manager]&quot;</span>
-<a id="__codelineno-21-12" name="__codelineno-21-12" href="#__codelineno-21-12"></a><span class="w">  </span><span class="p">]</span>
-<a id="__codelineno-21-13" name="__codelineno-21-13" href="#__codelineno-21-13"></a><span class="p">}</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="kr">resource</span><span class="w"> </span><span class="nc">&quot;google_service_account&quot;</span><span class="w"> </span><span class="nv">&quot;vault_operator&quot;</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a><span class="w">  </span><span class="na">project</span><span class="w">      </span><span class="o">=</span><span class="w"> </span><span class="nv">var.project_id</span>
+<a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a><span class="w">  </span><span class="na">account_id</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;vault-access-operator&quot;</span>
+<a id="__codelineno-20-4" name="__codelineno-20-4" href="#__codelineno-20-4"></a><span class="w">  </span><span class="na">display_name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;Vault Access Operator&quot;</span>
+<a id="__codelineno-20-5" name="__codelineno-20-5" href="#__codelineno-20-5"></a><span class="p">}</span>
+<a id="__codelineno-20-6" name="__codelineno-20-6" href="#__codelineno-20-6"></a>
+<a id="__codelineno-20-7" name="__codelineno-20-7" href="#__codelineno-20-7"></a><span class="kr">resource</span><span class="w"> </span><span class="nc">&quot;google_service_account_iam_binding&quot;</span><span class="w"> </span><span class="nv">&quot;workload_identity&quot;</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-20-8" name="__codelineno-20-8" href="#__codelineno-20-8"></a><span class="w">  </span><span class="na">service_account_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nv">google_service_account.vault_operator.name</span>
+<a id="__codelineno-20-9" name="__codelineno-20-9" href="#__codelineno-20-9"></a><span class="w">  </span><span class="na">role</span><span class="w">               </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;roles/iam.workloadIdentityUser&quot;</span>
+<a id="__codelineno-20-10" name="__codelineno-20-10" href="#__codelineno-20-10"></a><span class="w">  </span><span class="na">members</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span>
+<a id="__codelineno-20-11" name="__codelineno-20-11" href="#__codelineno-20-11"></a><span class="w">    </span><span class="s2">&quot;serviceAccount:${var.project_id}.svc.id.goog[vault-access-operator-system/vault-access-operator-controller-manager]&quot;</span>
+<a id="__codelineno-20-12" name="__codelineno-20-12" href="#__codelineno-20-12"></a><span class="w">  </span><span class="p">]</span>
+<a id="__codelineno-20-13" name="__codelineno-20-13" href="#__codelineno-20-13"></a><span class="p">}</span>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault.platform.io/v1alpha1</span>
-<a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">VaultConnection</span>
-<a id="__codelineno-22-3" name="__codelineno-22-3" href="#__codelineno-22-3"></a><span class="nt">metadata</span><span class="p">:</span>
-<a id="__codelineno-22-4" name="__codelineno-22-4" href="#__codelineno-22-4"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-gcp</span>
-<a id="__codelineno-22-5" name="__codelineno-22-5" href="#__codelineno-22-5"></a><span class="nt">spec</span><span class="p">:</span>
-<a id="__codelineno-22-6" name="__codelineno-22-6" href="#__codelineno-22-6"></a><span class="w">  </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://vault.example.com:8200</span>
-<a id="__codelineno-22-7" name="__codelineno-22-7" href="#__codelineno-22-7"></a><span class="w">  </span><span class="nt">auth</span><span class="p">:</span>
-<a id="__codelineno-22-8" name="__codelineno-22-8" href="#__codelineno-22-8"></a><span class="w">    </span><span class="nt">gcp</span><span class="p">:</span>
-<a id="__codelineno-22-9" name="__codelineno-22-9" href="#__codelineno-22-9"></a><span class="w">      </span><span class="nt">role</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-access-operator</span>
-<a id="__codelineno-22-10" name="__codelineno-22-10" href="#__codelineno-22-10"></a><span class="w">      </span><span class="nt">authType</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">iam</span>
-<a id="__codelineno-22-11" name="__codelineno-22-11" href="#__codelineno-22-11"></a><span class="w">      </span><span class="nt">serviceAccountEmail</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-access-operator@my-project.iam.gserviceaccount.com</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault.platform.io/v1alpha1</span>
+<a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">VaultConnection</span>
+<a id="__codelineno-21-3" name="__codelineno-21-3" href="#__codelineno-21-3"></a><span class="nt">metadata</span><span class="p">:</span>
+<a id="__codelineno-21-4" name="__codelineno-21-4" href="#__codelineno-21-4"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-gcp</span>
+<a id="__codelineno-21-5" name="__codelineno-21-5" href="#__codelineno-21-5"></a><span class="nt">spec</span><span class="p">:</span>
+<a id="__codelineno-21-6" name="__codelineno-21-6" href="#__codelineno-21-6"></a><span class="w">  </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://vault.example.com:8200</span>
+<a id="__codelineno-21-7" name="__codelineno-21-7" href="#__codelineno-21-7"></a><span class="w">  </span><span class="nt">auth</span><span class="p">:</span>
+<a id="__codelineno-21-8" name="__codelineno-21-8" href="#__codelineno-21-8"></a><span class="w">    </span><span class="nt">gcp</span><span class="p">:</span>
+<a id="__codelineno-21-9" name="__codelineno-21-9" href="#__codelineno-21-9"></a><span class="w">      </span><span class="nt">role</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-access-operator</span>
+<a id="__codelineno-21-10" name="__codelineno-21-10" href="#__codelineno-21-10"></a><span class="w">      </span><span class="nt">authType</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">iam</span>
+<a id="__codelineno-21-11" name="__codelineno-21-11" href="#__codelineno-21-11"></a><span class="w">      </span><span class="nt">serviceAccountEmail</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-access-operator@my-project.iam.gserviceaccount.com</span>
 </code></pre></div>
 </div>
 </div>

@@ -23,7 +23,7 @@
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.1">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.2">
     
     
       
@@ -1607,49 +1607,40 @@
 <h1 id="architecture">Architecture<a class="headerlink" href="#architecture" title="Permanent link">&para;</a></h1>
 <p>This document explains the internal architecture of the Vault Access Operator.</p>
 <h2 id="high-level-overview">High-Level Overview<a class="headerlink" href="#high-level-overview" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>┌─────────────────────────────────────────────────────────────────────────────┐
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>│                           Kubernetes Cluster                                 │
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>│                                                                             │
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>│  ┌──────────────────────────────────────────────────────────────────────┐  │
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>│  │                    Vault Access Operator                              │  │
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>│  │                                                                       │  │
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐ │  │
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>│  │  │ Connection  │  │   Policy    │  │    Role     │  │  Discovery  │ │  │
-<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>│  │  │  Feature    │  │   Feature   │  │   Feature   │  │   Feature   │ │  │
-<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>│  │  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘ │  │
-<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>│  │         │                │                │                │        │  │
-<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>│  │         └────────────────┴────────────────┴────────────────┘        │  │
-<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>│  │                                  │                                   │  │
-<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>│  │                         ┌────────▼────────┐                         │  │
-<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>│  │                         │   Vault Client  │                         │  │
-<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>│  │                         │   (pkg/vault)   │                         │  │
-<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>│  │                         └────────┬────────┘                         │  │
-<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>│  └──────────────────────────────────┼────────────────────────────────────┘  │
-<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>│                                     │                                       │
-<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>└─────────────────────────────────────┼───────────────────────────────────────┘
-<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>                                      │
-<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>                                      ▼
-<a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>                           ┌─────────────────────┐
-<a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>                           │   HashiCorp Vault   │
-<a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a>                           └─────────────────────┘
-</code></pre></div>
+<pre class="mermaid"><code>graph TD
+    subgraph K8s["Kubernetes Cluster"]
+        subgraph Operator["Vault Access Operator"]
+            CF["Connection Feature"]
+            PF["Policy Feature"]
+            RF["Role Feature"]
+            DF["Discovery Feature"]
+            VC["Vault Client&lt;br/&gt;(pkg/vault)"]
+        end
+    end
+    V["HashiCorp Vault"]
+
+    CF --&gt; VC
+    PF --&gt; VC
+    RF --&gt; VC
+    DF --&gt; VC
+    VC --&gt; V</code></pre>
 <h2 id="feature-driven-design">Feature-Driven Design<a class="headerlink" href="#feature-driven-design" title="Permanent link">&para;</a></h2>
 <p>The operator follows a feature-driven architecture where each domain (connection, policy, role, discovery) is self-contained:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>features/
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>├── connection/
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>│   ├── feature.go        # Feature registration
-<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>│   └── controller/       # Reconciler, handler
-<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>├── policy/
-<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>│   ├── feature.go
-<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>│   ├── controller/       # Policy + ClusterPolicy reconcilers
-<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>│   └── domain/           # Business logic adapters
-<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>├── role/
-<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>│   ├── feature.go
-<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>│   ├── controller/
-<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>│   └── domain/
-<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>└── discovery/
-<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>    ├── feature.go
-<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a>    └── controller/       # Scanner implementation
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>features/
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>├── connection/
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>│   ├── feature.go        # Feature registration
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>│   └── controller/       # Reconciler, handler
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>├── policy/
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>│   ├── feature.go
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>│   ├── controller/       # Policy + ClusterPolicy reconcilers
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>│   └── domain/           # Business logic adapters
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>├── role/
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>│   ├── feature.go
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>│   ├── controller/
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>│   └── domain/
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>└── discovery/
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>    ├── feature.go
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>    └── controller/       # Scanner implementation
 </code></pre></div>
 <h3 id="benefits">Benefits<a class="headerlink" href="#benefits" title="Permanent link">&para;</a></h3>
 <ol>
@@ -1660,16 +1651,11 @@
 </ol>
 <h2 id="controller-pattern">Controller Pattern<a class="headerlink" href="#controller-pattern" title="Permanent link">&para;</a></h2>
 <p>Each resource type has a dedicated controller following the standard Kubernetes controller pattern:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>┌──────────────────────────────────────────────────────────────────────┐
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>│                         Reconciliation Loop                          │
-<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>│                                                                      │
-<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>│  ┌──────────┐    ┌──────────────┐    ┌──────────────┐   ┌────────┐ │
-<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>│  │  Watch   │───►│   Enqueue    │───►│  Reconcile   │──►│ Requeue│ │
-<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>│  │  Events  │    │   (workqueue)│    │  (business   │   │ (delay)│ │
-<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>│  └──────────┘    └──────────────┘    │   logic)     │   └────────┘ │
-<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>│                                       └──────────────┘              │
-<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>└──────────────────────────────────────────────────────────────────────┘
-</code></pre></div>
+<pre class="mermaid"><code>flowchart LR
+    A["Watch Events"] --&gt; B["Enqueue&lt;br/&gt;(workqueue)"]
+    B --&gt; C["Reconcile&lt;br/&gt;(business logic)"]
+    C --&gt; D["Requeue&lt;br/&gt;(delay)"]
+    D -.-&gt; A</code></pre>
 <h3 id="basereconciler">BaseReconciler<a class="headerlink" href="#basereconciler" title="Permanent link">&para;</a></h3>
 <p>All controllers use a shared <code>BaseReconciler</code> that provides:</p>
 <ul>
@@ -1679,130 +1665,108 @@
 <li>Requeue logic</li>
 <li>ReconcileID tracking</li>
 </ul>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1">// BaseReconciler provides common reconciliation patterns</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="kd">type</span><span class="w"> </span><span class="nx">BaseReconciler</span><span class="p">[</span><span class="nx">T</span><span class="w"> </span><span class="nx">client</span><span class="p">.</span><span class="nx">Object</span><span class="p">]</span><span class="w"> </span><span class="kd">struct</span><span class="w"> </span><span class="p">{</span>
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">    </span><span class="nx">client</span><span class="w">   </span><span class="nx">client</span><span class="p">.</span><span class="nx">Client</span>
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">    </span><span class="nx">scheme</span><span class="w">   </span><span class="o">*</span><span class="nx">runtime</span><span class="p">.</span><span class="nx">Scheme</span>
-<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">    </span><span class="nx">log</span><span class="w">      </span><span class="nx">logr</span><span class="p">.</span><span class="nx">Logger</span>
-<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">    </span><span class="nx">finalizer</span><span class="w"> </span><span class="kt">string</span>
-<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">    </span><span class="nx">recorder</span><span class="w"> </span><span class="nx">record</span><span class="p">.</span><span class="nx">EventRecorder</span>
-<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="p">}</span>
-<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>
-<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="c1">// Reconcile handles the common reconciliation flow</span>
-<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a><span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">r</span><span class="w"> </span><span class="o">*</span><span class="nx">BaseReconciler</span><span class="p">[</span><span class="nx">T</span><span class="p">])</span><span class="w"> </span><span class="nx">Reconcile</span><span class="p">(</span>
-<a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a><span class="w">    </span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">,</span>
-<a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a><span class="w">    </span><span class="nx">req</span><span class="w"> </span><span class="nx">ctrl</span><span class="p">.</span><span class="nx">Request</span><span class="p">,</span>
-<a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a><span class="w">    </span><span class="nx">handler</span><span class="w"> </span><span class="nx">FeatureHandler</span><span class="p">[</span><span class="nx">T</span><span class="p">],</span>
-<a id="__codelineno-3-15" name="__codelineno-3-15" href="#__codelineno-3-15"></a><span class="w">    </span><span class="nx">newObj</span><span class="w"> </span><span class="kd">func</span><span class="p">()</span><span class="w"> </span><span class="nx">T</span><span class="p">,</span>
-<a id="__codelineno-3-16" name="__codelineno-3-16" href="#__codelineno-3-16"></a><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="nx">ctrl</span><span class="p">.</span><span class="nx">Result</span><span class="p">,</span><span class="w"> </span><span class="kt">error</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1">// BaseReconciler provides common reconciliation patterns</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="kd">type</span><span class="w"> </span><span class="nx">BaseReconciler</span><span class="p">[</span><span class="nx">T</span><span class="w"> </span><span class="nx">client</span><span class="p">.</span><span class="nx">Object</span><span class="p">]</span><span class="w"> </span><span class="kd">struct</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">    </span><span class="nx">client</span><span class="w">   </span><span class="nx">client</span><span class="p">.</span><span class="nx">Client</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">    </span><span class="nx">scheme</span><span class="w">   </span><span class="o">*</span><span class="nx">runtime</span><span class="p">.</span><span class="nx">Scheme</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">    </span><span class="nx">log</span><span class="w">      </span><span class="nx">logr</span><span class="p">.</span><span class="nx">Logger</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">    </span><span class="nx">finalizer</span><span class="w"> </span><span class="kt">string</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">    </span><span class="nx">recorder</span><span class="w"> </span><span class="nx">record</span><span class="p">.</span><span class="nx">EventRecorder</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="p">}</span>
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="c1">// Reconcile handles the common reconciliation flow</span>
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">r</span><span class="w"> </span><span class="o">*</span><span class="nx">BaseReconciler</span><span class="p">[</span><span class="nx">T</span><span class="p">])</span><span class="w"> </span><span class="nx">Reconcile</span><span class="p">(</span>
+<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="w">    </span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">,</span>
+<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="w">    </span><span class="nx">req</span><span class="w"> </span><span class="nx">ctrl</span><span class="p">.</span><span class="nx">Request</span><span class="p">,</span>
+<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a><span class="w">    </span><span class="nx">handler</span><span class="w"> </span><span class="nx">FeatureHandler</span><span class="p">[</span><span class="nx">T</span><span class="p">],</span>
+<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a><span class="w">    </span><span class="nx">newObj</span><span class="w"> </span><span class="kd">func</span><span class="p">()</span><span class="w"> </span><span class="nx">T</span><span class="p">,</span>
+<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="nx">ctrl</span><span class="p">.</span><span class="nx">Result</span><span class="p">,</span><span class="w"> </span><span class="kt">error</span><span class="p">)</span>
 </code></pre></div>
 <h3 id="featurehandler-interface">FeatureHandler Interface<a class="headerlink" href="#featurehandler-interface" title="Permanent link">&para;</a></h3>
 <p>Each feature implements the <code>FeatureHandler</code> interface:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kd">type</span><span class="w"> </span><span class="nx">FeatureHandler</span><span class="p">[</span><span class="nx">T</span><span class="w"> </span><span class="nx">client</span><span class="p">.</span><span class="nx">Object</span><span class="p">]</span><span class="w"> </span><span class="kd">interface</span><span class="w"> </span><span class="p">{</span>
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">    </span><span class="c1">// Sync creates or updates the resource in Vault</span>
-<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">    </span><span class="nx">Sync</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">,</span><span class="w"> </span><span class="nx">obj</span><span class="w"> </span><span class="nx">T</span><span class="p">)</span><span class="w"> </span><span class="kt">error</span>
-<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>
-<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">    </span><span class="c1">// Cleanup removes the resource from Vault</span>
-<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">    </span><span class="nx">Cleanup</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">,</span><span class="w"> </span><span class="nx">obj</span><span class="w"> </span><span class="nx">T</span><span class="p">)</span><span class="w"> </span><span class="kt">error</span>
-<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="p">}</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kd">type</span><span class="w"> </span><span class="nx">FeatureHandler</span><span class="p">[</span><span class="nx">T</span><span class="w"> </span><span class="nx">client</span><span class="p">.</span><span class="nx">Object</span><span class="p">]</span><span class="w"> </span><span class="kd">interface</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">    </span><span class="c1">// Sync creates or updates the resource in Vault</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">    </span><span class="nx">Sync</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">,</span><span class="w"> </span><span class="nx">obj</span><span class="w"> </span><span class="nx">T</span><span class="p">)</span><span class="w"> </span><span class="kt">error</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">    </span><span class="c1">// Cleanup removes the resource from Vault</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">    </span><span class="nx">Cleanup</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">,</span><span class="w"> </span><span class="nx">obj</span><span class="w"> </span><span class="nx">T</span><span class="p">)</span><span class="w"> </span><span class="kt">error</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="p">}</span>
 </code></pre></div>
 <h2 id="reconciliation-flow">Reconciliation Flow<a class="headerlink" href="#reconciliation-flow" title="Permanent link">&para;</a></h2>
 <h3 id="sync-flow-createupdate">Sync Flow (Create/Update)<a class="headerlink" href="#sync-flow-createupdate" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>1. Reconcile triggered
-<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>         ↓
-<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>2. Get resource from API server
-<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>         ↓
-<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>3. Check if being deleted (has deletion timestamp?)
-<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>   └─ Yes → goto Cleanup Flow
-<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>         ↓
-<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>4. Ensure finalizer exists
-<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>         ↓
-<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a>5. Get VaultConnection
-<a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a>         ↓
-<a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a>6. Get Vault client
-<a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a>         ↓
-<a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a>7. Check if resource exists in Vault
-<a id="__codelineno-5-15" name="__codelineno-5-15" href="#__codelineno-5-15"></a>   ├─ No → Create in Vault
-<a id="__codelineno-5-16" name="__codelineno-5-16" href="#__codelineno-5-16"></a>   └─ Yes → Check drift → Update if needed
-<a id="__codelineno-5-17" name="__codelineno-5-17" href="#__codelineno-5-17"></a>         ↓
-<a id="__codelineno-5-18" name="__codelineno-5-18" href="#__codelineno-5-18"></a>8. Update status
-<a id="__codelineno-5-19" name="__codelineno-5-19" href="#__codelineno-5-19"></a>         ↓
-<a id="__codelineno-5-20" name="__codelineno-5-20" href="#__codelineno-5-20"></a>9. Requeue after interval
-</code></pre></div>
+<pre class="mermaid"><code>flowchart TD
+    A["1. Reconcile triggered"] --&gt; B["2. Get resource from API server"]
+    B --&gt; C{"3. Being deleted?"}
+    C -- Yes --&gt; cleanup["Cleanup Flow"]
+    C -- No --&gt; D["4. Ensure finalizer exists"]
+    D --&gt; E["5. Get VaultConnection"]
+    E --&gt; F["6. Get Vault client"]
+    F --&gt; G{"7. Exists in Vault?"}
+    G -- No --&gt; H["Create in Vault"]
+    G -- Yes --&gt; I["Check drift → Update if needed"]
+    H --&gt; J["8. Update status"]
+    I --&gt; J
+    J --&gt; K["9. Requeue after interval"]</code></pre>
 <h3 id="cleanup-flow-delete">Cleanup Flow (Delete)<a class="headerlink" href="#cleanup-flow-delete" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>1. Resource has deletion timestamp
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>         ↓
-<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>2. Check deletionPolicy
-<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>   └─ Retain → Skip Vault deletion
-<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>         ↓
-<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>3. Get Vault client
-<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>         ↓
-<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>4. Delete from Vault
-<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a>         ↓
-<a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a>5. Remove finalizer
-<a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a>         ↓
-<a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a>6. Resource deleted
-</code></pre></div>
+<pre class="mermaid"><code>flowchart TD
+    A["1. Resource has deletion timestamp"] --&gt; B{"2. deletionPolicy?"}
+    B -- Retain --&gt; skip["Skip Vault deletion"]
+    B -- Delete --&gt; C["3. Get Vault client"]
+    skip --&gt; E["5. Remove finalizer"]
+    C --&gt; D["4. Delete from Vault"]
+    D --&gt; E
+    E --&gt; F["6. Resource deleted"]</code></pre>
 <h2 id="domain-adapters">Domain Adapters<a class="headerlink" href="#domain-adapters" title="Permanent link">&para;</a></h2>
 <p>Domain adapters abstract the differences between namespaced and cluster-scoped resources:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1">// PolicyAdapter provides a unified interface for VaultPolicy and VaultClusterPolicy</span>
-<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="kd">type</span><span class="w"> </span><span class="nx">PolicyAdapter</span><span class="w"> </span><span class="kd">interface</span><span class="w"> </span><span class="p">{</span>
-<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">    </span><span class="nx">GetName</span><span class="p">()</span><span class="w"> </span><span class="kt">string</span>
-<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">    </span><span class="nx">GetNamespace</span><span class="p">()</span><span class="w"> </span><span class="kt">string</span>
-<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="w">    </span><span class="nx">GetVaultPolicyName</span><span class="p">()</span><span class="w"> </span><span class="kt">string</span>
-<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="w">    </span><span class="nx">GetConnectionRef</span><span class="p">()</span><span class="w"> </span><span class="nx">vaultv1alpha1</span><span class="p">.</span><span class="nx">ConnectionReference</span>
-<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="w">    </span><span class="nx">GetRules</span><span class="p">()</span><span class="w"> </span><span class="p">[]</span><span class="nx">vaultv1alpha1</span><span class="p">.</span><span class="nx">PolicyRule</span>
-<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="w">    </span><span class="nx">GetDriftMode</span><span class="p">()</span><span class="w"> </span><span class="nx">vaultv1alpha1</span><span class="p">.</span><span class="nx">DriftMode</span>
-<a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="w">    </span><span class="c1">// ... status setters</span>
-<a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a><span class="p">}</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1">// PolicyAdapter provides a unified interface for VaultPolicy and VaultClusterPolicy</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="kd">type</span><span class="w"> </span><span class="nx">PolicyAdapter</span><span class="w"> </span><span class="kd">interface</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">    </span><span class="nx">GetName</span><span class="p">()</span><span class="w"> </span><span class="kt">string</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">    </span><span class="nx">GetNamespace</span><span class="p">()</span><span class="w"> </span><span class="kt">string</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">    </span><span class="nx">GetVaultPolicyName</span><span class="p">()</span><span class="w"> </span><span class="kt">string</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">    </span><span class="nx">GetConnectionRef</span><span class="p">()</span><span class="w"> </span><span class="nx">vaultv1alpha1</span><span class="p">.</span><span class="nx">ConnectionReference</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">    </span><span class="nx">GetRules</span><span class="p">()</span><span class="w"> </span><span class="p">[]</span><span class="nx">vaultv1alpha1</span><span class="p">.</span><span class="nx">PolicyRule</span>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="w">    </span><span class="nx">GetDriftMode</span><span class="p">()</span><span class="w"> </span><span class="nx">vaultv1alpha1</span><span class="p">.</span><span class="nx">DriftMode</span>
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="w">    </span><span class="c1">// ... status setters</span>
+<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="p">}</span>
 </code></pre></div>
 <p>This allows the same business logic to handle both:
 - <code>VaultPolicy</code> (namespaced) → policy name: <code>namespace-name</code>
 - <code>VaultClusterPolicy</code> (cluster-scoped) → policy name: <code>name</code></p>
 <h2 id="vault-client-layer">Vault Client Layer<a class="headerlink" href="#vault-client-layer" title="Permanent link">&para;</a></h2>
 <p>The <code>pkg/vault</code> package provides a client abstraction:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="kd">type</span><span class="w"> </span><span class="nx">Client</span><span class="w"> </span><span class="kd">struct</span><span class="w"> </span><span class="p">{</span>
-<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">    </span><span class="nx">client</span><span class="w">     </span><span class="o">*</span><span class="nx">api</span><span class="p">.</span><span class="nx">Client</span>
-<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">    </span><span class="nx">authConfig</span><span class="w"> </span><span class="nx">AuthConfig</span>
-<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="w">    </span><span class="nx">log</span><span class="w">        </span><span class="nx">logr</span><span class="p">.</span><span class="nx">Logger</span>
-<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="p">}</span>
-<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>
-<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a><span class="c1">// Policy operations</span>
-<a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a><span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">c</span><span class="w"> </span><span class="o">*</span><span class="nx">Client</span><span class="p">)</span><span class="w"> </span><span class="nx">ReadPolicy</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">,</span><span class="w"> </span><span class="nx">name</span><span class="w"> </span><span class="kt">string</span><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="kt">error</span><span class="p">)</span>
-<a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a><span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">c</span><span class="w"> </span><span class="o">*</span><span class="nx">Client</span><span class="p">)</span><span class="w"> </span><span class="nx">WritePolicy</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">,</span><span class="w"> </span><span class="nx">name</span><span class="p">,</span><span class="w"> </span><span class="nx">rules</span><span class="w"> </span><span class="kt">string</span><span class="p">)</span><span class="w"> </span><span class="kt">error</span>
-<a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a><span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">c</span><span class="w"> </span><span class="o">*</span><span class="nx">Client</span><span class="p">)</span><span class="w"> </span><span class="nx">DeletePolicy</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">,</span><span class="w"> </span><span class="nx">name</span><span class="w"> </span><span class="kt">string</span><span class="p">)</span><span class="w"> </span><span class="kt">error</span>
-<a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a>
-<a id="__codelineno-8-12" name="__codelineno-8-12" href="#__codelineno-8-12"></a><span class="c1">// Role operations</span>
-<a id="__codelineno-8-13" name="__codelineno-8-13" href="#__codelineno-8-13"></a><span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">c</span><span class="w"> </span><span class="o">*</span><span class="nx">Client</span><span class="p">)</span><span class="w"> </span><span class="nx">ReadKubernetesAuthRole</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">,</span><span class="w"> </span><span class="nx">authPath</span><span class="p">,</span><span class="w"> </span><span class="nx">roleName</span><span class="w"> </span><span class="kt">string</span><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="o">*</span><span class="nx">RoleConfig</span><span class="p">,</span><span class="w"> </span><span class="kt">error</span><span class="p">)</span>
-<a id="__codelineno-8-14" name="__codelineno-8-14" href="#__codelineno-8-14"></a><span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">c</span><span class="w"> </span><span class="o">*</span><span class="nx">Client</span><span class="p">)</span><span class="w"> </span><span class="nx">WriteKubernetesAuthRole</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">,</span><span class="w"> </span><span class="nx">authPath</span><span class="p">,</span><span class="w"> </span><span class="nx">roleName</span><span class="w"> </span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="nx">config</span><span class="w"> </span><span class="o">*</span><span class="nx">RoleConfig</span><span class="p">)</span><span class="w"> </span><span class="kt">error</span>
-<a id="__codelineno-8-15" name="__codelineno-8-15" href="#__codelineno-8-15"></a><span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">c</span><span class="w"> </span><span class="o">*</span><span class="nx">Client</span><span class="p">)</span><span class="w"> </span><span class="nx">DeleteKubernetesAuthRole</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">,</span><span class="w"> </span><span class="nx">authPath</span><span class="p">,</span><span class="w"> </span><span class="nx">roleName</span><span class="w"> </span><span class="kt">string</span><span class="p">)</span><span class="w"> </span><span class="kt">error</span>
-<a id="__codelineno-8-16" name="__codelineno-8-16" href="#__codelineno-8-16"></a>
-<a id="__codelineno-8-17" name="__codelineno-8-17" href="#__codelineno-8-17"></a><span class="c1">// Authentication</span>
-<a id="__codelineno-8-18" name="__codelineno-8-18" href="#__codelineno-8-18"></a><span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">c</span><span class="w"> </span><span class="o">*</span><span class="nx">Client</span><span class="p">)</span><span class="w"> </span><span class="nx">Authenticate</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">)</span><span class="w"> </span><span class="kt">error</span>
-<a id="__codelineno-8-19" name="__codelineno-8-19" href="#__codelineno-8-19"></a><span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">c</span><span class="w"> </span><span class="o">*</span><span class="nx">Client</span><span class="p">)</span><span class="w"> </span><span class="nx">RenewToken</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">)</span><span class="w"> </span><span class="kt">error</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kd">type</span><span class="w"> </span><span class="nx">Client</span><span class="w"> </span><span class="kd">struct</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">    </span><span class="nx">client</span><span class="w">     </span><span class="o">*</span><span class="nx">api</span><span class="p">.</span><span class="nx">Client</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">    </span><span class="nx">authConfig</span><span class="w"> </span><span class="nx">AuthConfig</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">    </span><span class="nx">log</span><span class="w">        </span><span class="nx">logr</span><span class="p">.</span><span class="nx">Logger</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="p">}</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="c1">// Policy operations</span>
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">c</span><span class="w"> </span><span class="o">*</span><span class="nx">Client</span><span class="p">)</span><span class="w"> </span><span class="nx">ReadPolicy</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">,</span><span class="w"> </span><span class="nx">name</span><span class="w"> </span><span class="kt">string</span><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="kt">error</span><span class="p">)</span>
+<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">c</span><span class="w"> </span><span class="o">*</span><span class="nx">Client</span><span class="p">)</span><span class="w"> </span><span class="nx">WritePolicy</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">,</span><span class="w"> </span><span class="nx">name</span><span class="p">,</span><span class="w"> </span><span class="nx">rules</span><span class="w"> </span><span class="kt">string</span><span class="p">)</span><span class="w"> </span><span class="kt">error</span>
+<a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a><span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">c</span><span class="w"> </span><span class="o">*</span><span class="nx">Client</span><span class="p">)</span><span class="w"> </span><span class="nx">DeletePolicy</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">,</span><span class="w"> </span><span class="nx">name</span><span class="w"> </span><span class="kt">string</span><span class="p">)</span><span class="w"> </span><span class="kt">error</span>
+<a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a>
+<a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a><span class="c1">// Role operations</span>
+<a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a><span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">c</span><span class="w"> </span><span class="o">*</span><span class="nx">Client</span><span class="p">)</span><span class="w"> </span><span class="nx">ReadKubernetesAuthRole</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">,</span><span class="w"> </span><span class="nx">authPath</span><span class="p">,</span><span class="w"> </span><span class="nx">roleName</span><span class="w"> </span><span class="kt">string</span><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="o">*</span><span class="nx">RoleConfig</span><span class="p">,</span><span class="w"> </span><span class="kt">error</span><span class="p">)</span>
+<a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a><span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">c</span><span class="w"> </span><span class="o">*</span><span class="nx">Client</span><span class="p">)</span><span class="w"> </span><span class="nx">WriteKubernetesAuthRole</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">,</span><span class="w"> </span><span class="nx">authPath</span><span class="p">,</span><span class="w"> </span><span class="nx">roleName</span><span class="w"> </span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="nx">config</span><span class="w"> </span><span class="o">*</span><span class="nx">RoleConfig</span><span class="p">)</span><span class="w"> </span><span class="kt">error</span>
+<a id="__codelineno-4-15" name="__codelineno-4-15" href="#__codelineno-4-15"></a><span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">c</span><span class="w"> </span><span class="o">*</span><span class="nx">Client</span><span class="p">)</span><span class="w"> </span><span class="nx">DeleteKubernetesAuthRole</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">,</span><span class="w"> </span><span class="nx">authPath</span><span class="p">,</span><span class="w"> </span><span class="nx">roleName</span><span class="w"> </span><span class="kt">string</span><span class="p">)</span><span class="w"> </span><span class="kt">error</span>
+<a id="__codelineno-4-16" name="__codelineno-4-16" href="#__codelineno-4-16"></a>
+<a id="__codelineno-4-17" name="__codelineno-4-17" href="#__codelineno-4-17"></a><span class="c1">// Authentication</span>
+<a id="__codelineno-4-18" name="__codelineno-4-18" href="#__codelineno-4-18"></a><span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">c</span><span class="w"> </span><span class="o">*</span><span class="nx">Client</span><span class="p">)</span><span class="w"> </span><span class="nx">Authenticate</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">)</span><span class="w"> </span><span class="kt">error</span>
+<a id="__codelineno-4-19" name="__codelineno-4-19" href="#__codelineno-4-19"></a><span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">c</span><span class="w"> </span><span class="o">*</span><span class="nx">Client</span><span class="p">)</span><span class="w"> </span><span class="nx">RenewToken</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">)</span><span class="w"> </span><span class="kt">error</span>
 </code></pre></div>
 <h2 id="authentication-flow">Authentication Flow<a class="headerlink" href="#authentication-flow" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>┌───────────────────────────────────────────────────────────────────┐
-<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>│                    Authentication Flow                            │
-<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>│                                                                   │
-<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>│  ┌──────────────┐                      ┌──────────────────────┐  │
-<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>│  │ VaultConnection│                     │     Vault Server     │  │
-<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a>│  │   Spec.Auth   │                     │                      │  │
-<a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a>│  └───────┬──────┘                      │  ┌───────────────┐  │  │
-<a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a>│          │                             │  │ Kubernetes    │  │  │
-<a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a>│  ┌───────▼──────┐   ServiceAccount     │  │ Auth Method   │  │  │
-<a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a>│  │ Token Request│   JWT Token          │  └───────┬───────┘  │  │
-<a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a>│  └───────┬──────┘──────────────────────┼─────────►│          │  │
-<a id="__codelineno-9-12" name="__codelineno-9-12" href="#__codelineno-9-12"></a>│          │                             │          │          │  │
-<a id="__codelineno-9-13" name="__codelineno-9-13" href="#__codelineno-9-13"></a>│          │                             │  ┌───────▼───────┐  │  │
-<a id="__codelineno-9-14" name="__codelineno-9-14" href="#__codelineno-9-14"></a>│          │◄────────────────────────────┼──│ Vault Token   │  │  │
-<a id="__codelineno-9-15" name="__codelineno-9-15" href="#__codelineno-9-15"></a>│          │   Vault Token               │  └───────────────┘  │  │
-<a id="__codelineno-9-16" name="__codelineno-9-16" href="#__codelineno-9-16"></a>│  ┌───────▼──────┐                      │                      │  │
-<a id="__codelineno-9-17" name="__codelineno-9-17" href="#__codelineno-9-17"></a>│  │ Token Cached │                      │                      │  │
-<a id="__codelineno-9-18" name="__codelineno-9-18" href="#__codelineno-9-18"></a>│  │ + Renewal    │                      │                      │  │
-<a id="__codelineno-9-19" name="__codelineno-9-19" href="#__codelineno-9-19"></a>│  └──────────────┘                      └──────────────────────┘  │
-<a id="__codelineno-9-20" name="__codelineno-9-20" href="#__codelineno-9-20"></a>└───────────────────────────────────────────────────────────────────┘
-</code></pre></div>
+<pre class="mermaid"><code>sequenceDiagram
+    participant VC as VaultConnection
+    participant K8s as Kubernetes API
+    participant V as Vault Server
+
+    VC-&gt;&gt;K8s: TokenRequest (ServiceAccount)
+    K8s--&gt;&gt;VC: SA JWT Token
+    VC-&gt;&gt;V: Login with SA JWT
+    V-&gt;&gt;K8s: Validate Token
+    K8s--&gt;&gt;V: Token Valid
+    V--&gt;&gt;VC: Vault Token
+    Note over VC: Token Cached + Renewal</code></pre>
 <h3 id="renewal-strategy">Renewal Strategy<a class="headerlink" href="#renewal-strategy" title="Permanent link">&para;</a></h3>
 <p>The operator supports two token renewal strategies:</p>
 <table>
@@ -1825,16 +1789,16 @@
 </table>
 <h2 id="status-management">Status Management<a class="headerlink" href="#status-management" title="Permanent link">&para;</a></h2>
 <h3 id="phase-transitions">Phase Transitions<a class="headerlink" href="#phase-transitions" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>Pending ──► Syncing ──► Active
-<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>   │          │           │
-<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>   │          ▼           │
-<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a>   │       Error ◄────────┘
-<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a>   │          │
-<a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a>   │          ▼
-<a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a>   └──────► Conflict
-<a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a>
-<a id="__codelineno-10-9" name="__codelineno-10-9" href="#__codelineno-10-9"></a>Deleting ──► (resource deleted)
-</code></pre></div>
+<pre class="mermaid"><code>stateDiagram-v2
+    [*] --&gt; Pending
+    Pending --&gt; Syncing
+    Syncing --&gt; Active
+    Syncing --&gt; Error
+    Active --&gt; Error
+    Pending --&gt; Conflict
+    Error --&gt; Conflict
+    Active --&gt; Deleting
+    Deleting --&gt; [*]</code></pre>
 <h3 id="conditions">Conditions<a class="headerlink" href="#conditions" title="Permanent link">&para;</a></h3>
 <p>Resources track detailed conditions:</p>
 <table>
@@ -1865,38 +1829,38 @@
 </table>
 <h2 id="metrics-and-observability">Metrics and Observability<a class="headerlink" href="#metrics-and-observability" title="Permanent link">&para;</a></h2>
 <h3 id="prometheus-metrics">Prometheus Metrics<a class="headerlink" href="#prometheus-metrics" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>vault_access_operator_reconcile_total{resource, status}
-<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>vault_access_operator_reconcile_duration_seconds{resource}
-<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>vault_access_operator_vault_operations_total{operation, status}
-<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a>vault_access_operator_drift_detected{resource}
-<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a>vault_access_operator_discovery_scans_total{connection, status}
-<a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a>vault_access_operator_discovered_resources{connection, type}
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>vault_access_operator_reconcile_total{resource, status}
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>vault_access_operator_reconcile_duration_seconds{resource}
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>vault_access_operator_vault_operations_total{operation, status}
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>vault_access_operator_drift_detected{resource}
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>vault_access_operator_discovery_scans_total{connection, status}
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>vault_access_operator_discovered_resources{connection, type}
 </code></pre></div>
 <h3 id="structured-logging">Structured Logging<a class="headerlink" href="#structured-logging" title="Permanent link">&para;</a></h3>
 <p>All log entries include:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="p">{</span>
-<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="w">  </span><span class="nt">&quot;level&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;info&quot;</span><span class="p">,</span>
-<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="w">  </span><span class="nt">&quot;ts&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2026-01-15T10:30:00Z&quot;</span><span class="p">,</span>
-<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="w">  </span><span class="nt">&quot;logger&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;vaultpolicy&quot;</span><span class="p">,</span>
-<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="w">  </span><span class="nt">&quot;msg&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;reconciling resource&quot;</span><span class="p">,</span>
-<a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a><span class="w">  </span><span class="nt">&quot;reconcileID&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;abc123&quot;</span><span class="p">,</span>
-<a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a><span class="w">  </span><span class="nt">&quot;namespace&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;production&quot;</span><span class="p">,</span>
-<a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a><span class="w">  </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;my-policy&quot;</span>
-<a id="__codelineno-12-9" name="__codelineno-12-9" href="#__codelineno-12-9"></a><span class="p">}</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="p">{</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span><span class="nt">&quot;level&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;info&quot;</span><span class="p">,</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">  </span><span class="nt">&quot;ts&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2026-01-15T10:30:00Z&quot;</span><span class="p">,</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">  </span><span class="nt">&quot;logger&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;vaultpolicy&quot;</span><span class="p">,</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">  </span><span class="nt">&quot;msg&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;reconciling resource&quot;</span><span class="p">,</span>
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="w">  </span><span class="nt">&quot;reconcileID&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;abc123&quot;</span><span class="p">,</span>
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="w">  </span><span class="nt">&quot;namespace&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;production&quot;</span><span class="p">,</span>
+<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="w">  </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;my-policy&quot;</span>
+<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="p">}</span>
 </code></pre></div>
 <p>Filter logs by reconcileID:
-<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>kubectl<span class="w"> </span>logs<span class="w"> </span>deploy/vault-access-operator-controller-manager<span class="w"> </span><span class="p">|</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="w">  </span>jq<span class="w"> </span><span class="s1">&#39;select(.reconcileID == &quot;abc123&quot;)&#39;</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>kubectl<span class="w"> </span>logs<span class="w"> </span>deploy/vault-access-operator-controller-manager<span class="w"> </span><span class="p">|</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span>jq<span class="w"> </span><span class="s1">&#39;select(.reconcileID == &quot;abc123&quot;)&#39;</span>
 </code></pre></div></p>
 <h2 id="error-handling">Error Handling<a class="headerlink" href="#error-handling" title="Permanent link">&para;</a></h2>
 <h3 id="retry-with-backoff">Retry with Backoff<a class="headerlink" href="#retry-with-backoff" title="Permanent link">&para;</a></h3>
 <p>Failed operations are automatically retried with exponential backoff:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>Attempt 1: immediate
-<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>Attempt 2: 30s delay
-<a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a>Attempt 3: 1m delay
-<a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a>Attempt 4: 2m delay
-<a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a>...
-<a id="__codelineno-14-6" name="__codelineno-14-6" href="#__codelineno-14-6"></a>Max delay: 5m
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>Attempt 1: immediate
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>Attempt 2: 30s delay
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>Attempt 3: 1m delay
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>Attempt 4: 2m delay
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>...
+<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>Max delay: 5m
 </code></pre></div>
 <h3 id="error-categories">Error Categories<a class="headerlink" href="#error-categories" title="Permanent link">&para;</a></h3>
 <table>
