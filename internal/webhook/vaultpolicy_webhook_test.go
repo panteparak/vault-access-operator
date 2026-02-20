@@ -478,6 +478,51 @@ func TestVaultPolicyValidator_ValidateUpdate(t *testing.T) {
 			wantErr:     true,
 			errContains: "contains wildcard (*) before {{namespace}}",
 		},
+		{
+			name: "connectionRef changed (immutable)",
+			oldPolicy: &vaultv1alpha1.VaultPolicy{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
+				Spec: vaultv1alpha1.VaultPolicySpec{
+					ConnectionRef: "old-connection",
+					Rules: []vaultv1alpha1.PolicyRule{
+						{Path: "secret/data/*", Capabilities: []vaultv1alpha1.Capability{vaultv1alpha1.CapabilityRead}},
+					},
+				},
+			},
+			newPolicy: &vaultv1alpha1.VaultPolicy{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
+				Spec: vaultv1alpha1.VaultPolicySpec{
+					ConnectionRef: "new-connection",
+					Rules: []vaultv1alpha1.PolicyRule{
+						{Path: "secret/data/*", Capabilities: []vaultv1alpha1.Capability{vaultv1alpha1.CapabilityRead}},
+					},
+				},
+			},
+			wantErr:     true,
+			errContains: "spec.connectionRef is immutable",
+		},
+		{
+			name: "connectionRef unchanged (allowed)",
+			oldPolicy: &vaultv1alpha1.VaultPolicy{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
+				Spec: vaultv1alpha1.VaultPolicySpec{
+					ConnectionRef: "same-connection",
+					Rules: []vaultv1alpha1.PolicyRule{
+						{Path: "secret/data/*", Capabilities: []vaultv1alpha1.Capability{vaultv1alpha1.CapabilityRead}},
+					},
+				},
+			},
+			newPolicy: &vaultv1alpha1.VaultPolicy{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
+				Spec: vaultv1alpha1.VaultPolicySpec{
+					ConnectionRef: "same-connection",
+					Rules: []vaultv1alpha1.PolicyRule{
+						{Path: "secret/data/*", Capabilities: []vaultv1alpha1.Capability{vaultv1alpha1.CapabilityRead, vaultv1alpha1.CapabilityList}},
+					},
+				},
+			},
+			wantErr: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -785,6 +830,29 @@ func TestVaultClusterPolicyValidator_ValidateUpdate(t *testing.T) {
 			},
 			wantErr:     true,
 			errContains: "invalid capability",
+		},
+		{
+			name: "connectionRef changed (immutable)",
+			oldPolicy: &vaultv1alpha1.VaultClusterPolicy{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-cluster-policy"},
+				Spec: vaultv1alpha1.VaultClusterPolicySpec{
+					ConnectionRef: "old-connection",
+					Rules: []vaultv1alpha1.PolicyRule{
+						{Path: "secret/data/*", Capabilities: []vaultv1alpha1.Capability{vaultv1alpha1.CapabilityRead}},
+					},
+				},
+			},
+			newPolicy: &vaultv1alpha1.VaultClusterPolicy{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-cluster-policy"},
+				Spec: vaultv1alpha1.VaultClusterPolicySpec{
+					ConnectionRef: "new-connection",
+					Rules: []vaultv1alpha1.PolicyRule{
+						{Path: "secret/data/*", Capabilities: []vaultv1alpha1.Capability{vaultv1alpha1.CapabilityRead}},
+					},
+				},
+			},
+			wantErr:     true,
+			errContains: "spec.connectionRef is immutable",
 		},
 	}
 

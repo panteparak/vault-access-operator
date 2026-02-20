@@ -65,7 +65,7 @@ func New(
 	featureLog := log.WithName("policy")
 
 	// Create the shared handler
-	handler := controller.NewHandler(k8sClient, clientCache, eventBus, featureLog)
+	handler := controller.NewHandler(k8sClient, clientCache, eventBus, featureLog, recorder)
 
 	// Create the reconcilers (both use the same handler)
 	policyReconciler := controller.NewPolicyReconciler(

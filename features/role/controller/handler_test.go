@@ -99,13 +99,22 @@ const (
 func newActiveVaultConnection() *vaultv1alpha1.VaultConnection {
 	return &vaultv1alpha1.VaultConnection{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: testConnectionName,
+			Name:       testConnectionName,
+			Generation: 1,
 		},
 		Spec: vaultv1alpha1.VaultConnectionSpec{
 			Address: "https://vault.example.com:8200",
 		},
 		Status: vaultv1alpha1.VaultConnectionStatus{
-			Phase: vaultv1alpha1.PhaseActive,
+			Phase:   vaultv1alpha1.PhaseActive,
+			Healthy: true,
+			Conditions: []vaultv1alpha1.Condition{
+				{
+					Type:               vaultv1alpha1.ConditionTypeReady,
+					Status:             metav1.ConditionTrue,
+					ObservedGeneration: 1,
+				},
+			},
 		},
 	}
 }
@@ -1584,5 +1593,103 @@ func TestUpdateStatusWithRetry_MultipleFields(t *testing.T) {
 	}
 	if updatedRole.Status.Message != "all fields updated" {
 		t.Errorf("expected message 'all fields updated', got %q", updatedRole.Status.Message)
+	}
+}
+
+// --- Cross-namespace binding validation tests (Gap 5) ---
+
+func TestResolvePolicyNames_DuplicatePolicyRefs(t *testing.T) {
+	ctx := context.Background()
+	role := newVaultRole("test-role", "default")
+	role.Spec.Policies = []vaultv1alpha1.PolicyReference{
+		{Kind: "VaultPolicy", Name: "read-secrets"},
+		{Kind: "VaultPolicy", Name: "read-secrets"}, // duplicate
+		{Kind: "VaultClusterPolicy", Name: "global"},
+	}
+
+	fakeClient := newFakeClient(role)
+	handler := NewHandler(fakeClient, vault.NewClientCache(), nil, logr.Discard())
+	adapter := domain.NewVaultRoleAdapter(role)
+
+	policyNames, err := handler.resolvePolicyNames(ctx, adapter)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Current implementation doesn't deduplicate — document this behavior.
+	// Both references resolve to "default-read-secrets".
+	if len(policyNames) != 3 {
+		t.Errorf("expected 3 policy names (duplicates not deduped), got %d: %v", len(policyNames), policyNames)
+	}
+}
+
+func TestResolvePolicyNames_EmptyPolicyName(t *testing.T) {
+	ctx := context.Background()
+	role := newVaultRole("test-role", "default")
+	role.Spec.Policies = []vaultv1alpha1.PolicyReference{
+		{Kind: "VaultPolicy", Name: ""},
+	}
+
+	fakeClient := newFakeClient(role)
+	handler := NewHandler(fakeClient, vault.NewClientCache(), nil, logr.Discard())
+	adapter := domain.NewVaultRoleAdapter(role)
+
+	policyNames, err := handler.resolvePolicyNames(ctx, adapter)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Empty name still resolves (to "default-"), documenting the behavior
+	if len(policyNames) != 1 {
+		t.Errorf("expected 1 policy name, got %d", len(policyNames))
+	}
+}
+
+func TestResolvePolicyNames_ClusterRoleWithNamespacedPolicyExplicitNamespace(t *testing.T) {
+	ctx := context.Background()
+	role := newVaultClusterRole("cluster-role")
+	role.Spec.Policies = []vaultv1alpha1.PolicyReference{
+		{Kind: "VaultPolicy", Name: "read-secrets", Namespace: "production"},
+	}
+
+	fakeClient := newFakeClient(role)
+	handler := NewHandler(fakeClient, vault.NewClientCache(), nil, logr.Discard())
+	adapter := domain.NewVaultClusterRoleAdapter(role)
+
+	policyNames, err := handler.resolvePolicyNames(ctx, adapter)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(policyNames) != 1 {
+		t.Fatalf("expected 1 policy, got %d", len(policyNames))
+	}
+	if policyNames[0] != "production-read-secrets" {
+		t.Errorf("expected 'production-read-secrets', got %q", policyNames[0])
+	}
+}
+
+func TestResolvePolicyNames_NamespacedRoleCrossNamespace(t *testing.T) {
+	ctx := context.Background()
+	role := newVaultRole("test-role", "default")
+	role.Spec.Policies = []vaultv1alpha1.PolicyReference{
+		{Kind: "VaultPolicy", Name: "read-secrets", Namespace: "other-ns"},
+	}
+
+	fakeClient := newFakeClient(role)
+	handler := NewHandler(fakeClient, vault.NewClientCache(), nil, logr.Discard())
+	adapter := domain.NewVaultRoleAdapter(role)
+
+	policyNames, err := handler.resolvePolicyNames(ctx, adapter)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Namespaced role can reference policies in other namespaces
+	if len(policyNames) != 1 {
+		t.Fatalf("expected 1 policy, got %d", len(policyNames))
+	}
+	if policyNames[0] != "other-ns-read-secrets" {
+		t.Errorf("expected 'other-ns-read-secrets', got %q", policyNames[0])
 	}
 }

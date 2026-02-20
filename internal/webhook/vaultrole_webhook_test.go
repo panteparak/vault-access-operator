@@ -425,6 +425,72 @@ func TestVaultRoleValidator_ValidateUpdate(t *testing.T) {
 			wantErr:     true,
 			errContains: "must be a simple name without namespace prefix",
 		},
+		{
+			name: "connectionRef changed (immutable)",
+			oldRole: &vaultv1alpha1.VaultRole{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-role", Namespace: "default"},
+				Spec: vaultv1alpha1.VaultRoleSpec{
+					ConnectionRef:   "old-connection",
+					ServiceAccounts: []string{"sa-1"},
+					Policies:        []vaultv1alpha1.PolicyReference{{Kind: "VaultPolicy", Name: "p1"}},
+				},
+			},
+			newRole: &vaultv1alpha1.VaultRole{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-role", Namespace: "default"},
+				Spec: vaultv1alpha1.VaultRoleSpec{
+					ConnectionRef:   "new-connection",
+					ServiceAccounts: []string{"sa-1"},
+					Policies:        []vaultv1alpha1.PolicyReference{{Kind: "VaultPolicy", Name: "p1"}},
+				},
+			},
+			wantErr:     true,
+			errContains: "spec.connectionRef is immutable",
+		},
+		{
+			name: "authPath changed (immutable)",
+			oldRole: &vaultv1alpha1.VaultRole{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-role", Namespace: "default"},
+				Spec: vaultv1alpha1.VaultRoleSpec{
+					ConnectionRef:   "test-connection",
+					AuthPath:        "kubernetes",
+					ServiceAccounts: []string{"sa-1"},
+					Policies:        []vaultv1alpha1.PolicyReference{{Kind: "VaultPolicy", Name: "p1"}},
+				},
+			},
+			newRole: &vaultv1alpha1.VaultRole{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-role", Namespace: "default"},
+				Spec: vaultv1alpha1.VaultRoleSpec{
+					ConnectionRef:   "test-connection",
+					AuthPath:        "kubernetes-v2",
+					ServiceAccounts: []string{"sa-1"},
+					Policies:        []vaultv1alpha1.PolicyReference{{Kind: "VaultPolicy", Name: "p1"}},
+				},
+			},
+			wantErr:     true,
+			errContains: "spec.authPath is immutable",
+		},
+		{
+			name: "connectionRef and authPath unchanged (allowed)",
+			oldRole: &vaultv1alpha1.VaultRole{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-role", Namespace: "default"},
+				Spec: vaultv1alpha1.VaultRoleSpec{
+					ConnectionRef:   "test-connection",
+					AuthPath:        "kubernetes",
+					ServiceAccounts: []string{"sa-1"},
+					Policies:        []vaultv1alpha1.PolicyReference{{Kind: "VaultPolicy", Name: "p1"}},
+				},
+			},
+			newRole: &vaultv1alpha1.VaultRole{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-role", Namespace: "default"},
+				Spec: vaultv1alpha1.VaultRoleSpec{
+					ConnectionRef:   "test-connection",
+					AuthPath:        "kubernetes",
+					ServiceAccounts: []string{"sa-1", "sa-2"},
+					Policies:        []vaultv1alpha1.PolicyReference{{Kind: "VaultPolicy", Name: "p1"}},
+				},
+			},
+			wantErr: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -858,6 +924,50 @@ func TestVaultClusterRoleValidator_ValidateUpdate(t *testing.T) {
 			},
 			wantErr:     true,
 			errContains: "namespace: must not be empty",
+		},
+		{
+			name: "connectionRef changed (immutable)",
+			oldRole: &vaultv1alpha1.VaultClusterRole{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-cluster-role"},
+				Spec: vaultv1alpha1.VaultClusterRoleSpec{
+					ConnectionRef:   "old-connection",
+					ServiceAccounts: []vaultv1alpha1.ServiceAccountRef{{Name: "sa-1", Namespace: "ns-1"}},
+					Policies:        []vaultv1alpha1.PolicyReference{{Kind: "VaultClusterPolicy", Name: "p1"}},
+				},
+			},
+			newRole: &vaultv1alpha1.VaultClusterRole{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-cluster-role"},
+				Spec: vaultv1alpha1.VaultClusterRoleSpec{
+					ConnectionRef:   "new-connection",
+					ServiceAccounts: []vaultv1alpha1.ServiceAccountRef{{Name: "sa-1", Namespace: "ns-1"}},
+					Policies:        []vaultv1alpha1.PolicyReference{{Kind: "VaultClusterPolicy", Name: "p1"}},
+				},
+			},
+			wantErr:     true,
+			errContains: "spec.connectionRef is immutable",
+		},
+		{
+			name: "authPath changed (immutable)",
+			oldRole: &vaultv1alpha1.VaultClusterRole{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-cluster-role"},
+				Spec: vaultv1alpha1.VaultClusterRoleSpec{
+					ConnectionRef:   "test-connection",
+					AuthPath:        "kubernetes",
+					ServiceAccounts: []vaultv1alpha1.ServiceAccountRef{{Name: "sa-1", Namespace: "ns-1"}},
+					Policies:        []vaultv1alpha1.PolicyReference{{Kind: "VaultClusterPolicy", Name: "p1"}},
+				},
+			},
+			newRole: &vaultv1alpha1.VaultClusterRole{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-cluster-role"},
+				Spec: vaultv1alpha1.VaultClusterRoleSpec{
+					ConnectionRef:   "test-connection",
+					AuthPath:        "kubernetes-v2",
+					ServiceAccounts: []vaultv1alpha1.ServiceAccountRef{{Name: "sa-1", Namespace: "ns-1"}},
+					Policies:        []vaultv1alpha1.PolicyReference{{Kind: "VaultClusterPolicy", Name: "p1"}},
+				},
+			},
+			wantErr:     true,
+			errContains: "spec.authPath is immutable",
 		},
 	}
 

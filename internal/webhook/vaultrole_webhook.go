@@ -88,6 +88,18 @@ func (v *VaultRoleValidator) ValidateCreate(ctx context.Context, role *vaultv1al
 
 // ValidateUpdate implements admission.Validator for VaultRole
 func (v *VaultRoleValidator) ValidateUpdate(ctx context.Context, oldRole, role *vaultv1alpha1.VaultRole) (admission.Warnings, error) {
+	// connectionRef is immutable after creation
+	if oldRole.Spec.ConnectionRef != role.Spec.ConnectionRef {
+		return nil, fmt.Errorf("spec.connectionRef is immutable (was %q, attempted %q)",
+			oldRole.Spec.ConnectionRef, role.Spec.ConnectionRef)
+	}
+
+	// authPath is immutable after creation (changing it targets a different Vault auth mount)
+	if oldRole.Spec.AuthPath != role.Spec.AuthPath {
+		return nil, fmt.Errorf("spec.authPath is immutable (was %q, attempted %q)",
+			oldRole.Spec.AuthPath, role.Spec.AuthPath)
+	}
+
 	return v.validateWithContext(ctx, role)
 }
 
@@ -214,6 +226,18 @@ func (v *VaultClusterRoleValidator) ValidateCreate(ctx context.Context, role *va
 
 // ValidateUpdate implements admission.Validator for VaultClusterRole
 func (v *VaultClusterRoleValidator) ValidateUpdate(ctx context.Context, oldRole, role *vaultv1alpha1.VaultClusterRole) (admission.Warnings, error) {
+	// connectionRef is immutable after creation
+	if oldRole.Spec.ConnectionRef != role.Spec.ConnectionRef {
+		return nil, fmt.Errorf("spec.connectionRef is immutable (was %q, attempted %q)",
+			oldRole.Spec.ConnectionRef, role.Spec.ConnectionRef)
+	}
+
+	// authPath is immutable after creation (changing it targets a different Vault auth mount)
+	if oldRole.Spec.AuthPath != role.Spec.AuthPath {
+		return nil, fmt.Errorf("spec.authPath is immutable (was %q, attempted %q)",
+			oldRole.Spec.AuthPath, role.Spec.AuthPath)
+	}
+
 	return v.validateWithContext(ctx, role)
 }
 

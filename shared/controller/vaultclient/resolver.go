@@ -48,6 +48,28 @@ func Resolve(
 		)
 	}
 
+	// ObservedGeneration gating — ensure connection controller has processed latest spec
+	for _, cond := range conn.Status.Conditions {
+		if cond.Type == vaultv1alpha1.ConditionTypeReady {
+			if cond.ObservedGeneration < conn.Generation {
+				return nil, infraerrors.NewDependencyError(
+					resourceID, "VaultConnection", connRef,
+					fmt.Sprintf("spec update pending (observed generation %d < %d)",
+						cond.ObservedGeneration, conn.Generation),
+				)
+			}
+			break
+		}
+	}
+
+	// Health blocking — ensure Vault is reachable
+	if !conn.Status.Healthy {
+		return nil, infraerrors.NewDependencyError(
+			resourceID, "VaultConnection", connRef,
+			fmt.Sprintf("unhealthy: %s", conn.Status.HealthCheckError),
+		)
+	}
+
 	vaultClient, err := cache.Get(connRef)
 	if err != nil {
 		return nil, infraerrors.NewDependencyError(resourceID, "VaultConnection", connRef, "client not in cache")

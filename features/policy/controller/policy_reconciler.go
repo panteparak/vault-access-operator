@@ -24,7 +24,12 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
+
+	"github.com/panteparak/vault-access-operator/shared/controller/watches"
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/features/policy/domain"
@@ -41,7 +46,7 @@ type PolicyReconciler struct {
 func NewPolicyReconciler(
 	c client.Client,
 	scheme *runtime.Scheme,
-	handler *Handler,
+	h *Handler,
 	log logr.Logger,
 	recorder record.EventRecorder,
 ) *PolicyReconciler {
@@ -62,13 +67,14 @@ func NewPolicyReconciler(
 
 	return &PolicyReconciler{
 		base:    baseReconciler,
-		handler: handler,
+		handler: h,
 	}
 }
 
 // +kubebuilder:rbac:groups=vault.platform.io,resources=vaultpolicies,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=vault.platform.io,resources=vaultpolicies/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=vault.platform.io,resources=vaultpolicies/finalizers,verbs=update
+// +kubebuilder:rbac:groups=vault.platform.io,resources=vaultconnections,verbs=get;list;watch
 
 // Reconcile implements the reconciliation loop for VaultPolicy.
 func (r *PolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -80,7 +86,15 @@ func (r *PolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 // SetupWithManager sets up the controller with the Manager.
 func (r *PolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&vaultv1alpha1.VaultPolicy{}).
+		For(&vaultv1alpha1.VaultPolicy{},
+			builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		Watches(
+			&vaultv1alpha1.VaultConnection{},
+			handler.EnqueueRequestsFromMapFunc(
+				watches.PolicyRequestsForConnection(mgr.GetClient()),
+			),
+			builder.WithPredicates(watches.ConnectionPhaseChangedPredicate{}),
+		).
 		Named("vaultpolicy").
 		Complete(r)
 }

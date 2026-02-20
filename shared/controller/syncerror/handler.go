@@ -20,9 +20,13 @@ package syncerror
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
@@ -43,7 +47,11 @@ type StatusTarget interface {
 
 // Handle classifies the error, sets the appropriate phase and conditions on the target,
 // and updates the status subresource. It returns the original error for upstream handling.
-func Handle(ctx context.Context, k8sClient client.Client, log logr.Logger, target StatusTarget, err error) error {
+// An optional EventRecorder can be passed to emit K8s events for dependency errors.
+func Handle(
+	ctx context.Context, k8sClient client.Client, log logr.Logger,
+	target StatusTarget, err error, recorder ...record.EventRecorder,
+) error {
 	gen := target.GetGeneration()
 
 	// Determine phase and reason based on error type
@@ -67,8 +75,22 @@ func Handle(ctx context.Context, k8sClient client.Client, log logr.Logger, targe
 		metav1.ConditionFalse, reason, err.Error())
 	conds = conditions.Set(conds, gen, vaultv1alpha1.ConditionTypeSynced,
 		metav1.ConditionFalse, vaultv1alpha1.ReasonFailed, err.Error())
-	target.SetConditions(conds)
 
+	// Set DependencyReady condition for dependency errors
+	var depErr *infraerrors.DependencyError
+	if errors.As(err, &depErr) {
+		msg := fmt.Sprintf("Blocked by %s/%s: %s", depErr.DependencyType, depErr.DependencyName, depErr.Reason)
+		conds = conditions.Set(conds, gen, vaultv1alpha1.ConditionTypeDependencyReady,
+			metav1.ConditionFalse, vaultv1alpha1.ReasonDependencyNotReady, msg)
+
+		// Emit K8s event if recorder is available
+		if len(recorder) > 0 && recorder[0] != nil {
+			recorder[0].Event(target.GetObject(), corev1.EventTypeWarning,
+				"WaitingForDependency", msg)
+		}
+	}
+
+	target.SetConditions(conds)
 	target.SetMessage(err.Error())
 
 	if updateErr := k8sClient.Status().Update(ctx, target.GetObject()); updateErr != nil {

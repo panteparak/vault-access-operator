@@ -23,6 +23,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -76,6 +77,18 @@ const (
 	EventReasonDeleted = "Deleted"
 	// EventReasonDeleteFailed indicates cleanup failed
 	EventReasonDeleteFailed = "DeleteFailed"
+	// EventReasonWaitingForDependency indicates a dependency is not ready
+	EventReasonWaitingForDependency = "WaitingForDependency"
+	// EventReasonDriftDetected indicates drift was detected in Vault
+	EventReasonDriftDetected = "DriftDetected"
+	// EventReasonDriftCorrected indicates drift was corrected in Vault
+	EventReasonDriftCorrected = "DriftCorrected"
+	// EventReasonDeletionBlocked indicates deletion is blocked by dependents
+	EventReasonDeletionBlocked = "DeletionBlocked"
+	// EventReasonPolicyNotInVault indicates a referenced policy doesn't exist in Vault
+	EventReasonPolicyNotInVault = "PolicyNotInVault"
+	// EventReasonDeletionStuck indicates deletion has been pending too long
+	EventReasonDeletionStuck = "DeletionStuck"
 )
 
 // BaseReconciler provides the template method for controller reconciliation.
@@ -199,6 +212,15 @@ func (r *BaseReconciler[T]) handleDeletion(
 	if err := handler.Cleanup(ctx, resource); err != nil {
 		log.Error(err, "cleanup failed")
 		r.recordEvent(resource, corev1.EventTypeWarning, EventReasonDeleteFailed, err.Error())
+
+		// Warn if deletion has been pending too long (stuck finalizer)
+		if ts := resource.GetDeletionTimestamp(); ts != nil {
+			if time.Since(ts.Time) > 5*time.Minute {
+				r.recordEvent(resource, corev1.EventTypeWarning, EventReasonDeletionStuck,
+					fmt.Sprintf("Deletion has been pending for %s", time.Since(ts.Time).Round(time.Second)))
+			}
+		}
+
 		return r.Status.Error(ctx, resource, err)
 	}
 

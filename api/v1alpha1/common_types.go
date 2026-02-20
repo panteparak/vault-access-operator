@@ -271,17 +271,31 @@ const (
 	ConditionTypeSynced           = "Synced"
 	ConditionTypeConnectionReady  = "ConnectionReady"
 	ConditionTypePoliciesResolved = "PoliciesResolved"
+	ConditionTypeDependencyReady  = "DependencyReady"
+	ConditionTypeDrifted          = "Drifted"
+	ConditionTypeDeleting         = "Deleting"
 )
 
 // ConditionReason constants
 const (
-	ReasonSucceeded          = "Succeeded"
-	ReasonFailed             = "Failed"
-	ReasonInProgress         = "InProgress"
-	ReasonConflict           = "Conflict"
-	ReasonValidationFailed   = "ValidationFailed"
-	ReasonConnectionNotReady = "ConnectionNotReady"
-	ReasonPolicyNotFound     = "PolicyNotFound"
+	ReasonSucceeded             = "Succeeded"
+	ReasonFailed                = "Failed"
+	ReasonInProgress            = "InProgress"
+	ReasonConflict              = "Conflict"
+	ReasonValidationFailed      = "ValidationFailed"
+	ReasonConnectionNotReady    = "ConnectionNotReady"
+	ReasonPolicyNotFound        = "PolicyNotFound"
+	ReasonDependencyNotReady    = "DependencyNotReady"
+	ReasonDependencyReady       = "DependencyReady"
+	ReasonDriftDetected         = "DriftDetected"
+	ReasonDriftCorrected        = "DriftCorrected"
+	ReasonNoDrift               = "NoDrift"
+	ReasonDeletionBlocked       = "DeletionBlocked"
+	ReasonDeletionInProgress    = "DeletionInProgress"
+	ReasonChildrenExist         = "ChildrenExist"
+	ReasonObservedGenStale      = "ObservedGenerationStale"
+	ReasonPolicyNotInVault      = "PolicyNotInVault"
+	ReasonImmutableFieldChanged = "ImmutableFieldChanged"
 )
 
 // ToSecretReference converts LocalSecretKeySelector to a corev1.SecretKeySelector
@@ -361,6 +375,11 @@ type SyncStatus struct {
 	// DriftCorrectedAt is the time when drift was last corrected
 	// +optional
 	DriftCorrectedAt *metav1.Time `json:"driftCorrectedAt,omitempty"`
+
+	// DeletionStartedAt is the time when deletion was first attempted.
+	// Used for tracking stuck finalizers and deletion timeouts.
+	// +optional
+	DeletionStartedAt *metav1.Time `json:"deletionStartedAt,omitempty"`
 }
 
 // Finalizer name for the operator

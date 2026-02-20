@@ -24,7 +24,12 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
+
+	"github.com/panteparak/vault-access-operator/shared/controller/watches"
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/features/role/domain"
@@ -41,7 +46,7 @@ type RoleReconciler struct {
 func NewRoleReconciler(
 	c client.Client,
 	scheme *runtime.Scheme,
-	handler *Handler,
+	h *Handler,
 	log logr.Logger,
 	recorder record.EventRecorder,
 ) *RoleReconciler {
@@ -62,13 +67,14 @@ func NewRoleReconciler(
 
 	return &RoleReconciler{
 		base:    baseReconciler,
-		handler: handler,
+		handler: h,
 	}
 }
 
 // +kubebuilder:rbac:groups=vault.platform.io,resources=vaultroles,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=vault.platform.io,resources=vaultroles/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=vault.platform.io,resources=vaultroles/finalizers,verbs=update
+// +kubebuilder:rbac:groups=vault.platform.io,resources=vaultconnections,verbs=get;list;watch
 
 // Reconcile implements the reconciliation loop for VaultRole.
 func (r *RoleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -80,7 +86,15 @@ func (r *RoleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 // SetupWithManager sets up the controller with the Manager.
 func (r *RoleReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&vaultv1alpha1.VaultRole{}).
+		For(&vaultv1alpha1.VaultRole{},
+			builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		Watches(
+			&vaultv1alpha1.VaultConnection{},
+			handler.EnqueueRequestsFromMapFunc(
+				watches.RoleRequestsForConnection(mgr.GetClient()),
+			),
+			builder.WithPredicates(watches.ConnectionPhaseChangedPredicate{}),
+		).
 		Named("vaultrole").
 		Complete(r)
 }

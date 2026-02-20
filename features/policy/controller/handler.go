@@ -24,7 +24,9 @@ import (
 	"strings"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -47,17 +49,25 @@ type Handler struct {
 	client      client.Client
 	clientCache *vault.ClientCache
 	eventBus    *events.EventBus
+	recorder    record.EventRecorder
 	log         logr.Logger
 }
 
 // NewHandler creates a new policy Handler.
-func NewHandler(c client.Client, cache *vault.ClientCache, bus *events.EventBus, log logr.Logger) *Handler {
-	return &Handler{
+func NewHandler(
+	c client.Client, cache *vault.ClientCache, bus *events.EventBus,
+	log logr.Logger, recorder ...record.EventRecorder,
+) *Handler {
+	h := &Handler{
 		client:      c,
 		clientCache: cache,
 		eventBus:    bus,
 		log:         log,
 	}
+	if len(recorder) > 0 {
+		h.recorder = recorder[0]
+	}
+	return h
 }
 
 // SyncPolicy synchronizes a policy to Vault.
@@ -143,6 +153,19 @@ func (h *Handler) SyncPolicy(ctx context.Context, adapter domain.PolicyAdapter) 
 		adapter.SetDriftDetected(driftDetected)
 		adapter.SetDriftSummary(driftSummary)
 		adapter.SetLastDriftCheckAt(&now)
+
+		// Set Drifted condition and emit events
+		if driftDetected {
+			h.setCondition(adapter, vaultv1alpha1.ConditionTypeDrifted, metav1.ConditionTrue,
+				vaultv1alpha1.ReasonDriftDetected, driftSummary)
+			if h.recorder != nil {
+				h.recorder.Event(adapter.GetObject(), corev1.EventTypeWarning,
+					"DriftDetected", "Drift detected: "+driftSummary)
+			}
+		} else {
+			h.setCondition(adapter, vaultv1alpha1.ConditionTypeDrifted, metav1.ConditionFalse,
+				vaultv1alpha1.ReasonNoDrift, "No drift detected")
+		}
 
 		// Record drift metric
 		metrics.SetDriftDetected(kind, adapter.GetNamespace(), adapter.GetName(), driftDetected)
@@ -301,6 +324,14 @@ func (h *Handler) SyncPolicy(ctx context.Context, adapter domain.PolicyAdapter) 
 		return h.handleSyncError(ctx, adapter, infraerrors.NewTransientError("write policy", err))
 	}
 
+	// Readback verification — confirm Vault persisted the correct content
+	if readbackHCL, readErr := vaultClient.ReadPolicy(ctx, vaultPolicyName); readErr != nil {
+		log.V(1).Info("post-write readback failed (non-fatal)", "error", readErr)
+	} else if h.normalizeHCL(readbackHCL) != h.normalizeHCL(hcl) {
+		return h.handleSyncError(ctx, adapter, infraerrors.NewTransientError(
+			"readback verification", fmt.Errorf("policy content mismatch after write")))
+	}
+
 	// Mark as managed
 	k8sResource := adapter.GetK8sResourceIdentifier()
 	if err := vaultClient.MarkPolicyManaged(ctx, vaultPolicyName, k8sResource); err != nil {
@@ -334,9 +365,19 @@ func (h *Handler) SyncPolicy(ctx context.Context, adapter domain.PolicyAdapter) 
 		vaultv1alpha1.ReasonSucceeded, "Policy synced to Vault")
 	h.setCondition(adapter, vaultv1alpha1.ConditionTypeSynced, metav1.ConditionTrue,
 		vaultv1alpha1.ReasonSucceeded, "Policy synced successfully")
+	h.setCondition(adapter, vaultv1alpha1.ConditionTypeDependencyReady, metav1.ConditionTrue,
+		vaultv1alpha1.ReasonDependencyReady, "All dependencies ready")
+	h.setCondition(adapter, vaultv1alpha1.ConditionTypeDrifted, metav1.ConditionFalse,
+		vaultv1alpha1.ReasonNoDrift, "No drift detected")
 
 	if err := h.client.Status().Update(ctx, adapter.GetObject()); err != nil {
 		return fmt.Errorf("failed to update status to Active: %w", err)
+	}
+
+	// Emit drift corrected event if we fixed drift
+	if driftDetected && h.recorder != nil {
+		h.recorder.Event(adapter.GetObject(), corev1.EventTypeNormal,
+			"DriftCorrected", "Drift was detected and corrected in Vault")
 	}
 
 	// Publish event
@@ -359,8 +400,18 @@ func (h *Handler) CleanupPolicy(ctx context.Context, adapter domain.PolicyAdapte
 	log := logr.FromContextOrDiscard(ctx)
 	vaultPolicyName := adapter.GetVaultPolicyName()
 
-	// Update phase to Deleting
+	// Track deletion start time
+	if adapter.GetDeletionStartedAt() == nil {
+		now := metav1.Now()
+		adapter.SetDeletionStartedAt(&now)
+	}
+
+	// Update phase to Deleting with condition
 	adapter.SetPhase(vaultv1alpha1.PhaseDeleting)
+	conds := conditions.Set(adapter.GetConditions(), adapter.GetGeneration(),
+		vaultv1alpha1.ConditionTypeDeleting, metav1.ConditionTrue,
+		vaultv1alpha1.ReasonDeletionInProgress, "Deletion in progress")
+	adapter.SetConditions(conds)
 	if err := h.client.Status().Update(ctx, adapter.GetObject()); err != nil {
 		log.V(1).Info("failed to update status to Deleting (ignoring)", "error", err)
 	}
@@ -539,7 +590,7 @@ func (h *Handler) calculateHash(content string) string {
 
 // handleSyncError updates status for errors.
 func (h *Handler) handleSyncError(ctx context.Context, adapter domain.PolicyAdapter, err error) error {
-	return syncerror.Handle(ctx, h.client, h.log, adapter, err)
+	return syncerror.Handle(ctx, h.client, h.log, adapter, err, h.recorder)
 }
 
 // setCondition sets or updates a condition on the adapter.

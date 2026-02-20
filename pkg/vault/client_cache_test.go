@@ -2,6 +2,7 @@ package vault
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -433,6 +434,87 @@ func TestClientCacheConcurrentClear(t *testing.T) {
 
 	wg.Wait()
 	// Test passes if no race conditions or panics occurred
+}
+
+// --- Cache edge cases (Gap 11) ---
+
+func TestCache_GetAfterDelete(t *testing.T) {
+	cache := NewClientCache()
+	client := createTestClient(t, "http://localhost:8200")
+
+	cache.Set("conn", client)
+
+	// Delete the entry
+	cache.Delete("conn")
+
+	// Get should fail after delete
+	_, err := cache.Get("conn")
+	if err == nil {
+		t.Error("expected error after deleting entry from cache")
+	}
+}
+
+func TestCache_EvictionOnAddressChange(t *testing.T) {
+	cache := NewClientCache()
+
+	// Set client with old address
+	oldClient := createTestClient(t, "http://old-vault:8200")
+	cache.Set("conn", oldClient)
+
+	// Overwrite with new address client
+	newClient := createTestClient(t, "http://new-vault:8200")
+	cache.Set("conn", newClient)
+
+	// Get should return the new client
+	got, err := cache.Get("conn")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != newClient {
+		t.Error("expected new client after address change")
+	}
+	if got == oldClient {
+		t.Error("old client should have been replaced")
+	}
+}
+
+func TestCache_ConcurrentSetAndGet(t *testing.T) {
+	cache := NewClientCache()
+	client := createTestClient(t, "http://localhost:8200")
+	cache.Set("conn", client)
+
+	numGoroutines := 100
+	var wg sync.WaitGroup
+	wg.Add(numGoroutines)
+
+	errs := make(chan error, numGoroutines)
+
+	for i := 0; i < numGoroutines; i++ {
+		go func(i int) {
+			defer wg.Done()
+			if i%2 == 0 {
+				// Even goroutines: Get
+				got, err := cache.Get("conn")
+				if err != nil {
+					errs <- err
+					return
+				}
+				if got == nil {
+					errs <- fmt.Errorf("got nil client")
+				}
+			} else {
+				// Odd goroutines: Set (same key)
+				cache.Set("conn", client)
+			}
+		}(i)
+	}
+
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		t.Errorf("concurrent operation failed: %v", err)
+	}
 }
 
 func BenchmarkClientCacheSet(b *testing.B) {

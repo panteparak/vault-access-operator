@@ -324,6 +324,145 @@ func TestHasWildcardBeforeNamespace(t *testing.T) {
 	}
 }
 
+func TestValidatePath_EdgeCases(t *testing.T) {
+	tests := []struct {
+		name    string
+		path    string
+		wantErr bool
+	}{
+		{
+			name:    "wildcard after namespace",
+			path:    "secret/{{namespace}}/*/data",
+			wantErr: false,
+		},
+		{
+			name:    "multiple namespace variables",
+			path:    "{{namespace}}/data/{{namespace}}",
+			wantErr: false,
+		},
+		{
+			name:    "empty path",
+			path:    "",
+			wantErr: true,
+		},
+		{
+			name:    "wildcard only",
+			path:    "*",
+			wantErr: false, // ValidatePath doesn't enforce namespace requirements
+		},
+		{
+			name:    "path traversal with namespace",
+			path:    "secret/../{{namespace}}/data",
+			wantErr: true, // ".." is rejected
+		},
+		{
+			name:    "normal path with namespace",
+			path:    "secret/data/{{namespace}}/config",
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidatePath(tt.path)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidatePath(%q) error = %v, wantErr %v", tt.path, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestContainsNamespaceVariable_EdgeCases(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		want bool
+	}{
+		{
+			name: "case sensitivity - uppercase",
+			path: "secret/{{NAMESPACE}}/data",
+			want: false, // case-sensitive match
+		},
+		{
+			name: "case sensitivity - mixed case",
+			path: "secret/{{Namespace}}/data",
+			want: false,
+		},
+		{
+			name: "partial opening braces",
+			path: "secret/{namespace}/data",
+			want: false,
+		},
+		{
+			name: "partial closing braces",
+			path: "secret/{{namespace}/data",
+			want: false,
+		},
+		{
+			name: "only opening",
+			path: "{{namespace",
+			want: false,
+		},
+		{
+			name: "namespace without braces",
+			path: "secret/namespace/data",
+			want: false,
+		},
+		{
+			name: "namespace in middle of other text",
+			path: "secret/pre{{namespace}}post/data",
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ContainsNamespaceVariable(tt.path)
+			if got != tt.want {
+				t.Errorf("ContainsNamespaceVariable(%q) = %v, want %v", tt.path, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestHasWildcardBeforeNamespace_EdgeCases(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		want bool
+	}{
+		{
+			name: "wildcard immediately before namespace",
+			path: "*{{namespace}}",
+			want: true,
+		},
+		{
+			name: "namespace at start then wildcard",
+			path: "{{namespace}}/*",
+			want: false,
+		},
+		{
+			name: "multiple wildcards before namespace",
+			path: "*/*/{{namespace}}",
+			want: true,
+		},
+		{
+			name: "glob pattern before namespace",
+			path: "secret/+/{{namespace}}",
+			want: false, // "+" is not a wildcard in this context
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := HasWildcardBeforeNamespace(tt.path)
+			if got != tt.want {
+				t.Errorf("HasWildcardBeforeNamespace(%q) = %v, want %v", tt.path, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestGeneratePolicyHCL(t *testing.T) {
 	tests := []struct {
 		name      string

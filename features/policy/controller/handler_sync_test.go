@@ -206,7 +206,15 @@ func newPolicyTestConnection() *vaultv1alpha1.VaultConnection {
 			},
 		},
 		Status: vaultv1alpha1.VaultConnectionStatus{
-			Phase: vaultv1alpha1.PhaseActive,
+			Phase:   vaultv1alpha1.PhaseActive,
+			Healthy: true,
+			Conditions: []vaultv1alpha1.Condition{
+				{
+					Type:               vaultv1alpha1.ConditionTypeReady,
+					Status:             metav1.ConditionTrue,
+					ObservedGeneration: 1,
+				},
+			},
 		},
 	}
 }
@@ -737,6 +745,147 @@ func TestSyncPolicy_EventPublished(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting for PolicyCreated event")
+	}
+}
+
+// --- Error recovery transitions (Gap 9) ---
+
+func TestSyncPolicy_RecoveryAfterVaultError(t *testing.T) {
+	state := newPolicyMockState()
+	conn := newPolicyTestConnection()
+	policy := newTestVaultPolicy()
+
+	// Simulate previous error state
+	policy.Status.Phase = vaultv1alpha1.PhaseError
+	policy.Status.Message = "previous vault error"
+	policy.Status.RetryCount = 3
+
+	handler, server, _ := setupPolicySyncTest(t, policy, conn, policyMockConfig{state: state})
+	defer server.Close()
+
+	ctx := logr.NewContext(context.Background(), logr.Discard())
+	adapter := domain.NewVaultPolicyAdapter(policy)
+
+	err := handler.SyncPolicy(ctx, adapter)
+	if err != nil {
+		t.Fatalf("expected recovery to succeed, got: %v", err)
+	}
+
+	// After successful sync, phase should be Active
+	if policy.Status.Phase != vaultv1alpha1.PhaseActive {
+		t.Errorf("expected PhaseActive after recovery, got %s", policy.Status.Phase)
+	}
+}
+
+// --- CleanupPolicy tests (Gap 7) ---
+
+func TestCleanupPolicy_VaultClientUnavailable(t *testing.T) {
+	conn := newPolicyTestConnection()
+	policy := newTestVaultPolicy()
+	policy.Status.Phase = vaultv1alpha1.PhaseActive
+
+	scheme := newPolicyTestScheme()
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(conn, policy).
+		WithStatusSubresource(conn, policy).
+		Build()
+
+	// Empty cache — no Vault client available
+	cache := vault.NewClientCache()
+	bus := events.NewEventBus(logr.Discard())
+	handler := NewHandler(k8sClient, cache, bus, logr.Discard())
+
+	ctx := logr.NewContext(context.Background(), logr.Discard())
+	adapter := domain.NewVaultPolicyAdapter(policy)
+
+	err := handler.CleanupPolicy(ctx, adapter)
+	// CleanupPolicy should succeed even when Vault is unavailable
+	// (it logs the error and continues with finalizer removal)
+	if err != nil {
+		t.Errorf("CleanupPolicy should succeed even without Vault client, got: %v", err)
+	}
+}
+
+func TestCleanupPolicy_PolicyNotInVault(t *testing.T) {
+	state := newPolicyMockState()
+	// State is empty — no policies in Vault
+	conn := newPolicyTestConnection()
+	policy := newTestVaultPolicy()
+	policy.Status.Phase = vaultv1alpha1.PhaseActive
+
+	handler, server, _ := setupPolicySyncTest(t, policy, conn, policyMockConfig{state: state})
+	defer server.Close()
+
+	ctx := logr.NewContext(context.Background(), logr.Discard())
+	adapter := domain.NewVaultPolicyAdapter(policy)
+
+	err := handler.CleanupPolicy(ctx, adapter)
+	// Should succeed — deleting a non-existent policy is a no-op
+	if err != nil {
+		t.Errorf("CleanupPolicy should succeed for non-existent policy, got: %v", err)
+	}
+}
+
+func TestCleanupPolicy_RetainPolicy(t *testing.T) {
+	state := newPolicyMockState()
+	policyName := policyTestNamespace + "-" + policyTestName
+	state.policies[policyName] = existingPolicyHCL
+
+	conn := newPolicyTestConnection()
+	policy := newTestVaultPolicy()
+	policy.Spec.DeletionPolicy = vaultv1alpha1.DeletionPolicyRetain
+	policy.Status.Phase = vaultv1alpha1.PhaseActive
+
+	handler, server, _ := setupPolicySyncTest(t, policy, conn, policyMockConfig{state: state})
+	defer server.Close()
+
+	ctx := logr.NewContext(context.Background(), logr.Discard())
+	adapter := domain.NewVaultPolicyAdapter(policy)
+
+	err := handler.CleanupPolicy(ctx, adapter)
+	if err != nil {
+		t.Fatalf("CleanupPolicy failed: %v", err)
+	}
+
+	// Policy should still exist in Vault (Retain)
+	state.mu.Lock()
+	_, exists := state.policies[policyName]
+	state.mu.Unlock()
+
+	if !exists {
+		t.Error("expected policy to be retained in Vault with DeletionPolicy=Retain")
+	}
+}
+
+func TestCleanupPolicy_DeletePolicy(t *testing.T) {
+	state := newPolicyMockState()
+	policyName := policyTestNamespace + "-" + policyTestName
+	state.policies[policyName] = existingPolicyHCL
+
+	conn := newPolicyTestConnection()
+	policy := newTestVaultPolicy()
+	policy.Spec.DeletionPolicy = vaultv1alpha1.DeletionPolicyDelete
+	policy.Status.Phase = vaultv1alpha1.PhaseActive
+
+	handler, server, _ := setupPolicySyncTest(t, policy, conn, policyMockConfig{state: state})
+	defer server.Close()
+
+	ctx := logr.NewContext(context.Background(), logr.Discard())
+	adapter := domain.NewVaultPolicyAdapter(policy)
+
+	err := handler.CleanupPolicy(ctx, adapter)
+	if err != nil {
+		t.Fatalf("CleanupPolicy failed: %v", err)
+	}
+
+	// Policy should be removed from Vault (Delete)
+	state.mu.Lock()
+	_, exists := state.policies[policyName]
+	state.mu.Unlock()
+
+	if exists {
+		t.Error("expected policy to be deleted from Vault with DeletionPolicy=Delete")
 	}
 }
 

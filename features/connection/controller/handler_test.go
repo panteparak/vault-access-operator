@@ -35,6 +35,7 @@ import (
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/pkg/vault"
+	"github.com/panteparak/vault-access-operator/pkg/vault/token"
 	"github.com/panteparak/vault-access-operator/shared/events"
 )
 
@@ -1100,6 +1101,132 @@ func TestCleanup_CleanupWithoutClientInCache(t *testing.T) {
 	}
 }
 
+// --- Phase 6: Ordered cascading deletion tests ---
+
+func TestCleanup_BlockedByDependentPolicies(t *testing.T) {
+	scheme := createScheme()
+	conn := newVaultConnection(vaultConnectionOpts{address: "http://localhost:8200"})
+
+	// Create a VaultPolicy that references this connection
+	policy := &vaultv1alpha1.VaultPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-policy",
+			Namespace: "default",
+		},
+		Spec: vaultv1alpha1.VaultPolicySpec{
+			ConnectionRef: testConnectionName,
+			Rules: []vaultv1alpha1.PolicyRule{
+				{Path: "secret/data/*", Capabilities: []vaultv1alpha1.Capability{"read"}},
+			},
+		},
+	}
+
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(conn, policy).
+		WithStatusSubresource(conn).
+		Build()
+
+	cache := vault.NewClientCache()
+	bus := events.NewEventBus(logr.Discard())
+	handler := NewHandler(HandlerConfig{Client: k8sClient, ClientCache: cache, EventBus: bus, Log: logr.Discard()})
+
+	ctx := context.Background()
+	err := handler.Cleanup(ctx, conn)
+
+	if err == nil {
+		t.Fatal("expected error when dependents exist")
+	}
+	if !strings.Contains(err.Error(), "deletion blocked") {
+		t.Errorf("expected 'deletion blocked' in error, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "VaultPolicy/default/test-policy") {
+		t.Errorf("expected dependent listed in error, got: %v", err)
+	}
+}
+
+func TestCleanup_NoDependents(t *testing.T) {
+	scheme := createScheme()
+	conn := newVaultConnection(vaultConnectionOpts{address: "http://localhost:8200"})
+
+	// No dependent resources
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(conn).
+		WithStatusSubresource(conn).
+		Build()
+
+	cache := vault.NewClientCache()
+	bus := events.NewEventBus(logr.Discard())
+	handler := NewHandler(HandlerConfig{Client: k8sClient, ClientCache: cache, EventBus: bus, Log: logr.Discard()})
+
+	ctx := context.Background()
+	err := handler.Cleanup(ctx, conn)
+
+	if err != nil {
+		t.Fatalf("expected no error when no dependents, got: %v", err)
+	}
+	if conn.Status.Phase != vaultv1alpha1.PhaseDeleting {
+		t.Errorf("expected phase Deleting, got %s", conn.Status.Phase)
+	}
+}
+
+func TestCleanup_BlockedByMixedDependents(t *testing.T) {
+	scheme := createScheme()
+	conn := newVaultConnection(vaultConnectionOpts{address: "http://localhost:8200"})
+
+	// Create a VaultPolicy and a VaultRole referencing this connection
+	policy := &vaultv1alpha1.VaultPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "my-policy",
+			Namespace: "production",
+		},
+		Spec: vaultv1alpha1.VaultPolicySpec{
+			ConnectionRef: testConnectionName,
+			Rules: []vaultv1alpha1.PolicyRule{
+				{Path: "secret/data/*", Capabilities: []vaultv1alpha1.Capability{"read"}},
+			},
+		},
+	}
+	role := &vaultv1alpha1.VaultRole{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "my-role",
+			Namespace: "staging",
+		},
+		Spec: vaultv1alpha1.VaultRoleSpec{
+			ConnectionRef:   testConnectionName,
+			ServiceAccounts: []string{"app"},
+			Policies:        []vaultv1alpha1.PolicyReference{{Name: "default"}},
+		},
+	}
+
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(conn, policy, role).
+		WithStatusSubresource(conn).
+		Build()
+
+	cache := vault.NewClientCache()
+	bus := events.NewEventBus(logr.Discard())
+	handler := NewHandler(HandlerConfig{Client: k8sClient, ClientCache: cache, EventBus: bus, Log: logr.Discard()})
+
+	ctx := context.Background()
+	err := handler.Cleanup(ctx, conn)
+
+	if err == nil {
+		t.Fatal("expected error when dependents exist")
+	}
+	if !strings.Contains(err.Error(), "2 dependent resource(s)") {
+		t.Errorf("expected '2 dependent resource(s)' in error, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "VaultPolicy/production/my-policy") {
+		t.Errorf("expected VaultPolicy listed, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "VaultRole/staging/my-role") {
+		t.Errorf("expected VaultRole listed, got: %v", err)
+	}
+}
+
 // --- Enhanced mock Vault server for getOrRenewClient tests ---
 
 // mockVaultServerOpts configures the multi-endpoint mock Vault server.
@@ -1917,5 +2044,301 @@ func TestHandleSyncError_SetsHealthStatus(t *testing.T) {
 
 	if conn.Status.ConsecutiveFails != 1 {
 		t.Errorf("expected ConsecutiveFails to be 1, got %d", conn.Status.ConsecutiveFails)
+	}
+}
+
+// --- RenewalStrategyReauth tests ---
+
+// mockTokenProvider implements token.TokenProvider for testing.
+type mockTokenProvider struct{}
+
+func (m *mockTokenProvider) GetToken(_ context.Context, _ token.GetTokenOptions) (*token.TokenInfo, error) {
+	return &token.TokenInfo{
+		Token:          "mock-sa-jwt-token",
+		ExpirationTime: time.Now().Add(time.Hour),
+		IssuedAt:       time.Now(),
+	}, nil
+}
+
+// newK8sAuthVaultServer creates a mock Vault server that additionally handles
+// the Kubernetes auth login endpoint (POST /v1/auth/kubernetes/login).
+func newK8sAuthVaultServer(opts mockVaultServerOpts) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/v1/sys/health"):
+			if opts.healthErr {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"initialized": true,
+				"sealed":      false,
+				"version":     opts.version,
+			})
+
+		case strings.HasSuffix(r.URL.Path, "/v1/auth/token/renew-self"):
+			if opts.renewErr {
+				w.WriteHeader(http.StatusForbidden)
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"errors": []string{"permission denied"},
+				})
+				return
+			}
+			ttl := opts.renewLeaseTTL
+			if ttl == 0 {
+				ttl = 3600
+			}
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"auth": map[string]interface{}{
+					"client_token":   "s.renewed-token",
+					"lease_duration": ttl,
+					"renewable":      true,
+				},
+			})
+
+		case strings.HasSuffix(r.URL.Path, "/v1/auth/kubernetes/login"):
+			// Mock K8s auth login — returns a valid client token
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"auth": map[string]interface{}{
+					"client_token":   "s.k8s-auth-token",
+					"lease_duration": 3600,
+					"renewable":      true,
+				},
+			})
+
+		default:
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"initialized": true,
+				"sealed":      false,
+				"version":     opts.version,
+			})
+		}
+	}))
+}
+
+// TestGetOrRenewClient_RenewalStrategyReauth tests that when RenewalStrategyReauth
+// is configured, the handler skips RenewSelf and goes straight to re-authentication.
+func TestGetOrRenewClient_RenewalStrategyReauth(t *testing.T) {
+	server := newK8sAuthVaultServer(mockVaultServerOpts{
+		version:       "1.15.0",
+		renewLeaseTTL: 3600,
+	})
+	defer server.Close()
+
+	scheme := createScheme()
+
+	// Create connection with ONLY Kubernetes auth and RenewalStrategyReauth
+	conn := &vaultv1alpha1.VaultConnection{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       testConnectionName,
+			Generation: 1,
+		},
+		Spec: vaultv1alpha1.VaultConnectionSpec{
+			Address: server.URL,
+			Auth: vaultv1alpha1.AuthConfig{
+				Kubernetes: &vaultv1alpha1.KubernetesAuth{
+					Role:            "test-role",
+					RenewalStrategy: vaultv1alpha1.RenewalStrategyReauth,
+				},
+			},
+		},
+	}
+
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(conn).
+		WithStatusSubresource(conn).
+		Build()
+
+	cache := vault.NewClientCache()
+
+	// Pre-populate cache: token within renewal threshold (10min remaining, 1h TTL)
+	cachedClient := newCachedVaultClient(
+		t, server.URL, time.Now().Add(10*time.Minute), time.Hour,
+	)
+	cache.Set(testConnectionName, cachedClient)
+
+	handler := NewHandler(HandlerConfig{
+		Client:        k8sClient,
+		ClientCache:   cache,
+		TokenProvider: &mockTokenProvider{},
+		Log:           logr.Discard(),
+	})
+
+	ctx := context.Background()
+	client, renewed, err := handler.getOrRenewClient(ctx, conn)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !renewed {
+		t.Error("expected renewed=true (wasReauth) when reauth strategy is used")
+	}
+	// With reauth strategy, it should skip RenewSelf and create a new client
+	if client == cachedClient {
+		t.Error("expected a new client (re-authenticated), not the cached client")
+	}
+}
+
+// TestGetOrRenewClient_RenewalStrategyRenew_Default tests the default renewal
+// strategy (renew) still works as expected — RenewSelf is called.
+func TestGetOrRenewClient_RenewalStrategyRenew_Default(t *testing.T) {
+	server := newMultiEndpointVaultServer(mockVaultServerOpts{
+		version:       "1.15.0",
+		renewLeaseTTL: 3600,
+	})
+	defer server.Close()
+
+	scheme := createScheme()
+
+	// Connection with Kubernetes auth and default/explicit RenewalStrategyRenew
+	conn := &vaultv1alpha1.VaultConnection{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       testConnectionName,
+			Generation: 1,
+		},
+		Spec: vaultv1alpha1.VaultConnectionSpec{
+			Address: server.URL,
+			Auth: vaultv1alpha1.AuthConfig{
+				Kubernetes: &vaultv1alpha1.KubernetesAuth{
+					Role:            "test-role",
+					RenewalStrategy: vaultv1alpha1.RenewalStrategyRenew,
+				},
+			},
+		},
+	}
+
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(conn).
+		WithStatusSubresource(conn).
+		Build()
+
+	cache := vault.NewClientCache()
+
+	// Pre-populate cache: within renewal threshold
+	cachedClient := newCachedVaultClient(
+		t, server.URL, time.Now().Add(10*time.Minute), time.Hour,
+	)
+	cache.Set(testConnectionName, cachedClient)
+
+	handler := NewHandler(HandlerConfig{
+		Client:      k8sClient,
+		ClientCache: cache,
+		Log:         logr.Discard(),
+	})
+
+	ctx := context.Background()
+	client, renewed, err := handler.getOrRenewClient(ctx, conn)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !renewed {
+		t.Error("expected renewed=true for renew strategy with RenewSelf")
+	}
+	// With renew strategy, RenewSelf updates in-place → same client instance
+	if client != cachedClient {
+		t.Error("expected same cached client after RenewSelf renewal")
+	}
+}
+
+// TestGetOrRenewClient_RenewalStrategyReauth_NilKubernetes tests that when
+// Kubernetes auth is nil, the renewal proceeds normally (shouldTryRenew=true).
+func TestGetOrRenewClient_RenewalStrategyReauth_NilKubernetes(t *testing.T) {
+	server := newMultiEndpointVaultServer(mockVaultServerOpts{
+		version:       "1.15.0",
+		renewLeaseTTL: 3600,
+	})
+	defer server.Close()
+
+	scheme := createScheme()
+	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
+	// Default newVaultConnection uses Token auth, Kubernetes is nil
+
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(conn).
+		WithStatusSubresource(conn).
+		Build()
+
+	cache := vault.NewClientCache()
+
+	// Pre-populate cache: within renewal threshold
+	cachedClient := newCachedVaultClient(
+		t, server.URL, time.Now().Add(10*time.Minute), time.Hour,
+	)
+	cache.Set(testConnectionName, cachedClient)
+
+	handler := NewHandler(HandlerConfig{
+		Client:      k8sClient,
+		ClientCache: cache,
+		Log:         logr.Discard(),
+	})
+
+	ctx := context.Background()
+	client, renewed, err := handler.getOrRenewClient(ctx, conn)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !renewed {
+		t.Error("expected renewed=true (should try RenewSelf when Kubernetes is nil)")
+	}
+	// RenewSelf updates in-place → same client instance
+	if client != cachedClient {
+		t.Error("expected same cached client after RenewSelf")
+	}
+}
+
+// TestSync_RecoveryFromErrorPhase tests that a connection can recover from
+// PhaseError back to PhaseActive when the underlying issue is resolved.
+func TestSync_RecoveryFromErrorPhase(t *testing.T) {
+	server := newMockVaultServer("1.15.0", false)
+	defer server.Close()
+
+	scheme := createScheme()
+	secret := newTokenSecret(tokenSecretOpts{})
+	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
+
+	// Start in Error phase with previous failure state
+	conn.Status.Phase = vaultv1alpha1.PhaseError
+	conn.Status.Message = testPreviousError
+	conn.Status.ConsecutiveFails = 3
+	conn.Status.HealthCheckError = "previous vault unreachable"
+	conn.Status.Healthy = false
+
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(secret, conn).
+		WithStatusSubresource(conn).
+		Build()
+
+	cache := vault.NewClientCache()
+	bus := events.NewEventBus(logr.Discard())
+	handler := NewHandler(HandlerConfig{
+		Client:      k8sClient,
+		ClientCache: cache,
+		EventBus:    bus,
+		Log:         logr.Discard(),
+	})
+
+	ctx := context.Background()
+	err := handler.Sync(ctx, conn)
+
+	if err != nil {
+		t.Fatalf("expected recovery to succeed, got error: %v", err)
+	}
+	if conn.Status.Phase != vaultv1alpha1.PhaseActive {
+		t.Errorf("expected PhaseActive after recovery, got %s", conn.Status.Phase)
+	}
+	if !conn.Status.Healthy {
+		t.Error("expected Healthy=true after recovery")
+	}
+	if conn.Status.ConsecutiveFails != 0 {
+		t.Errorf("expected ConsecutiveFails=0 after recovery, got %d", conn.Status.ConsecutiveFails)
+	}
+	if conn.Status.HealthCheckError != "" {
+		t.Errorf("expected empty HealthCheckError after recovery, got %q", conn.Status.HealthCheckError)
 	}
 }

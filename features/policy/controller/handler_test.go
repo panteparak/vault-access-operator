@@ -137,9 +137,10 @@ func newFakeClient(objs ...client.Object) client.Client {
 }
 
 func createTestVaultConnection(name string, phase vaultv1alpha1.Phase) *vaultv1alpha1.VaultConnection {
-	return &vaultv1alpha1.VaultConnection{
+	conn := &vaultv1alpha1.VaultConnection{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: name,
+			Name:       name,
+			Generation: 1,
 		},
 		Spec: vaultv1alpha1.VaultConnectionSpec{
 			Address: "https://vault:8200",
@@ -148,6 +149,17 @@ func createTestVaultConnection(name string, phase vaultv1alpha1.Phase) *vaultv1a
 			Phase: phase,
 		},
 	}
+	if phase == vaultv1alpha1.PhaseActive {
+		conn.Status.Healthy = true
+		conn.Status.Conditions = []vaultv1alpha1.Condition{
+			{
+				Type:               vaultv1alpha1.ConditionTypeReady,
+				Status:             metav1.ConditionTrue,
+				ObservedGeneration: 1,
+			},
+		}
+	}
+	return conn
 }
 
 //nolint:unparam // name parameter is designed for flexibility in tests even if currently constant

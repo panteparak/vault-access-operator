@@ -99,6 +99,10 @@ type RoleAdapter interface {
 	GetDriftCorrectedAt() *metav1.Time
 	SetDriftCorrectedAt(t *metav1.Time)
 
+	// Deletion tracking
+	GetDeletionStartedAt() *metav1.Time
+	SetDeletionStartedAt(t *metav1.Time)
+
 	// Vault resource binding
 	GetBinding() vaultv1alpha1.VaultResourceBinding
 	SetBinding(binding vaultv1alpha1.VaultResourceBinding)
@@ -192,6 +196,12 @@ func (a *VaultRoleAdapter) SetDriftSummary(summary string) {
 }
 func (a *VaultRoleAdapter) GetDriftCorrectedAt() *metav1.Time  { return a.Status.DriftCorrectedAt }
 func (a *VaultRoleAdapter) SetDriftCorrectedAt(t *metav1.Time) { a.Status.DriftCorrectedAt = t }
+
+// Deletion tracking
+func (a *VaultRoleAdapter) GetDeletionStartedAt() *metav1.Time { return a.Status.DeletionStartedAt }
+func (a *VaultRoleAdapter) SetDeletionStartedAt(t *metav1.Time) {
+	a.Status.DeletionStartedAt = t
+}
 
 // Vault resource binding
 func (a *VaultRoleAdapter) GetBinding() vaultv1alpha1.VaultResourceBinding {
@@ -302,6 +312,14 @@ func (a *VaultClusterRoleAdapter) GetDriftCorrectedAt() *metav1.Time {
 }
 func (a *VaultClusterRoleAdapter) SetDriftCorrectedAt(t *metav1.Time) {
 	a.Status.DriftCorrectedAt = t
+}
+
+// Deletion tracking
+func (a *VaultClusterRoleAdapter) GetDeletionStartedAt() *metav1.Time {
+	return a.Status.DeletionStartedAt
+}
+func (a *VaultClusterRoleAdapter) SetDeletionStartedAt(t *metav1.Time) {
+	a.Status.DeletionStartedAt = t
 }
 
 // Vault resource binding

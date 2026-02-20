@@ -89,6 +89,10 @@ type PolicyAdapter interface {
 	SetDriftSummary(summary string)
 	SetDriftCorrectedAt(t *metav1.Time)
 
+	// Deletion tracking
+	GetDeletionStartedAt() *metav1.Time
+	SetDeletionStartedAt(t *metav1.Time)
+
 	// Vault resource binding
 	GetBinding() vaultv1alpha1.VaultResourceBinding
 	SetBinding(binding vaultv1alpha1.VaultResourceBinding)
@@ -157,6 +161,10 @@ func (a *VaultPolicyAdapter) SetDriftSummary(summary string) {
 	a.Status.DriftSummary = summary
 }
 func (a *VaultPolicyAdapter) SetDriftCorrectedAt(t *metav1.Time) { a.Status.DriftCorrectedAt = t }
+func (a *VaultPolicyAdapter) GetDeletionStartedAt() *metav1.Time { return a.Status.DeletionStartedAt }
+func (a *VaultPolicyAdapter) SetDeletionStartedAt(t *metav1.Time) {
+	a.Status.DeletionStartedAt = t
+}
 func (a *VaultPolicyAdapter) GetBinding() vaultv1alpha1.VaultResourceBinding {
 	return a.Status.Binding
 }
@@ -232,6 +240,12 @@ func (a *VaultClusterPolicyAdapter) SetDriftSummary(summary string) {
 }
 func (a *VaultClusterPolicyAdapter) SetDriftCorrectedAt(t *metav1.Time) {
 	a.Status.DriftCorrectedAt = t
+}
+func (a *VaultClusterPolicyAdapter) GetDeletionStartedAt() *metav1.Time {
+	return a.Status.DeletionStartedAt
+}
+func (a *VaultClusterPolicyAdapter) SetDeletionStartedAt(t *metav1.Time) {
+	a.Status.DeletionStartedAt = t
 }
 func (a *VaultClusterPolicyAdapter) GetBinding() vaultv1alpha1.VaultResourceBinding {
 	return a.Status.Binding

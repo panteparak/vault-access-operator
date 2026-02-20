@@ -219,6 +219,12 @@ spec:
                   - type
                   type: object
                 type: array
+              deletionStartedAt:
+                description: |-
+                  DeletionStartedAt is the time when deletion was first attempted.
+                  Used for tracking stuck finalizers and deletion timeouts.
+                format: date-time
+                type: string
               driftCorrectedAt:
                 description: DriftCorrectedAt is the time when drift was last corrected
                 format: date-time

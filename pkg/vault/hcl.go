@@ -27,9 +27,9 @@ func GeneratePolicyHCL(rules []PolicyRule, namespace, name string) string {
 	// Add header comment
 	builder.WriteString("# Vault policy managed by vault-access-operator\n")
 	if namespace != "" {
-		builder.WriteString(fmt.Sprintf("# Kubernetes resource: %s/%s\n", namespace, name))
+		fmt.Fprintf(&builder, "# Kubernetes resource: %s/%s\n", namespace, name)
 	} else {
-		builder.WriteString(fmt.Sprintf("# Kubernetes resource: %s (cluster-scoped)\n", name))
+		fmt.Fprintf(&builder, "# Kubernetes resource: %s (cluster-scoped)\n", name)
 	}
 	builder.WriteString("\n")
 
@@ -39,18 +39,18 @@ func GeneratePolicyHCL(rules []PolicyRule, namespace, name string) string {
 
 		// Add description as comment if present
 		if rule.Description != "" {
-			builder.WriteString(fmt.Sprintf("# %s\n", rule.Description))
+			fmt.Fprintf(&builder, "# %s\n", rule.Description)
 		}
 
 		// Start path block
-		builder.WriteString(fmt.Sprintf("path %q {\n", path))
+		fmt.Fprintf(&builder, "path %q {\n", path)
 
 		// Write capabilities
 		caps := make([]string, len(rule.Capabilities))
 		for j, cap := range rule.Capabilities {
 			caps[j] = fmt.Sprintf("%q", cap)
 		}
-		builder.WriteString(fmt.Sprintf("  capabilities = [%s]\n", strings.Join(caps, ", ")))
+		fmt.Fprintf(&builder, "  capabilities = [%s]\n", strings.Join(caps, ", "))
 
 		// Write parameters if present
 		if rule.Parameters != nil {
@@ -62,7 +62,7 @@ func GeneratePolicyHCL(rules []PolicyRule, namespace, name string) string {
 					for j, a := range rule.Parameters.Allowed {
 						allowed[j] = fmt.Sprintf("%q", a)
 					}
-					builder.WriteString(fmt.Sprintf("  allowed_parameters = {\n    \"*\" = [%s]\n  }\n", strings.Join(allowed, ", ")))
+					fmt.Fprintf(&builder, "  allowed_parameters = {\n    \"*\" = [%s]\n  }\n", strings.Join(allowed, ", "))
 				}
 
 				if len(rule.Parameters.Denied) > 0 {
@@ -70,7 +70,7 @@ func GeneratePolicyHCL(rules []PolicyRule, namespace, name string) string {
 					for j, d := range rule.Parameters.Denied {
 						denied[j] = fmt.Sprintf("%q", d)
 					}
-					builder.WriteString(fmt.Sprintf("  denied_parameters = {\n    \"*\" = [%s]\n  }\n", strings.Join(denied, ", ")))
+					fmt.Fprintf(&builder, "  denied_parameters = {\n    \"*\" = [%s]\n  }\n", strings.Join(denied, ", "))
 				}
 
 				if len(rule.Parameters.Required) > 0 {
@@ -78,7 +78,7 @@ func GeneratePolicyHCL(rules []PolicyRule, namespace, name string) string {
 					for j, r := range rule.Parameters.Required {
 						required[j] = fmt.Sprintf("%q", r)
 					}
-					builder.WriteString(fmt.Sprintf("  required_parameters = [%s]\n", strings.Join(required, ", ")))
+					fmt.Fprintf(&builder, "  required_parameters = [%s]\n", strings.Join(required, ", "))
 				}
 			}
 		}

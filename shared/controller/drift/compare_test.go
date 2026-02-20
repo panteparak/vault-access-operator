@@ -251,3 +251,101 @@ func TestValuesEqual_OneNil(t *testing.T) {
 		t.Error("'value' != nil should be false")
 	}
 }
+
+// --- Drift comparator edge cases (Gap 10) ---
+
+func TestCompareStringSlices_EmptyVsSingleEmpty(t *testing.T) {
+	c := NewComparator()
+	// An empty slice and a slice with one empty string differ
+	c.CompareStringSlices("field", []string{}, []string{""})
+
+	result := c.Result()
+	if !result.HasDrift {
+		t.Error("expected drift: []string{} vs []string{''} have different lengths")
+	}
+}
+
+func TestCompareValues_IntVsString(t *testing.T) {
+	c := NewComparator()
+	// fmt.Sprintf produces "3600" for both int and string "3600"
+	c.CompareValues("token_ttl", 3600, "3600")
+
+	result := c.Result()
+	if result.HasDrift {
+		t.Error("expected no drift: int 3600 and string '3600' should match via Sprintf")
+	}
+}
+
+func TestCompareValues_BoolVsString(t *testing.T) {
+	c := NewComparator()
+	// fmt.Sprintf produces "true" for both bool and string
+	c.CompareValues("enabled", true, "true")
+
+	result := c.Result()
+	if result.HasDrift {
+		t.Error("expected no drift: bool true and string 'true' should match via Sprintf")
+	}
+}
+
+func TestCompareStringSlices_NilInInterfaceSlice(t *testing.T) {
+	c := NewComparator()
+	// nil elements in []interface{} are skipped by toStringSlice
+	c.CompareStringSlices("field",
+		[]string{"a", "b"},
+		[]interface{}{"a", nil, "b"})
+
+	result := c.Result()
+	// []interface{}{"a", nil, "b"} → toStringSlice produces ["a", "b"] (nil skipped)
+	// but the lengths differ (2 vs 2 after conversion) so this should work
+	if result.HasDrift {
+		t.Error("expected no drift: nil elements in []interface{} are skipped")
+	}
+}
+
+func TestCompareValues_NestedMap(t *testing.T) {
+	c := NewComparator()
+	// Nested maps compared via Sprintf — order matters for maps in Sprintf
+	expected := map[string]interface{}{"key": "value"}
+	actual := map[string]interface{}{"key": "value"}
+	c.CompareValues("config", expected, actual)
+
+	result := c.Result()
+	if result.HasDrift {
+		t.Error("expected no drift for identical nested maps")
+	}
+}
+
+func TestComparator_ReuseSafety(t *testing.T) {
+	c := NewComparator()
+
+	// First comparison with drift
+	c.CompareValues("field1", "a", "b")
+	r1 := c.Result()
+	if !r1.HasDrift {
+		t.Error("expected drift in first comparison")
+	}
+
+	// Reset and do second comparison without drift
+	c.Reset()
+	c.CompareValues("field2", "same", "same")
+	r2 := c.Result()
+	if r2.HasDrift {
+		t.Error("expected no drift after Reset")
+	}
+
+	// Verify first result fields don't leak into second
+	if len(r2.Fields) != 0 {
+		t.Errorf("expected no fields after reset, got: %v", r2.Fields)
+	}
+
+	// Reset and do third comparison with drift
+	c.Reset()
+	c.CompareStrings("field3", "x", "y")
+	r3 := c.Result()
+	if !r3.HasDrift {
+		t.Error("expected drift in third comparison")
+	}
+	if len(r3.Fields) != 1 || r3.Fields[0] != "field3" {
+		t.Errorf("expected fields [field3], got %v", r3.Fields)
+	}
+}

@@ -24,7 +24,12 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
+
+	"github.com/panteparak/vault-access-operator/shared/controller/watches"
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/features/role/domain"
@@ -41,7 +46,7 @@ type ClusterRoleReconciler struct {
 func NewClusterRoleReconciler(
 	c client.Client,
 	scheme *runtime.Scheme,
-	handler *Handler,
+	h *Handler,
 	log logr.Logger,
 	recorder record.EventRecorder,
 ) *ClusterRoleReconciler {
@@ -62,7 +67,7 @@ func NewClusterRoleReconciler(
 
 	return &ClusterRoleReconciler{
 		base:    baseReconciler,
-		handler: handler,
+		handler: h,
 	}
 }
 
@@ -88,7 +93,15 @@ func (r *ClusterRoleReconciler) Reconcile(
 // SetupWithManager sets up the controller with the Manager.
 func (r *ClusterRoleReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&vaultv1alpha1.VaultClusterRole{}).
+		For(&vaultv1alpha1.VaultClusterRole{},
+			builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		Watches(
+			&vaultv1alpha1.VaultConnection{},
+			handler.EnqueueRequestsFromMapFunc(
+				watches.ClusterRoleRequestsForConnection(mgr.GetClient()),
+			),
+			builder.WithPredicates(watches.ConnectionPhaseChangedPredicate{}),
+		).
 		Named("vaultclusterrole").
 		Complete(r)
 }

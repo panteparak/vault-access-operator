@@ -278,7 +278,15 @@ func newTestVaultConnection() *vaultv1alpha1.VaultConnection {
 			},
 		},
 		Status: vaultv1alpha1.VaultConnectionStatus{
-			Phase: vaultv1alpha1.PhaseActive,
+			Phase:   vaultv1alpha1.PhaseActive,
+			Healthy: true,
+			Conditions: []vaultv1alpha1.Condition{
+				{
+					Type:               vaultv1alpha1.ConditionTypeReady,
+					Status:             metav1.ConditionTrue,
+					ObservedGeneration: 1,
+				},
+			},
 		},
 	}
 }
@@ -999,6 +1007,88 @@ func TestSyncRole_ConflictPolicy_Adopt(t *testing.T) {
 	err := handler.SyncRole(ctx, adapter)
 	if err != nil {
 		t.Fatalf("SyncRole with ConflictPolicy=Adopt should succeed: %v", err)
+	}
+}
+
+// --- CleanupRole tests (Gap 7) ---
+
+func TestCleanupRole_VaultClientUnavailable(t *testing.T) {
+	conn := newTestVaultConnection()
+	role := newTestVaultRole()
+	role.Status.Phase = vaultv1alpha1.PhaseActive
+
+	scheme := newTestScheme()
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(conn, role).
+		WithStatusSubresource(conn, role).
+		Build()
+
+	// Empty cache — no Vault client available
+	cache := vault.NewClientCache()
+	bus := events.NewEventBus(logr.Discard())
+	handler := NewHandler(k8sClient, cache, bus, logr.Discard())
+
+	ctx := logr.NewContext(context.Background(), logr.Discard())
+	adapter := domain.NewVaultRoleAdapter(role)
+
+	err := handler.CleanupRole(ctx, adapter)
+	// CleanupRole should succeed even when Vault is unavailable
+	if err != nil {
+		t.Errorf("CleanupRole should succeed even without Vault client, got: %v", err)
+	}
+}
+
+func TestCleanupRole_RoleNotInVault(t *testing.T) {
+	state := newMockVaultState()
+	// State is empty — no roles in Vault
+	conn := newTestVaultConnection()
+	role := newTestVaultRole()
+	role.Status.Phase = vaultv1alpha1.PhaseActive
+
+	handler, server, _ := setupSyncRoleTest(t, role, conn, mockVaultServerConfig{state: state})
+	defer server.Close()
+
+	ctx := logr.NewContext(context.Background(), logr.Discard())
+	adapter := domain.NewVaultRoleAdapter(role)
+
+	err := handler.CleanupRole(ctx, adapter)
+	// Deleting a non-existent role is a no-op
+	if err != nil {
+		t.Errorf("CleanupRole should succeed for non-existent role, got: %v", err)
+	}
+}
+
+func TestCleanupRole_RetainPolicy(t *testing.T) {
+	state := newMockVaultState()
+	rolePath := "auth/kubernetes/role/" + testNamespace + "-" + testRoleName
+	state.roles[rolePath] = map[string]interface{}{
+		"policies": []interface{}{"test-policy"},
+	}
+
+	conn := newTestVaultConnection()
+	role := newTestVaultRole()
+	role.Spec.DeletionPolicy = vaultv1alpha1.DeletionPolicyRetain
+	role.Status.Phase = vaultv1alpha1.PhaseActive
+
+	handler, server, _ := setupSyncRoleTest(t, role, conn, mockVaultServerConfig{state: state})
+	defer server.Close()
+
+	ctx := logr.NewContext(context.Background(), logr.Discard())
+	adapter := domain.NewVaultRoleAdapter(role)
+
+	err := handler.CleanupRole(ctx, adapter)
+	if err != nil {
+		t.Fatalf("CleanupRole failed: %v", err)
+	}
+
+	// Role should still exist in Vault (Retain)
+	state.mu.Lock()
+	_, exists := state.roles[rolePath]
+	state.mu.Unlock()
+
+	if !exists {
+		t.Error("expected role to be retained in Vault with DeletionPolicy=Retain")
 	}
 }
 

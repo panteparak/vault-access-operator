@@ -25,7 +25,9 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/pkg/vault"
@@ -100,6 +102,8 @@ func NewReconciler(cfg ReconcilerConfig) *Reconciler {
 // +kubebuilder:rbac:groups=vault.platform.io,resources=vaultconnections,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=vault.platform.io,resources=vaultconnections/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=vault.platform.io,resources=vaultconnections/finalizers,verbs=update
+// +kubebuilder:rbac:groups=vault.platform.io,resources=vaultpolicies;vaultclusterpolicies,verbs=get;list;watch
+// +kubebuilder:rbac:groups=vault.platform.io,resources=vaultroles;vaultclusterroles,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=serviceaccounts/token,verbs=create
 // +kubebuilder:rbac:groups=authentication.k8s.io,resources=tokenreviews,verbs=create
@@ -115,7 +119,8 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 // SetupWithManager sets up the controller with the Manager.
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&vaultv1alpha1.VaultConnection{}).
+		For(&vaultv1alpha1.VaultConnection{},
+			builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Named("vaultconnection").
 		Complete(r)
 }

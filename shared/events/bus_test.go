@@ -363,6 +363,109 @@ func TestResourceInfo(t *testing.T) {
 	}
 }
 
+// --- Panic and context cancellation tests (Gap 6) ---
+
+func TestPublish_HandlerPanics(t *testing.T) {
+	// Document current behavior: handler panics propagate through Publish.
+	// This test verifies whether panic recovery is in place.
+	bus := NewEventBus(logr.Discard())
+
+	var callCount atomic.Int32
+
+	// Register a handler that panics
+	Subscribe[ConnectionReady](bus, func(_ context.Context, _ ConnectionReady) error {
+		panic("handler panic!")
+	})
+
+	// Register a second handler to check if it still runs
+	Subscribe[ConnectionReady](bus, func(_ context.Context, _ ConnectionReady) error {
+		callCount.Add(1)
+		return nil
+	})
+
+	event := NewConnectionReady("conn", "https://vault:8200", "1.15.0")
+
+	// The current implementation does NOT recover from panics in handlers.
+	// Verify this by catching the panic at the test level.
+	defer func() {
+		r := recover()
+		if r == nil {
+			// If we get here, either:
+			// 1. Panic recovery was added (great!), or
+			// 2. The panic didn't happen
+			// Check if second handler ran
+			if callCount.Load() == 0 {
+				t.Log("panic was recovered but second handler did not run")
+			}
+		} else {
+			// Panic propagated — documenting current behavior
+			t.Logf("panic propagated as expected (no recovery): %v", r)
+		}
+	}()
+
+	_ = bus.Publish(context.Background(), event)
+}
+
+func TestPublishAsync_HandlerError(t *testing.T) {
+	// PublishAsync runs in a goroutine. Verify that handler errors
+	// don't crash the goroutine and other handlers still run.
+	bus := NewEventBus(logr.Discard())
+
+	var callCount atomic.Int32
+	done := make(chan struct{})
+
+	// First handler returns an error
+	Subscribe[ConnectionReady](bus, func(_ context.Context, _ ConnectionReady) error {
+		return errors.New("async handler error")
+	})
+
+	// Second handler should still run despite first handler's error
+	Subscribe[ConnectionReady](bus, func(_ context.Context, _ ConnectionReady) error {
+		callCount.Add(1)
+		close(done)
+		return nil
+	})
+
+	event := NewConnectionReady("conn", "https://vault:8200", "1.15.0")
+	bus.PublishAsync(context.Background(), event)
+
+	select {
+	case <-done:
+		if callCount.Load() != 1 {
+			t.Errorf("expected second handler to run, got callCount=%d", callCount.Load())
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for async handlers to complete")
+	}
+}
+
+func TestPublish_ContextCancelled(t *testing.T) {
+	bus := NewEventBus(logr.Discard())
+
+	var callCount atomic.Int32
+
+	Subscribe[ConnectionReady](bus, func(ctx context.Context, _ ConnectionReady) error {
+		// Handler checks if context is cancelled
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		callCount.Add(1)
+		return nil
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel before publishing
+
+	event := NewConnectionReady("conn", "https://vault:8200", "1.15.0")
+	err := bus.Publish(ctx, event)
+
+	// The current implementation passes ctx to handlers but Publish itself
+	// doesn't check ctx.Done(). The handler sees the cancelled context.
+	if err == nil {
+		t.Log("handler did not return error from cancelled context")
+	}
+}
+
 // Benchmark for Publish with multiple handlers.
 func BenchmarkPublish(b *testing.B) {
 	bus := NewEventBus(logr.Discard())

@@ -94,6 +94,13 @@ func (v *VaultPolicyValidator) ValidateCreate(ctx context.Context, policy *vault
 // ValidateUpdate implements admission.Validator
 func (v *VaultPolicyValidator) ValidateUpdate(ctx context.Context, oldPolicy, policy *vaultv1alpha1.VaultPolicy) (admission.Warnings, error) {
 	vaultpolicylog.Info("validating VaultPolicy update", "name", policy.Name, "namespace", policy.Namespace)
+
+	// connectionRef is immutable after creation
+	if oldPolicy.Spec.ConnectionRef != policy.Spec.ConnectionRef {
+		return nil, fmt.Errorf("spec.connectionRef is immutable (was %q, attempted %q)",
+			oldPolicy.Spec.ConnectionRef, policy.Spec.ConnectionRef)
+	}
+
 	return v.validateVaultPolicy(policy)
 }
 
@@ -149,6 +156,13 @@ func (v *VaultClusterPolicyValidator) ValidateCreate(ctx context.Context, policy
 // ValidateUpdate implements admission.Validator
 func (v *VaultClusterPolicyValidator) ValidateUpdate(ctx context.Context, oldPolicy, policy *vaultv1alpha1.VaultClusterPolicy) (admission.Warnings, error) {
 	vaultpolicylog.Info("validating VaultClusterPolicy update", "name", policy.Name)
+
+	// connectionRef is immutable after creation
+	if oldPolicy.Spec.ConnectionRef != policy.Spec.ConnectionRef {
+		return nil, fmt.Errorf("spec.connectionRef is immutable (was %q, attempted %q)",
+			oldPolicy.Spec.ConnectionRef, policy.Spec.ConnectionRef)
+	}
+
 	return v.validateVaultClusterPolicy(policy)
 }
 

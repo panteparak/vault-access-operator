@@ -735,6 +735,114 @@ func TestBaseReconciler_EventRecording_DeletionError(t *testing.T) {
 	}
 }
 
+func TestBaseReconciler_DeletionStuck_EmitsWarning(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+
+	// Deletion timestamp 10 minutes ago — should trigger stuck warning
+	staleTime := metav1.NewTime(time.Now().Add(-10 * time.Minute))
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "test",
+			Namespace:         "default",
+			DeletionTimestamp: &staleTime,
+			Finalizers:        []string{"test.finalizer"},
+		},
+	}
+
+	c := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(cm).
+		Build()
+
+	recorder := record.NewFakeRecorder(10)
+	logger := logr.Discard()
+
+	r := NewBaseReconciler[*corev1.ConfigMap](c, scheme, logger, "test.finalizer", nil, recorder)
+
+	cleanupErr := errors.New("vault unreachable")
+	handler := &mockHandler{
+		cleanupFunc: func(_ context.Context, _ *corev1.ConfigMap) error {
+			return cleanupErr
+		},
+	}
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{
+			Name:      "test",
+			Namespace: "default",
+		},
+	}
+
+	_, _ = r.Reconcile(context.Background(), req, handler, newConfigMap)
+
+	events := collectEvents(recorder)
+
+	if !containsEvent(events, EventReasonDeletionStuck) {
+		t.Errorf("expected %s event for deletion pending > 5 min, got events: %v",
+			EventReasonDeletionStuck, events)
+	}
+
+	// Should also have DeleteFailed
+	if !containsEvent(events, EventReasonDeleteFailed) {
+		t.Errorf("expected %s event, got events: %v", EventReasonDeleteFailed, events)
+	}
+}
+
+func TestBaseReconciler_DeletionRecent_NoStuckWarning(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+
+	// Deletion timestamp 1 minute ago — should NOT trigger stuck warning
+	recentTime := metav1.NewTime(time.Now().Add(-1 * time.Minute))
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "test",
+			Namespace:         "default",
+			DeletionTimestamp: &recentTime,
+			Finalizers:        []string{"test.finalizer"},
+		},
+	}
+
+	c := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(cm).
+		Build()
+
+	recorder := record.NewFakeRecorder(10)
+	logger := logr.Discard()
+
+	r := NewBaseReconciler[*corev1.ConfigMap](c, scheme, logger, "test.finalizer", nil, recorder)
+
+	cleanupErr := errors.New("vault unreachable")
+	handler := &mockHandler{
+		cleanupFunc: func(_ context.Context, _ *corev1.ConfigMap) error {
+			return cleanupErr
+		},
+	}
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{
+			Name:      "test",
+			Namespace: "default",
+		},
+	}
+
+	_, _ = r.Reconcile(context.Background(), req, handler, newConfigMap)
+
+	events := collectEvents(recorder)
+
+	if containsEvent(events, EventReasonDeletionStuck) {
+		t.Errorf("did NOT expect %s event for deletion pending < 5 min, got events: %v",
+			EventReasonDeletionStuck, events)
+	}
+
+	// Should still have DeleteFailed
+	if !containsEvent(events, EventReasonDeleteFailed) {
+		t.Errorf("expected %s event, got events: %v", EventReasonDeleteFailed, events)
+	}
+}
+
 func TestBaseReconciler_EventRecording_NilRecorder(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)

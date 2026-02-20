@@ -24,7 +24,12 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
+
+	"github.com/panteparak/vault-access-operator/shared/controller/watches"
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/features/policy/domain"
@@ -41,7 +46,7 @@ type ClusterPolicyReconciler struct {
 func NewClusterPolicyReconciler(
 	c client.Client,
 	scheme *runtime.Scheme,
-	handler *Handler,
+	h *Handler,
 	log logr.Logger,
 	recorder record.EventRecorder,
 ) *ClusterPolicyReconciler {
@@ -62,7 +67,7 @@ func NewClusterPolicyReconciler(
 
 	return &ClusterPolicyReconciler{
 		base:    baseReconciler,
-		handler: handler,
+		handler: h,
 	}
 }
 
@@ -88,7 +93,15 @@ func (r *ClusterPolicyReconciler) Reconcile(
 // SetupWithManager sets up the controller with the Manager.
 func (r *ClusterPolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&vaultv1alpha1.VaultClusterPolicy{}).
+		For(&vaultv1alpha1.VaultClusterPolicy{},
+			builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		Watches(
+			&vaultv1alpha1.VaultConnection{},
+			handler.EnqueueRequestsFromMapFunc(
+				watches.ClusterPolicyRequestsForConnection(mgr.GetClient()),
+			),
+			builder.WithPredicates(watches.ConnectionPhaseChangedPredicate{}),
+		).
 		Named("vaultclusterpolicy").
 		Complete(r)
 }

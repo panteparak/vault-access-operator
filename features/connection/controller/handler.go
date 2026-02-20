@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -348,9 +349,87 @@ func (h *Handler) updateAuthStatus(conn *vaultv1alpha1.VaultConnection, vaultCli
 	}
 }
 
+// listDependents returns a list of resources that reference this VaultConnection.
+// Each entry is formatted as "Type/namespace/name" or "Type/name" for cluster-scoped resources.
+func (h *Handler) listDependents(ctx context.Context, connName string) ([]string, error) {
+	var dependents []string
+
+	// Check VaultPolicies
+	var policies vaultv1alpha1.VaultPolicyList
+	if err := h.client.List(ctx, &policies); err != nil {
+		return nil, fmt.Errorf("failed to list VaultPolicies: %w", err)
+	}
+	for i := range policies.Items {
+		if policies.Items[i].Spec.ConnectionRef == connName {
+			dependents = append(dependents, fmt.Sprintf("VaultPolicy/%s/%s",
+				policies.Items[i].Namespace, policies.Items[i].Name))
+		}
+	}
+
+	// Check VaultClusterPolicies
+	var clusterPolicies vaultv1alpha1.VaultClusterPolicyList
+	if err := h.client.List(ctx, &clusterPolicies); err != nil {
+		return nil, fmt.Errorf("failed to list VaultClusterPolicies: %w", err)
+	}
+	for i := range clusterPolicies.Items {
+		if clusterPolicies.Items[i].Spec.ConnectionRef == connName {
+			dependents = append(dependents, fmt.Sprintf("VaultClusterPolicy/%s",
+				clusterPolicies.Items[i].Name))
+		}
+	}
+
+	// Check VaultRoles
+	var roles vaultv1alpha1.VaultRoleList
+	if err := h.client.List(ctx, &roles); err != nil {
+		return nil, fmt.Errorf("failed to list VaultRoles: %w", err)
+	}
+	for i := range roles.Items {
+		if roles.Items[i].Spec.ConnectionRef == connName {
+			dependents = append(dependents, fmt.Sprintf("VaultRole/%s/%s",
+				roles.Items[i].Namespace, roles.Items[i].Name))
+		}
+	}
+
+	// Check VaultClusterRoles
+	var clusterRoles vaultv1alpha1.VaultClusterRoleList
+	if err := h.client.List(ctx, &clusterRoles); err != nil {
+		return nil, fmt.Errorf("failed to list VaultClusterRoles: %w", err)
+	}
+	for i := range clusterRoles.Items {
+		if clusterRoles.Items[i].Spec.ConnectionRef == connName {
+			dependents = append(dependents, fmt.Sprintf("VaultClusterRole/%s",
+				clusterRoles.Items[i].Name))
+		}
+	}
+
+	return dependents, nil
+}
+
 // Cleanup removes the Vault client from the cache when the connection is deleted.
 func (h *Handler) Cleanup(ctx context.Context, conn *vaultv1alpha1.VaultConnection) error {
 	log := logr.FromContextOrDiscard(ctx)
+
+	// Check for dependent resources before proceeding with cleanup
+	dependents, err := h.listDependents(ctx, conn.Name)
+	if err != nil {
+		log.Error(err, "failed to list dependents")
+		return fmt.Errorf("failed to check for dependent resources: %w", err)
+	}
+	if len(dependents) > 0 {
+		msg := fmt.Sprintf("deletion blocked: %d dependent resource(s) still reference this connection: %s",
+			len(dependents), strings.Join(dependents, ", "))
+		log.Info(msg)
+
+		// Set Deleting condition to indicate blocked state
+		conn.Status.Phase = vaultv1alpha1.PhaseDeleting
+		conn.Status.Conditions = conditions.Set(conn.Status.Conditions, conn.Generation,
+			vaultv1alpha1.ConditionTypeDeleting, metav1.ConditionFalse,
+			vaultv1alpha1.ReasonChildrenExist, msg)
+		if updateErr := h.client.Status().Update(ctx, conn); updateErr != nil {
+			log.V(1).Info("failed to update deletion-blocked status", "error", updateErr)
+		}
+		return fmt.Errorf("%s", msg)
+	}
 
 	// Update phase to Deleting
 	conn.Status.Phase = vaultv1alpha1.PhaseDeleting
