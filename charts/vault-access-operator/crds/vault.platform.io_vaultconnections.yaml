@@ -141,6 +141,13 @@ spec:
                         description: AutoRevoke revokes the bootstrap token after
                           successful setup.
                         type: boolean
+                      cleanupAuthMount:
+                        default: false
+                        description: |-
+                          CleanupAuthMount disables the auth backend created during bootstrap when
+                          this VaultConnection is deleted. WARNING: This revokes ALL tokens issued
+                          through this auth mount. Only enable if this operator is the sole consumer.
+                        type: boolean
                       secretRef:
                         description: |-
                           SecretRef references a secret containing the bootstrap Vault token.
@@ -577,6 +584,11 @@ spec:
                   bootstrapCompletedAt:
                     description: BootstrapCompletedAt is when bootstrap was completed
                     format: date-time
+                    type: string
+                  tokenAccessor:
+                    description: |-
+                      TokenAccessor is the Vault token accessor for the current operator token.
+                      Used for audit trail correlation. Not a secret (cannot authenticate).
                     type: string
                   tokenExpiration:
                     description: TokenExpiration is when the current Vault token expires
