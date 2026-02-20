@@ -2342,3 +2342,376 @@ func TestSync_RecoveryFromErrorPhase(t *testing.T) {
 		t.Errorf("expected empty HealthCheckError after recovery, got %q", conn.Status.HealthCheckError)
 	}
 }
+
+// --- Token revocation and auth mount cleanup tests ---
+
+// cleanupVaultServerOpts configures the mock Vault server for cleanup tests.
+type cleanupVaultServerOpts struct {
+	revokeErr      bool // return error on revoke-self
+	disableAuthErr bool // return error on sys/auth disable
+}
+
+// newCleanupVaultServer creates a mock Vault server for cleanup tests that
+// tracks calls to revoke-self and sys/auth disable endpoints.
+func newCleanupVaultServer(opts cleanupVaultServerOpts, calls *cleanupCalls) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/v1/auth/token/revoke-self"):
+			calls.mu.Lock()
+			calls.revokeSelfCalled = true
+			calls.mu.Unlock()
+			if opts.revokeErr {
+				w.WriteHeader(http.StatusInternalServerError)
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"errors": []string{"revoke failed"},
+				})
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+
+		case strings.HasPrefix(r.URL.Path, "/v1/sys/auth/") && r.Method == "DELETE":
+			calls.mu.Lock()
+			calls.disableAuthCalled = true
+			calls.disableAuthPath = r.URL.Path
+			calls.mu.Unlock()
+			if opts.disableAuthErr {
+				w.WriteHeader(http.StatusInternalServerError)
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"errors": []string{"disable failed"},
+				})
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+
+		default:
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{})
+		}
+	}))
+}
+
+// cleanupCalls tracks which Vault endpoints were called during cleanup.
+type cleanupCalls struct {
+	mu                sync.Mutex
+	revokeSelfCalled  bool
+	disableAuthCalled bool
+	disableAuthPath   string
+}
+
+// TestCleanup_RevokesVaultToken tests that Cleanup revokes the operator's Vault token.
+func TestCleanup_RevokesVaultToken(t *testing.T) {
+	calls := &cleanupCalls{}
+	server := newCleanupVaultServer(cleanupVaultServerOpts{}, calls)
+	defer server.Close()
+
+	scheme := createScheme()
+	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
+
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(conn).
+		WithStatusSubresource(conn).
+		Build()
+
+	cache := vault.NewClientCache()
+	// Pre-populate cache with an authenticated client
+	vaultClient, _ := vault.NewClient(vault.ClientConfig{Address: server.URL})
+	vaultClient.SetAuthenticated(true)
+	vaultClient.SetToken("s.operator-token")
+	cache.Set(testConnectionName, vaultClient)
+
+	bus := events.NewEventBus(logr.Discard())
+	handler := NewHandler(HandlerConfig{
+		Client:      k8sClient,
+		ClientCache: cache,
+		EventBus:    bus,
+		Log:         logr.Discard(),
+	})
+
+	ctx := context.Background()
+	err := handler.Cleanup(ctx, conn)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	calls.mu.Lock()
+	defer calls.mu.Unlock()
+	if !calls.revokeSelfCalled {
+		t.Error("expected revoke-self to be called during cleanup")
+	}
+}
+
+// TestCleanup_TokenRevocationFailure_NonFatal tests that cleanup succeeds even
+// when token revocation fails (best-effort).
+func TestCleanup_TokenRevocationFailure_NonFatal(t *testing.T) {
+	calls := &cleanupCalls{}
+	server := newCleanupVaultServer(cleanupVaultServerOpts{revokeErr: true}, calls)
+	defer server.Close()
+
+	scheme := createScheme()
+	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
+
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(conn).
+		WithStatusSubresource(conn).
+		Build()
+
+	cache := vault.NewClientCache()
+	vaultClient, _ := vault.NewClient(vault.ClientConfig{Address: server.URL})
+	vaultClient.SetAuthenticated(true)
+	vaultClient.SetToken("s.operator-token")
+	cache.Set(testConnectionName, vaultClient)
+
+	bus := events.NewEventBus(logr.Discard())
+	handler := NewHandler(HandlerConfig{
+		Client:      k8sClient,
+		ClientCache: cache,
+		EventBus:    bus,
+		Log:         logr.Discard(),
+	})
+
+	ctx := context.Background()
+	err := handler.Cleanup(ctx, conn)
+
+	// Cleanup should succeed even though revocation failed
+	if err != nil {
+		t.Fatalf("expected cleanup to succeed despite revocation failure, got: %v", err)
+	}
+
+	calls.mu.Lock()
+	defer calls.mu.Unlock()
+	if !calls.revokeSelfCalled {
+		t.Error("expected revoke-self to be attempted")
+	}
+
+	// Client should still be removed from cache
+	if cache.Has(testConnectionName) {
+		t.Error("expected client to be removed from cache after cleanup")
+	}
+}
+
+// TestCleanup_DisablesAuthMount_WhenOptedIn tests that Cleanup disables the auth
+// mount when CleanupAuthMount is true and bootstrap was completed.
+func TestCleanup_DisablesAuthMount_WhenOptedIn(t *testing.T) {
+	calls := &cleanupCalls{}
+	server := newCleanupVaultServer(cleanupVaultServerOpts{}, calls)
+	defer server.Close()
+
+	scheme := createScheme()
+	cleanupEnabled := true
+	conn := &vaultv1alpha1.VaultConnection{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       testConnectionName,
+			Generation: 1,
+		},
+		Spec: vaultv1alpha1.VaultConnectionSpec{
+			Address: server.URL,
+			Auth: vaultv1alpha1.AuthConfig{
+				Bootstrap: &vaultv1alpha1.BootstrapAuth{
+					SecretRef: vaultv1alpha1.SecretKeySelector{
+						Name:      "bootstrap-token",
+						Namespace: "default",
+						Key:       "token",
+					},
+					CleanupAuthMount: &cleanupEnabled,
+				},
+				Kubernetes: &vaultv1alpha1.KubernetesAuth{
+					Role:     "test-role",
+					AuthPath: "kubernetes",
+				},
+			},
+		},
+		Status: vaultv1alpha1.VaultConnectionStatus{
+			AuthStatus: &vaultv1alpha1.AuthStatus{
+				BootstrapComplete: true,
+			},
+		},
+	}
+
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(conn).
+		WithStatusSubresource(conn).
+		Build()
+
+	cache := vault.NewClientCache()
+	vaultClient, _ := vault.NewClient(vault.ClientConfig{Address: server.URL})
+	vaultClient.SetAuthenticated(true)
+	vaultClient.SetToken("s.operator-token")
+	cache.Set(testConnectionName, vaultClient)
+
+	bus := events.NewEventBus(logr.Discard())
+	handler := NewHandler(HandlerConfig{
+		Client:      k8sClient,
+		ClientCache: cache,
+		EventBus:    bus,
+		Log:         logr.Discard(),
+	})
+
+	ctx := context.Background()
+	err := handler.Cleanup(ctx, conn)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	calls.mu.Lock()
+	defer calls.mu.Unlock()
+	if !calls.disableAuthCalled {
+		t.Error("expected disable auth to be called when CleanupAuthMount is true")
+	}
+	expectedPath := "/v1/sys/auth/kubernetes"
+	if calls.disableAuthPath != expectedPath {
+		t.Errorf("expected disable auth path %q, got %q", expectedPath, calls.disableAuthPath)
+	}
+}
+
+// TestCleanup_DoesNotDisableAuthMount_ByDefault tests that Cleanup does NOT
+// disable the auth mount when CleanupAuthMount is not set.
+func TestCleanup_DoesNotDisableAuthMount_ByDefault(t *testing.T) {
+	calls := &cleanupCalls{}
+	server := newCleanupVaultServer(cleanupVaultServerOpts{}, calls)
+	defer server.Close()
+
+	scheme := createScheme()
+	conn := &vaultv1alpha1.VaultConnection{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       testConnectionName,
+			Generation: 1,
+		},
+		Spec: vaultv1alpha1.VaultConnectionSpec{
+			Address: server.URL,
+			Auth: vaultv1alpha1.AuthConfig{
+				Bootstrap: &vaultv1alpha1.BootstrapAuth{
+					SecretRef: vaultv1alpha1.SecretKeySelector{
+						Name:      "bootstrap-token",
+						Namespace: "default",
+						Key:       "token",
+					},
+					// CleanupAuthMount not set (nil → default false)
+				},
+				Kubernetes: &vaultv1alpha1.KubernetesAuth{
+					Role: "test-role",
+				},
+			},
+		},
+		Status: vaultv1alpha1.VaultConnectionStatus{
+			AuthStatus: &vaultv1alpha1.AuthStatus{
+				BootstrapComplete: true,
+			},
+		},
+	}
+
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(conn).
+		WithStatusSubresource(conn).
+		Build()
+
+	cache := vault.NewClientCache()
+	vaultClient, _ := vault.NewClient(vault.ClientConfig{Address: server.URL})
+	vaultClient.SetAuthenticated(true)
+	vaultClient.SetToken("s.operator-token")
+	cache.Set(testConnectionName, vaultClient)
+
+	bus := events.NewEventBus(logr.Discard())
+	handler := NewHandler(HandlerConfig{
+		Client:      k8sClient,
+		ClientCache: cache,
+		EventBus:    bus,
+		Log:         logr.Discard(),
+	})
+
+	ctx := context.Background()
+	err := handler.Cleanup(ctx, conn)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	calls.mu.Lock()
+	defer calls.mu.Unlock()
+	if calls.disableAuthCalled {
+		t.Error("expected disable auth NOT to be called when CleanupAuthMount is not set")
+	}
+
+	// Token revocation should still happen
+	if !calls.revokeSelfCalled {
+		t.Error("expected revoke-self to be called even when auth mount cleanup is disabled")
+	}
+}
+
+// TestCleanup_DisableAuthFailure_NonFatal tests that cleanup succeeds even
+// when disabling the auth mount fails (best-effort).
+func TestCleanup_DisableAuthFailure_NonFatal(t *testing.T) {
+	calls := &cleanupCalls{}
+	server := newCleanupVaultServer(cleanupVaultServerOpts{disableAuthErr: true}, calls)
+	defer server.Close()
+
+	scheme := createScheme()
+	cleanupEnabled := true
+	conn := &vaultv1alpha1.VaultConnection{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       testConnectionName,
+			Generation: 1,
+		},
+		Spec: vaultv1alpha1.VaultConnectionSpec{
+			Address: server.URL,
+			Auth: vaultv1alpha1.AuthConfig{
+				Bootstrap: &vaultv1alpha1.BootstrapAuth{
+					SecretRef: vaultv1alpha1.SecretKeySelector{
+						Name:      "bootstrap-token",
+						Namespace: "default",
+						Key:       "token",
+					},
+					CleanupAuthMount: &cleanupEnabled,
+				},
+				Kubernetes: &vaultv1alpha1.KubernetesAuth{
+					Role: "test-role",
+				},
+			},
+		},
+		Status: vaultv1alpha1.VaultConnectionStatus{
+			AuthStatus: &vaultv1alpha1.AuthStatus{
+				BootstrapComplete: true,
+			},
+		},
+	}
+
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(conn).
+		WithStatusSubresource(conn).
+		Build()
+
+	cache := vault.NewClientCache()
+	vaultClient, _ := vault.NewClient(vault.ClientConfig{Address: server.URL})
+	vaultClient.SetAuthenticated(true)
+	vaultClient.SetToken("s.operator-token")
+	cache.Set(testConnectionName, vaultClient)
+
+	bus := events.NewEventBus(logr.Discard())
+	handler := NewHandler(HandlerConfig{
+		Client:      k8sClient,
+		ClientCache: cache,
+		EventBus:    bus,
+		Log:         logr.Discard(),
+	})
+
+	ctx := context.Background()
+	err := handler.Cleanup(ctx, conn)
+
+	// Cleanup should succeed despite disable failure
+	if err != nil {
+		t.Fatalf("expected cleanup to succeed despite disable failure, got: %v", err)
+	}
+
+	calls.mu.Lock()
+	defer calls.mu.Unlock()
+	if !calls.disableAuthCalled {
+		t.Error("expected disable auth to be attempted")
+	}
+	// Token revocation should still be attempted after disable failure
+	if !calls.revokeSelfCalled {
+		t.Error("expected revoke-self to be attempted after disable failure")
+	}
+}

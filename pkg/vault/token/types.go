@@ -114,6 +114,10 @@ type AuthResult struct {
 
 	// Policies are the policies attached to the token.
 	Policies []string
+
+	// Accessor is the token accessor for audit trail correlation and
+	// out-of-band revocation. Not a secret (cannot authenticate).
+	Accessor string
 }
 
 // TokenStatus represents the current status of a managed token.

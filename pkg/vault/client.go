@@ -21,6 +21,7 @@ type Client struct {
 	authenticated   bool
 	tokenExpiration time.Time
 	tokenTTL        time.Duration
+	tokenAccessor   string
 }
 
 // ClientConfig holds configuration for creating a Vault client
@@ -179,12 +180,20 @@ func (c *Client) handleAuthResponse(secret *api.Secret, methodName string) error
 
 	c.SetToken(secret.Auth.ClientToken)
 	c.authenticated = true
+	c.tokenAccessor = secret.Auth.Accessor
 	if secret.Auth.LeaseDuration > 0 {
 		ttl := time.Duration(secret.Auth.LeaseDuration) * time.Second
 		c.tokenTTL = ttl
 		c.tokenExpiration = time.Now().Add(ttl)
 	}
 	return nil
+}
+
+// TokenAccessor returns the accessor of the current Vault token.
+// Accessors identify tokens without exposing them, useful for audit
+// correlation and out-of-band revocation.
+func (c *Client) TokenAccessor() string {
+	return c.tokenAccessor
 }
 
 // AuthenticateKubernetesWithToken authenticates using the Kubernetes auth method.
@@ -461,6 +470,22 @@ func (c *Client) WriteKubernetesAuthConfig(ctx context.Context, mountPath string
 		return fmt.Errorf("failed to write kubernetes auth config: %w", err)
 	}
 	return nil
+}
+
+// UpdateKubernetesAuthConfig updates only the token_reviewer_jwt in the
+// Kubernetes auth configuration. Vault's config endpoint performs a
+// merge-update, so this preserves kubernetes_host and kubernetes_ca_cert.
+// Implements token.VaultAuthConfigUpdater.
+func (c *Client) UpdateKubernetesAuthConfig(ctx context.Context, mountPath, tokenReviewerJWT string) error {
+	return c.WriteKubernetesAuthConfig(ctx, mountPath, map[string]interface{}{
+		"token_reviewer_jwt": tokenReviewerJWT,
+	})
+}
+
+// DisableAuth disables an auth method at the given path.
+// WARNING: This revokes ALL tokens issued through this auth mount.
+func (c *Client) DisableAuth(ctx context.Context, path string) error {
+	return c.Sys().DisableAuthWithContext(ctx, path)
 }
 
 // WriteKubernetesRole creates or updates a Kubernetes auth role.

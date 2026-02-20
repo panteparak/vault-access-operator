@@ -112,6 +112,13 @@ type BootstrapAuth struct {
 	// +kubebuilder:default=true
 	// +optional
 	AutoRevoke *bool `json:"autoRevoke,omitempty"`
+
+	// CleanupAuthMount disables the auth backend created during bootstrap when
+	// this VaultConnection is deleted. WARNING: This revokes ALL tokens issued
+	// through this auth mount. Only enable if this operator is the sole consumer.
+	// +kubebuilder:default=false
+	// +optional
+	CleanupAuthMount *bool `json:"cleanupAuthMount,omitempty"`
 }
 
 // KubernetesAuth defines Kubernetes auth method settings.
@@ -542,6 +549,11 @@ type AuthStatus struct {
 	// TokenExpiration is when the current Vault token expires
 	// +optional
 	TokenExpiration *metav1.Time `json:"tokenExpiration,omitempty"`
+
+	// TokenAccessor is the Vault token accessor for the current operator token.
+	// Used for audit trail correlation. Not a secret (cannot authenticate).
+	// +optional
+	TokenAccessor string `json:"tokenAccessor,omitempty"`
 
 	// TokenLastRenewed is when the token was last renewed
 	// +optional

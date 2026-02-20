@@ -339,6 +339,11 @@ func (h *Handler) updateAuthStatus(conn *vaultv1alpha1.VaultConnection, vaultCli
 		conn.Status.AuthStatus.TokenExpiration = &expTime
 	}
 
+	// Capture token accessor for audit correlation
+	if accessor := vaultClient.TokenAccessor(); accessor != "" {
+		conn.Status.AuthStatus.TokenAccessor = accessor
+	}
+
 	// Check if token reviewer rotation is disabled and add warning
 	k8sAuth := conn.Spec.Auth.Kubernetes
 	if k8sAuth.TokenReviewerRotation != nil && !*k8sAuth.TokenReviewerRotation {
@@ -435,6 +440,37 @@ func (h *Handler) Cleanup(ctx context.Context, conn *vaultv1alpha1.VaultConnecti
 	conn.Status.Phase = vaultv1alpha1.PhaseDeleting
 	if err := h.client.Status().Update(ctx, conn); err != nil {
 		log.V(1).Info("failed to update status to Deleting (ignoring)", "error", err)
+	}
+
+	// Disable auth mount if opted in (before token revocation, since disabling
+	// the mount revokes all tokens through it anyway)
+	if conn.Spec.Auth.Bootstrap != nil &&
+		conn.Spec.Auth.Bootstrap.CleanupAuthMount != nil &&
+		*conn.Spec.Auth.Bootstrap.CleanupAuthMount &&
+		conn.Status.AuthStatus != nil &&
+		conn.Status.AuthStatus.BootstrapComplete {
+		authPath := defaultKubernetesAuthPath
+		if conn.Spec.Auth.Kubernetes != nil && conn.Spec.Auth.Kubernetes.AuthPath != "" {
+			authPath = conn.Spec.Auth.Kubernetes.AuthPath
+		}
+		if cachedClient, err := h.clientCache.Get(conn.Name); err == nil {
+			if err := cachedClient.DisableAuth(ctx, authPath); err != nil {
+				log.Error(err, "failed to disable auth mount (non-fatal)", "path", authPath)
+			} else {
+				log.Info("disabled auth mount created during bootstrap", "path", authPath)
+			}
+		}
+	}
+
+	// Revoke operator token before losing the reference (best-effort)
+	if cachedClient, err := h.clientCache.Get(conn.Name); err == nil && cachedClient.IsAuthenticated() {
+		revokeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		if err := cachedClient.RevokeSelf(revokeCtx); err != nil {
+			log.V(1).Info("failed to revoke Vault token (non-fatal)", "error", err)
+		} else {
+			log.Info("revoked Vault token for deleted connection")
+		}
 	}
 
 	// Unregister from lifecycle controllers
