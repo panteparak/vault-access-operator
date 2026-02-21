@@ -1693,3 +1693,31 @@ func TestResolvePolicyNames_NamespacedRoleCrossNamespace(t *testing.T) {
 		t.Errorf("expected 'other-ns-read-secrets', got %q", policyNames[0])
 	}
 }
+
+func TestNormalizeTTLToSeconds(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    interface{}
+		expected interface{}
+	}{
+		{"30s → 30", "30s", 30},
+		{"5m → 300", "5m", 300},
+		{"1h → 3600", "1h", 3600},
+		{"24h → 86400", "24h", 86400},
+		{"1h30m → 5400", "1h30m", 5400},
+		{"nil unchanged", nil, nil},
+		{"int unchanged", 3600, 3600},
+		{"non-duration string unchanged", "not-a-duration", "not-a-duration"},
+		{"empty string unchanged", "", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := normalizeTTLToSeconds(tt.input)
+			if result != tt.expected {
+				t.Errorf("normalizeTTLToSeconds(%v) = %v (%T), want %v (%T)",
+					tt.input, result, result, tt.expected, tt.expected)
+			}
+		})
+	}
+}

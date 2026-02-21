@@ -23,6 +23,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -494,9 +495,13 @@ func (h *Handler) detectRoleDrift(
 	comparator.CompareStringSlices("bound_service_account_namespaces",
 		expectedData["bound_service_account_namespaces"], currentData["bound_service_account_namespaces"])
 
-	// Compare optional TTL fields (only if expected is set)
-	comparator.CompareValuesIfExpected("token_ttl", expectedData["token_ttl"], currentData["token_ttl"])
-	comparator.CompareValuesIfExpected("token_max_ttl", expectedData["token_max_ttl"], currentData["token_max_ttl"])
+	// Compare optional TTL fields (only if expected is set).
+	// Vault normalizes Go duration strings (e.g. "30s") to integer seconds (30),
+	// so we normalize expected values before comparison.
+	expectedTTL := normalizeTTLToSeconds(expectedData["token_ttl"])
+	expectedMaxTTL := normalizeTTLToSeconds(expectedData["token_max_ttl"])
+	comparator.CompareValuesIfExpected("token_ttl", expectedTTL, currentData["token_ttl"])
+	comparator.CompareValuesIfExpected("token_max_ttl", expectedMaxTTL, currentData["token_max_ttl"])
 
 	result := comparator.Result()
 	return result.HasDrift, result.Summary
@@ -659,6 +664,21 @@ func (h *Handler) buildRoleData(
 	}
 
 	return data
+}
+
+// normalizeTTLToSeconds converts a Go duration string (e.g. "30s", "5m", "1h")
+// to integer seconds matching Vault's internal normalization. If the value is
+// not a parseable duration string (or is nil), it is returned unchanged.
+func normalizeTTLToSeconds(val interface{}) interface{} {
+	s, ok := val.(string)
+	if !ok {
+		return val
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return val
+	}
+	return int(d.Seconds())
 }
 
 // handleSyncError updates status for errors.

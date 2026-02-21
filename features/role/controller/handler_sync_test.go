@@ -61,6 +61,19 @@ func newMockVaultState() *mockVaultState {
 	}
 }
 
+// mockNormalizeTTLFields simulates Vault's TTL normalization: duration strings → integer seconds.
+func mockNormalizeTTLFields(data map[string]interface{}) {
+	for _, field := range []string{"token_ttl", "token_max_ttl"} {
+		if v, ok := data[field]; ok {
+			if s, ok := v.(string); ok {
+				if d, err := time.ParseDuration(s); err == nil {
+					data[field] = json.Number(fmt.Sprintf("%d", int(d.Seconds())))
+				}
+			}
+		}
+	}
+}
+
 // mockVaultServerConfig configures the mock Vault server behavior.
 type mockVaultServerConfig struct {
 	state        *mockVaultState
@@ -162,6 +175,7 @@ func newMockVaultServer(cfg mockVaultServerConfig) *httptest.Server {
 				}
 				var data map[string]interface{}
 				_ = json.NewDecoder(r.Body).Decode(&data)
+				mockNormalizeTTLFields(data)
 				cfg.state.roles[key] = data
 				w.WriteHeader(http.StatusNoContent)
 
@@ -421,11 +435,12 @@ func TestSyncRole_Success_WithTTL(t *testing.T) {
 	roleData := state.roles[expectedKey]
 	state.mu.Unlock()
 
-	if roleData["token_ttl"] != "1h" {
-		t.Errorf("expected token_ttl=1h, got %v", roleData["token_ttl"])
+	// Mock normalizes TTLs to integer seconds (like real Vault): "1h" → json.Number("3600")
+	if fmt.Sprintf("%v", roleData["token_ttl"]) != "3600" {
+		t.Errorf("expected token_ttl=3600 (1h in seconds), got %v", roleData["token_ttl"])
 	}
-	if roleData["token_max_ttl"] != testTokenMaxTTL {
-		t.Errorf("expected token_max_ttl=%s, got %v", testTokenMaxTTL, roleData["token_max_ttl"])
+	if fmt.Sprintf("%v", roleData["token_max_ttl"]) != "86400" {
+		t.Errorf("expected token_max_ttl=86400 (24h in seconds), got %v", roleData["token_max_ttl"])
 	}
 }
 
