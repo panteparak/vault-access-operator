@@ -296,18 +296,18 @@ func suggestCRName(vaultName string) string {
 // ValidatePatterns validates glob patterns for correctness.
 // Returns an error for each invalid pattern, indexed by position.
 func ValidatePatterns(patterns []string) map[int]error {
-	errors := make(map[int]error)
+	errs := make(map[int]error)
 	for i, pattern := range patterns {
 		// filepath.Match returns an error only for malformed patterns
 		_, err := filepath.Match(pattern, "test")
 		if err != nil {
-			errors[i] = err
+			errs[i] = err
 		}
 	}
-	if len(errors) == 0 {
+	if len(errs) == 0 {
 		return nil
 	}
-	return errors
+	return errs
 }
 
 // UpdateMetrics updates Prometheus metrics based on scan results
