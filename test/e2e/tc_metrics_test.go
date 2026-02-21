@@ -32,6 +32,10 @@ import (
 var _ = Describe("Metrics Validation Tests", Ordered, Label("metrics"), func() {
 	ctx := context.Background()
 
+	BeforeAll(func() {
+		RefreshSharedVaultToken(ctx)
+	})
+
 	Context("TC-METRICS: Prometheus Metrics Content", func() {
 		It("TC-METRICS01: Drift detected metric is set after drift", func() {
 			policyName := uniqueName("tc-metrics01")
