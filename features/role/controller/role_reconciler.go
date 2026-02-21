@@ -18,7 +18,6 @@ package controller
 
 import (
 	"context"
-	"time"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -60,10 +59,10 @@ func NewRoleReconciler(
 		recorder,
 	)
 
-	// Configure requeue intervals
+	// Configure requeue intervals (overridable via OPERATOR_REQUEUE_SUCCESS_INTERVAL env var)
 	baseReconciler.Status.
-		WithRequeueOnSuccess(5 * time.Minute). // Periodic re-sync
-		WithRequeueOnError(30 * time.Second)
+		WithRequeueOnSuccess(base.DefaultRequeueSuccess).
+		WithRequeueOnError(base.DefaultRequeueError)
 
 	return &RoleReconciler{
 		base:    baseReconciler,

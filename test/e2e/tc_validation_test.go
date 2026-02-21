@@ -36,6 +36,8 @@ var _ = Describe("Input Validation Tests", Ordered, Label("validation"), func() 
 	var sharedPolicyName, sharedSAName string
 
 	BeforeAll(func() {
+		RefreshSharedVaultToken(ctx)
+
 		By("creating shared resources for validation tests")
 		sharedPolicyName = uniqueName("tc-val-policy")
 		sharedSAName = uniqueName("tc-val-sa")

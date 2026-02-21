@@ -20,6 +20,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -40,10 +41,19 @@ import (
 const (
 	// DefaultScanInterval is the default interval between discovery scans
 	DefaultScanInterval = time.Hour
-
-	// MinScanInterval is the minimum allowed scan interval
-	MinScanInterval = time.Minute * 5
 )
+
+// MinScanInterval is the minimum allowed scan interval.
+// It can be overridden via the OPERATOR_MIN_SCAN_INTERVAL environment variable.
+var MinScanInterval = time.Minute * 5
+
+func init() {
+	if v := os.Getenv("OPERATOR_MIN_SCAN_INTERVAL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			MinScanInterval = d
+		}
+	}
+}
 
 // Reconciler reconciles VaultConnection resources for discovery
 type Reconciler struct {

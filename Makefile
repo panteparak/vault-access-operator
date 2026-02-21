@@ -313,6 +313,10 @@ e2e-deploy-operator: e2e-check-context ## Deploy operator via Helm into k3s (wit
 		--set image.tag=$$TAG \
 		--set image.pullPolicy=Never \
 		--set webhook.enabled=false \
+		--set 'extraEnv[0].name=OPERATOR_REQUEUE_SUCCESS_INTERVAL' \
+		--set 'extraEnv[0].value=30s' \
+		--set 'extraEnv[1].name=OPERATOR_MIN_SCAN_INTERVAL' \
+		--set 'extraEnv[1].value=15s' \
 		--wait --timeout 5m
 	$(E2E_KUBECTL) wait --for=condition=Available deployment \
 		-l app.kubernetes.io/name=vault-access-operator \
@@ -329,6 +333,10 @@ e2e-deploy-operator-with-webhooks: e2e-check-context e2e-install-cert-manager ##
 		--set image.tag=$$TAG \
 		--set image.pullPolicy=Never \
 		--set webhook.enabled=true \
+		--set 'extraEnv[0].name=OPERATOR_REQUEUE_SUCCESS_INTERVAL' \
+		--set 'extraEnv[0].value=30s' \
+		--set 'extraEnv[1].name=OPERATOR_MIN_SCAN_INTERVAL' \
+		--set 'extraEnv[1].value=15s' \
 		--wait --timeout 5m
 	$(E2E_KUBECTL) wait --for=condition=Available deployment \
 		-l app.kubernetes.io/name=vault-access-operator \

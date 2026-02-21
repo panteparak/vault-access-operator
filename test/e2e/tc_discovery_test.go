@@ -37,19 +37,27 @@ var _ = Describe("Discovery Tests", Ordered, Label("discovery"), func() {
 		discoveryTokenSecret    = "vault-token-discovery"
 	)
 
-	BeforeAll(func() {
-		By("creating token secret for discovery connection")
-		// Reuse the same Vault client - get a new token
-		vaultClient, err := utils.GetTestVaultClient()
+	// refreshDiscoveryToken creates a fresh Vault token and stores it in the
+	// discovery token secret. This must be called before each test that creates
+	// a VaultConnection, because the connection finalizer revokes the token on
+	// deletion — leaving subsequent tests with a revoked token in the secret.
+	refreshDiscoveryToken := func() {
+		By("ensuring a fresh token secret for discovery connection")
+		vc, err := utils.GetTestVaultClient()
 		Expect(err).NotTo(HaveOccurred())
 
-		// Create a new operator token for the discovery connection
-		operatorToken, err := vaultClient.CreateToken(ctx, []string{operatorPolicyName}, "1h")
+		operatorToken, err := vc.CreateToken(ctx, []string{operatorPolicyName}, "1h")
 		Expect(err).NotTo(HaveOccurred())
 
+		// Delete-and-recreate to guarantee the secret holds a valid token.
+		_ = utils.DeleteSecret(ctx, testNamespace, discoveryTokenSecret)
 		err = utils.CreateSecret(ctx, testNamespace, discoveryTokenSecret,
 			map[string][]byte{"token": []byte(operatorToken)})
 		Expect(err).NotTo(HaveOccurred())
+	}
+
+	BeforeAll(func() {
+		refreshDiscoveryToken()
 	})
 
 	AfterAll(func() {
@@ -141,6 +149,8 @@ var _ = Describe("Discovery Tests", Ordered, Label("discovery"), func() {
 		})
 
 		It("TC-DISC02-ROLE: Discovery finds unmanaged roles", func() {
+			refreshDiscoveryToken()
+
 			unmanagedRoleName := "tc-disc02-unmanaged-role"
 
 			By("creating an unmanaged role directly in Vault")
@@ -223,6 +233,8 @@ var _ = Describe("Discovery Tests", Ordered, Label("discovery"), func() {
 		})
 
 		It("TC-DISC03-PATTERN: Discovery respects patterns", func() {
+			refreshDiscoveryToken()
+
 			matchingPolicy := "tc-disc03-matching-policy"
 			nonMatchingPolicy := "other-nonmatching-policy"
 
@@ -299,6 +311,8 @@ var _ = Describe("Discovery Tests", Ordered, Label("discovery"), func() {
 		})
 
 		It("TC-DISC04-EXCLUDE: Discovery excludes system policies by default", func() {
+			refreshDiscoveryToken()
+
 			By("creating VaultConnection with discovery enabled (default excludeSystemPolicies)")
 			boolTrue := true
 			conn := &vaultv1alpha1.VaultConnection{

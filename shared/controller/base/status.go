@@ -18,17 +18,33 @@ package base
 
 import (
 	"context"
+	"os"
 	"time"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// Default requeue durations.
-const (
+// Default requeue durations. These can be overridden via environment variables:
+//   - OPERATOR_REQUEUE_SUCCESS_INTERVAL overrides DefaultRequeueSuccess
+//   - OPERATOR_REQUEUE_ERROR_INTERVAL overrides DefaultRequeueError
+var (
 	DefaultRequeueSuccess = 5 * time.Minute
 	DefaultRequeueError   = 30 * time.Second
 )
+
+func init() {
+	if v := os.Getenv("OPERATOR_REQUEUE_SUCCESS_INTERVAL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			DefaultRequeueSuccess = d
+		}
+	}
+	if v := os.Getenv("OPERATOR_REQUEUE_ERROR_INTERVAL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			DefaultRequeueError = d
+		}
+	}
+}
 
 // StatusUpdater is a function that updates the status of a resource.
 // Each feature provides its own implementation for its specific status fields.

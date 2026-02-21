@@ -19,6 +19,8 @@ package controller
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -70,7 +72,9 @@ func NewScanner(vaultClient *vault.Client, config *vaultv1alpha1.DiscoveryConfig
 	}
 }
 
-// Scan performs a discovery scan against Vault
+// Scan performs a discovery scan against Vault.
+// Each phase (policies, roles) runs independently — a failure in one phase
+// does not prevent the other from executing.
 func (s *Scanner) Scan(ctx context.Context) *ScanResult {
 	result := &ScanResult{
 		UnmanagedPolicies:   make([]string, 0),
@@ -80,18 +84,22 @@ func (s *Scanner) Scan(ctx context.Context) *ScanResult {
 
 	s.log.V(1).Info("starting discovery scan")
 
+	var errs []error
+
 	// Scan policies
 	if err := s.scanPolicies(ctx, result); err != nil {
-		s.log.Error(err, "failed to scan policies")
-		result.Error = err
-		return result
+		s.log.Error(err, "failed to scan policies (continuing with roles)")
+		errs = append(errs, fmt.Errorf("policies: %w", err))
 	}
 
 	// Scan roles
 	if err := s.scanRoles(ctx, result); err != nil {
-		s.log.Error(err, "failed to scan roles")
-		result.Error = err
-		return result
+		s.log.Error(err, "failed to scan roles (continuing)")
+		errs = append(errs, fmt.Errorf("roles: %w", err))
+	}
+
+	if len(errs) > 0 {
+		result.Error = errors.Join(errs...)
 	}
 
 	s.log.Info("discovery scan completed",

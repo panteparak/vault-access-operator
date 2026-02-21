@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"time"
 
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -198,6 +199,37 @@ func CapabilitiesToStrings(caps []vaultv1alpha1.Capability) []string {
 		result[i] = string(c)
 	}
 	return result
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Token Refresh Helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+// RefreshSharedVaultToken creates a fresh operator token and updates the shared
+// VaultConnection's token secret. This must be called in BeforeAll of any test
+// suite that depends on the shared connection and runs after suites that create
+// or delete VaultConnections — connection finalizers revoke tokens, which can
+// invalidate the cached Vault client for the shared connection.
+func RefreshSharedVaultToken(ctx context.Context) {
+	By("refreshing shared VaultConnection token")
+	vc, err := utils.GetTestVaultClient()
+	Expect(err).NotTo(HaveOccurred())
+
+	operatorToken, err := vc.CreateToken(ctx, []string{operatorPolicyName}, "4h")
+	Expect(err).NotTo(HaveOccurred())
+
+	// Delete-and-recreate to guarantee the secret holds a valid token.
+	_ = utils.DeleteSecret(ctx, testNamespace, sharedVaultTokenSecretName)
+	err = utils.CreateSecret(ctx, testNamespace, sharedVaultTokenSecretName,
+		map[string][]byte{"token": []byte(operatorToken)})
+	Expect(err).NotTo(HaveOccurred())
+
+	// Wait for the operator to pick up the new token and re-sync the connection.
+	Eventually(func(g Gomega) {
+		conn, err := utils.GetVaultConnection(ctx, sharedVaultConnectionName, "")
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(string(conn.Status.Phase)).To(Equal("Active"))
+	}, 30*time.Second, 2*time.Second).Should(Succeed())
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

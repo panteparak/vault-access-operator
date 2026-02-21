@@ -29,28 +29,37 @@ import (
 )
 
 var _ = Describe("VaultConnection Tests", Ordered, Label("module"), func() {
-	// Test configuration
+	// Test configuration — uses its own token secret to avoid revoking the shared
+	// connection's token when this VaultConnection is cleaned up (RevokeSelf).
 	const (
 		vaultConnectionName  = "tc-vc-vault"
-		vaultTokenSecretName = "vault-token"
+		vaultTokenSecretName = "vault-token-vc-test"
 	)
 
 	ctx := context.Background()
 
 	BeforeAll(func() {
 		By("creating test namespace for connection tests")
-		// Ignore error if already exists (CreateNamespace is idempotent)
 		_ = utils.CreateNamespace(ctx, testNamespace)
 
-		By("creating Vault token secret")
-		// Ignore error if already exists
-		_ = utils.CreateSecret(ctx, testNamespace, vaultTokenSecretName,
-			map[string][]byte{"token": []byte("root")})
+		By("creating a dedicated Vault token for connection tests")
+		// Create a non-root token so that RevokeSelf during cleanup doesn't
+		// cascade and revoke the root token (and all its children).
+		vc, err := utils.GetTestVaultClient()
+		Expect(err).NotTo(HaveOccurred())
+
+		vcToken, err := vc.CreateToken(ctx, []string{operatorPolicyName}, "1h")
+		Expect(err).NotTo(HaveOccurred())
+
+		err = utils.CreateSecret(ctx, testNamespace, vaultTokenSecretName,
+			map[string][]byte{"token": []byte(vcToken)})
+		Expect(err).NotTo(HaveOccurred())
 	})
 
 	AfterAll(func() {
 		By("cleaning up VaultConnection test resources")
 		_ = utils.DeleteVaultConnectionCR(ctx, vaultConnectionName)
+		_ = utils.DeleteSecret(ctx, testNamespace, vaultTokenSecretName)
 	})
 
 	Context("TC-VC: VaultConnection Lifecycle", func() {
