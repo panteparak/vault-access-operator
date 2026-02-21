@@ -84,14 +84,16 @@ var _ = Describe("Cascade Deletion Tests", Ordered, Label("cascade"), func() {
 			policyName := uniqueName("tc-cascade02-pol")
 			tokenSecretName := uniqueName("tc-cascade02-secret")
 
-			By("creating a token secret for the new connection")
+			By("creating a dedicated child token for the new connection")
 			vaultClient, err := utils.GetTestVaultClient()
 			Expect(err).NotTo(HaveOccurred())
 
-			// Use the same Vault token since we're pointing at the same Vault
-			token := vaultClient.Client().Token()
+			// Create a child token so that revoking it on connection deletion
+			// does not invalidate the root test token used by other tests.
+			childToken, err := vaultClient.CreateToken(ctx, []string{operatorPolicyName}, "1h")
+			Expect(err).NotTo(HaveOccurred())
 			err = utils.CreateSecret(ctx, testNamespace, tokenSecretName, map[string][]byte{
-				"token": []byte(token),
+				"token": []byte(childToken),
 			})
 			Expect(err).NotTo(HaveOccurred())
 
