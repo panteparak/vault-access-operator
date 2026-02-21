@@ -19,7 +19,7 @@ package e2e
 import (
 	"context"
 	"fmt"
-	"strings"
+	"math/rand/v2"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -63,39 +63,30 @@ var _ = Describe("Fuzz Tests", Ordered, Label("fuzz"), func() {
 
 	Context("TC-FUZZ-PATH: Policy Path Fuzzing", func() {
 		It("TC-FUZZ-PATH01: should handle random valid path patterns without panicking", func() {
-			rapid.Check(GinkgoT(), func(t *rapid.T) {
-				// Generate random paths using allowed characters
-				// CRD pattern: ^[a-zA-Z0-9/_*{}+-]+$
-				path := rapid.StringMatching(`[a-zA-Z0-9/_*+-]{1,50}`).Draw(t, "path")
-
-				// Skip empty paths (not valid)
-				if path == "" {
-					return
-				}
-
-				policyName := uniqueName("tc-fuzz-path")
-				policy := BuildPolicyWithPath(policyName, path, false)
-
-				err := utils.CreateVaultPolicyCR(ctx, policy)
-				// Always cleanup
-				defer CleanupPolicy(ctx, policyName)
-
-				// The system should either:
-				// 1. Accept the path and become Active
-				// 2. Reject with a validation error
-				// 3. Enter Error state with meaningful message
-				// It should NEVER panic or hang
-
-				if err != nil {
-					// Validation error is acceptable
-					t.Logf("Path %q rejected: %v", path, err)
-				} else {
-					// Wait a short time for reconciliation
-					time.Sleep(2 * time.Second)
-
-					status, getErr := utils.GetVaultPolicyStatus(ctx, policyName, testNamespace)
+			RunFuzzBatch(ctx,
+				func(rng *rand.Rand, _ int) FuzzBatchItem {
+					// Generate random paths using allowed characters
+					// CRD pattern: ^[a-zA-Z0-9/_*{}+-]+$
+					path := randPath(rng)
+					return FuzzBatchItem{
+						Name: uniqueName("tc-fuzz-path"),
+						Data: path,
+					}
+				},
+				func(ctx context.Context, item FuzzBatchItem) error {
+					path := item.Data.(string)
+					policy := BuildPolicyWithPath(item.Name, path, false)
+					return utils.CreateVaultPolicyCR(ctx, policy)
+				},
+				func(ctx context.Context, item FuzzBatchItem) {
+					path := item.Data.(string)
+					// The system should either:
+					// 1. Accept the path and become Active
+					// 2. Reject with a validation error
+					// 3. Enter Error state with meaningful message
+					// It should NEVER panic or hang
+					status, getErr := utils.GetVaultPolicyStatus(ctx, item.Name, testNamespace)
 					if getErr == nil {
-						// Should be in a valid state
 						Expect(status).To(Or(
 							Equal("Active"),
 							Equal("Error"),
@@ -103,39 +94,46 @@ var _ = Describe("Fuzz Tests", Ordered, Label("fuzz"), func() {
 							Equal("Syncing"),
 						), "Path %q resulted in invalid state: %s", path, status)
 					}
-				}
-			})
+				},
+				func(ctx context.Context, item FuzzBatchItem) {
+					CleanupPolicy(ctx, item.Name)
+				},
+			)
 		})
 
 		It("TC-FUZZ-PATH02: should handle random namespace template paths", func() {
-			rapid.Check(GinkgoT(), func(t *rapid.T) {
-				// Generate path with {{namespace}} in random position
-				prefix := rapid.StringMatching(`[a-z0-9/]{0,20}`).Draw(t, "prefix")
-				suffix := rapid.StringMatching(`[a-z0-9/*]{0,20}`).Draw(t, "suffix")
-				path := prefix + "{{namespace}}" + suffix
-
-				policyName := uniqueName("tc-fuzz-ns")
-				policy := BuildPolicyWithPath(policyName, path, true)
-
-				err := utils.CreateVaultPolicyCR(ctx, policy)
-				defer CleanupPolicy(ctx, policyName)
-
-				if err == nil {
-					// Wait for reconciliation
-					time.Sleep(2 * time.Second)
-
-					p, getErr := utils.GetVaultPolicy(ctx, policyName, testNamespace)
+			RunFuzzBatch(ctx,
+				func(rng *rand.Rand, _ int) FuzzBatchItem {
+					// Generate path with {{namespace}} in random position
+					prefix := randStringFromCharset(rng, "abcdefghijklmnopqrstuvwxyz0123456789/", 0, 20)
+					suffix := randStringFromCharset(rng, "abcdefghijklmnopqrstuvwxyz0123456789/*", 0, 20)
+					path := prefix + "{{namespace}}" + suffix
+					return FuzzBatchItem{
+						Name: uniqueName("tc-fuzz-ns"),
+						Data: path,
+					}
+				},
+				func(ctx context.Context, item FuzzBatchItem) error {
+					path := item.Data.(string)
+					policy := BuildPolicyWithPath(item.Name, path, true)
+					return utils.CreateVaultPolicyCR(ctx, policy)
+				},
+				func(ctx context.Context, item FuzzBatchItem) {
+					p, getErr := utils.GetVaultPolicy(ctx, item.Name, testNamespace)
 					if getErr == nil && p.Status.Phase == vaultv1alpha1.PhaseActive {
 						// If Active, verify namespace was substituted
-						vaultPolicyName := testNamespace + "-" + policyName
+						vaultPolicyName := testNamespace + "-" + item.Name
 						content, contentErr := GetVaultPolicyContent(ctx, vaultPolicyName)
 						if contentErr == nil {
 							Expect(content).NotTo(ContainSubstring("{{namespace}}"),
 								"Namespace template should be substituted")
 						}
 					}
-				}
-			})
+				},
+				func(ctx context.Context, item FuzzBatchItem) {
+					CleanupPolicy(ctx, item.Name)
+				},
+			)
 		})
 	})
 
@@ -145,37 +143,23 @@ var _ = Describe("Fuzz Tests", Ordered, Label("fuzz"), func() {
 
 	Context("TC-FUZZ-TTL: Token TTL Fuzzing", func() {
 		It("TC-FUZZ-TTL01: should handle random duration-like strings", func() {
-			rapid.Check(GinkgoT(), func(t *rapid.T) {
-				// Generate various TTL-like strings
-				ttl := rapid.OneOf(
-					// Valid Go duration patterns
-					rapid.StringMatching(`[0-9]{1,3}[smh]`),
-					// Compound durations
-					rapid.StringMatching(`[0-9]{1,2}h[0-9]{1,2}m`),
-					// Pure numbers (should be invalid)
-					rapid.StringMatching(`[0-9]{1,5}`),
-					// Random text
-					rapid.StringMatching(`[a-z]{1,10}`),
-					// Empty
-					rapid.Just(""),
-				).Draw(t, "ttl")
-
-				roleName := uniqueName("tc-fuzz-ttl")
-				role := BuildRoleWithTTL(roleName, sharedSAName, sharedPolicyName, ttl)
-
-				err := utils.CreateVaultRoleCR(ctx, role)
-				defer CleanupRole(ctx, roleName)
-
-				if err != nil {
-					// Validation rejection is acceptable
-					t.Logf("TTL %q rejected: %v", ttl, err)
-				} else {
-					// Wait for reconciliation
-					time.Sleep(2 * time.Second)
-
-					status, getErr := utils.GetVaultRoleStatus(ctx, roleName, testNamespace)
+			RunFuzzBatch(ctx,
+				func(rng *rand.Rand, _ int) FuzzBatchItem {
+					ttl := randTTL(rng)
+					return FuzzBatchItem{
+						Name: uniqueName("tc-fuzz-ttl"),
+						Data: ttl,
+					}
+				},
+				func(ctx context.Context, item FuzzBatchItem) error {
+					ttl := item.Data.(string)
+					role := BuildRoleWithTTL(item.Name, sharedSAName, sharedPolicyName, ttl)
+					return utils.CreateVaultRoleCR(ctx, role)
+				},
+				func(ctx context.Context, item FuzzBatchItem) {
+					ttl := item.Data.(string)
+					status, getErr := utils.GetVaultRoleStatus(ctx, item.Name, testNamespace)
 					if getErr == nil {
-						// Should be in a valid state
 						Expect(status).To(Or(
 							Equal("Active"),
 							Equal("Error"),
@@ -183,8 +167,11 @@ var _ = Describe("Fuzz Tests", Ordered, Label("fuzz"), func() {
 							Equal("Syncing"),
 						), "TTL %q resulted in invalid state: %s", ttl, status)
 					}
-				}
-			})
+				},
+				func(ctx context.Context, item FuzzBatchItem) {
+					CleanupRole(ctx, item.Name)
+				},
+			)
 		})
 
 		It("TC-FUZZ-TTL02: should handle extreme TTL values", func() {
@@ -222,37 +209,25 @@ var _ = Describe("Fuzz Tests", Ordered, Label("fuzz"), func() {
 
 	Context("TC-FUZZ-NAME: Resource Name Fuzzing", func() {
 		It("TC-FUZZ-NAME01: should handle DNS-1123 compliant names", func() {
-			rapid.Check(GinkgoT(), func(t *rapid.T) {
-				// Generate DNS-1123 subdomain pattern names
-				// Must start with alphanumeric, contain alphanumeric and hyphens
-				name := rapid.StringMatching(`[a-z0-9]([a-z0-9-]*[a-z0-9])?`).Draw(t, "name")
-
-				// Kubernetes name length limit is 253, but keep it shorter
-				if len(name) == 0 || len(name) > 63 {
-					return
-				}
-
-				// Ensure it doesn't start or end with hyphen
-				if strings.HasPrefix(name, "-") || strings.HasSuffix(name, "-") {
-					return
-				}
-
-				policyName := fmt.Sprintf("tc-fuzz-%s", name)
-				// Truncate if too long
-				if len(policyName) > 63 {
-					policyName = policyName[:63]
-				}
-
-				policy := BuildTestPolicy(policyName)
-
-				err := utils.CreateVaultPolicyCR(ctx, policy)
-				defer CleanupPolicy(ctx, policyName)
-
-				if err == nil {
-					// Wait for reconciliation
-					time.Sleep(2 * time.Second)
-
-					status, getErr := utils.GetVaultPolicyStatus(ctx, policyName, testNamespace)
+			RunFuzzBatch(ctx,
+				func(rng *rand.Rand, _ int) FuzzBatchItem {
+					name := randDNSName(rng)
+					policyName := fmt.Sprintf("tc-fuzz-%s", name)
+					// Truncate if too long
+					if len(policyName) > 63 {
+						policyName = policyName[:63]
+					}
+					return FuzzBatchItem{
+						Name: policyName,
+						Data: nil,
+					}
+				},
+				func(ctx context.Context, item FuzzBatchItem) error {
+					policy := BuildTestPolicy(item.Name)
+					return utils.CreateVaultPolicyCR(ctx, policy)
+				},
+				func(ctx context.Context, item FuzzBatchItem) {
+					status, getErr := utils.GetVaultPolicyStatus(ctx, item.Name, testNamespace)
 					if getErr == nil {
 						Expect(status).To(Or(
 							Equal("Active"),
@@ -261,8 +236,11 @@ var _ = Describe("Fuzz Tests", Ordered, Label("fuzz"), func() {
 							Equal("Syncing"),
 						))
 					}
-				}
-			})
+				},
+				func(ctx context.Context, item FuzzBatchItem) {
+					CleanupPolicy(ctx, item.Name)
+				},
+			)
 		})
 	})
 
@@ -282,33 +260,21 @@ var _ = Describe("Fuzz Tests", Ordered, Label("fuzz"), func() {
 				vaultv1alpha1.CapabilityDeny,
 			}
 
-			rapid.Check(GinkgoT(), func(t *rapid.T) {
-				// Generate random subset of capabilities
-				capCount := rapid.IntRange(0, len(allCaps)).Draw(t, "capCount")
-				selectedCaps := make([]vaultv1alpha1.Capability, 0, capCount)
-
-				// Random selection
-				for i := 0; i < capCount; i++ {
-					idx := rapid.IntRange(0, len(allCaps)-1).Draw(t, fmt.Sprintf("idx%d", i))
-					selectedCaps = append(selectedCaps, allCaps[idx])
-				}
-
-				policyName := uniqueName("tc-fuzz-cap")
-				policy := BuildPolicyWithCapabilities(policyName, selectedCaps)
-
-				err := utils.CreateVaultPolicyCR(ctx, policy)
-				defer CleanupPolicy(ctx, policyName)
-
-				if err != nil {
-					// Empty capabilities should be rejected
-					if len(selectedCaps) == 0 {
-						t.Logf("Empty capabilities correctly rejected")
+			RunFuzzBatch(ctx,
+				func(rng *rand.Rand, _ int) FuzzBatchItem {
+					caps := randCapSubset(rng, allCaps)
+					return FuzzBatchItem{
+						Name: uniqueName("tc-fuzz-cap"),
+						Data: caps,
 					}
-				} else {
-					// Wait for reconciliation
-					time.Sleep(2 * time.Second)
-
-					status, getErr := utils.GetVaultPolicyStatus(ctx, policyName, testNamespace)
+				},
+				func(ctx context.Context, item FuzzBatchItem) error {
+					caps := item.Data.([]vaultv1alpha1.Capability)
+					policy := BuildPolicyWithCapabilities(item.Name, caps)
+					return utils.CreateVaultPolicyCR(ctx, policy)
+				},
+				func(ctx context.Context, item FuzzBatchItem) {
+					status, getErr := utils.GetVaultPolicyStatus(ctx, item.Name, testNamespace)
 					if getErr == nil {
 						Expect(status).To(Or(
 							Equal("Active"),
@@ -317,39 +283,46 @@ var _ = Describe("Fuzz Tests", Ordered, Label("fuzz"), func() {
 							Equal("Syncing"),
 						))
 					}
-				}
-			})
+				},
+				func(ctx context.Context, item FuzzBatchItem) {
+					CleanupPolicy(ctx, item.Name)
+				},
+			)
 		})
 
 		It("TC-FUZZ-CAP02: should handle duplicate capabilities gracefully", func() {
-			rapid.Check(GinkgoT(), func(t *rapid.T) {
-				// Generate capabilities with intentional duplicates
-				baseCaps := []vaultv1alpha1.Capability{
-					vaultv1alpha1.CapabilityRead,
-					vaultv1alpha1.CapabilityList,
-				}
+			baseCaps := []vaultv1alpha1.Capability{
+				vaultv1alpha1.CapabilityRead,
+				vaultv1alpha1.CapabilityList,
+			}
 
-				// Add 0-5 duplicates of random capabilities
-				dupCount := rapid.IntRange(0, 5).Draw(t, "dupCount")
-				caps := make([]vaultv1alpha1.Capability, len(baseCaps))
-				copy(caps, baseCaps)
-
-				for i := 0; i < dupCount; i++ {
-					idx := rapid.IntRange(0, len(baseCaps)-1).Draw(t, fmt.Sprintf("dup%d", i))
-					caps = append(caps, baseCaps[idx])
-				}
-
-				policyName := uniqueName("tc-fuzz-dup")
-				policy := BuildPolicyWithCapabilities(policyName, caps)
-
-				err := utils.CreateVaultPolicyCR(ctx, policy)
-				defer CleanupPolicy(ctx, policyName)
-
-				// Duplicates should be accepted (Vault dedupes)
-				if err == nil {
-					ExpectPolicyActive(ctx, policyName)
-				}
-			})
+			RunFuzzBatch(ctx,
+				func(rng *rand.Rand, _ int) FuzzBatchItem {
+					// Start with base capabilities, then add 0-5 random duplicates
+					caps := make([]vaultv1alpha1.Capability, len(baseCaps))
+					copy(caps, baseCaps)
+					dupCount := rng.IntN(6)
+					for i := 0; i < dupCount; i++ {
+						caps = append(caps, baseCaps[rng.IntN(len(baseCaps))])
+					}
+					return FuzzBatchItem{
+						Name: uniqueName("tc-fuzz-dup"),
+						Data: caps,
+					}
+				},
+				func(ctx context.Context, item FuzzBatchItem) error {
+					caps := item.Data.([]vaultv1alpha1.Capability)
+					policy := BuildPolicyWithCapabilities(item.Name, caps)
+					return utils.CreateVaultPolicyCR(ctx, policy)
+				},
+				func(ctx context.Context, item FuzzBatchItem) {
+					// Duplicates should be accepted (Vault dedupes)
+					ExpectPolicyActive(ctx, item.Name)
+				},
+				func(ctx context.Context, item FuzzBatchItem) {
+					CleanupPolicy(ctx, item.Name)
+				},
+			)
 		})
 	})
 
@@ -359,51 +332,64 @@ var _ = Describe("Fuzz Tests", Ordered, Label("fuzz"), func() {
 
 	Context("TC-FUZZ-RULE: Multiple Rules Fuzzing", func() {
 		It("TC-FUZZ-RULE01: should handle random number of rules", func() {
-			rapid.Check(GinkgoT(), func(t *rapid.T) {
-				// Generate 1-20 rules
-				ruleCount := rapid.IntRange(1, 20).Draw(t, "ruleCount")
+			// ruleData holds the generated rule count and path segments for
+			// building and verifying the policy.
+			type ruleData struct {
+				ruleCount int
+				segments  []string
+			}
 
-				policyName := uniqueName("tc-fuzz-rules")
-				policy := &vaultv1alpha1.VaultPolicy{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      policyName,
-						Namespace: testNamespace,
-					},
-					Spec: vaultv1alpha1.VaultPolicySpec{
-						ConnectionRef: sharedVaultConnectionName,
-						Rules:         make([]vaultv1alpha1.PolicyRule, ruleCount),
-					},
-				}
-
-				for i := 0; i < ruleCount; i++ {
-					// Generate random path segment
-					segment := rapid.StringMatching(`[a-z0-9]{1,10}`).Draw(t, fmt.Sprintf("seg%d", i))
-					policy.Spec.Rules[i] = vaultv1alpha1.PolicyRule{
-						Path: fmt.Sprintf("secret/data/rule%d/%s/*", i, segment),
-						Capabilities: []vaultv1alpha1.Capability{
-							vaultv1alpha1.CapabilityRead,
+			RunFuzzBatch(ctx,
+				func(rng *rand.Rand, _ int) FuzzBatchItem {
+					rc := rng.IntN(20) + 1
+					segs := make([]string, rc)
+					for i := range segs {
+						segs[i] = randSegment(rng)
+					}
+					return FuzzBatchItem{
+						Name: uniqueName("tc-fuzz-rules"),
+						Data: ruleData{ruleCount: rc, segments: segs},
+					}
+				},
+				func(ctx context.Context, item FuzzBatchItem) error {
+					rd := item.Data.(ruleData)
+					policy := &vaultv1alpha1.VaultPolicy{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      item.Name,
+							Namespace: testNamespace,
+						},
+						Spec: vaultv1alpha1.VaultPolicySpec{
+							ConnectionRef: sharedVaultConnectionName,
+							Rules:         make([]vaultv1alpha1.PolicyRule, rd.ruleCount),
 						},
 					}
-				}
-
-				err := utils.CreateVaultPolicyCR(ctx, policy)
-				defer CleanupPolicy(ctx, policyName)
-
-				if err == nil {
-					// Wait for reconciliation
-					time.Sleep(3 * time.Second)
-
-					p, getErr := utils.GetVaultPolicy(ctx, policyName, testNamespace)
-					if getErr == nil && p.Status.Phase == vaultv1alpha1.PhaseActive {
-						Expect(p.Status.RulesCount).To(Equal(ruleCount))
+					for i := 0; i < rd.ruleCount; i++ {
+						policy.Spec.Rules[i] = vaultv1alpha1.PolicyRule{
+							Path: fmt.Sprintf("secret/data/rule%d/%s/*", i, rd.segments[i]),
+							Capabilities: []vaultv1alpha1.Capability{
+								vaultv1alpha1.CapabilityRead,
+							},
+						}
 					}
-				}
-			})
+					return utils.CreateVaultPolicyCR(ctx, policy)
+				},
+				func(ctx context.Context, item FuzzBatchItem) {
+					rd := item.Data.(ruleData)
+					p, getErr := utils.GetVaultPolicy(ctx, item.Name, testNamespace)
+					if getErr == nil && p.Status.Phase == vaultv1alpha1.PhaseActive {
+						Expect(p.Status.RulesCount).To(Equal(rd.ruleCount))
+					}
+				},
+				func(ctx context.Context, item FuzzBatchItem) {
+					CleanupPolicy(ctx, item.Name)
+				},
+			)
 		})
 	})
 
 	// ─────────────────────────────────────────────────────────────────────────
 	// TC-FUZZ-STRESS: Stress Testing with Random Operations
+	// (Not batched — state-machine test where iterations depend on accumulated state)
 	// ─────────────────────────────────────────────────────────────────────────
 
 	Context("TC-FUZZ-STRESS: Stress Testing", func() {

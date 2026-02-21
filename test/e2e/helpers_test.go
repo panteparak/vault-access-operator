@@ -19,6 +19,10 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"math/rand/v2"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -33,9 +37,14 @@ import (
 // Test Resource Builders
 // ─────────────────────────────────────────────────────────────────────────────
 
+// uniqueCounter is an atomic counter that guarantees unique names even when
+// called in tight loops (e.g., batch fuzz item generation) where
+// time.Now().UnixNano() may return duplicate values.
+var uniqueCounter atomic.Int64
+
 // uniqueName generates a unique resource name to avoid conflicts between tests.
 func uniqueName(prefix string) string {
-	return fmt.Sprintf("%s-%d", prefix, time.Now().UnixNano()%100000)
+	return fmt.Sprintf("%s-%d", prefix, uniqueCounter.Add(1))
 }
 
 // BuildTestPolicy creates a VaultPolicy with sensible defaults for testing.
@@ -426,4 +435,169 @@ var InvalidTTLs = []string{
 	"",
 	"-1h",
 	"abc",
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fuzz Batch Runner
+// ─────────────────────────────────────────────────────────────────────────────
+
+// FuzzBatchItem holds a single fuzz-generated resource for batch processing.
+type FuzzBatchItem struct {
+	Name string      // K8s resource name (for cleanup)
+	Data interface{} // Test-specific payload (ruleCount, caps, etc.)
+}
+
+// RunFuzzBatch replaces rapid.Check for E2E fuzz tests. It creates N
+// resources in batches of batchSize, waiting once per batch for reconciliation
+// instead of once per item. This reduces total fuzz time from ~7min/test to
+// ~1min/test by amortizing the reconciliation wait across the batch.
+//
+// The RNG is seeded from GinkgoRandomSeed() so failures are reproducible
+// via --seed.
+//
+// Named RunFuzzBatch (not FuzzBatchRunner) to avoid Go's "Fuzz" prefix
+// convention which expects func FuzzXxx(f *testing.F).
+func RunFuzzBatch(
+	ctx context.Context,
+	generate func(rng *rand.Rand, idx int) FuzzBatchItem,
+	create func(ctx context.Context, item FuzzBatchItem) error,
+	verify func(ctx context.Context, item FuzzBatchItem),
+	cleanup func(ctx context.Context, item FuzzBatchItem),
+) {
+	total := fuzzIterations
+	batchSz := fuzzBatchSize
+	rng := rand.New(rand.NewPCG(uint64(GinkgoRandomSeed()), 0xCAFE))
+
+	for batchStart := 0; batchStart < total; batchStart += batchSz {
+		batchEnd := batchStart + batchSz
+		if batchEnd > total {
+			batchEnd = total
+		}
+		batchLen := batchEnd - batchStart
+
+		// 1. Generate all items for this batch
+		items := make([]FuzzBatchItem, batchLen)
+		for i := range items {
+			items[i] = generate(rng, batchStart+i)
+		}
+
+		// 2. Create all CRs, tracking which succeeded
+		created := make([]bool, batchLen)
+		for i, item := range items {
+			if err := create(ctx, item); err == nil {
+				created[i] = true
+			}
+		}
+
+		// 3. Wait once for reconciliation: max(3s, len(created) * 200ms)
+		createdCount := 0
+		for _, ok := range created {
+			if ok {
+				createdCount++
+			}
+		}
+		wait := time.Duration(createdCount) * 200 * time.Millisecond
+		if wait < 3*time.Second {
+			wait = 3 * time.Second
+		}
+		time.Sleep(wait)
+
+		// 4. Verify all successfully created items
+		for i, item := range items {
+			if created[i] {
+				verify(ctx, item)
+			}
+		}
+
+		// 5. Cleanup all items in parallel (including failed creates, for safety)
+		var wg sync.WaitGroup
+		for _, item := range items {
+			wg.Add(1)
+			go func(it FuzzBatchItem) {
+				defer wg.Done()
+				cleanup(ctx, it)
+			}(item)
+		}
+		wg.Wait()
+	}
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Random Generators (replace rapid.StringMatching for batch fuzz)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const (
+	charsetAlphaNum      = "abcdefghijklmnopqrstuvwxyz0123456789"
+	charsetAlphaNumUpper = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	charsetPath          = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/_*+-"
+)
+
+// randStringFromCharset generates a random string of length [minLen, maxLen]
+// from the given character set.
+func randStringFromCharset(rng *rand.Rand, charset string, minLen, maxLen int) string {
+	n := minLen + rng.IntN(maxLen-minLen+1)
+	b := make([]byte, n)
+	for i := range b {
+		b[i] = charset[rng.IntN(len(charset))]
+	}
+	return string(b)
+}
+
+// randPath generates a random valid CRD path (matches `[a-zA-Z0-9/_*+-]{1,50}`).
+func randPath(rng *rand.Rand) string {
+	return randStringFromCharset(rng, charsetPath, 1, 50)
+}
+
+// randSegment generates a lowercase alphanumeric segment (matches `[a-z0-9]{1,10}`).
+func randSegment(rng *rand.Rand) string {
+	return randStringFromCharset(rng, charsetAlphaNum, 1, 10)
+}
+
+// randDNSName generates a DNS-1123 compliant name (starts/ends with alphanumeric,
+// middle may contain hyphens). Length 1–20.
+func randDNSName(rng *rand.Rand) string {
+	const dnsChars = "abcdefghijklmnopqrstuvwxyz0123456789-"
+	n := 1 + rng.IntN(20)
+	if n == 1 {
+		return string(charsetAlphaNum[rng.IntN(len(charsetAlphaNum))])
+	}
+	var b strings.Builder
+	b.WriteByte(charsetAlphaNum[rng.IntN(len(charsetAlphaNum))])
+	for i := 1; i < n-1; i++ {
+		b.WriteByte(dnsChars[rng.IntN(len(dnsChars))])
+	}
+	b.WriteByte(charsetAlphaNum[rng.IntN(len(charsetAlphaNum))])
+	return b.String()
+}
+
+// randTTL generates a random TTL-like string: one of valid Go durations,
+// compound durations, pure numbers, random text, or empty string.
+func randTTL(rng *rand.Rand) string {
+	switch rng.IntN(5) {
+	case 0: // Valid Go duration: [0-9]{1,3}[smh]
+		units := []byte{'s', 'm', 'h'}
+		n := 1 + rng.IntN(999)
+		return fmt.Sprintf("%d%c", n, units[rng.IntN(len(units))])
+	case 1: // Compound duration: [0-9]{1,2}h[0-9]{1,2}m
+		h := 1 + rng.IntN(99)
+		m := 1 + rng.IntN(99)
+		return fmt.Sprintf("%dh%dm", h, m)
+	case 2: // Pure number (should be invalid)
+		return fmt.Sprintf("%d", rng.IntN(99999))
+	case 3: // Random text
+		return randStringFromCharset(rng, "abcdefghijklmnopqrstuvwxyz", 1, 10)
+	default: // Empty
+		return ""
+	}
+}
+
+// randCapSubset returns a random subset (size 0..len(caps)) of the given
+// capability slice.
+func randCapSubset(rng *rand.Rand, caps []vaultv1alpha1.Capability) []vaultv1alpha1.Capability {
+	count := rng.IntN(len(caps) + 1)
+	selected := make([]vaultv1alpha1.Capability, 0, count)
+	for i := 0; i < count; i++ {
+		selected = append(selected, caps[rng.IntN(len(caps))])
+	}
+	return selected
 }

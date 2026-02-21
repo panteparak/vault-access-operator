@@ -25,6 +25,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -197,7 +198,20 @@ var (
 
 	// Polling interval for Eventually assertions
 	defaultPollingInterval = 2 * time.Second
+
+	// Fuzz test configuration (overridable via environment)
+	fuzzIterations = envIntOrDefault("FUZZ_ITERATIONS", 100)
+	fuzzBatchSize  = envIntOrDefault("FUZZ_BATCH_SIZE", 25)
 )
+
+func envIntOrDefault(key string, def int) int {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return def
+}
 
 func init() {
 	// Allow overriding image via environment variable (same as Makefile)
