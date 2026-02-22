@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"unicode"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -240,6 +241,19 @@ func validatePolicyRule(rule vaultv1alpha1.PolicyRule, index int, enforceNamespa
 		}
 		if hasDeny && hasOther {
 			warnings = append(warnings, fmt.Sprintf("rule[%d]: 'deny' capability combined with other capabilities; 'deny' takes precedence and other capabilities will be ignored", index))
+		}
+	}
+
+	// Validate description (defense in depth against control character injection)
+	if rule.Description != "" {
+		if len(rule.Description) > 256 {
+			errors = append(errors, fmt.Sprintf("rule[%d]: description must be at most 256 characters (got %d)", index, len(rule.Description)))
+		}
+		for _, r := range rule.Description {
+			if unicode.IsControl(r) {
+				errors = append(errors, fmt.Sprintf("rule[%d]: description must not contain control characters", index))
+				break
+			}
 		}
 	}
 

@@ -505,19 +505,20 @@ func TestGeneratePolicyHCL(t *testing.T) {
 			},
 		},
 		{
-			name: "policy with description",
+			name: "policy with description (descriptions not in HCL)",
 			rules: []PolicyRule{
 				{
 					Path:         "secret/data/config",
 					Capabilities: []string{"read"},
-					Description:  "Read access to configuration secrets",
 				},
 			},
 			namespace: "default",
 			resName:   "my-app",
 			want: []string{
-				"# Read access to configuration secrets",
 				`path "secret/data/config"`,
+			},
+			notWant: []string{
+				"# Read access",
 			},
 		},
 		{
@@ -526,12 +527,10 @@ func TestGeneratePolicyHCL(t *testing.T) {
 				{
 					Path:         "secret/data/app/*",
 					Capabilities: []string{"read", "list"},
-					Description:  "Read app secrets",
 				},
 				{
 					Path:         "secret/metadata/app/*",
 					Capabilities: []string{"list"},
-					Description:  "List secret metadata",
 				},
 			},
 			namespace: "default",
@@ -541,8 +540,6 @@ func TestGeneratePolicyHCL(t *testing.T) {
 				`capabilities = ["read", "list"]`,
 				`path "secret/metadata/app/*"`,
 				`capabilities = ["list"]`,
-				"# Read app secrets",
-				"# List secret metadata",
 			},
 		},
 		{
@@ -647,7 +644,6 @@ func TestGeneratePolicyHCL(t *testing.T) {
 				{
 					Path:         "secret/data/restricted/*",
 					Capabilities: []string{"deny"},
-					Description:  "Deny all access to restricted secrets",
 				},
 			},
 			namespace: "default",
@@ -713,7 +709,6 @@ func TestGeneratePolicyHCLFormat(t *testing.T) {
 		{
 			Path:         "secret/data/{{namespace}}/{{name}}/*",
 			Capabilities: []string{"create", "read", "update", "delete", "list"},
-			Description:  "Full access to app secrets",
 			Parameters: &PolicyParameters{
 				Allowed:  []string{"*"},
 				Required: []string{"data"},
@@ -786,7 +781,6 @@ func TestPolicyRuleStruct(t *testing.T) {
 	rule := PolicyRule{
 		Path:         "secret/data/test",
 		Capabilities: []string{"read"},
-		Description:  "Test rule",
 		Parameters: &PolicyParameters{
 			Allowed:  []string{"allow1"},
 			Denied:   []string{"deny1"},
@@ -800,9 +794,6 @@ func TestPolicyRuleStruct(t *testing.T) {
 	if len(rule.Capabilities) != 1 || rule.Capabilities[0] != "read" {
 		t.Errorf("PolicyRule.Capabilities = %v, want [read]", rule.Capabilities)
 	}
-	if rule.Description != "Test rule" {
-		t.Errorf("PolicyRule.Description = %q, want %q", rule.Description, "Test rule")
-	}
 	if rule.Parameters == nil {
 		t.Fatal("PolicyRule.Parameters should not be nil")
 	}
@@ -811,22 +802,52 @@ func TestPolicyRuleStruct(t *testing.T) {
 	}
 }
 
+func TestGeneratePolicyHCL_DescriptionInjectionRegression(t *testing.T) {
+	// Regression test: descriptions must never appear in HCL output.
+	// A malicious description with embedded newlines must NOT produce extra HCL blocks.
+	rules := []PolicyRule{
+		{
+			Path:         "secret/data/app",
+			Capabilities: []string{"read"},
+		},
+	}
+
+	hcl := GeneratePolicyHCL(rules, "default", "my-app")
+
+	// Verify no description comment lines (other than header)
+	for _, line := range strings.Split(hcl, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "#") {
+			// Only allow the header comments
+			if !strings.Contains(trimmed, "vault-access-operator") && !strings.Contains(trimmed, "Kubernetes resource") {
+				t.Errorf("unexpected comment line in HCL: %q", trimmed)
+			}
+		}
+	}
+
+	// Verify no 'sudo' or extra 'path' blocks can be injected
+	pathCount := strings.Count(hcl, "path ")
+	if pathCount != 1 {
+		t.Errorf("expected exactly 1 path block, got %d in:\n%s", pathCount, hcl)
+	}
+}
+
 func BenchmarkGeneratePolicyHCL(b *testing.B) {
 	rules := []PolicyRule{
 		{
 			Path:         "secret/data/{{namespace}}/{{name}}/*",
 			Capabilities: []string{"create", "read", "update", "delete", "list"},
-			Description:  "Full access to app secrets",
 		},
 		{
 			Path:         "secret/metadata/{{namespace}}/{{name}}/*",
 			Capabilities: []string{"list", "read"},
-			Description:  "Read metadata",
 		},
 		{
 			Path:         "auth/kubernetes/role/{{name}}",
 			Capabilities: []string{"read"},
-			Description:  "Read own role",
 		},
 	}
 

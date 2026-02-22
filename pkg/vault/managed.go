@@ -28,17 +28,24 @@ type ManagedResource struct {
 
 	// LastUpdated is when this resource was last updated
 	LastUpdated time.Time `json:"lastUpdated"`
+
+	// RuleDescriptions maps resolved paths to their descriptions (policies only)
+	RuleDescriptions map[string]string `json:"ruleDescriptions,omitempty"`
 }
 
 // markManaged is the shared implementation for MarkPolicyManaged / MarkRoleManaged.
-func (c *Client) markManaged(ctx context.Context, basePath, resourceName, k8sResource, resourceType string) error {
+func (c *Client) markManaged(
+	ctx context.Context, basePath, resourceName, k8sResource, resourceType string,
+	descriptions map[string]string,
+) error {
 	path := fmt.Sprintf("%s/%s", basePath, resourceName)
 
 	now := time.Now()
 	metadata := ManagedResource{
-		K8sResource: k8sResource,
-		ManagedAt:   now,
-		LastUpdated: now,
+		K8sResource:      k8sResource,
+		ManagedAt:        now,
+		LastUpdated:      now,
+		RuleDescriptions: descriptions,
 	}
 
 	// Check if already managed to preserve ManagedAt
@@ -110,8 +117,10 @@ func (c *Client) removeManaged(ctx context.Context, basePath, resourceName, reso
 }
 
 // MarkPolicyManaged marks a Vault policy as managed by the operator
-func (c *Client) MarkPolicyManaged(ctx context.Context, policyName, k8sResource string) error {
-	return c.markManaged(ctx, ManagedPoliciesPath, policyName, k8sResource, "policy")
+func (c *Client) MarkPolicyManaged(
+	ctx context.Context, policyName, k8sResource string, descriptions map[string]string,
+) error {
+	return c.markManaged(ctx, ManagedPoliciesPath, policyName, k8sResource, "policy", descriptions)
 }
 
 // IsPolicyManaged checks if a policy is managed by the operator
@@ -142,7 +151,7 @@ func (c *Client) RemovePolicyManaged(ctx context.Context, policyName string) err
 
 // MarkRoleManaged marks a Vault role as managed by the operator
 func (c *Client) MarkRoleManaged(ctx context.Context, roleName, k8sResource string) error {
-	return c.markManaged(ctx, ManagedRolesPath, roleName, k8sResource, "role")
+	return c.markManaged(ctx, ManagedRolesPath, roleName, k8sResource, "role", nil)
 }
 
 // IsRoleManaged checks if a role is managed by the operator

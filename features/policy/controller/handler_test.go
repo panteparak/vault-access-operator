@@ -93,7 +93,9 @@ func (m *mockVaultClient) PolicyExists(_ context.Context, _ string) (bool, error
 	return m.policyExists, m.policyExistsErr
 }
 
-func (m *mockVaultClient) MarkPolicyManaged(_ context.Context, policyName, k8sResource string) error {
+func (m *mockVaultClient) MarkPolicyManaged(
+	_ context.Context, policyName, k8sResource string, _ map[string]string,
+) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.markManagedCalls = append(m.markManagedCalls, markManagedCall{policyName: policyName, k8sResource: k8sResource})
@@ -455,7 +457,7 @@ func TestGeneratePolicyHCL(t *testing.T) {
 		}
 	})
 
-	t.Run("HCL generation with multiple rules", func(t *testing.T) {
+	t.Run("HCL generation with multiple rules (descriptions not in HCL)", func(t *testing.T) {
 		rules := []vaultv1alpha1.PolicyRule{
 			{
 				Path:         "secret/data/{{namespace}}/app1/*",
@@ -479,12 +481,12 @@ func TestGeneratePolicyHCL(t *testing.T) {
 			t.Error("expected app2 path in HCL")
 		}
 
-		// Check descriptions are included as comments
-		if !strings.Contains(hcl, "Access to app1 secrets") {
-			t.Error("expected first description in HCL")
+		// Descriptions must NOT be in HCL (security fix)
+		if strings.Contains(hcl, "Access to app1 secrets") {
+			t.Error("descriptions must not appear in HCL output")
 		}
-		if !strings.Contains(hcl, "Full access to app2 secrets") {
-			t.Error("expected second description in HCL")
+		if strings.Contains(hcl, "Full access to app2 secrets") {
+			t.Error("descriptions must not appear in HCL output")
 		}
 
 		// Check capabilities
@@ -554,6 +556,73 @@ func TestGeneratePolicyHCL(t *testing.T) {
 		}
 		if !strings.Contains(hcl, testPolicyName) {
 			t.Error("expected policy name in path")
+		}
+	})
+}
+
+// TestBuildRuleDescriptions tests the description map builder
+func TestBuildRuleDescriptions(t *testing.T) {
+	handler := &Handler{log: logr.Discard()}
+
+	t.Run("rules with descriptions produce a map", func(t *testing.T) {
+		rules := []vaultv1alpha1.PolicyRule{
+			{
+				Path:         "secret/data/{{namespace}}/app/*",
+				Capabilities: []vaultv1alpha1.Capability{"read"},
+				Description:  "App secrets",
+			},
+			{
+				Path:         "secret/metadata/{{namespace}}/*",
+				Capabilities: []vaultv1alpha1.Capability{"list"},
+				Description:  "Metadata listing",
+			},
+		}
+
+		descs := handler.buildRuleDescriptions(rules, "prod", "my-app")
+		if len(descs) != 2 {
+			t.Fatalf("expected 2 descriptions, got %d", len(descs))
+		}
+		if descs["secret/data/prod/app/*"] != "App secrets" {
+			t.Errorf("unexpected description for app path: %q", descs["secret/data/prod/app/*"])
+		}
+		if descs["secret/metadata/prod/*"] != "Metadata listing" {
+			t.Errorf("unexpected description for metadata path: %q", descs["secret/metadata/prod/*"])
+		}
+	})
+
+	t.Run("rules without descriptions return nil", func(t *testing.T) {
+		rules := []vaultv1alpha1.PolicyRule{
+			{
+				Path:         "secret/data/app/*",
+				Capabilities: []vaultv1alpha1.Capability{"read"},
+			},
+		}
+
+		descs := handler.buildRuleDescriptions(rules, "ns", "name")
+		if descs != nil {
+			t.Errorf("expected nil descriptions, got %v", descs)
+		}
+	})
+
+	t.Run("mixed rules only include described ones", func(t *testing.T) {
+		rules := []vaultv1alpha1.PolicyRule{
+			{
+				Path:         "secret/data/{{namespace}}/*",
+				Capabilities: []vaultv1alpha1.Capability{"read"},
+				Description:  "With desc",
+			},
+			{
+				Path:         "secret/metadata/{{namespace}}/*",
+				Capabilities: []vaultv1alpha1.Capability{"list"},
+			},
+		}
+
+		descs := handler.buildRuleDescriptions(rules, "ns", "name")
+		if len(descs) != 1 {
+			t.Fatalf("expected 1 description, got %d", len(descs))
+		}
+		if _, ok := descs["secret/data/ns/*"]; !ok {
+			t.Error("expected description for resolved path")
 		}
 	})
 }

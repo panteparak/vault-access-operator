@@ -9,7 +9,6 @@ import (
 type PolicyRule struct {
 	Path         string
 	Capabilities []string
-	Description  string
 	Parameters   *PolicyParameters
 }
 
@@ -36,11 +35,6 @@ func GeneratePolicyHCL(rules []PolicyRule, namespace, name string) string {
 	for i, rule := range rules {
 		// Substitute variables in path
 		path := SubstituteVariables(rule.Path, namespace, name)
-
-		// Add description as comment if present
-		if rule.Description != "" {
-			fmt.Fprintf(&builder, "# %s\n", rule.Description)
-		}
 
 		// Start path block
 		fmt.Fprintf(&builder, "path %q {\n", path)

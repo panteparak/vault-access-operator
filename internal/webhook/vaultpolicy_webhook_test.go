@@ -1142,6 +1142,93 @@ func TestIsValidCapability(t *testing.T) {
 	}
 }
 
+func TestValidatePolicyRule_DescriptionValidation(t *testing.T) {
+	tests := []struct {
+		name        string
+		description string
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:        "empty description is valid",
+			description: "",
+			wantErr:     false,
+		},
+		{
+			name:        "normal description is valid",
+			description: "Read access to application secrets",
+			wantErr:     false,
+		},
+		{
+			name:        "description at max length (256 chars) is valid",
+			description: strings.Repeat("a", 256),
+			wantErr:     false,
+		},
+		{
+			name:        "description exceeding max length is rejected",
+			description: strings.Repeat("a", 257),
+			wantErr:     true,
+			errContains: "at most 256 characters",
+		},
+		{
+			name:        "description with newline is rejected",
+			description: "line1\npath \"secret/*\" { capabilities = [\"sudo\"] }",
+			wantErr:     true,
+			errContains: "control characters",
+		},
+		{
+			name:        "description with carriage return is rejected",
+			description: "line1\rline2",
+			wantErr:     true,
+			errContains: "control characters",
+		},
+		{
+			name:        "description with tab is rejected",
+			description: "desc\twith\ttabs",
+			wantErr:     true,
+			errContains: "control characters",
+		},
+		{
+			name:        "description with null byte is rejected",
+			description: "desc\x00with null",
+			wantErr:     true,
+			errContains: "control characters",
+		},
+		{
+			name:        "description with unicode is valid",
+			description: "Access to application data",
+			wantErr:     false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rule := vaultv1alpha1.PolicyRule{
+				Path:         "secret/data/{{namespace}}/*",
+				Capabilities: []vaultv1alpha1.Capability{vaultv1alpha1.CapabilityRead},
+				Description:  tt.description,
+			}
+			errors, _ := validatePolicyRule(rule, 0, true)
+			hasErr := len(errors) > 0
+			if hasErr != tt.wantErr {
+				t.Errorf("validatePolicyRule() errors = %v, wantErr %v", errors, tt.wantErr)
+			}
+			if tt.wantErr && tt.errContains != "" {
+				found := false
+				for _, e := range errors {
+					if strings.Contains(e, tt.errContains) {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("validatePolicyRule() errors = %v, want error containing %q", errors, tt.errContains)
+				}
+			}
+		})
+	}
+}
+
 func TestValidateNoWildcardBeforeNamespace(t *testing.T) {
 	tests := []struct {
 		name        string

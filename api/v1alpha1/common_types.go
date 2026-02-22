@@ -141,6 +141,7 @@ type PolicyRule struct {
 
 	// Description of this rule
 	// +optional
+	// +kubebuilder:validation:MaxLength=256
 	Description string `json:"description,omitempty"`
 
 	// Parameters for fine-grained control

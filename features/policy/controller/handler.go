@@ -222,6 +222,12 @@ func (h *Handler) SyncPolicy(ctx context.Context, adapter domain.PolicyAdapter) 
 	// Skip update if unchanged and no drift
 	if adapter.GetLastAppliedHash() == specHash && adapter.GetPhase() == vaultv1alpha1.PhaseActive && !driftDetected {
 		log.V(1).Info("policy unchanged and no drift, skipping update", "policyName", vaultPolicyName)
+		// Update managed marker for description-only changes
+		descriptions := h.buildRuleDescriptions(adapter.GetRules(), namespace, adapter.GetName())
+		k8sRes := adapter.GetK8sResourceIdentifier()
+		if err := vaultClient.MarkPolicyManaged(ctx, vaultPolicyName, k8sRes, descriptions); err != nil {
+			log.V(1).Info("failed to update managed marker descriptions (non-fatal)", "error", err)
+		}
 		// Still update status to record the drift check
 		if err := h.client.Status().Update(ctx, adapter.GetObject()); err != nil {
 			log.V(1).Info("failed to update drift check status (non-fatal)", "error", err)
@@ -332,9 +338,10 @@ func (h *Handler) SyncPolicy(ctx context.Context, adapter domain.PolicyAdapter) 
 			"readback verification", fmt.Errorf("policy content mismatch after write")))
 	}
 
-	// Mark as managed
+	// Mark as managed (with rule descriptions stored in metadata)
 	k8sResource := adapter.GetK8sResourceIdentifier()
-	if err := vaultClient.MarkPolicyManaged(ctx, vaultPolicyName, k8sResource); err != nil {
+	descriptions := h.buildRuleDescriptions(adapter.GetRules(), namespace, adapter.GetName())
+	if err := vaultClient.MarkPolicyManaged(ctx, vaultPolicyName, k8sResource, descriptions); err != nil {
 		log.V(1).Info("failed to mark policy as managed (non-fatal)", "error", err.Error())
 	}
 
@@ -565,7 +572,6 @@ func (h *Handler) generatePolicyHCL(rules []vaultv1alpha1.PolicyRule, namespace,
 		vaultRule := vault.PolicyRule{
 			Path:         rule.Path,
 			Capabilities: caps,
-			Description:  rule.Description,
 		}
 
 		if rule.Parameters != nil {
@@ -580,6 +586,21 @@ func (h *Handler) generatePolicyHCL(rules []vaultv1alpha1.PolicyRule, namespace,
 	}
 
 	return vault.GeneratePolicyHCL(vaultRules, namespace, name)
+}
+
+// buildRuleDescriptions builds a map of resolved path -> description for rules that have descriptions.
+func (h *Handler) buildRuleDescriptions(rules []vaultv1alpha1.PolicyRule, namespace, name string) map[string]string {
+	descs := make(map[string]string)
+	for _, rule := range rules {
+		if rule.Description != "" {
+			resolvedPath := vault.SubstituteVariables(rule.Path, namespace, name)
+			descs[resolvedPath] = rule.Description
+		}
+	}
+	if len(descs) == 0 {
+		return nil
+	}
+	return descs
 }
 
 // calculateHash calculates SHA256 hash of content.
