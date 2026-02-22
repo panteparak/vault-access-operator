@@ -106,6 +106,7 @@ spec:
                       type: array
                     description:
                       description: Description of this rule
+                      maxLength: 256
                       type: string
                     parameters:
                       description: Parameters for fine-grained control
