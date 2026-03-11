@@ -6,17 +6,13 @@ on:
     types: [completed]
   workflow_dispatch:
     inputs:
-      tag:
-        description: 'Release tag (e.g., v0.3.0)'
-        required: true
+      version:
+        description: 'Release version (e.g., 0.3.0). Leave empty to auto-compute from conventional commits.'
+        required: false
+        default: ''
         type: string
 
-permissions:
-  contents: write
-  packages: write
-  pages: write
-  id-token: write
-  actions: read
+permissions: {}
 
 env:
   REGISTRY: ghcr.io
@@ -30,10 +26,14 @@ jobs:
   guard:
     name: Guard
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
     outputs:
-      should-release: ${{ steps.version.outputs.should-release }}
-      version: ${{ steps.version.outputs.version }}
-      tag: ${{ steps.version.outputs.tag }}
+      should-release: ${{ steps.final-version.outputs.should-release }}
+      version: ${{ steps.final-version.outputs.version }}
+      tag: ${{ steps.final-version.outputs.tag }}
+      checkout-ref: ${{ steps.final-version.outputs.checkout-ref }}
       image-tag: ${{ steps.image-tag.outputs.image-tag }}
       ci-run-id: ${{ steps.ci-run.outputs.run-id }}
     steps:
@@ -47,50 +47,95 @@ jobs:
             exit 1
           fi
 
-      - name: Extract tag and version
-        id: version
-        env:
-          WR_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
-          WD_TAG: ${{ inputs.tag }}
-          EVENT_NAME: ${{ github.event_name }}
-        run: |
-          if [[ "$EVENT_NAME" == "workflow_run" ]]; then
-            TAG="$WR_HEAD_BRANCH"
-          else
-            TAG="$WD_TAG"
-          fi
+      # workflow_run path: checkout at the CI SHA and discover tag via git
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        if: github.event_name == 'workflow_run'
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 1
+          fetch-tags: true
+          persist-credentials: false
 
-          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9] ]]; then
-            echo "::notice::Not a version tag ($TAG), skipping release"
+      - name: Extract tag and version
+        if: github.event_name == 'workflow_run'
+        id: version
+        run: |
+          TAG=$(git tag --points-at HEAD | grep -E '^v[0-9]+\.[0-9]+\.[0-9]' | head -1)
+          if [[ -z "$TAG" ]]; then
+            echo "::notice::No version tag at HEAD, skipping release"
             echo "should-release=false" >> $GITHUB_OUTPUT
             exit 0
           fi
-
           VERSION="${TAG#v}"
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "should-release=true" >> $GITHUB_OUTPUT
           echo "Release: $TAG (version $VERSION)"
 
-      - uses: actions/checkout@v4
-        if: steps.version.outputs.should-release == 'true'
+      # workflow_dispatch path: use commitizen for auto-versioning or manual input
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        if: github.event_name == 'workflow_dispatch'
         with:
-          ref: ${{ steps.version.outputs.tag }}
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
 
-      - name: Validate Chart.yaml version
-        if: steps.version.outputs.should-release == 'true'
-        env:
-          TAG_VERSION: ${{ steps.version.outputs.version }}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        if: github.event_name == 'workflow_dispatch'
+        with:
+          python-version: '3.x'
+
+      - name: Install commitizen
+        if: github.event_name == 'workflow_dispatch'
+        run: pip install commitizen
+
+      - name: Auto-compute version with commitizen
+        if: github.event_name == 'workflow_dispatch'
+        id: dispatch
         run: |
-          CHART_VERSION=$(grep '^version:' charts/vault-access-operator/Chart.yaml | awk '{print $2}')
-          if [[ "${CHART_VERSION}" != "${TAG_VERSION}" ]]; then
-            echo "::error::Chart.yaml version (${CHART_VERSION}) does not match tag version (${TAG_VERSION})"
+          # Try commitizen bump --dry-run to get next version
+          CZ_VERSION=$(cz bump --dry-run 2>/dev/null | grep -oP 'bump version .+ → \K.+' || echo "")
+          echo "cz-version=$CZ_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Set dispatch version
+        if: github.event_name == 'workflow_dispatch'
+        id: dispatch-version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [[ -n "$INPUT_VERSION" ]]; then
+            VERSION="$INPUT_VERSION"
+          elif [[ -n "${{ steps.dispatch.outputs.cz-version }}" ]]; then
+            VERSION="${{ steps.dispatch.outputs.cz-version }}"
+          else
+            echo "::error::Could not determine version. Provide a version or ensure conventional commits exist."
             exit 1
           fi
-          echo "Chart version matches tag: ${CHART_VERSION}"
+          echo "tag=v${VERSION}" >> $GITHUB_OUTPUT
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "should-release=true" >> $GITHUB_OUTPUT
+          echo "Release (dispatch): v${VERSION}"
+
+      # Merge outputs from both paths
+      - name: Merge version outputs
+        id: final-version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          TAG="${{ steps.version.outputs.tag || steps.dispatch-version.outputs.tag }}"
+          VERSION="${{ steps.version.outputs.version || steps.dispatch-version.outputs.version }}"
+          SHOULD="${{ steps.version.outputs.should-release || steps.dispatch-version.outputs.should-release || 'false' }}"
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "should-release=${SHOULD}" >> $GITHUB_OUTPUT
+          if [[ "$EVENT_NAME" == "workflow_run" ]]; then
+            echo "checkout-ref=${TAG}" >> $GITHUB_OUTPUT
+          else
+            echo "checkout-ref=" >> $GITHUB_OUTPUT
+          fi
 
       - name: Compute image tag
-        if: steps.version.outputs.should-release == 'true'
+        if: steps.final-version.outputs.should-release == 'true'
         id: image-tag
         env:
           WR_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
@@ -106,7 +151,7 @@ jobs:
           echo "Image tag: sha-${SHORT_SHA}"
 
       - name: Set CI run ID
-        if: steps.version.outputs.should-release == 'true'
+        if: steps.final-version.outputs.should-release == 'true'
         id: ci-run
         env:
           WR_RUN_ID: ${{ github.event.workflow_run.id }}
@@ -131,10 +176,13 @@ jobs:
     runs-on: ubuntu-latest
     needs: [guard]
     if: needs.guard.outputs.should-release == 'true'
+    permissions:
+      contents: read
+      packages: write
     steps:
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
 
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -154,17 +202,18 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${IMAGE_TAG}
 
       # workflow_dispatch fallback: rebuild from source
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         if: needs.guard.outputs.ci-run-id == ''
         with:
-          ref: ${{ needs.guard.outputs.tag }}
+          ref: ${{ needs.guard.outputs.checkout-ref }}
+          persist-credentials: false
 
-      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3.6.0
         if: needs.guard.outputs.ci-run-id == ''
 
       - name: Build and push (manual dispatch)
         if: needs.guard.outputs.ci-run-id == ''
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4 # v6.15.0
         with:
           context: .
           platforms: linux/amd64,linux/arm64
@@ -184,16 +233,19 @@ jobs:
     runs-on: ubuntu-latest
     needs: [guard, docker-release]
     if: needs.guard.outputs.should-release == 'true'
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-          ref: ${{ needs.guard.outputs.tag }}
+          ref: ${{ needs.guard.outputs.checkout-ref }}
           fetch-depth: 0
+          persist-credentials: false
 
       # Download SBOMs from CI run (only available via workflow_run)
       - name: Download SBOM (linux-amd64)
         if: needs.guard.outputs.ci-run-id != ''
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           run-id: ${{ needs.guard.outputs.ci-run-id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -203,7 +255,7 @@ jobs:
 
       - name: Download SBOM (linux-arm64)
         if: needs.guard.outputs.ci-run-id != ''
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           run-id: ${{ needs.guard.outputs.ci-run-id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -212,20 +264,59 @@ jobs:
         continue-on-error: true
 
       # Generate install manifest with correct version
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
         with:
           go-version-file: go.mod
+
+      - uses: azure/setup-helm@b9e51907a09c216f16ebe8536097933489208112 # v4.3.0
+        with:
+          version: 'v3.14.0'
+
+      - name: Stamp version in chart
+        env:
+          VERSION: ${{ needs.guard.outputs.version }}
+        run: |
+          sed -i "s/^version:.*/version: ${VERSION}/" charts/vault-access-operator/Chart.yaml
+          sed -i "s/^appVersion:.*/appVersion: \"${VERSION}\"/" charts/vault-access-operator/Chart.yaml
+          sed -i "s/tag:.*/tag: \"${VERSION}\"/" charts/vault-access-operator/values.yaml
 
       - name: Build install manifest
         env:
           VERSION: ${{ needs.guard.outputs.version }}
         run: make build-installer IMG=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${VERSION}
 
+      # Build additional release assets
+      - name: Package CRDs tarball
+        env:
+          VERSION: ${{ needs.guard.outputs.version }}
+        run: |
+          tar -czvf crds-${VERSION}.tar.gz -C config/crd/bases/ .
+
+      - name: Package Helm chart
+        env:
+          VERSION: ${{ needs.guard.outputs.version }}
+        run: |
+          helm package charts/vault-access-operator -d dist/
+
+      - name: Generate checksums
+        env:
+          VERSION: ${{ needs.guard.outputs.version }}
+        run: |
+          cd dist
+          cp ../crds-${VERSION}.tar.gz .
+          sha256sum install.yaml crds-${VERSION}.tar.gz vault-access-operator-${VERSION}.tgz > checksums.txt
+          cat checksums.txt
+
       # Prepare all release assets
       - name: Prepare release assets
+        env:
+          VERSION: ${{ needs.guard.outputs.version }}
         run: |
           mkdir -p release-assets
           cp dist/install.yaml release-assets/
+          cp dist/crds-${VERSION}.tar.gz release-assets/
+          cp dist/vault-access-operator-${VERSION}.tgz release-assets/
+          cp dist/checksums.txt release-assets/
           [ -f /tmp/sbom-amd64/sbom.json ] && cp /tmp/sbom-amd64/sbom.json release-assets/sbom-linux-amd64.json || true
           [ -f /tmp/sbom-arm64/sbom.json ] && cp /tmp/sbom-arm64/sbom.json release-assets/sbom-linux-arm64.json || true
           echo "Release assets:"
@@ -246,7 +337,7 @@ jobs:
           echo "$CHANGELOG" > /tmp/changelog.txt
 
       - name: Create Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@da05d552573ad5aba039eaac05058a918a7bf631 # v2.2.2
         with:
           tag_name: ${{ needs.guard.outputs.tag }}
           name: ${{ needs.guard.outputs.tag }}
@@ -267,14 +358,26 @@ jobs:
     runs-on: ubuntu-latest
     needs: [guard, github-release]
     if: needs.guard.outputs.should-release == 'true'
+    permissions:
+      contents: read
+      packages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-          ref: ${{ needs.guard.outputs.tag }}
+          ref: ${{ needs.guard.outputs.checkout-ref }}
+          persist-credentials: false
 
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@b9e51907a09c216f16ebe8536097933489208112 # v4.3.0
         with:
           version: 'v3.14.0'
+
+      - name: Stamp version in chart
+        env:
+          VERSION: ${{ needs.guard.outputs.version }}
+        run: |
+          sed -i "s/^version:.*/version: ${VERSION}/" charts/vault-access-operator/Chart.yaml
+          sed -i "s/^appVersion:.*/appVersion: \"${VERSION}\"/" charts/vault-access-operator/Chart.yaml
+          sed -i "s/tag:.*/tag: \"${VERSION}\"/" charts/vault-access-operator/values.yaml
 
       - name: Login to GHCR
         env:
@@ -299,11 +402,15 @@ jobs:
     runs-on: ubuntu-latest
     needs: [guard, github-release]
     if: needs.guard.outputs.should-release == 'true'
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-          ref: ${{ needs.guard.outputs.tag }}
-      - uses: actions/setup-python@v5
+          ref: ${{ needs.guard.outputs.checkout-ref }}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: '3.x'
       - run: pip install mkdocs-material
