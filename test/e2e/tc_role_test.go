@@ -41,6 +41,8 @@ var _ = Describe("VaultRole Tests", Ordered, Label("module"), func() {
 	ctx := context.Background()
 
 	BeforeAll(func() {
+		RefreshSharedVaultToken(ctx)
+
 		By("creating test service account for role tests")
 		_ = utils.CreateServiceAccount(ctx, testNamespace, roleSAName)
 

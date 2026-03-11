@@ -580,7 +580,7 @@ jobs:
       # Generate SBOM (CycloneDX format)
       - name: Generate SBOM
         if: github.event_name != 'pull_request' || matrix.platform == 'linux/amd64'
-        uses: aquasecurity/trivy-action@915b19bbe73b92a6cf82a1bc12b087c9a19a5fe2 # 0.28.0
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
         with:
           scan-type: 'image'
           image-ref: ${{ steps.image.outputs.ref }}
@@ -590,7 +590,7 @@ jobs:
       # Scan for all vulnerabilities (JSON output)
       - name: Scan for vulnerabilities (JSON - all)
         if: github.event_name != 'pull_request' || matrix.platform == 'linux/amd64'
-        uses: aquasecurity/trivy-action@915b19bbe73b92a6cf82a1bc12b087c9a19a5fe2 # 0.28.0
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
         with:
           scan-type: 'sbom'
           scan-ref: 'sbom.json'
@@ -601,7 +601,7 @@ jobs:
       # Scan for MEDIUM+ vulnerabilities, ignore unfixed (table for summary)
       - name: Scan for vulnerabilities (MEDIUM+, ignore unfixed)
         if: github.event_name != 'pull_request' || matrix.platform == 'linux/amd64'
-        uses: aquasecurity/trivy-action@915b19bbe73b92a6cf82a1bc12b087c9a19a5fe2 # 0.28.0
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
         with:
           scan-type: 'sbom'
           scan-ref: 'sbom.json'
@@ -619,7 +619,7 @@ jobs:
 
       - name: Generate HTML report
         if: github.event_name != 'pull_request' || matrix.platform == 'linux/amd64'
-        uses: aquasecurity/trivy-action@915b19bbe73b92a6cf82a1bc12b087c9a19a5fe2 # 0.28.0
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
         with:
           scan-type: 'sbom'
           scan-ref: 'sbom.json'
@@ -633,7 +633,7 @@ jobs:
       # Generate SARIF for GitHub Security tab
       - name: Generate SARIF report
         if: github.event_name != 'pull_request' || matrix.platform == 'linux/amd64'
-        uses: aquasecurity/trivy-action@915b19bbe73b92a6cf82a1bc12b087c9a19a5fe2 # 0.28.0
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
         with:
           scan-type: 'sbom'
           scan-ref: 'sbom.json'
