@@ -497,8 +497,26 @@ func (h *Handler) Cleanup(ctx context.Context, conn *vaultv1alpha1.VaultConnecti
 	return nil
 }
 
+// isAuthError returns true if the error indicates a Vault authentication/authorization failure.
+func isAuthError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "permission denied") ||
+		strings.Contains(msg, "invalid token") ||
+		strings.Contains(msg, "Code: 403")
+}
+
 // handleSyncError updates the status to error state and returns the error.
 func (h *Handler) handleSyncError(ctx context.Context, conn *vaultv1alpha1.VaultConnection, err error) error {
+	// If the error looks like an auth failure, evict the cached client
+	// so the next reconciliation performs a full re-auth with fresh credentials.
+	if isAuthError(err) {
+		h.clientCache.Delete(conn.Name)
+		h.log.Info("evicted cached client due to auth failure", "connectionName", conn.Name)
+	}
+
 	conn.Status.Phase = vaultv1alpha1.PhaseError
 	conn.Status.Message = err.Error()
 	h.setCondition(conn, vaultv1alpha1.ConditionTypeReady, metav1.ConditionFalse,

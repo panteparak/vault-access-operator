@@ -2715,3 +2715,94 @@ func TestCleanup_DisableAuthFailure_NonFatal(t *testing.T) {
 		t.Error("expected revoke-self to be attempted after disable failure")
 	}
 }
+
+// --- isAuthError tests ---
+
+func TestIsAuthError(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil error", nil, false},
+		{"permission denied", fmt.Errorf("transient error: permission denied"), true},
+		{"invalid token", fmt.Errorf("failed to check policy: invalid token"), true},
+		{"Code: 403", fmt.Errorf("vault returned Code: 403"), true},
+		{"network timeout", fmt.Errorf("context deadline exceeded"), false},
+		{"connection refused", fmt.Errorf("connection refused"), false},
+		{"generic error", fmt.Errorf("something went wrong"), false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isAuthError(tt.err)
+			if got != tt.want {
+				t.Errorf("isAuthError(%v) = %v, want %v", tt.err, got, tt.want)
+			}
+		})
+	}
+}
+
+// --- handleSyncError cache eviction tests ---
+
+func TestHandleSyncError_EvictsCacheOnAuthError(t *testing.T) {
+	scheme := createScheme()
+	conn := newVaultConnection(vaultConnectionOpts{address: "http://localhost:8200"})
+
+	client := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(conn).
+		WithStatusSubresource(conn).
+		Build()
+
+	cache := vault.NewClientCache()
+
+	// Pre-populate the cache with a dummy client
+	dummyClient, err := vault.NewClient(vault.ClientConfig{Address: "http://localhost:8200"})
+	if err != nil {
+		t.Fatalf("failed to create dummy client: %v", err)
+	}
+	cache.Set(conn.Name, dummyClient)
+
+	handler := NewHandler(HandlerConfig{Client: client, ClientCache: cache, Log: logr.Discard()})
+
+	ctx := context.Background()
+	authErr := fmt.Errorf("transient error during check policy existence: permission denied")
+	_ = handler.handleSyncError(ctx, conn, authErr)
+
+	// Verify the cache entry was evicted
+	if _, cacheErr := cache.Get(conn.Name); cacheErr == nil {
+		t.Error("expected cache entry to be evicted on auth error, but it still exists")
+	}
+}
+
+func TestHandleSyncError_KeepsCacheOnNonAuthError(t *testing.T) {
+	scheme := createScheme()
+	conn := newVaultConnection(vaultConnectionOpts{address: "http://localhost:8200"})
+
+	client := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(conn).
+		WithStatusSubresource(conn).
+		Build()
+
+	cache := vault.NewClientCache()
+
+	// Pre-populate the cache with a dummy client
+	dummyClient, err := vault.NewClient(vault.ClientConfig{Address: "http://localhost:8200"})
+	if err != nil {
+		t.Fatalf("failed to create dummy client: %v", err)
+	}
+	cache.Set(conn.Name, dummyClient)
+
+	handler := NewHandler(HandlerConfig{Client: client, ClientCache: cache, Log: logr.Discard()})
+
+	ctx := context.Background()
+	nonAuthErr := fmt.Errorf("context deadline exceeded")
+	_ = handler.handleSyncError(ctx, conn, nonAuthErr)
+
+	// Verify the cache entry was NOT evicted
+	if _, cacheErr := cache.Get(conn.Name); cacheErr != nil {
+		t.Error("expected cache entry to remain for non-auth error, but it was evicted")
+	}
+}
