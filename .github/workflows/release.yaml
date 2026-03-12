@@ -229,7 +229,7 @@ jobs:
           VERSION: ${{ needs.guard.outputs.version }}
         run: |
           IMAGES=""
-          for platform in $(echo '${{ needs.setup.outputs.platforms }}' | jq -r '.[]'); do
+          for platform in $(echo '${{ needs.setup.outputs.platforms }}' | jq -r '.[].platform'); do
             pair="${platform//\//-}"
             IMAGES="$IMAGES ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${VERSION}-${pair}"
           done
