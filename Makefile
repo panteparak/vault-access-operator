@@ -187,6 +187,12 @@ e2e-wait-cluster: ## Wait for k3s kubeconfig, fix URL, wait for node + kube-syst
 	@# Fix kubeconfig server URL — k3s writes its internal container IP, we need localhost
 	@sed -i.bak 's|server: https://.*:6443|server: https://127.0.0.1:6443|' "$(E2E_KUBECONFIG)"
 	@rm -f "$(E2E_KUBECONFIG).bak"
+	@echo "Waiting for k3s node to appear..."
+	@for i in $$(seq 1 60); do \
+		if $(E2E_KUBECTL) get nodes -o name 2>/dev/null | grep -q .; then break; fi; \
+		if [ "$$i" -eq 60 ]; then echo "ERROR: Timed out waiting for node to register"; exit 1; fi; \
+		sleep 2; \
+	done
 	@echo "Waiting for k3s node to be ready..."
 	$(E2E_KUBECTL) wait --for=condition=Ready nodes --all --timeout=120s
 	@echo "Waiting for kube-system pods to appear..."
