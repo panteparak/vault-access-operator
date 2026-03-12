@@ -247,7 +247,7 @@ jobs:
     name: GitHub Release
     runs-on: ubuntu-latest
     needs: [guard, docker-release-manifest]
-    if: needs.guard.outputs.should-release == 'true'
+    if: always() && needs.guard.outputs.should-release == 'true' && !contains(needs.*.result, 'failure')
     permissions:
       contents: write
     steps:
@@ -372,7 +372,7 @@ jobs:
     name: Helm Chart Release (OCI)
     runs-on: ubuntu-latest
     needs: [guard, github-release]
-    if: needs.guard.outputs.should-release == 'true'
+    if: always() && needs.guard.outputs.should-release == 'true' && !contains(needs.*.result, 'failure')
     permissions:
       contents: read
       packages: write
@@ -416,7 +416,7 @@ jobs:
     name: Deploy Documentation
     runs-on: ubuntu-latest
     needs: [guard, github-release]
-    if: needs.guard.outputs.should-release == 'true'
+    if: always() && needs.guard.outputs.should-release == 'true' && !contains(needs.*.result, 'failure')
     permissions:
       contents: write
       pages: write
