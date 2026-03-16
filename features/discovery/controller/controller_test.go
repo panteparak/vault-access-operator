@@ -1,0 +1,789 @@
+/*
+Copyright 2026.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package controller
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
+	"github.com/panteparak/vault-access-operator/pkg/vault"
+)
+
+// newTestScheme creates a scheme with the required types registered.
+func newTestScheme() *runtime.Scheme {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+	_ = vaultv1alpha1.AddToScheme(scheme)
+	return scheme
+}
+
+// newMockVaultServer creates an httptest server that handles the Vault API
+// endpoints used by the discovery scanner.
+//
+// Parameters control what the server returns:
+//   - policies: list of policy names for GET /v1/sys/policies/acl
+//   - roles: list of role names for LIST /v1/auth/kubernetes/role
+//   - managedPolicies: list of managed policy keys for LIST /v1/secret/metadata/.../policies
+//   - managedRoles: list of managed role keys for LIST /v1/secret/metadata/.../roles
+func newMockVaultServer(policies, roles, managedPolicies, managedRoles []string) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+
+		switch {
+		// ListPolicies: Vault SDK Sys().ListPoliciesWithContext
+		// The SDK sends GET /v1/sys/policies/acl?list=true and expects {"data":{"keys":[...]}} or {"policies":[...]}
+		case strings.HasPrefix(path, "/v1/sys/policies/acl"):
+			resp := map[string]interface{}{
+				"policies": policies,
+				"data": map[string]interface{}{
+					"keys": policies,
+				},
+			}
+			_ = json.NewEncoder(w).Encode(resp)
+
+		// ListKubernetesAuthRoles: Logical().ListWithContext → LIST or GET with ?list=true
+		case path == "/v1/auth/kubernetes/role":
+			keys := make([]interface{}, len(roles))
+			for i, rl := range roles {
+				keys[i] = rl
+			}
+			resp := map[string]interface{}{
+				"data": map[string]interface{}{
+					"keys": keys,
+				},
+			}
+			_ = json.NewEncoder(w).Encode(resp)
+
+		// ListManagedPolicies: LIST /v1/secret/metadata/vault-access-operator/managed/policies
+		case strings.HasSuffix(path, "/secret/metadata/vault-access-operator/managed/policies"):
+			keys := make([]interface{}, len(managedPolicies))
+			for i, p := range managedPolicies {
+				keys[i] = p
+			}
+			resp := map[string]interface{}{
+				"data": map[string]interface{}{
+					"keys": keys,
+				},
+			}
+			_ = json.NewEncoder(w).Encode(resp)
+
+		// ListManagedRoles: LIST /v1/secret/metadata/vault-access-operator/managed/roles
+		case strings.HasSuffix(path, "/secret/metadata/vault-access-operator/managed/roles"):
+			keys := make([]interface{}, len(managedRoles))
+			for i, mr := range managedRoles {
+				keys[i] = mr
+			}
+			resp := map[string]interface{}{
+				"data": map[string]interface{}{
+					"keys": keys,
+				},
+			}
+			_ = json.NewEncoder(w).Encode(resp)
+
+		// getManaged (called for each key during listManaged): GET /v1/secret/data/vault-access-operator/managed/...
+		case strings.Contains(path, "/secret/data/vault-access-operator/managed/"):
+			metadata, _ := json.Marshal(map[string]interface{}{
+				"k8sResource": "test/test-resource",
+				"managedAt":   time.Now().Format(time.RFC3339),
+				"lastUpdated": time.Now().Format(time.RFC3339),
+			})
+			resp := map[string]interface{}{
+				"data": map[string]interface{}{
+					"data": map[string]interface{}{
+						"metadata": string(metadata),
+					},
+				},
+			}
+			_ = json.NewEncoder(w).Encode(resp)
+
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+}
+
+// newVaultClientFromServer creates a vault.Client connected to the test server
+// and stores it in the provided cache under the given connection name.
+func newVaultClientFromServer(t *testing.T, server *httptest.Server, cache *vault.ClientCache, connName string) {
+	t.Helper()
+	vc, err := vault.NewClient(vault.ClientConfig{Address: server.URL})
+	if err != nil {
+		t.Fatalf("failed to create vault client: %v", err)
+	}
+	cache.Set(connName, vc)
+}
+
+// newVaultConnection creates a VaultConnection object for testing.
+func newVaultConnection(
+	discovery *vaultv1alpha1.DiscoveryConfig,
+	discoveryStatus *vaultv1alpha1.DiscoveryStatus,
+) *vaultv1alpha1.VaultConnection {
+	conn := &vaultv1alpha1.VaultConnection{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "test-conn",
+		},
+		Spec: vaultv1alpha1.VaultConnectionSpec{
+			Address: "https://vault.example.com:8200",
+			Auth: vaultv1alpha1.AuthConfig{
+				Token: &vaultv1alpha1.TokenAuth{
+					SecretRef: vaultv1alpha1.SecretKeySelector{
+						Name: "vault-token",
+						Key:  "token",
+					},
+				},
+			},
+			Discovery: discovery,
+		},
+	}
+	if discoveryStatus != nil {
+		conn.Status.DiscoveryStatus = discoveryStatus
+	}
+	return conn
+}
+
+func TestReconcile_DiscoveryDisabled_Nil(t *testing.T) {
+	scheme := newTestScheme()
+	conn := newVaultConnection(nil, nil)
+
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(conn).
+		WithStatusSubresource(conn).
+		Build()
+
+	r := NewReconciler(ReconcilerConfig{
+		Client:      k8sClient,
+		Scheme:      scheme,
+		ClientCache: vault.NewClientCache(),
+		Log:         logr.Discard(),
+		Recorder:    record.NewFakeRecorder(10),
+	})
+
+	result, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "test-conn"},
+	})
+
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v, want nil", err)
+	}
+	if result.RequeueAfter != 0 {
+		t.Errorf("Reconcile() RequeueAfter = %v, want 0", result.RequeueAfter)
+	}
+}
+
+func TestReconcile_DiscoveryDisabled_False(t *testing.T) {
+	scheme := newTestScheme()
+	conn := newVaultConnection(&vaultv1alpha1.DiscoveryConfig{
+		Enabled: false,
+	}, nil)
+
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(conn).
+		WithStatusSubresource(conn).
+		Build()
+
+	r := NewReconciler(ReconcilerConfig{
+		Client:      k8sClient,
+		Scheme:      scheme,
+		ClientCache: vault.NewClientCache(),
+		Log:         logr.Discard(),
+		Recorder:    record.NewFakeRecorder(10),
+	})
+
+	result, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "test-conn"},
+	})
+
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v, want nil", err)
+	}
+	if result.RequeueAfter != 0 {
+		t.Errorf("Reconcile() RequeueAfter = %v, want 0", result.RequeueAfter)
+	}
+}
+
+func TestReconcile_FirstScan_Success(t *testing.T) {
+	scheme := newTestScheme()
+	conn := newVaultConnection(&vaultv1alpha1.DiscoveryConfig{
+		Enabled:  true,
+		Interval: "1h",
+	}, nil)
+
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(conn).
+		WithStatusSubresource(conn).
+		Build()
+
+	server := newMockVaultServer(
+		[]string{"default", "root", "app-policy"},
+		[]string{"app-role"},
+		nil, // no managed policies
+		nil, // no managed roles
+	)
+	defer server.Close()
+
+	cache := vault.NewClientCache()
+	newVaultClientFromServer(t, server, cache, "test-conn")
+
+	recorder := record.NewFakeRecorder(10)
+	r := NewReconciler(ReconcilerConfig{
+		Client:      k8sClient,
+		Scheme:      scheme,
+		ClientCache: cache,
+		Log:         logr.Discard(),
+		Recorder:    recorder,
+	})
+
+	result, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "test-conn"},
+	})
+
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v, want nil", err)
+	}
+	if result.RequeueAfter != time.Hour {
+		t.Errorf("Reconcile() RequeueAfter = %v, want %v", result.RequeueAfter, time.Hour)
+	}
+
+	// Verify status was updated
+	var updated vaultv1alpha1.VaultConnection
+	if err := k8sClient.Get(context.Background(), types.NamespacedName{Name: "test-conn"}, &updated); err != nil {
+		t.Fatalf("failed to get updated VaultConnection: %v", err)
+	}
+	if updated.Status.DiscoveryStatus == nil {
+		t.Fatal("DiscoveryStatus should not be nil after scan")
+	}
+	if updated.Status.DiscoveryStatus.LastScanAt == nil {
+		t.Error("LastScanAt should be set after scan")
+	}
+}
+
+func TestReconcile_NotYetDue(t *testing.T) {
+	scheme := newTestScheme()
+	recentScan := metav1.NewTime(time.Now().Add(-10 * time.Minute))
+	conn := newVaultConnection(&vaultv1alpha1.DiscoveryConfig{
+		Enabled:  true,
+		Interval: "1h",
+	}, &vaultv1alpha1.DiscoveryStatus{
+		LastScanAt: &recentScan,
+	})
+
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(conn).
+		WithStatusSubresource(conn).
+		Build()
+
+	r := NewReconciler(ReconcilerConfig{
+		Client:      k8sClient,
+		Scheme:      scheme,
+		ClientCache: vault.NewClientCache(),
+		Log:         logr.Discard(),
+		Recorder:    record.NewFakeRecorder(10),
+	})
+
+	result, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "test-conn"},
+	})
+
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v, want nil", err)
+	}
+	// Should requeue for the remaining time (~50 minutes)
+	if result.RequeueAfter <= 0 {
+		t.Error("Reconcile() should return RequeueAfter > 0 when scan is not yet due")
+	}
+	if result.RequeueAfter > time.Hour {
+		t.Errorf("Reconcile() RequeueAfter = %v, should be less than scan interval", result.RequeueAfter)
+	}
+}
+
+func TestReconcile_NoVaultClient(t *testing.T) {
+	scheme := newTestScheme()
+	conn := newVaultConnection(&vaultv1alpha1.DiscoveryConfig{
+		Enabled:  true,
+		Interval: "1h",
+	}, nil)
+
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(conn).
+		WithStatusSubresource(conn).
+		Build()
+
+	// Empty cache — no vault client registered
+	cache := vault.NewClientCache()
+
+	r := NewReconciler(ReconcilerConfig{
+		Client:      k8sClient,
+		Scheme:      scheme,
+		ClientCache: cache,
+		Log:         logr.Discard(),
+		Recorder:    record.NewFakeRecorder(10),
+	})
+
+	result, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "test-conn"},
+	})
+
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v, want nil (should requeue, not error)", err)
+	}
+	if result.RequeueAfter == 0 {
+		t.Error("Reconcile() should requeue when vault client is not in cache")
+	}
+}
+
+func TestReconcile_ConnectionNotFound(t *testing.T) {
+	scheme := newTestScheme()
+
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		Build()
+
+	r := NewReconciler(ReconcilerConfig{
+		Client:      k8sClient,
+		Scheme:      scheme,
+		ClientCache: vault.NewClientCache(),
+		Log:         logr.Discard(),
+		Recorder:    record.NewFakeRecorder(10),
+	})
+
+	result, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "nonexistent"},
+	})
+
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v, want nil for not-found", err)
+	}
+	if result.RequeueAfter != 0 {
+		t.Errorf("Reconcile() RequeueAfter = %v, want 0 for not-found", result.RequeueAfter)
+	}
+}
+
+func TestReconcile_FindsUnmanagedResources(t *testing.T) {
+	scheme := newTestScheme()
+	conn := newVaultConnection(&vaultv1alpha1.DiscoveryConfig{
+		Enabled:  true,
+		Interval: "1h",
+	}, nil)
+
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(conn).
+		WithStatusSubresource(conn).
+		Build()
+
+	// Vault has 4 policies (default, root are system), app-policy is unmanaged,
+	// managed-policy is already managed. Roles: app-role is unmanaged, managed-role is managed.
+	server := newMockVaultServer(
+		[]string{"default", "root", "app-policy", "managed-policy"},
+		[]string{"app-role", "managed-role"},
+		[]string{"managed-policy"},
+		[]string{"managed-role"},
+	)
+	defer server.Close()
+
+	cache := vault.NewClientCache()
+	newVaultClientFromServer(t, server, cache, "test-conn")
+
+	recorder := record.NewFakeRecorder(10)
+	r := NewReconciler(ReconcilerConfig{
+		Client:      k8sClient,
+		Scheme:      scheme,
+		ClientCache: cache,
+		Log:         logr.Discard(),
+		Recorder:    recorder,
+	})
+
+	result, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "test-conn"},
+	})
+
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v, want nil", err)
+	}
+	if result.RequeueAfter != time.Hour {
+		t.Errorf("Reconcile() RequeueAfter = %v, want %v", result.RequeueAfter, time.Hour)
+	}
+
+	// Verify status was updated with correct counts
+	var updated vaultv1alpha1.VaultConnection
+	if err := k8sClient.Get(context.Background(), types.NamespacedName{Name: "test-conn"}, &updated); err != nil {
+		t.Fatalf("failed to get updated VaultConnection: %v", err)
+	}
+	if updated.Status.DiscoveryStatus == nil {
+		t.Fatal("DiscoveryStatus should not be nil")
+	}
+	if updated.Status.DiscoveryStatus.UnmanagedPolicies != 1 {
+		t.Errorf("UnmanagedPolicies = %d, want 1 (app-policy)", updated.Status.DiscoveryStatus.UnmanagedPolicies)
+	}
+	if updated.Status.DiscoveryStatus.UnmanagedRoles != 1 {
+		t.Errorf("UnmanagedRoles = %d, want 1 (app-role)", updated.Status.DiscoveryStatus.UnmanagedRoles)
+	}
+	if len(updated.Status.DiscoveryStatus.DiscoveredResources) != 2 {
+		t.Errorf("DiscoveredResources count = %d, want 2", len(updated.Status.DiscoveryStatus.DiscoveredResources))
+	}
+
+	// Verify an event was emitted
+	select {
+	case event := <-recorder.Events:
+		if !strings.Contains(event, "DiscoveryScanComplete") {
+			t.Errorf("expected DiscoveryScanComplete event, got %q", event)
+		}
+	default:
+		t.Error("expected a DiscoveryScanComplete event to be emitted")
+	}
+}
+
+func TestReconcile_MinScanIntervalClamping(t *testing.T) {
+	// Override MinScanInterval for this test
+	origMin := MinScanInterval
+	MinScanInterval = 5 * time.Minute
+	defer func() { MinScanInterval = origMin }()
+
+	scheme := newTestScheme()
+	conn := newVaultConnection(&vaultv1alpha1.DiscoveryConfig{
+		Enabled:  true,
+		Interval: "1m", // less than MinScanInterval
+	}, nil)
+
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(conn).
+		WithStatusSubresource(conn).
+		Build()
+
+	server := newMockVaultServer(
+		[]string{"default", "root"},
+		nil,
+		nil,
+		nil,
+	)
+	defer server.Close()
+
+	cache := vault.NewClientCache()
+	newVaultClientFromServer(t, server, cache, "test-conn")
+
+	r := NewReconciler(ReconcilerConfig{
+		Client:      k8sClient,
+		Scheme:      scheme,
+		ClientCache: cache,
+		Log:         logr.Discard(),
+		Recorder:    record.NewFakeRecorder(10),
+	})
+
+	result, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "test-conn"},
+	})
+
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v, want nil", err)
+	}
+	// Should be clamped to MinScanInterval (5m), not the configured 1m
+	if result.RequeueAfter != 5*time.Minute {
+		t.Errorf("Reconcile() RequeueAfter = %v, want %v (clamped to MinScanInterval)", result.RequeueAfter, 5*time.Minute)
+	}
+}
+
+func TestAutoCreateCRs_Success(t *testing.T) {
+	scheme := newTestScheme()
+	conn := newVaultConnection(&vaultv1alpha1.DiscoveryConfig{
+		Enabled:         true,
+		AutoCreateCRs:   true,
+		TargetNamespace: "vault-resources",
+	}, nil)
+
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(conn).
+		WithStatusSubresource(conn).
+		Build()
+
+	now := metav1.Now()
+	scanResult := &ScanResult{
+		UnmanagedPolicies: []string{"app-policy"},
+		UnmanagedRoles:    []string{"app-role"},
+		DiscoveredResources: []vaultv1alpha1.DiscoveredResource{
+			{
+				Type:            "policy",
+				Name:            "app-policy",
+				DiscoveredAt:    now,
+				SuggestedCRName: "app-policy",
+				AdoptionStatus:  "discovered",
+			},
+			{
+				Type:            "role",
+				Name:            "app-role",
+				DiscoveredAt:    now,
+				SuggestedCRName: "app-role",
+				AdoptionStatus:  "discovered",
+			},
+		},
+	}
+
+	r := NewReconciler(ReconcilerConfig{
+		Client:      k8sClient,
+		Scheme:      scheme,
+		ClientCache: vault.NewClientCache(),
+		Log:         logr.Discard(),
+		Recorder:    record.NewFakeRecorder(10),
+	})
+
+	err := r.autoCreateCRs(context.Background(), conn, scanResult)
+	if err != nil {
+		t.Fatalf("autoCreateCRs() error = %v, want nil", err)
+	}
+
+	// Verify VaultPolicy was created
+	var policy vaultv1alpha1.VaultPolicy
+	if err := k8sClient.Get(context.Background(), types.NamespacedName{
+		Name:      "app-policy",
+		Namespace: "vault-resources",
+	}, &policy); err != nil {
+		t.Fatalf("failed to get created VaultPolicy: %v", err)
+	}
+	if policy.Annotations[vaultv1alpha1.AnnotationAdopt] != "true" {
+		t.Error("VaultPolicy should have adopt annotation set to 'true'")
+	}
+	if policy.Spec.ConnectionRef != "test-conn" {
+		t.Errorf("VaultPolicy.Spec.ConnectionRef = %q, want %q", policy.Spec.ConnectionRef, "test-conn")
+	}
+
+	// Verify VaultRole was created
+	var role vaultv1alpha1.VaultRole
+	if err := k8sClient.Get(context.Background(), types.NamespacedName{
+		Name:      "app-role",
+		Namespace: "vault-resources",
+	}, &role); err != nil {
+		t.Fatalf("failed to get created VaultRole: %v", err)
+	}
+	if role.Annotations[vaultv1alpha1.AnnotationAdopt] != "true" {
+		t.Error("VaultRole should have adopt annotation set to 'true'")
+	}
+	if role.Spec.ConnectionRef != "test-conn" {
+		t.Errorf("VaultRole.Spec.ConnectionRef = %q, want %q", role.Spec.ConnectionRef, "test-conn")
+	}
+}
+
+func TestAutoCreateCRs_MissingTargetNamespace(t *testing.T) {
+	scheme := newTestScheme()
+	conn := newVaultConnection(&vaultv1alpha1.DiscoveryConfig{
+		Enabled:         true,
+		AutoCreateCRs:   true,
+		TargetNamespace: "", // missing
+	}, nil)
+
+	r := NewReconciler(ReconcilerConfig{
+		Client:      fake.NewClientBuilder().WithScheme(scheme).Build(),
+		Scheme:      scheme,
+		ClientCache: vault.NewClientCache(),
+		Log:         logr.Discard(),
+		Recorder:    record.NewFakeRecorder(10),
+	})
+
+	scanResult := &ScanResult{
+		DiscoveredResources: []vaultv1alpha1.DiscoveredResource{
+			{
+				Type:            "policy",
+				Name:            "some-policy",
+				DiscoveredAt:    metav1.Now(),
+				SuggestedCRName: "some-policy",
+			},
+		},
+	}
+
+	err := r.autoCreateCRs(context.Background(), conn, scanResult)
+	if err == nil {
+		t.Fatal("autoCreateCRs() error = nil, want error about missing targetNamespace")
+	}
+	if !strings.Contains(err.Error(), "targetNamespace") {
+		t.Errorf("autoCreateCRs() error = %v, want error mentioning targetNamespace", err)
+	}
+}
+
+func TestAutoCreateCRs_AlreadyExists(t *testing.T) {
+	scheme := newTestScheme()
+	conn := newVaultConnection(&vaultv1alpha1.DiscoveryConfig{
+		Enabled:         true,
+		AutoCreateCRs:   true,
+		TargetNamespace: "vault-resources",
+	}, nil)
+
+	// Pre-create the VaultPolicy that autoCreateCRs will attempt to create
+	existingPolicy := &vaultv1alpha1.VaultPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "app-policy",
+			Namespace: "vault-resources",
+		},
+		Spec: vaultv1alpha1.VaultPolicySpec{
+			ConnectionRef: "test-conn",
+			Rules:         []vaultv1alpha1.PolicyRule{},
+		},
+	}
+
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(conn, existingPolicy).
+		WithStatusSubresource(conn).
+		Build()
+
+	r := NewReconciler(ReconcilerConfig{
+		Client:      k8sClient,
+		Scheme:      scheme,
+		ClientCache: vault.NewClientCache(),
+		Log:         logr.Discard(),
+		Recorder:    record.NewFakeRecorder(10),
+	})
+
+	now := metav1.Now()
+	scanResult := &ScanResult{
+		UnmanagedPolicies: []string{"app-policy"},
+		DiscoveredResources: []vaultv1alpha1.DiscoveredResource{
+			{
+				Type:            "policy",
+				Name:            "app-policy",
+				DiscoveredAt:    now,
+				SuggestedCRName: "app-policy",
+				AdoptionStatus:  "discovered",
+			},
+		},
+	}
+
+	// autoCreateCRs should not return an error when the resource already exists;
+	// it logs and continues.
+	err := r.autoCreateCRs(context.Background(), conn, scanResult)
+	if err != nil {
+		t.Fatalf("autoCreateCRs() error = %v, want nil (should continue on AlreadyExists)", err)
+	}
+
+	// Verify the existing policy is still there and unchanged
+	var policy vaultv1alpha1.VaultPolicy
+	if err := k8sClient.Get(context.Background(), types.NamespacedName{
+		Name:      "app-policy",
+		Namespace: "vault-resources",
+	}, &policy); err != nil {
+		t.Fatalf("existing VaultPolicy should still exist: %v", err)
+	}
+}
+
+func TestUpdateDiscoveryStatus_Success(t *testing.T) {
+	scheme := newTestScheme()
+	conn := newVaultConnection(&vaultv1alpha1.DiscoveryConfig{
+		Enabled: true,
+	}, nil)
+
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(conn).
+		WithStatusSubresource(conn).
+		Build()
+
+	r := NewReconciler(ReconcilerConfig{
+		Client:      k8sClient,
+		Scheme:      scheme,
+		ClientCache: vault.NewClientCache(),
+		Log:         logr.Discard(),
+		Recorder:    record.NewFakeRecorder(10),
+	})
+
+	now := metav1.Now()
+	scanResult := &ScanResult{
+		UnmanagedPolicies: []string{"policy-a", "policy-b"},
+		UnmanagedRoles:    []string{"role-a"},
+		DiscoveredResources: []vaultv1alpha1.DiscoveredResource{
+			{Type: "policy", Name: "policy-a", DiscoveredAt: now, SuggestedCRName: "policy-a"},
+			{Type: "policy", Name: "policy-b", DiscoveredAt: now, SuggestedCRName: "policy-b"},
+			{Type: "role", Name: "role-a", DiscoveredAt: now, SuggestedCRName: "role-a"},
+		},
+	}
+
+	err := r.updateDiscoveryStatus(context.Background(), "test-conn", now, scanResult)
+	if err != nil {
+		t.Fatalf("updateDiscoveryStatus() error = %v, want nil", err)
+	}
+
+	// Verify the status
+	var updated vaultv1alpha1.VaultConnection
+	if err := k8sClient.Get(context.Background(), types.NamespacedName{Name: "test-conn"}, &updated); err != nil {
+		t.Fatalf("failed to get VaultConnection: %v", err)
+	}
+
+	ds := updated.Status.DiscoveryStatus
+	if ds == nil {
+		t.Fatal("DiscoveryStatus should not be nil")
+	}
+	if ds.LastScanAt == nil {
+		t.Error("LastScanAt should be set")
+	} else if ds.LastScanAt.Unix() != now.Unix() {
+		t.Errorf("LastScanAt = %v, want %v", ds.LastScanAt.Time, now.Time)
+	}
+	if ds.UnmanagedPolicies != 2 {
+		t.Errorf("UnmanagedPolicies = %d, want 2", ds.UnmanagedPolicies)
+	}
+	if ds.UnmanagedRoles != 1 {
+		t.Errorf("UnmanagedRoles = %d, want 1", ds.UnmanagedRoles)
+	}
+	if len(ds.DiscoveredResources) != 3 {
+		t.Errorf("DiscoveredResources count = %d, want 3", len(ds.DiscoveredResources))
+	}
+}
+
+func TestUpdateDiscoveryStatus_ConnectionDeleted(t *testing.T) {
+	scheme := newTestScheme()
+	// Do not create the connection — simulate it being deleted
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		Build()
+
+	r := NewReconciler(ReconcilerConfig{
+		Client:      k8sClient,
+		Scheme:      scheme,
+		ClientCache: vault.NewClientCache(),
+		Log:         logr.Discard(),
+		Recorder:    record.NewFakeRecorder(10),
+	})
+
+	scanResult := &ScanResult{
+		UnmanagedPolicies:   []string{},
+		UnmanagedRoles:      []string{},
+		DiscoveredResources: []vaultv1alpha1.DiscoveredResource{},
+	}
+
+	err := r.updateDiscoveryStatus(context.Background(), "deleted-conn", metav1.Now(), scanResult)
+	if err != nil {
+		t.Fatalf("updateDiscoveryStatus() error = %v, want nil for deleted connection", err)
+	}
+}

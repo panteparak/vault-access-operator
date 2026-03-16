@@ -789,3 +789,322 @@ func TestDisableAuth(t *testing.T) {
 		t.Errorf("expected DELETE method, got %s", receivedMethod)
 	}
 }
+
+func TestWritePolicy_Success(t *testing.T) {
+	var receivedPath string
+	var receivedMethod string
+	var receivedBody map[string]interface{}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedPath = r.URL.Path
+		receivedMethod = r.Method
+		_ = json.NewDecoder(r.Body).Decode(&receivedBody)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	client, err := NewClient(ClientConfig{Address: server.URL})
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+
+	ctx := context.Background()
+	err = client.WritePolicy(ctx, "my-policy", `path "secret/*" { capabilities = ["read"] }`)
+	if err != nil {
+		t.Errorf("WritePolicy() error = %v", err)
+	}
+
+	expectedPath := "/v1/sys/policies/acl/my-policy"
+	if receivedPath != expectedPath {
+		t.Errorf("WritePolicy() path = %q, want %q", receivedPath, expectedPath)
+	}
+	if receivedMethod != "PUT" {
+		t.Errorf("WritePolicy() method = %q, want PUT", receivedMethod)
+	}
+	if policy, ok := receivedBody["policy"].(string); !ok || policy != `path "secret/*" { capabilities = ["read"] }` {
+		t.Errorf("WritePolicy() body policy = %v, want HCL string", receivedBody["policy"])
+	}
+}
+
+func TestWritePolicy_Error(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"errors": []string{"internal server error"},
+		})
+	}))
+	defer server.Close()
+
+	client, err := NewClient(ClientConfig{Address: server.URL})
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+
+	ctx := context.Background()
+	err = client.WritePolicy(ctx, "my-policy", `path "secret/*" { capabilities = ["read"] }`)
+	if err == nil {
+		t.Error("WritePolicy() expected error for server 500, got nil")
+	}
+}
+
+func TestReadPolicy_Success(t *testing.T) {
+	expectedHCL := `path "secret/*" { capabilities = ["read"] }`
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		response := map[string]interface{}{
+			"request_id": "test-request-id",
+			"data": map[string]interface{}{
+				"name":   "my-policy",
+				"policy": expectedHCL,
+			},
+		}
+		_ = json.NewEncoder(w).Encode(response)
+	}))
+	defer server.Close()
+
+	client, err := NewClient(ClientConfig{Address: server.URL})
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+
+	ctx := context.Background()
+	policy, err := client.ReadPolicy(ctx, "my-policy")
+	if err != nil {
+		t.Errorf("ReadPolicy() error = %v", err)
+	}
+	if policy != expectedHCL {
+		t.Errorf("ReadPolicy() = %q, want %q", policy, expectedHCL)
+	}
+}
+
+func TestReadPolicy_NotFound(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	client, err := NewClient(ClientConfig{Address: server.URL})
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+
+	ctx := context.Background()
+	policy, err := client.ReadPolicy(ctx, "nonexistent-policy")
+	if err != nil {
+		t.Errorf("ReadPolicy() error = %v, want nil for not found", err)
+	}
+	if policy != "" {
+		t.Errorf("ReadPolicy() = %q, want empty string for not found", policy)
+	}
+}
+
+func TestDeletePolicy_Success(t *testing.T) {
+	var receivedPath string
+	var receivedMethod string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedPath = r.URL.Path
+		receivedMethod = r.Method
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	client, err := NewClient(ClientConfig{Address: server.URL})
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+
+	ctx := context.Background()
+	err = client.DeletePolicy(ctx, "my-policy")
+	if err != nil {
+		t.Errorf("DeletePolicy() error = %v", err)
+	}
+
+	expectedPath := "/v1/sys/policies/acl/my-policy"
+	if receivedPath != expectedPath {
+		t.Errorf("DeletePolicy() path = %q, want %q", receivedPath, expectedPath)
+	}
+	if receivedMethod != "DELETE" {
+		t.Errorf("DeletePolicy() method = %q, want DELETE", receivedMethod)
+	}
+}
+
+func TestDeletePolicy_Error(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"errors": []string{"internal server error"},
+		})
+	}))
+	defer server.Close()
+
+	client, err := NewClient(ClientConfig{Address: server.URL})
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+
+	ctx := context.Background()
+	err = client.DeletePolicy(ctx, "my-policy")
+	if err == nil {
+		t.Error("DeletePolicy() expected error for server 500, got nil")
+	}
+}
+
+func TestPolicyExists_True(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		response := map[string]interface{}{
+			"data": map[string]interface{}{
+				"policies": []string{"default", "my-policy", "root"},
+				"keys":     []string{"default", "my-policy", "root"},
+			},
+			"policies": []string{"default", "my-policy", "root"},
+		}
+		_ = json.NewEncoder(w).Encode(response)
+	}))
+	defer server.Close()
+
+	client, err := NewClient(ClientConfig{Address: server.URL})
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+
+	ctx := context.Background()
+	exists, err := client.PolicyExists(ctx, "my-policy")
+	if err != nil {
+		t.Errorf("PolicyExists() error = %v", err)
+	}
+	if !exists {
+		t.Error("PolicyExists() = false, want true")
+	}
+}
+
+func TestPolicyExists_False(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		response := map[string]interface{}{
+			"data": map[string]interface{}{
+				"policies": []string{"default", "root"},
+				"keys":     []string{"default", "root"},
+			},
+			"policies": []string{"default", "root"},
+		}
+		_ = json.NewEncoder(w).Encode(response)
+	}))
+	defer server.Close()
+
+	client, err := NewClient(ClientConfig{Address: server.URL})
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+
+	ctx := context.Background()
+	exists, err := client.PolicyExists(ctx, "nonexistent-policy")
+	if err != nil {
+		t.Errorf("PolicyExists() error = %v", err)
+	}
+	if exists {
+		t.Error("PolicyExists() = true, want false")
+	}
+}
+
+func TestListPolicies_Success(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		response := map[string]interface{}{
+			"data": map[string]interface{}{
+				"policies": []string{"default", "my-policy", "root"},
+				"keys":     []string{"default", "my-policy", "root"},
+			},
+			"policies": []string{"default", "my-policy", "root"},
+		}
+		_ = json.NewEncoder(w).Encode(response)
+	}))
+	defer server.Close()
+
+	client, err := NewClient(ClientConfig{Address: server.URL})
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+
+	ctx := context.Background()
+	policies, err := client.ListPolicies(ctx)
+	if err != nil {
+		t.Errorf("ListPolicies() error = %v", err)
+	}
+
+	expected := []string{"default", "my-policy", "root"}
+	if len(policies) != len(expected) {
+		t.Fatalf("ListPolicies() returned %d policies, want %d", len(policies), len(expected))
+	}
+	for i, p := range policies {
+		if p != expected[i] {
+			t.Errorf("ListPolicies()[%d] = %q, want %q", i, p, expected[i])
+		}
+	}
+}
+
+func TestListPolicies_Empty(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		response := map[string]interface{}{
+			"data": map[string]interface{}{
+				"policies": []string{},
+				"keys":     []string{},
+			},
+			"policies": []string{},
+		}
+		_ = json.NewEncoder(w).Encode(response)
+	}))
+	defer server.Close()
+
+	client, err := NewClient(ClientConfig{Address: server.URL})
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+
+	ctx := context.Background()
+	policies, err := client.ListPolicies(ctx)
+	if err != nil {
+		t.Errorf("ListPolicies() error = %v", err)
+	}
+	if len(policies) != 0 {
+		t.Errorf("ListPolicies() returned %d policies, want 0", len(policies))
+	}
+}
+
+func TestRenewSelf_Success(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/auth/token/renew-self" {
+			t.Errorf("RenewSelf() path = %q, want /v1/auth/token/renew-self", r.URL.Path)
+		}
+		response := map[string]interface{}{
+			"auth": map[string]interface{}{
+				"client_token":   "s.renewed-token",
+				"policies":       []string{"default"},
+				"lease_duration": 7200,
+			},
+		}
+		_ = json.NewEncoder(w).Encode(response)
+	}))
+	defer server.Close()
+
+	client, err := NewClient(ClientConfig{Address: server.URL})
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	client.SetToken("s.original-token")
+
+	ctx := context.Background()
+	beforeRenew := time.Now()
+	err = client.RenewSelf(ctx)
+	if err != nil {
+		t.Errorf("RenewSelf() error = %v", err)
+	}
+
+	expectedTTL := 7200 * time.Second
+	if client.TokenTTL() != expectedTTL {
+		t.Errorf("TokenTTL() = %v, want %v", client.TokenTTL(), expectedTTL)
+	}
+
+	// Token expiration should be approximately now + 7200s
+	if client.TokenExpiration().Before(beforeRenew.Add(expectedTTL - time.Second)) {
+		t.Errorf("TokenExpiration() = %v, expected around %v", client.TokenExpiration(), beforeRenew.Add(expectedTTL))
+	}
+}
