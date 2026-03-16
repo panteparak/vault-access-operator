@@ -409,6 +409,17 @@ func TestSyncRole_Success_NewRole(t *testing.T) {
 	if len(saNamespaces) == 0 {
 		t.Error("expected bound_service_account_namespaces in role data")
 	}
+
+	// Verify managed marker was written
+	vaultRoleName := testNamespace + "-" + testRoleName
+	managedKey := fmt.Sprintf("secret/data/vault-access-operator/managed/roles/%s", vaultRoleName)
+	state.mu.Lock()
+	_, markerExists := state.managed[managedKey]
+	state.mu.Unlock()
+
+	if !markerExists {
+		t.Errorf("expected managed marker at %s, but not found", managedKey)
+	}
 }
 
 func TestSyncRole_Success_WithTTL(t *testing.T) {

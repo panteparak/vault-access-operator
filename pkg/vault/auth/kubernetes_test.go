@@ -102,16 +102,6 @@ func TestGetMountedServiceAccountToken(t *testing.T) {
 }
 
 func TestGetCurrentNamespace_FromEnv(t *testing.T) {
-	// Save original value
-	originalValue := os.Getenv("OPERATOR_NAMESPACE")
-	defer func() {
-		if originalValue == "" {
-			os.Unsetenv("OPERATOR_NAMESPACE")
-		} else {
-			os.Setenv("OPERATOR_NAMESPACE", originalValue)
-		}
-	}()
-
 	tests := []struct {
 		name          string
 		envValue      string
@@ -136,7 +126,7 @@ func TestGetCurrentNamespace_FromEnv(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			os.Setenv("OPERATOR_NAMESPACE", tt.envValue)
+			t.Setenv("OPERATOR_NAMESPACE", tt.envValue)
 
 			ns, err := GetCurrentNamespace()
 			if err != nil {
@@ -151,16 +141,8 @@ func TestGetCurrentNamespace_FromEnv(t *testing.T) {
 }
 
 func TestGetCurrentNamespace_FromFile(t *testing.T) {
-	// Save and clear env var
-	originalValue := os.Getenv("OPERATOR_NAMESPACE")
+	t.Setenv("OPERATOR_NAMESPACE", "")
 	os.Unsetenv("OPERATOR_NAMESPACE")
-	defer func() {
-		if originalValue == "" {
-			os.Unsetenv("OPERATOR_NAMESPACE")
-		} else {
-			os.Setenv("OPERATOR_NAMESPACE", originalValue)
-		}
-	}()
 
 	// When env var is not set and file doesn't exist, should fail
 	_, err := GetCurrentNamespace()
@@ -296,18 +278,7 @@ func TestGetServiceAccountTokenFromPath_Directory(t *testing.T) {
 }
 
 func TestGetCurrentNamespace_EnvTakesPrecedence(t *testing.T) {
-	// Save original value
-	originalValue := os.Getenv("OPERATOR_NAMESPACE")
-	defer func() {
-		if originalValue == "" {
-			os.Unsetenv("OPERATOR_NAMESPACE")
-		} else {
-			os.Setenv("OPERATOR_NAMESPACE", originalValue)
-		}
-	}()
-
-	// Set env var
-	os.Setenv("OPERATOR_NAMESPACE", "env-namespace")
+	t.Setenv("OPERATOR_NAMESPACE", "env-namespace")
 
 	ns, err := GetCurrentNamespace()
 	if err != nil {

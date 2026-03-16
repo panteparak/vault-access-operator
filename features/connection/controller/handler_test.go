@@ -437,16 +437,10 @@ func TestSync_PublishesConnectionReadyEvent(t *testing.T) {
 	cache := vault.NewClientCache()
 	bus := events.NewEventBus(logr.Discard())
 
-	// Subscribe to capture the event
-	var receivedEvent events.ConnectionReady
-	var eventReceived bool
-	var mu sync.Mutex
-
+	// Subscribe to capture the event using a buffered channel
+	eventCh := make(chan events.ConnectionReady, 1)
 	events.Subscribe[events.ConnectionReady](bus, func(_ context.Context, e events.ConnectionReady) error {
-		mu.Lock()
-		receivedEvent = e
-		eventReceived = true
-		mu.Unlock()
+		eventCh <- e
 		return nil
 	})
 
@@ -460,26 +454,20 @@ func TestSync_PublishesConnectionReadyEvent(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Wait for async event
-	time.Sleep(100 * time.Millisecond)
-
-	mu.Lock()
-	defer mu.Unlock()
-
-	if !eventReceived {
-		t.Fatal("expected ConnectionReady event to be published")
-	}
-
-	if receivedEvent.ConnectionName != "test-conn" {
-		t.Errorf("expected ConnectionName 'test-conn', got %s", receivedEvent.ConnectionName)
-	}
-
-	if receivedEvent.VaultAddress != server.URL {
-		t.Errorf("expected VaultAddress '%s', got %s", server.URL, receivedEvent.VaultAddress)
-	}
-
-	if receivedEvent.VaultVersion != "1.15.0" {
-		t.Errorf("expected VaultVersion '1.15.0', got %s", receivedEvent.VaultVersion)
+	// Wait for async event delivery
+	select {
+	case receivedEvent := <-eventCh:
+		if receivedEvent.ConnectionName != "test-conn" {
+			t.Errorf("expected ConnectionName 'test-conn', got %s", receivedEvent.ConnectionName)
+		}
+		if receivedEvent.VaultAddress != server.URL {
+			t.Errorf("expected VaultAddress '%s', got %s", server.URL, receivedEvent.VaultAddress)
+		}
+		if receivedEvent.VaultVersion != "1.15.0" {
+			t.Errorf("expected VaultVersion '1.15.0', got %s", receivedEvent.VaultVersion)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for ConnectionReady event")
 	}
 }
 
@@ -637,16 +625,10 @@ func TestCleanup_PublishesConnectionDisconnectedEvent(t *testing.T) {
 	cache := vault.NewClientCache()
 	bus := events.NewEventBus(logr.Discard())
 
-	// Subscribe to capture the event
-	var receivedEvent events.ConnectionDisconnected
-	var eventReceived bool
-	var mu sync.Mutex
-
+	// Subscribe to capture the event using a buffered channel
+	eventCh := make(chan events.ConnectionDisconnected, 1)
 	events.Subscribe[events.ConnectionDisconnected](bus, func(_ context.Context, e events.ConnectionDisconnected) error {
-		mu.Lock()
-		receivedEvent = e
-		eventReceived = true
-		mu.Unlock()
+		eventCh <- e
 		return nil
 	})
 
@@ -660,22 +642,17 @@ func TestCleanup_PublishesConnectionDisconnectedEvent(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Wait for async event
-	time.Sleep(100 * time.Millisecond)
-
-	mu.Lock()
-	defer mu.Unlock()
-
-	if !eventReceived {
-		t.Fatal("expected ConnectionDisconnected event to be published")
-	}
-
-	if receivedEvent.ConnectionName != "test-conn" {
-		t.Errorf("expected ConnectionName 'test-conn', got %s", receivedEvent.ConnectionName)
-	}
-
-	if receivedEvent.Reason != "resource deleted" {
-		t.Errorf("expected Reason 'resource deleted', got %s", receivedEvent.Reason)
+	// Wait for async event delivery
+	select {
+	case receivedEvent := <-eventCh:
+		if receivedEvent.ConnectionName != "test-conn" {
+			t.Errorf("expected ConnectionName 'test-conn', got %s", receivedEvent.ConnectionName)
+		}
+		if receivedEvent.Reason != "resource deleted" {
+			t.Errorf("expected Reason 'resource deleted', got %s", receivedEvent.Reason)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for ConnectionDisconnected event")
 	}
 }
 

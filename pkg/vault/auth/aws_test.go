@@ -132,15 +132,13 @@ func TestGetAWSRegion_FromEnv(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Clear and set environment variables
+			t.Setenv("AWS_REGION", "")
 			os.Unsetenv("AWS_REGION")
+			t.Setenv("AWS_DEFAULT_REGION", "")
 			os.Unsetenv("AWS_DEFAULT_REGION")
 			for k, v := range tt.envVars {
-				os.Setenv(k, v)
+				t.Setenv(k, v)
 			}
-			defer func() {
-				os.Unsetenv("AWS_REGION")
-				os.Unsetenv("AWS_DEFAULT_REGION")
-			}()
 
 			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 			defer cancel()
@@ -159,7 +157,9 @@ func TestGetAWSRegion_FromEnv(t *testing.T) {
 
 func TestGetAWSRegion_NoEnvFailsFast(t *testing.T) {
 	// Clear environment variables
+	t.Setenv("AWS_REGION", "")
 	os.Unsetenv("AWS_REGION")
+	t.Setenv("AWS_DEFAULT_REGION", "")
 	os.Unsetenv("AWS_DEFAULT_REGION")
 
 	// Use a very short timeout since IMDS will fail (not on EC2)
@@ -264,22 +264,15 @@ func TestLoadAWSConfig_IRSADetection(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Save and restore env vars
-			originalTokenFile := os.Getenv("AWS_WEB_IDENTITY_TOKEN_FILE")
-			originalRoleARN := os.Getenv("AWS_ROLE_ARN")
-			originalRegion := os.Getenv("AWS_REGION")
-			defer func() {
-				setOrUnset("AWS_WEB_IDENTITY_TOKEN_FILE", originalTokenFile)
-				setOrUnset("AWS_ROLE_ARN", originalRoleARN)
-				setOrUnset("AWS_REGION", originalRegion)
-			}()
-
-			// Clear and set env vars
+			// Clear env vars using t.Setenv for automatic cleanup
+			t.Setenv("AWS_WEB_IDENTITY_TOKEN_FILE", "")
 			os.Unsetenv("AWS_WEB_IDENTITY_TOKEN_FILE")
+			t.Setenv("AWS_ROLE_ARN", "")
 			os.Unsetenv("AWS_ROLE_ARN")
+			t.Setenv("AWS_REGION", "")
 			os.Unsetenv("AWS_REGION")
 			for k, v := range tt.envVars {
-				os.Setenv(k, v)
+				t.Setenv(k, v)
 			}
 
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -296,15 +289,6 @@ func TestLoadAWSConfig_IRSADetection(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-// setOrUnset sets an env var if value is non-empty, otherwise unsets it
-func setOrUnset(key, value string) {
-	if value == "" {
-		os.Unsetenv(key)
-	} else {
-		os.Setenv(key, value)
 	}
 }
 

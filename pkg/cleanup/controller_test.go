@@ -507,7 +507,7 @@ func TestController_Start_ContextCancellation(t *testing.T) {
 	}()
 
 	// Cancel after a short delay
-	time.Sleep(50 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 	cancel()
 
 	// Wait for Start to return
@@ -545,7 +545,7 @@ func TestController_Stop(t *testing.T) {
 	}()
 
 	// Let it run briefly
-	time.Sleep(50 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 
 	// Stop should block until controller is stopped
 	done := make(chan struct{})

@@ -309,6 +309,16 @@ func TestSyncPolicy_Success_NewPolicy(t *testing.T) {
 	if !strings.Contains(hcl, "secret/data/") {
 		t.Errorf("expected HCL to contain secret path, got: %s", hcl)
 	}
+
+	// Verify managed marker was written
+	managedKey := fmt.Sprintf("secret/data/vault-access-operator/managed/policies/%s", expectedName)
+	state.mu.Lock()
+	_, markerExists := state.managed[managedKey]
+	state.mu.Unlock()
+
+	if !markerExists {
+		t.Errorf("expected managed marker at %s, but not found; managed keys: %v", managedKey, managedKeys(state.managed))
+	}
 }
 
 func TestSyncPolicy_Success_ClusterPolicy(t *testing.T) {
@@ -362,6 +372,16 @@ func TestSyncPolicy_Success_ClusterPolicy(t *testing.T) {
 
 	if !exists {
 		t.Fatalf("cluster policy not written to Vault; policies: %v", policyKeys(state.policies))
+	}
+
+	// Verify managed marker was written
+	managedKey := "secret/data/vault-access-operator/managed/policies/admin-base"
+	state.mu.Lock()
+	_, markerExists := state.managed[managedKey]
+	state.mu.Unlock()
+
+	if !markerExists {
+		t.Errorf("expected managed marker at %s, but not found", managedKey)
 	}
 }
 
@@ -760,7 +780,7 @@ func TestSyncPolicy_RecoveryAfterVaultError(t *testing.T) {
 	policy.Status.Message = "previous vault error"
 	policy.Status.RetryCount = 3
 
-	handler, server, _ := setupPolicySyncTest(t, policy, conn, policyMockConfig{state: state})
+	handler, server, k8sClient := setupPolicySyncTest(t, policy, conn, policyMockConfig{state: state})
 	defer server.Close()
 
 	ctx := logr.NewContext(context.Background(), logr.Discard())
@@ -771,9 +791,15 @@ func TestSyncPolicy_RecoveryAfterVaultError(t *testing.T) {
 		t.Fatalf("expected recovery to succeed, got: %v", err)
 	}
 
+	// Re-fetch from K8s to get the status update written by updateStatusWithRetry
+	var updated vaultv1alpha1.VaultPolicy
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(policy), &updated); err != nil {
+		t.Fatalf("failed to get updated policy: %v", err)
+	}
+
 	// After successful sync, phase should be Active
-	if policy.Status.Phase != vaultv1alpha1.PhaseActive {
-		t.Errorf("expected PhaseActive after recovery, got %s", policy.Status.Phase)
+	if updated.Status.Phase != vaultv1alpha1.PhaseActive {
+		t.Errorf("expected PhaseActive after recovery, got %s", updated.Status.Phase)
 	}
 }
 
@@ -887,10 +913,29 @@ func TestCleanupPolicy_DeletePolicy(t *testing.T) {
 	if exists {
 		t.Error("expected policy to be deleted from Vault with DeletionPolicy=Delete")
 	}
+
+	// Verify managed marker was removed
+	managedKey := fmt.Sprintf("secret/data/vault-access-operator/managed/policies/%s", policyName)
+	state.mu.Lock()
+	_, markerExists := state.managed[managedKey]
+	state.mu.Unlock()
+
+	if markerExists {
+		t.Error("expected managed marker to be removed after policy deletion")
+	}
 }
 
 // policyKeys returns the keys of a string map.
 func policyKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+// managedKeys returns the keys of the managed metadata map.
+func managedKeys(m map[string]map[string]interface{}) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {
 		keys = append(keys, k)

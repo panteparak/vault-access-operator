@@ -615,7 +615,7 @@ func TestController_Start_ContextCancellation(t *testing.T) {
 	}()
 
 	// Give it a moment to start
-	time.Sleep(50 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 
 	// Cancel the context
 	cancel()
@@ -650,7 +650,7 @@ func TestController_Stop(t *testing.T) {
 	}()
 
 	// Give it a moment to start
-	time.Sleep(50 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 
 	// Stop the controller
 	stopCh := make(chan struct{})

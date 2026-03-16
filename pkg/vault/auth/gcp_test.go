@@ -16,16 +16,6 @@ import (
 )
 
 func TestGetGCPServiceAccountEmail_FromEnv(t *testing.T) {
-	// Save original value
-	originalValue := os.Getenv("GOOGLE_SERVICE_ACCOUNT_EMAIL")
-	defer func() {
-		if originalValue == "" {
-			os.Unsetenv("GOOGLE_SERVICE_ACCOUNT_EMAIL")
-		} else {
-			os.Setenv("GOOGLE_SERVICE_ACCOUNT_EMAIL", originalValue)
-		}
-	}()
-
 	tests := []struct {
 		name      string
 		envValue  string
@@ -45,7 +35,7 @@ func TestGetGCPServiceAccountEmail_FromEnv(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			os.Setenv("GOOGLE_SERVICE_ACCOUNT_EMAIL", tt.envValue)
+			t.Setenv("GOOGLE_SERVICE_ACCOUNT_EMAIL", tt.envValue)
 
 			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 			defer cancel()
@@ -102,22 +92,15 @@ func TestGetGCPProjectID_FromEnv(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Save original values
-			origGoogleCloud := os.Getenv("GOOGLE_CLOUD_PROJECT")
-			origGCP := os.Getenv("GCP_PROJECT")
-			origGcloud := os.Getenv("GCLOUD_PROJECT")
-			defer func() {
-				setOrUnsetGCP("GOOGLE_CLOUD_PROJECT", origGoogleCloud)
-				setOrUnsetGCP("GCP_PROJECT", origGCP)
-				setOrUnsetGCP("GCLOUD_PROJECT", origGcloud)
-			}()
-
-			// Clear and set env vars
+			// Clear env vars using t.Setenv for automatic cleanup
+			t.Setenv("GOOGLE_CLOUD_PROJECT", "")
 			os.Unsetenv("GOOGLE_CLOUD_PROJECT")
+			t.Setenv("GCP_PROJECT", "")
 			os.Unsetenv("GCP_PROJECT")
+			t.Setenv("GCLOUD_PROJECT", "")
 			os.Unsetenv("GCLOUD_PROJECT")
 			for k, v := range tt.envVars {
-				os.Setenv(k, v)
+				t.Setenv(k, v)
 			}
 
 			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
@@ -132,14 +115,6 @@ func TestGetGCPProjectID_FromEnv(t *testing.T) {
 				t.Errorf("GetGCPProjectID() = %v, want %v", projectID, tt.wantProject)
 			}
 		})
-	}
-}
-
-func setOrUnsetGCP(key, value string) {
-	if value == "" {
-		os.Unsetenv(key)
-	} else {
-		os.Setenv(key, value)
 	}
 }
 
@@ -167,17 +142,7 @@ func TestGCPAuthOptions(t *testing.T) {
 }
 
 func TestGetGCPServiceAccountEmail_NoEnvFailsGracefully(t *testing.T) {
-	// Save original value
-	originalValue := os.Getenv("GOOGLE_SERVICE_ACCOUNT_EMAIL")
-	defer func() {
-		if originalValue == "" {
-			os.Unsetenv("GOOGLE_SERVICE_ACCOUNT_EMAIL")
-		} else {
-			os.Setenv("GOOGLE_SERVICE_ACCOUNT_EMAIL", originalValue)
-		}
-	}()
-
-	// Clear env var
+	t.Setenv("GOOGLE_SERVICE_ACCOUNT_EMAIL", "")
 	os.Unsetenv("GOOGLE_SERVICE_ACCOUNT_EMAIL")
 
 	// Use short timeout since metadata server won't exist
@@ -193,19 +158,11 @@ func TestGetGCPServiceAccountEmail_NoEnvFailsGracefully(t *testing.T) {
 }
 
 func TestGetGCPProjectID_NoEnvFailsGracefully(t *testing.T) {
-	// Save original values
-	origGoogleCloud := os.Getenv("GOOGLE_CLOUD_PROJECT")
-	origGCP := os.Getenv("GCP_PROJECT")
-	origGcloud := os.Getenv("GCLOUD_PROJECT")
-	defer func() {
-		setOrUnsetGCP("GOOGLE_CLOUD_PROJECT", origGoogleCloud)
-		setOrUnsetGCP("GCP_PROJECT", origGCP)
-		setOrUnsetGCP("GCLOUD_PROJECT", origGcloud)
-	}()
-
-	// Clear env vars
+	t.Setenv("GOOGLE_CLOUD_PROJECT", "")
 	os.Unsetenv("GOOGLE_CLOUD_PROJECT")
+	t.Setenv("GCP_PROJECT", "")
 	os.Unsetenv("GCP_PROJECT")
+	t.Setenv("GCLOUD_PROJECT", "")
 	os.Unsetenv("GCLOUD_PROJECT")
 
 	// Use short timeout

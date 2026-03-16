@@ -19,7 +19,6 @@ package controller
 import (
 	"context"
 	"errors"
-	"sync"
 	"testing"
 	"time"
 
@@ -859,14 +858,9 @@ func TestCleanupRole_PublishesRoleDeletedEvent(t *testing.T) {
 	fakeClient := newFakeClient(role, conn)
 	eventBus := events.NewEventBus(logr.Discard())
 
-	var receivedEvent events.RoleDeleted
-	var eventReceived bool
-	var mu sync.Mutex
+	eventCh := make(chan events.RoleDeleted, 1)
 	events.Subscribe[events.RoleDeleted](eventBus, func(_ context.Context, e events.RoleDeleted) error {
-		mu.Lock()
-		defer mu.Unlock()
-		receivedEvent = e
-		eventReceived = true
+		eventCh <- e
 		return nil
 	})
 
@@ -876,22 +870,20 @@ func TestCleanupRole_PublishesRoleDeletedEvent(t *testing.T) {
 
 	_ = handler.CleanupRole(ctx, adapter)
 
-	// Wait for async event
-	time.Sleep(100 * time.Millisecond)
-
-	mu.Lock()
-	defer mu.Unlock()
-	if !eventReceived {
-		t.Error("expected RoleDeleted event to be published")
-	}
-	if receivedEvent.RoleName != testVaultRoleName {
-		t.Errorf("expected role name 'testVaultRoleName', got %q", receivedEvent.RoleName)
-	}
-	if receivedEvent.Resource.Name != "test-role" {
-		t.Errorf("expected resource name 'test-role', got %q", receivedEvent.Resource.Name)
-	}
-	if receivedEvent.Resource.Namespace != "default" {
-		t.Errorf("expected namespace 'default', got %q", receivedEvent.Resource.Namespace)
+	// Wait for async event delivery
+	select {
+	case receivedEvent := <-eventCh:
+		if receivedEvent.RoleName != testVaultRoleName {
+			t.Errorf("expected role name 'testVaultRoleName', got %q", receivedEvent.RoleName)
+		}
+		if receivedEvent.Resource.Name != "test-role" {
+			t.Errorf("expected resource name 'test-role', got %q", receivedEvent.Resource.Name)
+		}
+		if receivedEvent.Resource.Namespace != "default" {
+			t.Errorf("expected namespace 'default', got %q", receivedEvent.Resource.Namespace)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for RoleDeleted event")
 	}
 }
 
@@ -941,9 +933,9 @@ func TestCleanupRole_DefaultAuthPath(t *testing.T) {
 	fakeClient := newFakeClient(role, conn)
 	eventBus := events.NewEventBus(logr.Discard())
 
-	var receivedEvent events.RoleDeleted
+	eventCh := make(chan events.RoleDeleted, 1)
 	events.Subscribe[events.RoleDeleted](eventBus, func(_ context.Context, e events.RoleDeleted) error {
-		receivedEvent = e
+		eventCh <- e
 		return nil
 	})
 
@@ -953,11 +945,13 @@ func TestCleanupRole_DefaultAuthPath(t *testing.T) {
 
 	_ = handler.CleanupRole(ctx, adapter)
 
-	// Wait for async event
-	time.Sleep(100 * time.Millisecond)
-
-	if receivedEvent.AuthPath != vault.DefaultKubernetesAuthPath {
-		t.Errorf("expected auth path %q, got %q", vault.DefaultKubernetesAuthPath, receivedEvent.AuthPath)
+	select {
+	case receivedEvent := <-eventCh:
+		if receivedEvent.AuthPath != vault.DefaultKubernetesAuthPath {
+			t.Errorf("expected auth path %q, got %q", vault.DefaultKubernetesAuthPath, receivedEvent.AuthPath)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for RoleDeleted event")
 	}
 }
 
@@ -971,9 +965,9 @@ func TestCleanupRole_CustomAuthPath(t *testing.T) {
 	fakeClient := newFakeClient(role, conn)
 	eventBus := events.NewEventBus(logr.Discard())
 
-	var receivedEvent events.RoleDeleted
+	eventCh := make(chan events.RoleDeleted, 1)
 	events.Subscribe[events.RoleDeleted](eventBus, func(_ context.Context, e events.RoleDeleted) error {
-		receivedEvent = e
+		eventCh <- e
 		return nil
 	})
 
@@ -983,11 +977,13 @@ func TestCleanupRole_CustomAuthPath(t *testing.T) {
 
 	_ = handler.CleanupRole(ctx, adapter)
 
-	// Wait for async event
-	time.Sleep(100 * time.Millisecond)
-
-	if receivedEvent.AuthPath != "auth/custom-k8s" {
-		t.Errorf("expected auth path 'auth/custom-k8s', got %q", receivedEvent.AuthPath)
+	select {
+	case receivedEvent := <-eventCh:
+		if receivedEvent.AuthPath != "auth/custom-k8s" {
+			t.Errorf("expected auth path 'auth/custom-k8s', got %q", receivedEvent.AuthPath)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for RoleDeleted event")
 	}
 }
 
@@ -1000,11 +996,9 @@ func TestCleanupRole_ClusterRole(t *testing.T) {
 	fakeClient := newFakeClient(clusterRole, conn)
 	eventBus := events.NewEventBus(logr.Discard())
 
-	var receivedEvent events.RoleDeleted
-	var eventReceived bool
+	eventCh := make(chan events.RoleDeleted, 1)
 	events.Subscribe[events.RoleDeleted](eventBus, func(_ context.Context, e events.RoleDeleted) error {
-		receivedEvent = e
-		eventReceived = true
+		eventCh <- e
 		return nil
 	})
 
@@ -1014,17 +1008,16 @@ func TestCleanupRole_ClusterRole(t *testing.T) {
 
 	_ = handler.CleanupRole(ctx, adapter)
 
-	// Wait for async event
-	time.Sleep(100 * time.Millisecond)
-
-	if !eventReceived {
-		t.Error("expected RoleDeleted event to be published")
-	}
-	if receivedEvent.Resource.ClusterScoped != true {
-		t.Error("expected ClusterScoped to be true for VaultClusterRole")
-	}
-	if receivedEvent.Resource.Namespace != "" {
-		t.Errorf("expected empty namespace for cluster role, got %q", receivedEvent.Resource.Namespace)
+	select {
+	case receivedEvent := <-eventCh:
+		if receivedEvent.Resource.ClusterScoped != true {
+			t.Error("expected ClusterScoped to be true for VaultClusterRole")
+		}
+		if receivedEvent.Resource.Namespace != "" {
+			t.Errorf("expected empty namespace for cluster role, got %q", receivedEvent.Resource.Namespace)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for RoleDeleted event")
 	}
 }
 

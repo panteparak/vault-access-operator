@@ -507,19 +507,10 @@ func TestGetOperatorServiceAccount(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Save and restore original env
-			orig := os.Getenv("OPERATOR_SERVICE_ACCOUNT")
-			defer func() {
-				if orig != "" {
-					os.Setenv("OPERATOR_SERVICE_ACCOUNT", orig)
-				} else {
-					os.Unsetenv("OPERATOR_SERVICE_ACCOUNT")
-				}
-			}()
-
 			if tt.envValue != "" {
-				os.Setenv("OPERATOR_SERVICE_ACCOUNT", tt.envValue)
+				t.Setenv("OPERATOR_SERVICE_ACCOUNT", tt.envValue)
 			} else {
+				t.Setenv("OPERATOR_SERVICE_ACCOUNT", "")
 				os.Unsetenv("OPERATOR_SERVICE_ACCOUNT")
 			}
 
@@ -555,19 +546,10 @@ func TestGetOperatorNamespace(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Save and restore original env
-			orig := os.Getenv("OPERATOR_NAMESPACE")
-			defer func() {
-				if orig != "" {
-					os.Setenv("OPERATOR_NAMESPACE", orig)
-				} else {
-					os.Unsetenv("OPERATOR_NAMESPACE")
-				}
-			}()
-
 			if tt.envValue != "" {
-				os.Setenv("OPERATOR_NAMESPACE", tt.envValue)
+				t.Setenv("OPERATOR_NAMESPACE", tt.envValue)
 			} else {
+				t.Setenv("OPERATOR_NAMESPACE", "")
 				os.Unsetenv("OPERATOR_NAMESPACE")
 			}
 
