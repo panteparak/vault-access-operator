@@ -7,8 +7,10 @@ package integration
 
 import (
 	"context"
+	"fmt"
 	"os/exec"
 	"sync"
+	"sync/atomic"
 )
 
 var (
@@ -63,15 +65,21 @@ func CreateTestNamespace(baseName string) string {
 	return baseName + "-" + RandomString(8)
 }
 
-// RandomString generates a random string of the given length
+// uniqueCounter provides monotonically increasing IDs for unique test names
+var uniqueCounter atomic.Int64
+
+// RandomString generates a unique string of the given length using an atomic counter.
 func RandomString(length int) string {
-	const charset = "abcdefghijklmnopqrstuvwxyz0123456789"
-	b := make([]byte, length)
-	for i := range b {
-		// Use a simple deterministic approach for test reproducibility
-		b[i] = charset[i%len(charset)]
+	id := uniqueCounter.Add(1)
+	s := fmt.Sprintf("%x", id)
+	if len(s) >= length {
+		return s[:length]
 	}
-	return string(b)
+	// Pad with leading zeros
+	for len(s) < length {
+		s = "0" + s
+	}
+	return s
 }
 
 // IsDockerAvailable checks if Docker daemon is running and accessible.

@@ -6,6 +6,7 @@ import (
 )
 
 func TestSubstituteVariables(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		path      string
@@ -82,6 +83,7 @@ func TestSubstituteVariables(t *testing.T) {
 }
 
 func TestValidateCapabilities(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name         string
 		capabilities []string
@@ -161,6 +163,7 @@ func TestValidateCapabilities(t *testing.T) {
 }
 
 func TestValidatePath(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		path        string
@@ -224,6 +227,7 @@ func TestValidatePath(t *testing.T) {
 }
 
 func TestContainsNamespaceVariable(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		path string
@@ -272,6 +276,7 @@ func TestContainsNamespaceVariable(t *testing.T) {
 }
 
 func TestHasWildcardBeforeNamespace(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		path string
@@ -325,6 +330,7 @@ func TestHasWildcardBeforeNamespace(t *testing.T) {
 }
 
 func TestValidatePath_EdgeCases(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		path    string
@@ -373,6 +379,7 @@ func TestValidatePath_EdgeCases(t *testing.T) {
 }
 
 func TestContainsNamespaceVariable_EdgeCases(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		path string
@@ -426,6 +433,7 @@ func TestContainsNamespaceVariable_EdgeCases(t *testing.T) {
 }
 
 func TestHasWildcardBeforeNamespace_EdgeCases(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		path string
@@ -464,6 +472,7 @@ func TestHasWildcardBeforeNamespace_EdgeCases(t *testing.T) {
 }
 
 func TestGeneratePolicyHCL(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		rules     []PolicyRule
@@ -704,6 +713,7 @@ func TestGeneratePolicyHCL(t *testing.T) {
 }
 
 func TestGeneratePolicyHCLFormat(t *testing.T) {
+	t.Parallel()
 	// Test that generated HCL follows proper format
 	rules := []PolicyRule{
 		{
@@ -753,6 +763,7 @@ func TestGeneratePolicyHCLFormat(t *testing.T) {
 }
 
 func TestGeneratePolicyHCLMultipleCapabilityQuoting(t *testing.T) {
+	t.Parallel()
 	rules := []PolicyRule{
 		{
 			Path:         "test/path",
@@ -777,6 +788,7 @@ func TestGeneratePolicyHCLMultipleCapabilityQuoting(t *testing.T) {
 }
 
 func TestPolicyRuleStruct(t *testing.T) {
+	t.Parallel()
 	// Test that PolicyRule struct can be properly constructed
 	rule := PolicyRule{
 		Path:         "secret/data/test",
@@ -803,6 +815,7 @@ func TestPolicyRuleStruct(t *testing.T) {
 }
 
 func TestGeneratePolicyHCL_DescriptionInjectionRegression(t *testing.T) {
+	t.Parallel()
 	// Regression test: descriptions must never appear in HCL output.
 	// A malicious description with embedded newlines must NOT produce extra HCL blocks.
 	rules := []PolicyRule{

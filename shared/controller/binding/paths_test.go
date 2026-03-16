@@ -23,6 +23,7 @@ import (
 )
 
 func TestPolicyPath(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		policyName string
@@ -55,6 +56,7 @@ func TestPolicyPath(t *testing.T) {
 }
 
 func TestRolePath(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		authMount string
@@ -97,6 +99,7 @@ func TestRolePath(t *testing.T) {
 }
 
 func TestManagedMetadataPath(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name         string
 		resourceType string
@@ -127,6 +130,7 @@ func TestManagedMetadataPath(t *testing.T) {
 }
 
 func TestPolicyK8sRef(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		kind      string
@@ -167,6 +171,7 @@ func TestPolicyK8sRef(t *testing.T) {
 }
 
 func TestRoleK8sRef(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		kind      string
@@ -200,6 +205,7 @@ func TestRoleK8sRef(t *testing.T) {
 }
 
 func TestNewPolicyBinding(t *testing.T) {
+	t.Parallel()
 	binding := NewPolicyBinding("prod-my-policy")
 
 	if binding.VaultPath != "sys/policies/acl/prod-my-policy" {
@@ -223,6 +229,7 @@ func TestNewPolicyBinding(t *testing.T) {
 }
 
 func TestNewRoleBinding(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		authMount  string
@@ -267,6 +274,7 @@ func TestNewRoleBinding(t *testing.T) {
 }
 
 func TestUpdateBindingVerification(t *testing.T) {
+	t.Parallel()
 	binding := &vaultv1alpha1.VaultResourceBinding{
 		VaultPath:       "sys/policies/acl/test",
 		BindingVerified: false,
@@ -283,6 +291,7 @@ func TestUpdateBindingVerification(t *testing.T) {
 }
 
 func TestNewPolicyBindingRef(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name            string
 		policyRef       vaultv1alpha1.PolicyReference
@@ -350,6 +359,7 @@ func TestNewPolicyBindingRef(t *testing.T) {
 }
 
 func TestVaultPolicyName(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name             string
 		ref              vaultv1alpha1.PolicyReference

@@ -21,6 +21,7 @@ import (
 )
 
 func TestComparator_CompareStringSlices_Equal(t *testing.T) {
+	t.Parallel()
 	c := NewComparator()
 	c.CompareStringSlices("policies", []string{"a", "b", "c"}, []string{"a", "b", "c"})
 
@@ -31,6 +32,7 @@ func TestComparator_CompareStringSlices_Equal(t *testing.T) {
 }
 
 func TestComparator_CompareStringSlices_DifferentOrder(t *testing.T) {
+	t.Parallel()
 	c := NewComparator()
 	c.CompareStringSlices("policies", []string{"a", "b", "c"}, []string{"c", "a", "b"})
 
@@ -41,6 +43,7 @@ func TestComparator_CompareStringSlices_DifferentOrder(t *testing.T) {
 }
 
 func TestComparator_CompareStringSlices_Different(t *testing.T) {
+	t.Parallel()
 	c := NewComparator()
 	c.CompareStringSlices("policies", []string{"a", "b"}, []string{"a", "c"})
 
@@ -54,6 +57,7 @@ func TestComparator_CompareStringSlices_Different(t *testing.T) {
 }
 
 func TestComparator_CompareStringSlices_DifferentLength(t *testing.T) {
+	t.Parallel()
 	c := NewComparator()
 	c.CompareStringSlices("policies", []string{"a", "b", "c"}, []string{"a", "b"})
 
@@ -64,6 +68,7 @@ func TestComparator_CompareStringSlices_DifferentLength(t *testing.T) {
 }
 
 func TestComparator_CompareStringSlices_NilHandling(t *testing.T) {
+	t.Parallel()
 	c := NewComparator()
 	c.CompareStringSlices("policies", nil, nil)
 
@@ -74,6 +79,7 @@ func TestComparator_CompareStringSlices_NilHandling(t *testing.T) {
 }
 
 func TestComparator_CompareStringSlices_NilVsEmpty(t *testing.T) {
+	t.Parallel()
 	c := NewComparator()
 	c.CompareStringSlices("policies", nil, []string{})
 
@@ -84,6 +90,7 @@ func TestComparator_CompareStringSlices_NilVsEmpty(t *testing.T) {
 }
 
 func TestComparator_CompareStringSlices_InterfaceSlice(t *testing.T) {
+	t.Parallel()
 	c := NewComparator()
 	// Simulate JSON-decoded data where []string becomes []interface{}
 	c.CompareStringSlices("policies",
@@ -97,6 +104,7 @@ func TestComparator_CompareStringSlices_InterfaceSlice(t *testing.T) {
 }
 
 func TestComparator_CompareValues_Equal(t *testing.T) {
+	t.Parallel()
 	c := NewComparator()
 	c.CompareValues("token_ttl", "1h", "1h")
 
@@ -107,6 +115,7 @@ func TestComparator_CompareValues_Equal(t *testing.T) {
 }
 
 func TestComparator_CompareValues_Different(t *testing.T) {
+	t.Parallel()
 	c := NewComparator()
 	c.CompareValues("token_ttl", "1h", "2h")
 
@@ -117,6 +126,7 @@ func TestComparator_CompareValues_Different(t *testing.T) {
 }
 
 func TestComparator_CompareValues_NumericTypes(t *testing.T) {
+	t.Parallel()
 	c := NewComparator()
 	// Vault may return numbers as different types (int vs float64)
 	c.CompareValues("token_ttl", 3600, 3600.0)
@@ -130,6 +140,7 @@ func TestComparator_CompareValues_NumericTypes(t *testing.T) {
 }
 
 func TestComparator_CompareValuesIfExpected_NilExpected(t *testing.T) {
+	t.Parallel()
 	c := NewComparator()
 	c.CompareValuesIfExpected("token_ttl", nil, "1h")
 
@@ -140,6 +151,7 @@ func TestComparator_CompareValuesIfExpected_NilExpected(t *testing.T) {
 }
 
 func TestComparator_CompareValuesIfExpected_SetExpected(t *testing.T) {
+	t.Parallel()
 	c := NewComparator()
 	c.CompareValuesIfExpected("token_ttl", "1h", "2h")
 
@@ -150,6 +162,7 @@ func TestComparator_CompareValuesIfExpected_SetExpected(t *testing.T) {
 }
 
 func TestComparator_MultipleFields(t *testing.T) {
+	t.Parallel()
 	c := NewComparator()
 	c.CompareStringSlices("policies", []string{"a"}, []string{"b"})
 	c.CompareStringSlices("namespaces", []string{"default"}, []string{"default"})
@@ -168,6 +181,7 @@ func TestComparator_MultipleFields(t *testing.T) {
 }
 
 func TestComparator_Reset(t *testing.T) {
+	t.Parallel()
 	c := NewComparator()
 	c.CompareValues("field1", "a", "b")
 
@@ -186,6 +200,7 @@ func TestComparator_Reset(t *testing.T) {
 }
 
 func TestCompareMapFields(t *testing.T) {
+	t.Parallel()
 	expected := map[string]interface{}{
 		"policies":  []string{"read", "write"},
 		"token_ttl": "1h",
@@ -204,6 +219,7 @@ func TestCompareMapFields(t *testing.T) {
 }
 
 func TestCompareStringSliceFields(t *testing.T) {
+	t.Parallel()
 	expected := map[string]interface{}{
 		"policies":   []string{"read", "write"},
 		"namespaces": []string{"default"},
@@ -223,6 +239,7 @@ func TestCompareStringSliceFields(t *testing.T) {
 }
 
 func TestToStringSlice_EmptyInterfaceSlice(t *testing.T) {
+	t.Parallel()
 	result := toStringSlice([]interface{}{})
 	if result == nil || len(result) != 0 {
 		t.Errorf("expected empty slice, got: %v", result)
@@ -230,6 +247,7 @@ func TestToStringSlice_EmptyInterfaceSlice(t *testing.T) {
 }
 
 func TestToStringSlice_MixedInterfaceSlice(t *testing.T) {
+	t.Parallel()
 	// Non-string elements are skipped
 	result := toStringSlice([]interface{}{"a", 123, "b", true})
 	if len(result) != 2 {
@@ -238,12 +256,14 @@ func TestToStringSlice_MixedInterfaceSlice(t *testing.T) {
 }
 
 func TestValuesEqual_BothNil(t *testing.T) {
+	t.Parallel()
 	if !valuesEqual(nil, nil) {
 		t.Error("nil == nil should be true")
 	}
 }
 
 func TestValuesEqual_OneNil(t *testing.T) {
+	t.Parallel()
 	if valuesEqual(nil, "value") {
 		t.Error("nil != 'value' should be false")
 	}
@@ -255,6 +275,7 @@ func TestValuesEqual_OneNil(t *testing.T) {
 // --- Drift comparator edge cases (Gap 10) ---
 
 func TestCompareStringSlices_EmptyVsSingleEmpty(t *testing.T) {
+	t.Parallel()
 	c := NewComparator()
 	// An empty slice and a slice with one empty string differ
 	c.CompareStringSlices("field", []string{}, []string{""})
@@ -266,6 +287,7 @@ func TestCompareStringSlices_EmptyVsSingleEmpty(t *testing.T) {
 }
 
 func TestCompareValues_IntVsString(t *testing.T) {
+	t.Parallel()
 	c := NewComparator()
 	// fmt.Sprintf produces "3600" for both int and string "3600"
 	c.CompareValues("token_ttl", 3600, "3600")
@@ -277,6 +299,7 @@ func TestCompareValues_IntVsString(t *testing.T) {
 }
 
 func TestCompareValues_BoolVsString(t *testing.T) {
+	t.Parallel()
 	c := NewComparator()
 	// fmt.Sprintf produces "true" for both bool and string
 	c.CompareValues("enabled", true, "true")
@@ -288,6 +311,7 @@ func TestCompareValues_BoolVsString(t *testing.T) {
 }
 
 func TestCompareStringSlices_NilInInterfaceSlice(t *testing.T) {
+	t.Parallel()
 	c := NewComparator()
 	// nil elements in []interface{} are skipped by toStringSlice
 	c.CompareStringSlices("field",
@@ -303,6 +327,7 @@ func TestCompareStringSlices_NilInInterfaceSlice(t *testing.T) {
 }
 
 func TestCompareValues_NestedMap(t *testing.T) {
+	t.Parallel()
 	c := NewComparator()
 	// Nested maps compared via Sprintf — order matters for maps in Sprintf
 	expected := map[string]interface{}{"key": "value"}
@@ -316,6 +341,7 @@ func TestCompareValues_NestedMap(t *testing.T) {
 }
 
 func TestComparator_ReuseSafety(t *testing.T) {
+	t.Parallel()
 	c := NewComparator()
 
 	// First comparison with drift

@@ -25,6 +25,7 @@ import (
 )
 
 func TestSet_AppendsNewCondition(t *testing.T) {
+	t.Parallel()
 	var conds []vaultv1alpha1.Condition
 
 	result := Set(conds, 1, "Ready", metav1.ConditionTrue, "Succeeded", "all good")
@@ -46,6 +47,7 @@ func TestSet_AppendsNewCondition(t *testing.T) {
 }
 
 func TestSet_UpdatesExistingCondition_StatusChanged(t *testing.T) {
+	t.Parallel()
 	conds := []vaultv1alpha1.Condition{
 		{
 			Type:               "Ready",
@@ -76,6 +78,7 @@ func TestSet_UpdatesExistingCondition_StatusChanged(t *testing.T) {
 }
 
 func TestSet_UpdatesExistingCondition_StatusUnchanged(t *testing.T) {
+	t.Parallel()
 	originalTime := metav1.Now()
 	conds := []vaultv1alpha1.Condition{
 		{
@@ -108,6 +111,7 @@ func TestSet_UpdatesExistingCondition_StatusUnchanged(t *testing.T) {
 }
 
 func TestSet_PreservesOtherConditions(t *testing.T) {
+	t.Parallel()
 	conds := []vaultv1alpha1.Condition{
 		{Type: "Ready", Status: metav1.ConditionTrue, Reason: "OK"},
 		{Type: "Synced", Status: metav1.ConditionTrue, Reason: "OK"},

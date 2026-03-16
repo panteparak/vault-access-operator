@@ -21,6 +21,7 @@ import (
 )
 
 func TestFromString_SameContent(t *testing.T) {
+	t.Parallel()
 	hash1 := FromString("test content")
 	hash2 := FromString("test content")
 
@@ -30,6 +31,7 @@ func TestFromString_SameContent(t *testing.T) {
 }
 
 func TestFromString_DifferentContent(t *testing.T) {
+	t.Parallel()
 	hash1 := FromString("content A")
 	hash2 := FromString("content B")
 
@@ -39,6 +41,7 @@ func TestFromString_DifferentContent(t *testing.T) {
 }
 
 func TestFromString_EmptyContent(t *testing.T) {
+	t.Parallel()
 	hash := FromString("")
 	if hash != "" {
 		t.Errorf("expected empty hash for empty content, got %s", hash)
@@ -46,6 +49,7 @@ func TestFromString_EmptyContent(t *testing.T) {
 }
 
 func TestFromString_Length(t *testing.T) {
+	t.Parallel()
 	hash := FromString("test")
 	// SHA256 produces 32 bytes = 64 hex characters
 	if len(hash) != 64 {
@@ -54,6 +58,7 @@ func TestFromString_Length(t *testing.T) {
 }
 
 func TestFromString_Deterministic(t *testing.T) {
+	t.Parallel()
 	content := "test content"
 	hashes := make([]string, 10)
 	for i := 0; i < 10; i++ {
@@ -68,6 +73,7 @@ func TestFromString_Deterministic(t *testing.T) {
 }
 
 func TestFromBytes_Empty(t *testing.T) {
+	t.Parallel()
 	hash := FromBytes(nil)
 	if hash != "" {
 		t.Errorf("expected empty hash for nil bytes, got %s", hash)
@@ -80,6 +86,7 @@ func TestFromBytes_Empty(t *testing.T) {
 }
 
 func TestFromBytes_Content(t *testing.T) {
+	t.Parallel()
 	hash := FromBytes([]byte("test"))
 	if hash == "" {
 		t.Error("expected non-empty hash")
@@ -90,6 +97,7 @@ func TestFromBytes_Content(t *testing.T) {
 }
 
 func TestFromMap_Nil(t *testing.T) {
+	t.Parallel()
 	hash := FromMap(nil)
 	if hash != "" {
 		t.Errorf("expected empty hash for nil map, got %s", hash)
@@ -97,6 +105,7 @@ func TestFromMap_Nil(t *testing.T) {
 }
 
 func TestFromMap_SameContent(t *testing.T) {
+	t.Parallel()
 	data1 := map[string]interface{}{
 		"key1": "value1",
 		"key2": 123,
@@ -115,6 +124,7 @@ func TestFromMap_SameContent(t *testing.T) {
 }
 
 func TestFromMap_DifferentContent(t *testing.T) {
+	t.Parallel()
 	data1 := map[string]interface{}{"key": "value1"}
 	data2 := map[string]interface{}{"key": "value2"}
 
@@ -127,6 +137,7 @@ func TestFromMap_DifferentContent(t *testing.T) {
 }
 
 func TestFromMapDeterministic_OrderIndependent(t *testing.T) {
+	t.Parallel()
 	// Build maps in different orders
 	data1 := map[string]interface{}{
 		"a": 1,
@@ -145,6 +156,7 @@ func TestFromMapDeterministic_OrderIndependent(t *testing.T) {
 }
 
 func TestFromMapDeterministic_Nil(t *testing.T) {
+	t.Parallel()
 	hash := FromMapDeterministic(nil)
 	if hash != "" {
 		t.Errorf("expected empty hash for nil map, got %s", hash)
@@ -152,6 +164,7 @@ func TestFromMapDeterministic_Nil(t *testing.T) {
 }
 
 func TestFromJSON_Struct(t *testing.T) {
+	t.Parallel()
 	type testStruct struct {
 		Name  string `json:"name"`
 		Value int    `json:"value"`
@@ -169,6 +182,7 @@ func TestFromJSON_Struct(t *testing.T) {
 }
 
 func TestFromJSON_Nil(t *testing.T) {
+	t.Parallel()
 	hash := FromJSON(nil)
 	if hash != "" {
 		t.Errorf("expected empty hash for nil, got %s", hash)
@@ -176,12 +190,14 @@ func TestFromJSON_Nil(t *testing.T) {
 }
 
 func TestEquals_BothEmpty(t *testing.T) {
+	t.Parallel()
 	if Equals("", "") {
 		t.Error("empty strings should not be equal (falsy)")
 	}
 }
 
 func TestEquals_Same(t *testing.T) {
+	t.Parallel()
 	hash := FromString("test")
 	if !Equals(hash, hash) {
 		t.Error("same hash should be equal")
@@ -189,6 +205,7 @@ func TestEquals_Same(t *testing.T) {
 }
 
 func TestEquals_Different(t *testing.T) {
+	t.Parallel()
 	hash1 := FromString("test1")
 	hash2 := FromString("test2")
 	if Equals(hash1, hash2) {
@@ -197,12 +214,14 @@ func TestEquals_Different(t *testing.T) {
 }
 
 func TestChanged_EmptyExpected(t *testing.T) {
+	t.Parallel()
 	if !Changed("", "abc123") {
 		t.Error("empty expected should indicate changed")
 	}
 }
 
 func TestChanged_Same(t *testing.T) {
+	t.Parallel()
 	hash := FromString("test")
 	if Changed(hash, hash) {
 		t.Error("same hashes should not indicate changed")
@@ -210,6 +229,7 @@ func TestChanged_Same(t *testing.T) {
 }
 
 func TestChanged_Different(t *testing.T) {
+	t.Parallel()
 	hash1 := FromString("test1")
 	hash2 := FromString("test2")
 	if !Changed(hash1, hash2) {
