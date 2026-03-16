@@ -1186,6 +1186,34 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="PolicyRule">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#policyparameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PolicyParameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#vaultresourcebinding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        VaultResourceBinding
+      
+    </span>
+  </a>
+  
 </li>
         
           <li class="md-nav__item">
@@ -1871,6 +1899,34 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="PolicyRule">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#policyparameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PolicyParameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#vaultresourcebinding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        VaultResourceBinding
+      
+    </span>
+  </a>
+  
 </li>
         
           <li class="md-nav__item">
@@ -2266,19 +2322,27 @@
 <tbody>
 <tr>
 <td><code>Pending</code></td>
-<td>Resource is being processed</td>
+<td>Resource is awaiting initial processing</td>
+</tr>
+<tr>
+<td><code>Syncing</code></td>
+<td>Resource is being synced to Vault</td>
 </tr>
 <tr>
 <td><code>Active</code></td>
 <td>Resource is successfully synced to Vault</td>
 </tr>
 <tr>
-<td><code>Failed</code></td>
+<td><code>Conflict</code></td>
+<td>Conflict with existing Vault resource</td>
+</tr>
+<tr>
+<td><code>Error</code></td>
 <td>Resource sync failed</td>
 </tr>
 <tr>
-<td><code>Conflict</code></td>
-<td>Conflict with existing Vault resource</td>
+<td><code>Deleting</code></td>
+<td>Resource is being removed from Vault (finalizer running)</td>
 </tr>
 </tbody>
 </table>
@@ -2373,6 +2437,26 @@
 <td>BootstrapAuth</td>
 <td>One-time bootstrap authentication</td>
 </tr>
+<tr>
+<td><code>jwt</code></td>
+<td>JWTAuth</td>
+<td>JWT authentication with external identity providers</td>
+</tr>
+<tr>
+<td><code>oidc</code></td>
+<td>OIDCAuth</td>
+<td>OIDC authentication for workload identity federation</td>
+</tr>
+<tr>
+<td><code>aws</code></td>
+<td>AWSAuth</td>
+<td>AWS IAM authentication (EKS/IRSA)</td>
+</tr>
+<tr>
+<td><code>gcp</code></td>
+<td>GCPAuth</td>
+<td>GCP IAM authentication (GKE Workload Identity)</td>
+</tr>
 </tbody>
 </table>
 <h4 id="kubernetesauth">KubernetesAuth<a class="headerlink" href="#kubernetesauth" title="Permanent link">&para;</a></h4>
@@ -2399,6 +2483,12 @@
 <td>Mount path of Kubernetes auth method</td>
 </tr>
 <tr>
+<td><code>kubernetesHost</code></td>
+<td>string</td>
+<td>auto-discover</td>
+<td>Override the Kubernetes API server address for Vault auth config. Required when Vault is external to the cluster</td>
+</tr>
+<tr>
 <td><code>tokenDuration</code></td>
 <td>duration</td>
 <td><code>1h</code></td>
@@ -2409,6 +2499,12 @@
 <td>bool</td>
 <td><code>true</code></td>
 <td>Enable automatic token_reviewer_jwt rotation</td>
+</tr>
+<tr>
+<td><code>renewalStrategy</code></td>
+<td>string</td>
+<td><code>renew</code></td>
+<td>Token renewal strategy: <code>renew</code> (proactive renewal) or <code>reauth</code> (re-authenticate with fresh credentials)</td>
 </tr>
 </tbody>
 </table>
@@ -2727,6 +2823,12 @@
 <td><code>true</code></td>
 <td>Revoke bootstrap token after successful setup</td>
 </tr>
+<tr>
+<td><code>cleanupAuthMount</code></td>
+<td>bool</td>
+<td><code>false</code></td>
+<td>Disable auth backend on VaultConnection deletion. WARNING: revokes ALL tokens issued through this auth mount</td>
+</tr>
 </tbody>
 </table>
 <h4 id="tlsconfig">TLSConfig<a class="headerlink" href="#tlsconfig" title="Permanent link">&para;</a></h4>
@@ -2784,6 +2886,12 @@
 <td><code>auth/kubernetes</code></td>
 <td>Default path for auth methods</td>
 </tr>
+<tr>
+<td><code>driftMode</code></td>
+<td>string</td>
+<td><code>detect</code></td>
+<td>Default drift detection mode for all resources using this connection (<code>ignore</code>, <code>detect</code>, <code>correct</code>)</td>
+</tr>
 </tbody>
 </table>
 <h3 id="status-fields">Status Fields<a class="headerlink" href="#status-fields" title="Permanent link">&para;</a></h3>
@@ -2799,7 +2907,7 @@
 <tr>
 <td><code>phase</code></td>
 <td>string</td>
-<td><code>Pending</code>, <code>Active</code>, <code>Error</code></td>
+<td><code>Pending</code>, <code>Syncing</code>, <code>Active</code>, <code>Conflict</code>, <code>Error</code>, <code>Deleting</code></td>
 </tr>
 <tr>
 <td><code>vaultVersion</code></td>
@@ -2825,6 +2933,31 @@
 <td><code>message</code></td>
 <td>string</td>
 <td>Additional status information</td>
+</tr>
+<tr>
+<td><code>healthy</code></td>
+<td>bool</td>
+<td>Whether the Vault connection is currently healthy</td>
+</tr>
+<tr>
+<td><code>lastHealthCheck</code></td>
+<td>time</td>
+<td>Timestamp of the last health check attempt</td>
+</tr>
+<tr>
+<td><code>lastHealthyTime</code></td>
+<td>time</td>
+<td>Timestamp of the last successful health check</td>
+</tr>
+<tr>
+<td><code>healthCheckError</code></td>
+<td>string</td>
+<td>Error message from the last failed health check</td>
+</tr>
+<tr>
+<td><code>consecutiveFails</code></td>
+<td>int</td>
+<td>Number of consecutive failed health checks</td>
 </tr>
 </tbody>
 </table>
@@ -2860,6 +2993,11 @@
 <td>Current Vault token expiration</td>
 </tr>
 <tr>
+<td><code>tokenAccessor</code></td>
+<td>string</td>
+<td>Vault token accessor for audit trail correlation (not a secret)</td>
+</tr>
+<tr>
 <td><code>tokenLastRenewed</code></td>
 <td>time</td>
 <td>When token was last renewed</td>
@@ -2883,8 +3021,8 @@
 </table>
 <h3 id="kubectl-output">kubectl Output<a class="headerlink" href="#kubectl-output" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>$<span class="w"> </span>kubectl<span class="w"> </span>get<span class="w"> </span>vaultconnection
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>NAME<span class="w">            </span>ADDRESS<span class="w">                          </span>PHASE<span class="w">    </span>VERSION<span class="w">   </span>AGE
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>vault-primary<span class="w">   </span>https://vault.example.com:8200<span class="w">   </span>Active<span class="w">   </span><span class="m">1</span>.15.0<span class="w">    </span>5d
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>NAME<span class="w">            </span>ADDRESS<span class="w">                          </span>PHASE<span class="w">    </span>HEALTHY<span class="w">   </span>VERSION<span class="w">   </span>AGE
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>vault-primary<span class="w">   </span>https://vault.example.com:8200<span class="w">   </span>Active<span class="w">   </span><span class="nb">true</span><span class="w">      </span><span class="m">1</span>.15.0<span class="w">    </span>5d
 </code></pre></div>
 <hr />
 <h2 id="vaultpolicy">VaultPolicy<a class="headerlink" href="#vaultpolicy" title="Permanent link">&para;</a></h2>
@@ -2981,6 +3119,81 @@
 <td>string</td>
 <td>Optional description</td>
 </tr>
+<tr>
+<td><code>parameters</code></td>
+<td>PolicyParameters</td>
+<td>Optional fine-grained parameter constraints</td>
+</tr>
+</tbody>
+</table>
+<h4 id="policyparameters">PolicyParameters<a class="headerlink" href="#policyparameters" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>allowed</code></td>
+<td>[]string</td>
+<td>Allowed parameter values</td>
+</tr>
+<tr>
+<td><code>denied</code></td>
+<td>[]string</td>
+<td>Denied parameter values</td>
+</tr>
+<tr>
+<td><code>required</code></td>
+<td>[]string</td>
+<td>Required parameters</td>
+</tr>
+</tbody>
+</table>
+<h3 id="vaultresourcebinding">VaultResourceBinding<a class="headerlink" href="#vaultresourcebinding" title="Permanent link">&para;</a></h3>
+<p>All synced resources include a <code>binding</code> field in their status that acts as a foreign key reference to the Vault resource:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>vaultPath</code></td>
+<td>string</td>
+<td>Full API path to the Vault resource (e.g., <code>sys/policies/acl/prod-my-policy</code>)</td>
+</tr>
+<tr>
+<td><code>vaultResourceName</code></td>
+<td>string</td>
+<td>Name of the resource in Vault (e.g., <code>prod-my-policy</code>)</td>
+</tr>
+<tr>
+<td><code>authMount</code></td>
+<td>string</td>
+<td>Auth mount path (roles only, e.g., <code>kubernetes</code>)</td>
+</tr>
+<tr>
+<td><code>boundAt</code></td>
+<td>time</td>
+<td>When the binding was established</td>
+</tr>
+<tr>
+<td><code>bindingVerified</code></td>
+<td>bool</td>
+<td>Whether the binding was verified against Vault</td>
+</tr>
+<tr>
+<td><code>lastVerifiedAt</code></td>
+<td>time</td>
+<td>When the binding was last verified</td>
+</tr>
 </tbody>
 </table>
 <h3 id="status-fields_1">Status Fields<a class="headerlink" href="#status-fields_1" title="Permanent link">&para;</a></h3>
@@ -2996,7 +3209,7 @@
 <tr>
 <td><code>phase</code></td>
 <td>string</td>
-<td><code>Pending</code>, <code>Syncing</code>, <code>Active</code>, <code>Conflict</code>, <code>Error</code></td>
+<td><code>Pending</code>, <code>Syncing</code>, <code>Active</code>, <code>Conflict</code>, <code>Error</code>, <code>Deleting</code></td>
 </tr>
 <tr>
 <td><code>vaultName</code></td>
@@ -3012,6 +3225,31 @@
 <td><code>lastSyncedAt</code></td>
 <td>time</td>
 <td>Time of last successful sync</td>
+</tr>
+<tr>
+<td><code>lastAppliedHash</code></td>
+<td>string</td>
+<td>Hash of the last applied policy content</td>
+</tr>
+<tr>
+<td><code>binding</code></td>
+<td>VaultResourceBinding</td>
+<td>Binding to the Vault resource</td>
+</tr>
+<tr>
+<td><code>driftDetected</code></td>
+<td>bool</td>
+<td>Whether the Vault resource differs from the desired state</td>
+</tr>
+<tr>
+<td><code>effectiveDriftMode</code></td>
+<td>string</td>
+<td>Resolved drift mode (<code>ignore</code>, <code>detect</code>, <code>correct</code>)</td>
+</tr>
+<tr>
+<td><code>driftSummary</code></td>
+<td>string</td>
+<td>Human-readable description of detected drift</td>
 </tr>
 </tbody>
 </table>
@@ -3252,7 +3490,7 @@
 <tr>
 <td><code>phase</code></td>
 <td>string</td>
-<td><code>Pending</code>, <code>Syncing</code>, <code>Active</code>, <code>Conflict</code>, <code>Error</code></td>
+<td><code>Pending</code>, <code>Syncing</code>, <code>Active</code>, <code>Conflict</code>, <code>Error</code>, <code>Deleting</code></td>
 </tr>
 <tr>
 <td><code>vaultRoleName</code></td>

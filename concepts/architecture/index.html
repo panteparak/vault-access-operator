@@ -587,6 +587,73 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Vault Client Layer">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#client-cache" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Client Cache
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#event-bus" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Event Bus
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Event Bus">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#event-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Event Types
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pattern" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pattern
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#managed-markers-and-orphan-detection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Managed Markers and Orphan Detection
+      
+    </span>
+  </a>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1421,6 +1488,73 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Vault Client Layer">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#client-cache" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Client Cache
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#event-bus" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Event Bus
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Event Bus">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#event-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Event Types
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pattern" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pattern
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#managed-markers-and-orphan-detection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Managed Markers and Orphan Detection
+      
+    </span>
+  </a>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1614,15 +1748,21 @@
             PF["Policy Feature"]
             RF["Role Feature"]
             DF["Discovery Feature"]
+            EB["Event Bus&lt;br/&gt;(shared/events)"]
+            CC["Client Cache"]
             VC["Vault Client&lt;br/&gt;(pkg/vault)"]
         end
     end
     V["HashiCorp Vault"]
 
-    CF --&gt; VC
-    PF --&gt; VC
-    RF --&gt; VC
-    DF --&gt; VC
+    CF --&gt; EB
+    PF --&gt; EB
+    RF --&gt; EB
+    CF --&gt; CC
+    PF --&gt; CC
+    RF --&gt; CC
+    DF --&gt; CC
+    CC --&gt; VC
     VC --&gt; V</code></pre>
 <h2 id="feature-driven-design">Feature-Driven Design<a class="headerlink" href="#feature-driven-design" title="Permanent link">&para;</a></h2>
 <p>The operator follows a feature-driven architecture where each domain (connection, policy, role, discovery) is self-contained:</p>
@@ -1754,6 +1894,55 @@
 <a id="__codelineno-4-18" name="__codelineno-4-18" href="#__codelineno-4-18"></a><span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">c</span><span class="w"> </span><span class="o">*</span><span class="nx">Client</span><span class="p">)</span><span class="w"> </span><span class="nx">Authenticate</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">)</span><span class="w"> </span><span class="kt">error</span>
 <a id="__codelineno-4-19" name="__codelineno-4-19" href="#__codelineno-4-19"></a><span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">c</span><span class="w"> </span><span class="o">*</span><span class="nx">Client</span><span class="p">)</span><span class="w"> </span><span class="nx">RenewToken</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">)</span><span class="w"> </span><span class="kt">error</span>
 </code></pre></div>
+<h3 id="client-cache">Client Cache<a class="headerlink" href="#client-cache" title="Permanent link">&para;</a></h3>
+<p>The <code>ClientCache</code> is a thread-safe cache that shares authenticated Vault clients between features. The Connection feature creates and caches clients; Policy, Role, and Discovery features retrieve them by VaultConnection name. This avoids redundant authentication and ensures all features use the same token lifecycle.</p>
+<h2 id="event-bus">Event Bus<a class="headerlink" href="#event-bus" title="Permanent link">&para;</a></h2>
+<p>The operator uses an in-process event bus (<code>shared/events</code>) for inter-feature communication, avoiding direct coupling between features.</p>
+<h3 id="event-types">Event Types<a class="headerlink" href="#event-types" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Category</th>
+<th>Events</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Connection</td>
+<td><code>connection.ready</code>, <code>connection.disconnected</code>, <code>connection.health_changed</code></td>
+<td>VaultConnection lifecycle</td>
+</tr>
+<tr>
+<td>Policy</td>
+<td><code>policy.created</code>, <code>policy.updated</code>, <code>policy.deleted</code></td>
+<td>VaultPolicy/VaultClusterPolicy changes</td>
+</tr>
+<tr>
+<td>Role</td>
+<td><code>role.created</code>, <code>role.updated</code>, <code>role.deleted</code></td>
+<td>VaultRole/VaultClusterRole changes</td>
+</tr>
+<tr>
+<td>Token</td>
+<td><code>token.renewed</code>, <code>token.renewal_failed</code>, <code>token.reviewer_refreshed</code></td>
+<td>Token lifecycle events</td>
+</tr>
+</tbody>
+</table>
+<h3 id="pattern">Pattern<a class="headerlink" href="#pattern" title="Permanent link">&para;</a></h3>
+<p>Features publish events via <code>EventBus.Publish()</code> (synchronous) or <code>EventBus.PublishAsync()</code> (fire-and-forget goroutine). Other features subscribe with typed handlers using Go generics: <code>events.Subscribe[ConnectionReady](bus, handler)</code>.</p>
+<h2 id="managed-markers-and-orphan-detection">Managed Markers and Orphan Detection<a class="headerlink" href="#managed-markers-and-orphan-detection" title="Permanent link">&para;</a></h2>
+<p>The operator tracks which Vault resources it manages using KV v2 markers stored at:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>secret/data/vault-access-operator/managed/policies/{name}
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>secret/data/vault-access-operator/managed/roles/{name}
+</code></pre></div>
+<p>These markers enable:</p>
+<ul>
+<li><strong>Orphan detection</strong>: Periodic scans compare markers against existing K8s resources. A marker without a matching CR indicates an orphaned Vault resource (e.g., CR deleted while operator was down).</li>
+<li><strong>Cleanup queue</strong>: Orphaned resources are queued for cleanup with retry logic and exponential backoff.</li>
+<li><strong>Conflict detection</strong>: When creating a resource, the operator checks for existing markers to detect conflicts with other CRs.</li>
+</ul>
 <h2 id="authentication-flow">Authentication Flow<a class="headerlink" href="#authentication-flow" title="Permanent link">&para;</a></h2>
 <pre class="mermaid"><code>sequenceDiagram
     participant VC as VaultConnection
@@ -1766,7 +1955,8 @@
     V-&gt;&gt;K8s: Validate Token
     K8s--&gt;&gt;V: Token Valid
     V--&gt;&gt;VC: Vault Token
-    Note over VC: Token Cached + Renewal</code></pre>
+    Note over VC: Token Cached + Renewal
+    Note over VC,V: Shown: Kubernetes auth. The operator supports 8 auth methods — see Authentication Methods docs</code></pre>
 <h3 id="renewal-strategy">Renewal Strategy<a class="headerlink" href="#renewal-strategy" title="Permanent link">&para;</a></h3>
 <p>The operator supports two token renewal strategies:</p>
 <table>
@@ -1794,7 +1984,10 @@
     Pending --&gt; Syncing
     Syncing --&gt; Active
     Syncing --&gt; Error
+    Syncing --&gt; Conflict
     Active --&gt; Error
+    Active --&gt; Syncing : spec change
+    Error --&gt; Syncing : retry
     Pending --&gt; Conflict
     Error --&gt; Conflict
     Active --&gt; Deleting
@@ -1825,42 +2018,73 @@
 <td><code>PoliciesResolved</code></td>
 <td>Referenced policies exist</td>
 </tr>
+<tr>
+<td><code>DependencyReady</code></td>
+<td>All dependencies (connection, policies) are satisfied</td>
+</tr>
+<tr>
+<td><code>Drifted</code></td>
+<td>Vault resource differs from desired K8s state</td>
+</tr>
+<tr>
+<td><code>Deleting</code></td>
+<td>Resource is being deleted (finalizer in progress)</td>
+</tr>
 </tbody>
 </table>
 <h2 id="metrics-and-observability">Metrics and Observability<a class="headerlink" href="#metrics-and-observability" title="Permanent link">&para;</a></h2>
 <h3 id="prometheus-metrics">Prometheus Metrics<a class="headerlink" href="#prometheus-metrics" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>vault_access_operator_reconcile_total{resource, status}
-<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>vault_access_operator_reconcile_duration_seconds{resource}
-<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>vault_access_operator_vault_operations_total{operation, status}
-<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>vault_access_operator_drift_detected{resource}
-<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>vault_access_operator_discovery_scans_total{connection, status}
-<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>vault_access_operator_discovered_resources{connection, type}
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a># Connection health
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>vault_access_operator_connection_healthy{connection}
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>vault_access_operator_connection_health_checks_total{connection, result}
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>vault_access_operator_connection_consecutive_fails{connection}
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a># Reconciliation
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>vault_access_operator_policy_reconcile_total{kind, namespace, result}
+<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>vault_access_operator_role_reconcile_total{kind, namespace, result}
+<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a>
+<a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a># Drift
+<a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a>vault_access_operator_vault_drift_detected{kind, namespace, name}
+<a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a>vault_access_operator_vault_drift_corrected_total{kind, namespace}
+<a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a>
+<a id="__codelineno-6-14" name="__codelineno-6-14" href="#__codelineno-6-14"></a># Orphan &amp; Cleanup
+<a id="__codelineno-6-15" name="__codelineno-6-15" href="#__codelineno-6-15"></a>vault_access_operator_vault_orphaned_resources{connection, type}
+<a id="__codelineno-6-16" name="__codelineno-6-16" href="#__codelineno-6-16"></a>vault_access_operator_cleanup_queue_size
+<a id="__codelineno-6-17" name="__codelineno-6-17" href="#__codelineno-6-17"></a>vault_access_operator_cleanup_retries_total{resource_type, result}
+<a id="__codelineno-6-18" name="__codelineno-6-18" href="#__codelineno-6-18"></a>
+<a id="__codelineno-6-19" name="__codelineno-6-19" href="#__codelineno-6-19"></a># Safety
+<a id="__codelineno-6-20" name="__codelineno-6-20" href="#__codelineno-6-20"></a>vault_access_operator_safety_destructive_blocked_total{kind, namespace}
+<a id="__codelineno-6-21" name="__codelineno-6-21" href="#__codelineno-6-21"></a>
+<a id="__codelineno-6-22" name="__codelineno-6-22" href="#__codelineno-6-22"></a># Discovery
+<a id="__codelineno-6-23" name="__codelineno-6-23" href="#__codelineno-6-23"></a>vault_access_operator_discovery_adoptions_total{kind, namespace, result}
+<a id="__codelineno-6-24" name="__codelineno-6-24" href="#__codelineno-6-24"></a>vault_access_operator_discovery_unmanaged_resources{connection, type}
+<a id="__codelineno-6-25" name="__codelineno-6-25" href="#__codelineno-6-25"></a>vault_access_operator_discovery_scans_total{connection, result}
 </code></pre></div>
 <h3 id="structured-logging">Structured Logging<a class="headerlink" href="#structured-logging" title="Permanent link">&para;</a></h3>
 <p>All log entries include:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="p">{</span>
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span><span class="nt">&quot;level&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;info&quot;</span><span class="p">,</span>
-<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">  </span><span class="nt">&quot;ts&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2026-01-15T10:30:00Z&quot;</span><span class="p">,</span>
-<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">  </span><span class="nt">&quot;logger&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;vaultpolicy&quot;</span><span class="p">,</span>
-<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">  </span><span class="nt">&quot;msg&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;reconciling resource&quot;</span><span class="p">,</span>
-<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="w">  </span><span class="nt">&quot;reconcileID&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;abc123&quot;</span><span class="p">,</span>
-<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="w">  </span><span class="nt">&quot;namespace&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;production&quot;</span><span class="p">,</span>
-<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="w">  </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;my-policy&quot;</span>
-<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="p">}</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="p">{</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span><span class="nt">&quot;level&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;info&quot;</span><span class="p">,</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">  </span><span class="nt">&quot;ts&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2026-01-15T10:30:00Z&quot;</span><span class="p">,</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">  </span><span class="nt">&quot;logger&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;vaultpolicy&quot;</span><span class="p">,</span>
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="w">  </span><span class="nt">&quot;msg&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;reconciling resource&quot;</span><span class="p">,</span>
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="w">  </span><span class="nt">&quot;reconcileID&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;abc123&quot;</span><span class="p">,</span>
+<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="w">  </span><span class="nt">&quot;namespace&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;production&quot;</span><span class="p">,</span>
+<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="w">  </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;my-policy&quot;</span>
+<a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="p">}</span>
 </code></pre></div>
 <p>Filter logs by reconcileID:
-<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>kubectl<span class="w"> </span>logs<span class="w"> </span>deploy/vault-access-operator-controller-manager<span class="w"> </span><span class="p">|</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span>jq<span class="w"> </span><span class="s1">&#39;select(.reconcileID == &quot;abc123&quot;)&#39;</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>kubectl<span class="w"> </span>logs<span class="w"> </span>deploy/vault-access-operator-controller-manager<span class="w"> </span><span class="p">|</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">  </span>jq<span class="w"> </span><span class="s1">&#39;select(.reconcileID == &quot;abc123&quot;)&#39;</span>
 </code></pre></div></p>
 <h2 id="error-handling">Error Handling<a class="headerlink" href="#error-handling" title="Permanent link">&para;</a></h2>
 <h3 id="retry-with-backoff">Retry with Backoff<a class="headerlink" href="#retry-with-backoff" title="Permanent link">&para;</a></h3>
 <p>Failed operations are automatically retried with exponential backoff:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>Attempt 1: immediate
-<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>Attempt 2: 30s delay
-<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>Attempt 3: 1m delay
-<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>Attempt 4: 2m delay
-<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>...
-<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>Max delay: 5m
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>Attempt 1: immediate
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>Attempt 2: 30s delay
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>Attempt 3: 1m delay
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>Attempt 4: 2m delay
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>...
+<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a>Max delay: 5m
 </code></pre></div>
 <h3 id="error-categories">Error Categories<a class="headerlink" href="#error-categories" title="Permanent link">&para;</a></h3>
 <table>

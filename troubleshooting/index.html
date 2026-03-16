@@ -2381,6 +2381,21 @@
 <td>All referenced policies have been found and resolved</td>
 <td><code>True</code></td>
 </tr>
+<tr>
+<td><code>DependencyReady</code></td>
+<td>All dependencies (connection, policies) are satisfied</td>
+<td><code>True</code></td>
+</tr>
+<tr>
+<td><code>Drifted</code></td>
+<td>Vault resource differs from desired K8s state</td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td><code>Deleting</code></td>
+<td>Resource is being deleted (finalizer in progress)</td>
+<td>N/A</td>
+</tr>
 </tbody>
 </table>
 <h3 id="condition-reasons">Condition Reasons<a class="headerlink" href="#condition-reasons" title="Permanent link">&para;</a></h3>
@@ -2427,6 +2442,61 @@
 <td><code>PolicyNotFound</code></td>
 <td>Referenced policy doesn't exist</td>
 <td>Create the policy</td>
+</tr>
+<tr>
+<td><code>DependencyNotReady</code></td>
+<td>A dependency (connection, policy) is not ready</td>
+<td>Check dependent resources</td>
+</tr>
+<tr>
+<td><code>DependencyReady</code></td>
+<td>All dependencies are satisfied</td>
+<td>None needed</td>
+</tr>
+<tr>
+<td><code>DriftDetected</code></td>
+<td>Vault resource differs from desired state</td>
+<td>Review drift, add <code>allow-destructive</code> annotation if correction is desired</td>
+</tr>
+<tr>
+<td><code>DriftCorrected</code></td>
+<td>Drift was auto-corrected</td>
+<td>None needed</td>
+</tr>
+<tr>
+<td><code>NoDrift</code></td>
+<td>No drift detected</td>
+<td>None needed</td>
+</tr>
+<tr>
+<td><code>DeletionBlocked</code></td>
+<td>Deletion cannot proceed (e.g., dependent resources exist)</td>
+<td>Remove dependent resources first</td>
+</tr>
+<tr>
+<td><code>DeletionInProgress</code></td>
+<td>Resource is being deleted from Vault</td>
+<td>Wait for completion</td>
+</tr>
+<tr>
+<td><code>ChildrenExist</code></td>
+<td>Dependent resources still reference this resource</td>
+<td>Delete child resources first</td>
+</tr>
+<tr>
+<td><code>ObservedGenerationStale</code></td>
+<td>Controller has not yet processed the latest spec change</td>
+<td>Wait for reconciliation</td>
+</tr>
+<tr>
+<td><code>PolicyNotInVault</code></td>
+<td>Referenced policy does not exist in Vault</td>
+<td>Ensure policy CR is synced first</td>
+</tr>
+<tr>
+<td><code>ImmutableFieldChanged</code></td>
+<td>An immutable field was changed</td>
+<td>Revert the change or recreate the resource</td>
 </tr>
 </tbody>
 </table>
