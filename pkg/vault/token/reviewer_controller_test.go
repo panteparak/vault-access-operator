@@ -27,7 +27,7 @@ import (
 
 const (
 	testConnName           = "test-conn"
-	testVaultAuthMountPath = "kubernetes"
+	testVaultAuthMountPath = defaultVaultAuthPath
 )
 
 // --- Mocks ---

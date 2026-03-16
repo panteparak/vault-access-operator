@@ -11,6 +11,8 @@ import (
 	"time"
 )
 
+const httpMethodDelete = "DELETE"
+
 func TestNewClient(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -589,7 +591,7 @@ func TestWriteKubernetesAuthRole(t *testing.T) {
 
 func TestDeleteKubernetesAuthRole(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "DELETE" {
+		if r.Method != httpMethodDelete {
 			t.Errorf("Expected DELETE method, got %s", r.Method)
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -785,7 +787,7 @@ func TestDisableAuth(t *testing.T) {
 		t.Errorf("expected path %q, got %q", expectedPath, receivedPath)
 	}
 
-	if receivedMethod != "DELETE" {
+	if receivedMethod != httpMethodDelete {
 		t.Errorf("expected DELETE method, got %s", receivedMethod)
 	}
 }
@@ -924,7 +926,7 @@ func TestDeletePolicy_Success(t *testing.T) {
 	if receivedPath != expectedPath {
 		t.Errorf("DeletePolicy() path = %q, want %q", receivedPath, expectedPath)
 	}
-	if receivedMethod != "DELETE" {
+	if receivedMethod != httpMethodDelete {
 		t.Errorf("DeletePolicy() method = %q, want DELETE", receivedMethod)
 	}
 }

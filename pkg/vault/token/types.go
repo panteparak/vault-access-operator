@@ -58,6 +58,9 @@ const (
 
 	// DefaultRenewalStrategy is the default renewal strategy.
 	DefaultRenewalStrategy = RenewalStrategyRenew
+
+	// defaultVaultAuthPath is the default Vault auth method mount path.
+	defaultVaultAuthPath = "kubernetes"
 )
 
 // TokenInfo contains the acquired token and its metadata.
@@ -249,7 +252,7 @@ func (c *LifecycleConfig) WithDefaults() *LifecycleConfig {
 		cfg.Audiences = []string{DefaultAudience}
 	}
 	if cfg.VaultAuthPath == "" {
-		cfg.VaultAuthPath = "kubernetes"
+		cfg.VaultAuthPath = defaultVaultAuthPath
 	}
 	if cfg.RenewalStrategy == "" {
 		cfg.RenewalStrategy = DefaultRenewalStrategy
@@ -267,7 +270,7 @@ func (c *ReviewerConfig) WithDefaults() *ReviewerConfig {
 		cfg.RefreshInterval = DefaultReviewerRefreshInterval
 	}
 	if cfg.VaultAuthPath == "" {
-		cfg.VaultAuthPath = "kubernetes"
+		cfg.VaultAuthPath = defaultVaultAuthPath
 	}
 	return &cfg
 }

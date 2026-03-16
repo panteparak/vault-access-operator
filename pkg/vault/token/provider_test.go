@@ -62,7 +62,7 @@ func TestMountedTokenProvider_GetToken_Success(t *testing.T) {
 	jwt := createTestJWT(t, map[string]interface{}{
 		"exp": exp.Unix(),
 		"iat": now.Unix(),
-		"aud": []string{"vault"},
+		"aud": []string{DefaultAudience},
 	})
 
 	dir := t.TempDir()
@@ -86,7 +86,7 @@ func TestMountedTokenProvider_GetToken_Success(t *testing.T) {
 	if !info.IssuedAt.Equal(now) {
 		t.Errorf("issuedAt mismatch: got %v, want %v", info.IssuedAt, now)
 	}
-	if len(info.Audiences) != 1 || info.Audiences[0] != "vault" {
+	if len(info.Audiences) != 1 || info.Audiences[0] != DefaultAudience {
 		t.Errorf("audiences mismatch: got %v, want [vault]", info.Audiences)
 	}
 }
@@ -136,7 +136,7 @@ func TestMountedTokenProvider_ParseJWT_KnownClaims(t *testing.T) {
 	jwt := createTestJWT(t, map[string]interface{}{
 		"exp": exp.Unix(),
 		"iat": iat.Unix(),
-		"aud": []string{"vault", "kubernetes"},
+		"aud": []string{DefaultAudience, "kubernetes"},
 		"sub": "system:serviceaccount:default:my-sa",
 	})
 
@@ -158,7 +158,7 @@ func TestMountedTokenProvider_ParseJWT_KnownClaims(t *testing.T) {
 	if len(info.Audiences) != 2 {
 		t.Fatalf("expected 2 audiences, got %d", len(info.Audiences))
 	}
-	if info.Audiences[0] != "vault" || info.Audiences[1] != "kubernetes" {
+	if info.Audiences[0] != DefaultAudience || info.Audiences[1] != "kubernetes" {
 		t.Errorf("audiences mismatch: got %v", info.Audiences)
 	}
 }
@@ -197,7 +197,7 @@ func TestTokenRequestProvider_GetToken_Success(t *testing.T) {
 			Name:      "my-sa",
 		},
 		Duration:  1 * time.Hour,
-		Audiences: []string{"vault"},
+		Audiences: []string{DefaultAudience},
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -209,7 +209,7 @@ func TestTokenRequestProvider_GetToken_Success(t *testing.T) {
 	if !info.ExpirationTime.Equal(exp) {
 		t.Errorf("expiration mismatch: got %v, want %v", info.ExpirationTime, exp)
 	}
-	if len(info.Audiences) != 1 || info.Audiences[0] != "vault" {
+	if len(info.Audiences) != 1 || info.Audiences[0] != DefaultAudience {
 		t.Errorf("audiences mismatch: got %v", info.Audiences)
 	}
 }
@@ -313,7 +313,7 @@ func TestTokenRequestProvider_GetToken_WithAudiences(t *testing.T) {
 			}, nil
 		})
 
-	audiences := []string{"vault", "custom-audience"}
+	audiences := []string{DefaultAudience, "custom-audience"}
 	provider := NewTokenRequestProvider(clientset, logr.Discard())
 	info, err := provider.GetToken(context.Background(), GetTokenOptions{
 		ServiceAccount: ServiceAccountRef{
@@ -334,12 +334,12 @@ func TestTokenRequestProvider_GetToken_WithAudiences(t *testing.T) {
 	if len(capturedRequest.Spec.Audiences) != 2 {
 		t.Fatalf("expected 2 audiences in request, got %d", len(capturedRequest.Spec.Audiences))
 	}
-	if capturedRequest.Spec.Audiences[0] != "vault" || capturedRequest.Spec.Audiences[1] != "custom-audience" {
+	if capturedRequest.Spec.Audiences[0] != DefaultAudience || capturedRequest.Spec.Audiences[1] != "custom-audience" {
 		t.Errorf("audiences mismatch in request: got %v", capturedRequest.Spec.Audiences)
 	}
 
 	// Verify audiences are also in the returned info
-	if len(info.Audiences) != 2 || info.Audiences[0] != "vault" || info.Audiences[1] != "custom-audience" {
+	if len(info.Audiences) != 2 || info.Audiences[0] != DefaultAudience || info.Audiences[1] != "custom-audience" {
 		t.Errorf("audiences mismatch in result: got %v", info.Audiences)
 	}
 }
