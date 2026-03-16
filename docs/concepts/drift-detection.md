@@ -143,9 +143,9 @@ status:
     - type: Synced
       status: "True"
       reason: Succeeded
-    - type: DriftDetected
+    - type: Drifted
       status: "True"
-      reason: DriftFound
+      reason: DriftDetected
       message: "Vault resource differs from desired state"
 ```
 

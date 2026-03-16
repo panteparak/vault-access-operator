@@ -222,7 +222,7 @@ Webhooks are enabled by default when installing via Helm:
 ```bash
 helm install vault-access-operator \
   oci://ghcr.io/panteparak/vault-access-operator/charts/vault-access-operator \
-  --set webhooks.enabled=true
+  --set webhook.enabled=true
 ```
 
 ### Disabling Webhooks
@@ -232,7 +232,7 @@ For development or testing environments:
 ```bash
 helm install vault-access-operator \
   oci://ghcr.io/panteparak/vault-access-operator/charts/vault-access-operator \
-  --set webhooks.enabled=false
+  --set webhook.enabled=false
 ```
 
 !!! warning "Production Recommendation"
@@ -245,7 +245,7 @@ Webhooks require TLS certificates. Options:
 === "cert-manager (Recommended)"
 
     ```yaml
-    webhooks:
+    webhook:
       certManager:
         enabled: true
         issuerRef:
@@ -256,7 +256,7 @@ Webhooks require TLS certificates. Options:
 === "Self-signed"
 
     ```yaml
-    webhooks:
+    webhook:
       certManager:
         enabled: false
       selfSigned:

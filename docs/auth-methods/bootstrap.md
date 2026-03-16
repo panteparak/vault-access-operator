@@ -129,11 +129,10 @@ spec:
   address: https://vault.example.com:8200
 
   tls:
-    caCert:
-      secretRef:
-        name: vault-ca-cert
-        namespace: vault-access-operator-system
-        key: ca.crt
+    caSecretRef:
+      name: vault-ca-cert
+      namespace: vault-access-operator-system
+      key: ca.crt
 
   auth:
     # Bootstrap phase - will auto-transition to kubernetes auth

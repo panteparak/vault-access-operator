@@ -51,10 +51,12 @@ All resources report their current phase in status:
 
 | Phase | Description |
 |-------|-------------|
-| `Pending` | Resource is being processed |
+| `Pending` | Resource is awaiting initial processing |
+| `Syncing` | Resource is being synced to Vault |
 | `Active` | Resource is successfully synced to Vault |
-| `Failed` | Resource sync failed |
 | `Conflict` | Conflict with existing Vault resource |
+| `Error` | Resource sync failed |
+| `Deleting` | Resource is being removed from Vault (finalizer running) |
 
 ---
 
@@ -97,6 +99,10 @@ spec:
 | `token` | TokenAuth | Static token authentication |
 | `appRole` | AppRoleAuth | AppRole authentication |
 | `bootstrap` | BootstrapAuth | One-time bootstrap authentication |
+| `jwt` | JWTAuth | JWT authentication with external identity providers |
+| `oidc` | OIDCAuth | OIDC authentication for workload identity federation |
+| `aws` | AWSAuth | AWS IAM authentication (EKS/IRSA) |
+| `gcp` | GCPAuth | GCP IAM authentication (GKE Workload Identity) |
 
 #### KubernetesAuth
 
@@ -104,8 +110,10 @@ spec:
 |-------|------|---------|-------------|
 | `role` | string | **Required** | Vault role to authenticate as |
 | `authPath` | string | `kubernetes` | Mount path of Kubernetes auth method |
+| `kubernetesHost` | string | auto-discover | Override the Kubernetes API server address for Vault auth config. Required when Vault is external to the cluster |
 | `tokenDuration` | duration | `1h` | Requested SA token lifetime (uses TokenRequest API) |
 | `tokenReviewerRotation` | bool | `true` | Enable automatic token_reviewer_jwt rotation |
+| `renewalStrategy` | string | `renew` | Token renewal strategy: `renew` (proactive renewal) or `reauth` (re-authenticate with fresh credentials) |
 
 #### TokenAuth
 
@@ -186,6 +194,7 @@ Configures GCP IAM authentication for GKE workloads using Workload Identity or s
 |-------|------|---------|-------------|
 | `secretRef` | SecretKeySelector | **Required** | Reference to secret containing bootstrap token |
 | `autoRevoke` | bool | `true` | Revoke bootstrap token after successful setup |
+| `cleanupAuthMount` | bool | `false` | Disable auth backend on VaultConnection deletion. WARNING: revokes ALL tokens issued through this auth mount |
 
 #### TLSConfig
 
@@ -203,17 +212,23 @@ Optional default paths for Vault operations.
 | `secretEnginePath` | string | - | Default path for secret engines |
 | `transitPath` | string | - | Default path for transit engine |
 | `authPath` | string | `auth/kubernetes` | Default path for auth methods |
+| `driftMode` | string | `detect` | Default drift detection mode for all resources using this connection (`ignore`, `detect`, `correct`) |
 
 ### Status Fields
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `phase` | string | `Pending`, `Active`, `Error` |
+| `phase` | string | `Pending`, `Syncing`, `Active`, `Conflict`, `Error`, `Deleting` |
 | `vaultVersion` | string | Version of connected Vault server |
 | `lastHeartbeat` | time | Time of last successful health check |
 | `authStatus` | AuthStatus | Authentication-related status information |
 | `conditions` | []Condition | Detailed state conditions |
 | `message` | string | Additional status information |
+| `healthy` | bool | Whether the Vault connection is currently healthy |
+| `lastHealthCheck` | time | Timestamp of the last health check attempt |
+| `lastHealthyTime` | time | Timestamp of the last successful health check |
+| `healthCheckError` | string | Error message from the last failed health check |
+| `consecutiveFails` | int | Number of consecutive failed health checks |
 
 ### AuthStatus
 
@@ -225,6 +240,7 @@ Authentication-specific status information.
 | `bootstrapCompletedAt` | time | When bootstrap completed |
 | `authMethod` | string | Currently active auth method |
 | `tokenExpiration` | time | Current Vault token expiration |
+| `tokenAccessor` | string | Vault token accessor for audit trail correlation (not a secret) |
 | `tokenLastRenewed` | time | When token was last renewed |
 | `tokenRenewalCount` | int | Number of token renewals |
 | `tokenReviewerExpiration` | time | When token_reviewer_jwt expires (K8s auth only) |
@@ -234,8 +250,8 @@ Authentication-specific status information.
 
 ```bash
 $ kubectl get vaultconnection
-NAME            ADDRESS                          PHASE    VERSION   AGE
-vault-primary   https://vault.example.com:8200   Active   1.15.0    5d
+NAME            ADDRESS                          PHASE    HEALTHY   VERSION   AGE
+vault-primary   https://vault.example.com:8200   Active   true      1.15.0    5d
 ```
 
 ---
@@ -281,15 +297,42 @@ spec:
 | `path` | string | Vault path (supports `{{namespace}}`, `{{name}}`) |
 | `capabilities` | []string | `create`, `read`, `update`, `delete`, `list`, `sudo`, `deny` |
 | `description` | string | Optional description |
+| `parameters` | PolicyParameters | Optional fine-grained parameter constraints |
+
+#### PolicyParameters
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `allowed` | []string | Allowed parameter values |
+| `denied` | []string | Denied parameter values |
+| `required` | []string | Required parameters |
+
+### VaultResourceBinding
+
+All synced resources include a `binding` field in their status that acts as a foreign key reference to the Vault resource:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `vaultPath` | string | Full API path to the Vault resource (e.g., `sys/policies/acl/prod-my-policy`) |
+| `vaultResourceName` | string | Name of the resource in Vault (e.g., `prod-my-policy`) |
+| `authMount` | string | Auth mount path (roles only, e.g., `kubernetes`) |
+| `boundAt` | time | When the binding was established |
+| `bindingVerified` | bool | Whether the binding was verified against Vault |
+| `lastVerifiedAt` | time | When the binding was last verified |
 
 ### Status Fields
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `phase` | string | `Pending`, `Syncing`, `Active`, `Conflict`, `Error` |
+| `phase` | string | `Pending`, `Syncing`, `Active`, `Conflict`, `Error`, `Deleting` |
 | `vaultName` | string | Name of policy in Vault |
 | `rulesCount` | int | Number of rules |
 | `lastSyncedAt` | time | Time of last successful sync |
+| `lastAppliedHash` | string | Hash of the last applied policy content |
+| `binding` | VaultResourceBinding | Binding to the Vault resource |
+| `driftDetected` | bool | Whether the Vault resource differs from the desired state |
+| `effectiveDriftMode` | string | Resolved drift mode (`ignore`, `detect`, `correct`) |
+| `driftSummary` | string | Human-readable description of detected drift |
 
 ### kubectl Output
 
@@ -403,7 +446,7 @@ spec:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `phase` | string | `Pending`, `Syncing`, `Active`, `Conflict`, `Error` |
+| `phase` | string | `Pending`, `Syncing`, `Active`, `Conflict`, `Error`, `Deleting` |
 | `vaultRoleName` | string | Name of role in Vault |
 | `boundServiceAccounts` | []string | Resolved service account names |
 | `resolvedPolicies` | []string | Resolved Vault policy names |

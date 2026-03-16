@@ -133,7 +133,7 @@ All managed resources share common status patterns:
 
 | Field | Description |
 |-------|-------------|
-| `phase` | Current state: Pending, Syncing, Active, Error, Conflict |
+| `phase` | Current state: Pending, Syncing, Active, Conflict, Error, Deleting |
 | `conditions` | Detailed conditions (Ready, Synced, etc.) |
 | `lastSyncedAt` | When the resource was last synced to Vault |
 | `driftDetected` | Whether configuration drift exists |

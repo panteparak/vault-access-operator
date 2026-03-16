@@ -24,7 +24,8 @@ flowchart LR
     B --> C["Filter by Pattern<br/>& Exclude System Policies"]
     C --> D["Unmanaged Resources<br/>(no matching CR)"]
     D --> E["Compare with<br/>K8s Resources"]
-    E --> F["Update Status<br/>(discovered resources)"]
+    E --> F["Auto-Create CRs<br/>(if enabled)"]
+    F --> G["Update Status<br/>(discovered resources)"]
 ```
 
 ## Enabling Discovery
@@ -65,6 +66,22 @@ spec:
 | `policyPatterns` | `[]` (all) | Glob patterns for policy names |
 | `rolePatterns` | `[]` (all) | Glob patterns for role names |
 | `excludeSystemPolicies` | `true` | Skip built-in Vault policies |
+| `customSystemPolicies` | `[]` | Additional policy names to treat as system policies (excluded when `excludeSystemPolicies` is true) |
+| `autoCreateCRs` | `false` | Automatically create K8s CRs for discovered resources (requires `targetNamespace`) |
+| `targetNamespace` | `""` | Namespace where auto-created CRs will be placed |
+
+### Auto-Create CRs
+
+When `autoCreateCRs` is enabled, the operator automatically creates `VaultPolicy` and `VaultRole` custom resources for each discovered unmanaged Vault resource. Created resources include the `vault.platform.io/adopt` annotation set to `"true"` and the `vault.platform.io/discovered-at` annotation with the discovery timestamp.
+
+```yaml
+discovery:
+  enabled: true
+  autoCreateCRs: true
+  targetNamespace: vault-managed
+  policyPatterns:
+    - "app-*"
+```
 
 ### System Policies
 
@@ -110,9 +127,9 @@ status:
 ### Via Prometheus Metrics
 
 ```
-vault_access_operator_discovered_resources{connection="vault-primary", type="policy"} 3
-vault_access_operator_discovered_resources{connection="vault-primary", type="role"} 2
-vault_access_operator_discovery_scans_total{connection="vault-primary", status="success"} 10
+vault_access_operator_discovery_unmanaged_resources{connection="vault-primary", type="policy"} 3
+vault_access_operator_discovery_unmanaged_resources{connection="vault-primary", type="role"} 2
+vault_access_operator_discovery_scans_total{connection="vault-primary", result="success"} 10
 ```
 
 ## Adopting Discovered Resources

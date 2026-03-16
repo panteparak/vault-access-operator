@@ -111,10 +111,9 @@ metadata:
 spec:
   address: https://vault.example.com:8200
   tls:
-    caCert:
-      secretRef:
-        name: vault-ca-cert
-        key: ca.crt
+    caSecretRef:
+      name: vault-ca-cert
+      key: ca.crt
   auth:
     # Choose ONE of the following auth methods
     kubernetes: { ... }

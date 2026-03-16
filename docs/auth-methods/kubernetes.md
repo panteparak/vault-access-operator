@@ -135,11 +135,10 @@ spec:
 
   # TLS configuration (if using HTTPS)
   tls:
-    caCert:
-      secretRef:
-        name: vault-ca-cert
-        namespace: vault-access-operator-system
-        key: ca.crt
+    caSecretRef:
+      name: vault-ca-cert
+      namespace: vault-access-operator-system
+      key: ca.crt
 
   # Kubernetes authentication
   auth:
@@ -288,11 +287,10 @@ Here's a complete example for a standard setup:
     spec:
       address: https://vault.example.com:8200
       tls:
-        caCert:
-          secretRef:
-            name: vault-ca-cert
-            namespace: vault-access-operator-system
-            key: ca.crt
+        caSecretRef:
+          name: vault-ca-cert
+          namespace: vault-access-operator-system
+          key: ca.crt
       auth:
         kubernetes:
           role: vault-access-operator

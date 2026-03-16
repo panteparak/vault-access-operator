@@ -12,15 +12,21 @@ graph TD
             PF["Policy Feature"]
             RF["Role Feature"]
             DF["Discovery Feature"]
+            EB["Event Bus<br/>(shared/events)"]
+            CC["Client Cache"]
             VC["Vault Client<br/>(pkg/vault)"]
         end
     end
     V["HashiCorp Vault"]
 
-    CF --> VC
-    PF --> VC
-    RF --> VC
-    DF --> VC
+    CF --> EB
+    PF --> EB
+    RF --> EB
+    CF --> CC
+    PF --> CC
+    RF --> CC
+    DF --> CC
+    CC --> VC
     VC --> V
 ```
 
@@ -188,6 +194,42 @@ func (c *Client) Authenticate(ctx context.Context) error
 func (c *Client) RenewToken(ctx context.Context) error
 ```
 
+### Client Cache
+
+The `ClientCache` is a thread-safe cache that shares authenticated Vault clients between features. The Connection feature creates and caches clients; Policy, Role, and Discovery features retrieve them by VaultConnection name. This avoids redundant authentication and ensures all features use the same token lifecycle.
+
+## Event Bus
+
+The operator uses an in-process event bus (`shared/events`) for inter-feature communication, avoiding direct coupling between features.
+
+### Event Types
+
+| Category | Events | Description |
+|----------|--------|-------------|
+| Connection | `connection.ready`, `connection.disconnected`, `connection.health_changed` | VaultConnection lifecycle |
+| Policy | `policy.created`, `policy.updated`, `policy.deleted` | VaultPolicy/VaultClusterPolicy changes |
+| Role | `role.created`, `role.updated`, `role.deleted` | VaultRole/VaultClusterRole changes |
+| Token | `token.renewed`, `token.renewal_failed`, `token.reviewer_refreshed` | Token lifecycle events |
+
+### Pattern
+
+Features publish events via `EventBus.Publish()` (synchronous) or `EventBus.PublishAsync()` (fire-and-forget goroutine). Other features subscribe with typed handlers using Go generics: `events.Subscribe[ConnectionReady](bus, handler)`.
+
+## Managed Markers and Orphan Detection
+
+The operator tracks which Vault resources it manages using KV v2 markers stored at:
+
+```
+secret/data/vault-access-operator/managed/policies/{name}
+secret/data/vault-access-operator/managed/roles/{name}
+```
+
+These markers enable:
+
+- **Orphan detection**: Periodic scans compare markers against existing K8s resources. A marker without a matching CR indicates an orphaned Vault resource (e.g., CR deleted while operator was down).
+- **Cleanup queue**: Orphaned resources are queued for cleanup with retry logic and exponential backoff.
+- **Conflict detection**: When creating a resource, the operator checks for existing markers to detect conflicts with other CRs.
+
 ## Authentication Flow
 
 ```mermaid
@@ -203,6 +245,7 @@ sequenceDiagram
     K8s-->>V: Token Valid
     V-->>VC: Vault Token
     Note over VC: Token Cached + Renewal
+    Note over VC,V: Shown: Kubernetes auth. The operator supports 8 auth methods — see Authentication Methods docs
 ```
 
 ### Renewal Strategy
@@ -224,7 +267,10 @@ stateDiagram-v2
     Pending --> Syncing
     Syncing --> Active
     Syncing --> Error
+    Syncing --> Conflict
     Active --> Error
+    Active --> Syncing : spec change
+    Error --> Syncing : retry
     Pending --> Conflict
     Error --> Conflict
     Active --> Deleting
@@ -241,18 +287,40 @@ Resources track detailed conditions:
 | `Synced` | Resource is synced to Vault |
 | `ConnectionReady` | VaultConnection is available |
 | `PoliciesResolved` | Referenced policies exist |
+| `DependencyReady` | All dependencies (connection, policies) are satisfied |
+| `Drifted` | Vault resource differs from desired K8s state |
+| `Deleting` | Resource is being deleted (finalizer in progress) |
 
 ## Metrics and Observability
 
 ### Prometheus Metrics
 
 ```
-vault_access_operator_reconcile_total{resource, status}
-vault_access_operator_reconcile_duration_seconds{resource}
-vault_access_operator_vault_operations_total{operation, status}
-vault_access_operator_drift_detected{resource}
-vault_access_operator_discovery_scans_total{connection, status}
-vault_access_operator_discovered_resources{connection, type}
+# Connection health
+vault_access_operator_connection_healthy{connection}
+vault_access_operator_connection_health_checks_total{connection, result}
+vault_access_operator_connection_consecutive_fails{connection}
+
+# Reconciliation
+vault_access_operator_policy_reconcile_total{kind, namespace, result}
+vault_access_operator_role_reconcile_total{kind, namespace, result}
+
+# Drift
+vault_access_operator_vault_drift_detected{kind, namespace, name}
+vault_access_operator_vault_drift_corrected_total{kind, namespace}
+
+# Orphan & Cleanup
+vault_access_operator_vault_orphaned_resources{connection, type}
+vault_access_operator_cleanup_queue_size
+vault_access_operator_cleanup_retries_total{resource_type, result}
+
+# Safety
+vault_access_operator_safety_destructive_blocked_total{kind, namespace}
+
+# Discovery
+vault_access_operator_discovery_adoptions_total{kind, namespace, result}
+vault_access_operator_discovery_unmanaged_resources{connection, type}
+vault_access_operator_discovery_scans_total{connection, result}
 ```
 
 ### Structured Logging

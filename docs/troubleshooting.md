@@ -507,6 +507,9 @@ kubectl logs -n vault-access-operator-system deploy/vault-access-operator-contro
 | `Synced` | Resource has been successfully synced to Vault | `True` |
 | `ConnectionReady` | Referenced VaultConnection is available | `True` |
 | `PoliciesResolved` | All referenced policies have been found and resolved | `True` |
+| `DependencyReady` | All dependencies (connection, policies) are satisfied | `True` |
+| `Drifted` | Vault resource differs from desired K8s state | `False` |
+| `Deleting` | Resource is being deleted (finalizer in progress) | N/A |
 
 ### Condition Reasons
 
@@ -519,6 +522,17 @@ kubectl logs -n vault-access-operator-system deploy/vault-access-operator-contro
 | `ValidationFailed` | Resource spec validation failed | Fix spec according to error |
 | `ConnectionNotReady` | VaultConnection is not active | Fix VaultConnection |
 | `PolicyNotFound` | Referenced policy doesn't exist | Create the policy |
+| `DependencyNotReady` | A dependency (connection, policy) is not ready | Check dependent resources |
+| `DependencyReady` | All dependencies are satisfied | None needed |
+| `DriftDetected` | Vault resource differs from desired state | Review drift, add `allow-destructive` annotation if correction is desired |
+| `DriftCorrected` | Drift was auto-corrected | None needed |
+| `NoDrift` | No drift detected | None needed |
+| `DeletionBlocked` | Deletion cannot proceed (e.g., dependent resources exist) | Remove dependent resources first |
+| `DeletionInProgress` | Resource is being deleted from Vault | Wait for completion |
+| `ChildrenExist` | Dependent resources still reference this resource | Delete child resources first |
+| `ObservedGenerationStale` | Controller has not yet processed the latest spec change | Wait for reconciliation |
+| `PolicyNotInVault` | Referenced policy does not exist in Vault | Ensure policy CR is synced first |
+| `ImmutableFieldChanged` | An immutable field was changed | Revert the change or recreate the resource |
 
 ### Reading Conditions
 
