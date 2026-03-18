@@ -31,9 +31,27 @@ import (
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/features/role/domain"
 	"github.com/panteparak/vault-access-operator/pkg/vault"
+	"github.com/panteparak/vault-access-operator/shared/controller/conditions"
+	"github.com/panteparak/vault-access-operator/shared/controller/syncerror"
+	"github.com/panteparak/vault-access-operator/shared/controller/vaultclient"
 	"github.com/panteparak/vault-access-operator/shared/events"
 	infraerrors "github.com/panteparak/vault-access-operator/shared/infrastructure/errors"
 )
+
+// setConditionHelper calls conditions.Set directly, replacing the removed handler.setCondition.
+//
+//nolint:unparam // general-purpose test helper; status/reason vary by caller intent
+func setConditionHelper(
+	adapter domain.RoleAdapter,
+	condType string,
+	status metav1.ConditionStatus,
+	reason, message string,
+) {
+	adapter.SetConditions(conditions.Set(
+		adapter.GetConditions(), adapter.GetGeneration(),
+		condType, status, reason, message,
+	))
+}
 
 // Helper functions for creating test objects
 func newScheme() *runtime.Scheme {
@@ -436,17 +454,16 @@ func TestBuildRoleData_EmptyBindings(t *testing.T) {
 	}
 }
 
-// Tests for handleSyncError
+// Tests for handleSyncError (now delegates to syncerror.Handle)
 func TestHandleSyncError_ConflictError(t *testing.T) {
 	ctx := context.Background()
 	role := newVaultRole("test-role", "default")
 	fakeClient := newFakeClient(role)
-	handler := NewHandler(fakeClient, vault.NewClientCache(), nil, logr.Discard())
 	adapter := domain.NewVaultRoleAdapter(role)
 
 	conflictErr := infraerrors.NewConflictError("role", "test-role", "already managed by other")
 
-	err := handler.handleSyncError(ctx, adapter, conflictErr)
+	err := syncerror.Handle(ctx, fakeClient, logr.Discard(), adapter, conflictErr)
 	if err == nil {
 		t.Fatal("expected error to be returned")
 	}
@@ -456,11 +473,11 @@ func TestHandleSyncError_ConflictError(t *testing.T) {
 	}
 
 	// Check condition was set
-	conditions := adapter.GetConditions()
+	conds := adapter.GetConditions()
 	var readyCondition *vaultv1alpha1.Condition
-	for i := range conditions {
-		if conditions[i].Type == vaultv1alpha1.ConditionTypeReady {
-			readyCondition = &conditions[i]
+	for i := range conds {
+		if conds[i].Type == vaultv1alpha1.ConditionTypeReady {
+			readyCondition = &conds[i]
 			break
 		}
 	}
@@ -480,12 +497,11 @@ func TestHandleSyncError_DependencyError(t *testing.T) {
 	ctx := context.Background()
 	role := newVaultRole("test-role", "default")
 	fakeClient := newFakeClient(role)
-	handler := NewHandler(fakeClient, vault.NewClientCache(), nil, logr.Discard())
 	adapter := domain.NewVaultRoleAdapter(role)
 
 	depErr := infraerrors.NewDependencyError("role", "VaultConnection", "test-conn", "not ready")
 
-	err := handler.handleSyncError(ctx, adapter, depErr)
+	err := syncerror.Handle(ctx, fakeClient, logr.Discard(), adapter, depErr)
 	if err == nil {
 		t.Fatal("expected error to be returned")
 	}
@@ -494,11 +510,11 @@ func TestHandleSyncError_DependencyError(t *testing.T) {
 		t.Errorf("expected phase Error, got %s", adapter.GetPhase())
 	}
 
-	conditions := adapter.GetConditions()
+	conds := adapter.GetConditions()
 	var readyCondition *vaultv1alpha1.Condition
-	for i := range conditions {
-		if conditions[i].Type == vaultv1alpha1.ConditionTypeReady {
-			readyCondition = &conditions[i]
+	for i := range conds {
+		if conds[i].Type == vaultv1alpha1.ConditionTypeReady {
+			readyCondition = &conds[i]
 			break
 		}
 	}
@@ -515,12 +531,11 @@ func TestHandleSyncError_ValidationError(t *testing.T) {
 	ctx := context.Background()
 	role := newVaultRole("test-role", "default")
 	fakeClient := newFakeClient(role)
-	handler := NewHandler(fakeClient, vault.NewClientCache(), nil, logr.Discard())
 	adapter := domain.NewVaultRoleAdapter(role)
 
 	validationErr := infraerrors.NewValidationError("policies", "invalid", "invalid policy kind")
 
-	err := handler.handleSyncError(ctx, adapter, validationErr)
+	err := syncerror.Handle(ctx, fakeClient, logr.Discard(), adapter, validationErr)
 	if err == nil {
 		t.Fatal("expected error to be returned")
 	}
@@ -529,11 +544,11 @@ func TestHandleSyncError_ValidationError(t *testing.T) {
 		t.Errorf("expected phase Error, got %s", adapter.GetPhase())
 	}
 
-	conditions := adapter.GetConditions()
+	conds := adapter.GetConditions()
 	var readyCondition *vaultv1alpha1.Condition
-	for i := range conditions {
-		if conditions[i].Type == vaultv1alpha1.ConditionTypeReady {
-			readyCondition = &conditions[i]
+	for i := range conds {
+		if conds[i].Type == vaultv1alpha1.ConditionTypeReady {
+			readyCondition = &conds[i]
 			break
 		}
 	}
@@ -550,12 +565,11 @@ func TestHandleSyncError_GenericError(t *testing.T) {
 	ctx := context.Background()
 	role := newVaultRole("test-role", "default")
 	fakeClient := newFakeClient(role)
-	handler := NewHandler(fakeClient, vault.NewClientCache(), nil, logr.Discard())
 	adapter := domain.NewVaultRoleAdapter(role)
 
 	genericErr := errors.New("some generic error")
 
-	err := handler.handleSyncError(ctx, adapter, genericErr)
+	err := syncerror.Handle(ctx, fakeClient, logr.Discard(), adapter, genericErr)
 	if err == nil {
 		t.Fatal("expected error to be returned")
 	}
@@ -564,11 +578,11 @@ func TestHandleSyncError_GenericError(t *testing.T) {
 		t.Errorf("expected phase Error, got %s", adapter.GetPhase())
 	}
 
-	conditions := adapter.GetConditions()
+	conds := adapter.GetConditions()
 	var readyCondition *vaultv1alpha1.Condition
-	for i := range conditions {
-		if conditions[i].Type == vaultv1alpha1.ConditionTypeReady {
-			readyCondition = &conditions[i]
+	for i := range conds {
+		if conds[i].Type == vaultv1alpha1.ConditionTypeReady {
+			readyCondition = &conds[i]
 			break
 		}
 	}
@@ -585,20 +599,19 @@ func TestHandleSyncError_SetsMessage(t *testing.T) {
 	ctx := context.Background()
 	role := newVaultRole("test-role", "default")
 	fakeClient := newFakeClient(role)
-	handler := NewHandler(fakeClient, vault.NewClientCache(), nil, logr.Discard())
 	adapter := domain.NewVaultRoleAdapter(role)
 
 	testErr := errors.New("test error message")
 
-	_ = handler.handleSyncError(ctx, adapter, testErr)
+	_ = syncerror.Handle(ctx, fakeClient, logr.Discard(), adapter, testErr)
 
 	// Message should be set from error
 	// The adapter's message is set internally
-	conditions := adapter.GetConditions()
+	conds := adapter.GetConditions()
 	var syncedCondition *vaultv1alpha1.Condition
-	for i := range conditions {
-		if conditions[i].Type == vaultv1alpha1.ConditionTypeSynced {
-			syncedCondition = &conditions[i]
+	for i := range conds {
+		if conds[i].Type == vaultv1alpha1.ConditionTypeSynced {
+			syncedCondition = &conds[i]
 			break
 		}
 	}
@@ -615,12 +628,11 @@ func TestHandleSyncError_TransientError(t *testing.T) {
 	ctx := context.Background()
 	role := newVaultRole("test-role", "default")
 	fakeClient := newFakeClient(role)
-	handler := NewHandler(fakeClient, vault.NewClientCache(), nil, logr.Discard())
 	adapter := domain.NewVaultRoleAdapter(role)
 
 	transientErr := infraerrors.NewTransientError("write role", errors.New("network error"))
 
-	err := handler.handleSyncError(ctx, adapter, transientErr)
+	err := syncerror.Handle(ctx, fakeClient, logr.Discard(), adapter, transientErr)
 	if err == nil {
 		t.Fatal("expected error to be returned")
 	}
@@ -629,11 +641,11 @@ func TestHandleSyncError_TransientError(t *testing.T) {
 		t.Errorf("expected phase Error, got %s", adapter.GetPhase())
 	}
 
-	conditions := adapter.GetConditions()
+	conds := adapter.GetConditions()
 	var readyCondition *vaultv1alpha1.Condition
-	for i := range conditions {
-		if conditions[i].Type == vaultv1alpha1.ConditionTypeReady {
-			readyCondition = &conditions[i]
+	for i := range conds {
+		if conds[i].Type == vaultv1alpha1.ConditionTypeReady {
+			readyCondition = &conds[i]
 			break
 		}
 	}
@@ -650,19 +662,17 @@ func TestHandleSyncError_TransientError(t *testing.T) {
 // Tests for setCondition
 func TestSetCondition_NewCondition(t *testing.T) {
 	role := newVaultRole("test-role", "default")
-	fakeClient := newFakeClient(role)
-	handler := NewHandler(fakeClient, vault.NewClientCache(), nil, logr.Discard())
 	adapter := domain.NewVaultRoleAdapter(role)
 
-	handler.setCondition(adapter, vaultv1alpha1.ConditionTypeReady, metav1.ConditionTrue,
+	setConditionHelper(adapter, vaultv1alpha1.ConditionTypeReady, metav1.ConditionTrue,
 		vaultv1alpha1.ReasonSucceeded, "test message")
 
-	conditions := adapter.GetConditions()
-	if len(conditions) != 1 {
-		t.Fatalf("expected 1 condition, got %d", len(conditions))
+	conds := adapter.GetConditions()
+	if len(conds) != 1 {
+		t.Fatalf("expected 1 condition, got %d", len(conds))
 	}
 
-	cond := conditions[0]
+	cond := conds[0]
 	if cond.Type != vaultv1alpha1.ConditionTypeReady {
 		t.Errorf("expected type %s, got %s", vaultv1alpha1.ConditionTypeReady, cond.Type)
 	}
@@ -687,19 +697,17 @@ func TestSetCondition_UpdateExisting(t *testing.T) {
 			Message: "old message",
 		},
 	}
-	fakeClient := newFakeClient(role)
-	handler := NewHandler(fakeClient, vault.NewClientCache(), nil, logr.Discard())
 	adapter := domain.NewVaultRoleAdapter(role)
 
-	handler.setCondition(adapter, vaultv1alpha1.ConditionTypeReady, metav1.ConditionTrue,
+	setConditionHelper(adapter, vaultv1alpha1.ConditionTypeReady, metav1.ConditionTrue,
 		vaultv1alpha1.ReasonSucceeded, "new message")
 
-	conditions := adapter.GetConditions()
-	if len(conditions) != 1 {
-		t.Fatalf("expected 1 condition, got %d", len(conditions))
+	conds := adapter.GetConditions()
+	if len(conds) != 1 {
+		t.Fatalf("expected 1 condition, got %d", len(conds))
 	}
 
-	cond := conditions[0]
+	cond := conds[0]
 	if cond.Status != metav1.ConditionTrue {
 		t.Errorf("expected status True, got %s", cond.Status)
 	}
@@ -722,15 +730,13 @@ func TestSetCondition_UpdateSameStatus(t *testing.T) {
 			LastTransitionTime: metav1.Now(),
 		},
 	}
-	fakeClient := newFakeClient(role)
-	handler := NewHandler(fakeClient, vault.NewClientCache(), nil, logr.Discard())
 	adapter := domain.NewVaultRoleAdapter(role)
 
-	handler.setCondition(adapter, vaultv1alpha1.ConditionTypeReady, metav1.ConditionTrue,
+	setConditionHelper(adapter, vaultv1alpha1.ConditionTypeReady, metav1.ConditionTrue,
 		vaultv1alpha1.ReasonSucceeded, "new message")
 
-	conditions := adapter.GetConditions()
-	cond := conditions[0]
+	conds := adapter.GetConditions()
+	cond := conds[0]
 	// When status doesn't change, reason and message are updated
 	if cond.Message != "new message" {
 		t.Errorf("expected message 'new message', got %s", cond.Message)
@@ -739,47 +745,45 @@ func TestSetCondition_UpdateSameStatus(t *testing.T) {
 
 func TestSetCondition_MultipleConditions(t *testing.T) {
 	role := newVaultRole("test-role", "default")
-	fakeClient := newFakeClient(role)
-	handler := NewHandler(fakeClient, vault.NewClientCache(), nil, logr.Discard())
 	adapter := domain.NewVaultRoleAdapter(role)
 
-	handler.setCondition(adapter, vaultv1alpha1.ConditionTypeReady, metav1.ConditionTrue,
+	setConditionHelper(adapter, vaultv1alpha1.ConditionTypeReady, metav1.ConditionTrue,
 		vaultv1alpha1.ReasonSucceeded, "ready")
-	handler.setCondition(adapter, vaultv1alpha1.ConditionTypeSynced, metav1.ConditionTrue,
+	setConditionHelper(adapter, vaultv1alpha1.ConditionTypeSynced, metav1.ConditionTrue,
 		vaultv1alpha1.ReasonSucceeded, "synced")
 
-	conditions := adapter.GetConditions()
-	if len(conditions) != 2 {
-		t.Fatalf("expected 2 conditions, got %d", len(conditions))
+	conds := adapter.GetConditions()
+	if len(conds) != 2 {
+		t.Fatalf("expected 2 conditions, got %d", len(conds))
 	}
 }
 
 func TestSetCondition_ObservedGeneration(t *testing.T) {
 	role := newVaultRole("test-role", "default")
 	role.Generation = 5
-	fakeClient := newFakeClient(role)
-	handler := NewHandler(fakeClient, vault.NewClientCache(), nil, logr.Discard())
 	adapter := domain.NewVaultRoleAdapter(role)
 
-	handler.setCondition(adapter, vaultv1alpha1.ConditionTypeReady, metav1.ConditionTrue,
+	setConditionHelper(adapter, vaultv1alpha1.ConditionTypeReady, metav1.ConditionTrue,
 		vaultv1alpha1.ReasonSucceeded, "test")
 
-	conditions := adapter.GetConditions()
-	if conditions[0].ObservedGeneration != 5 {
-		t.Errorf("expected ObservedGeneration 5, got %d", conditions[0].ObservedGeneration)
+	conds := adapter.GetConditions()
+	if conds[0].ObservedGeneration != 5 {
+		t.Errorf("expected ObservedGeneration 5, got %d", conds[0].ObservedGeneration)
 	}
 }
 
-// Tests for getVaultClient
+// Tests for getVaultClient (now delegates to vaultclient.Resolve)
 func TestGetVaultClient_ConnectionNotFound(t *testing.T) {
 	ctx := context.Background()
 	role := newVaultRole("test-role", "default")
 	fakeClient := newFakeClient(role) // No connection
-
-	handler := NewHandler(fakeClient, vault.NewClientCache(), nil, logr.Discard())
+	clientCache := vault.NewClientCache()
 	adapter := domain.NewVaultRoleAdapter(role)
 
-	_, err := handler.getVaultClient(ctx, adapter)
+	_, err := vaultclient.Resolve(
+		ctx, fakeClient, clientCache,
+		adapter.GetConnectionRef(), adapter.GetK8sResourceIdentifier(),
+	)
 	if err == nil {
 		t.Fatal("expected error for missing connection")
 	}
@@ -795,11 +799,13 @@ func TestGetVaultClient_ConnectionNotActive(t *testing.T) {
 	conn.Status.Phase = vaultv1alpha1.PhasePending // Not active
 
 	fakeClient := newFakeClient(role, conn)
-
-	handler := NewHandler(fakeClient, vault.NewClientCache(), nil, logr.Discard())
+	clientCache := vault.NewClientCache()
 	adapter := domain.NewVaultRoleAdapter(role)
 
-	_, err := handler.getVaultClient(ctx, adapter)
+	_, err := vaultclient.Resolve(
+		ctx, fakeClient, clientCache,
+		adapter.GetConnectionRef(), adapter.GetK8sResourceIdentifier(),
+	)
 	if err == nil {
 		t.Fatal("expected error for non-active connection")
 	}
@@ -814,12 +820,13 @@ func TestGetVaultClient_ClientNotInCache(t *testing.T) {
 	conn := newActiveVaultConnection()
 
 	fakeClient := newFakeClient(role, conn)
-	emptyCache := vault.NewClientCache() // Empty cache
-
-	handler := NewHandler(fakeClient, emptyCache, nil, logr.Discard())
+	clientCache := vault.NewClientCache() // Empty cache
 	adapter := domain.NewVaultRoleAdapter(role)
 
-	_, err := handler.getVaultClient(ctx, adapter)
+	_, err := vaultclient.Resolve(
+		ctx, fakeClient, clientCache,
+		adapter.GetConnectionRef(), adapter.GetK8sResourceIdentifier(),
+	)
 	if err == nil {
 		t.Fatal("expected error for client not in cache")
 	}
@@ -835,11 +842,13 @@ func TestGetVaultClient_ConnectionPhaseError(t *testing.T) {
 	conn.Status.Phase = vaultv1alpha1.PhaseError
 
 	fakeClient := newFakeClient(role, conn)
-
-	handler := NewHandler(fakeClient, vault.NewClientCache(), nil, logr.Discard())
+	clientCache := vault.NewClientCache()
 	adapter := domain.NewVaultRoleAdapter(role)
 
-	_, err := handler.getVaultClient(ctx, adapter)
+	_, err := vaultclient.Resolve(
+		ctx, fakeClient, clientCache,
+		adapter.GetConnectionRef(), adapter.GetK8sResourceIdentifier(),
+	)
 	if err == nil {
 		t.Fatal("expected error for error phase connection")
 	}
@@ -1379,32 +1388,28 @@ func BenchmarkBuildRoleData(b *testing.B) {
 
 func BenchmarkSetCondition(b *testing.B) {
 	role := newVaultRole("test-role", "default")
-	fakeClient := newFakeClient(role)
-	handler := NewHandler(fakeClient, vault.NewClientCache(), nil, logr.Discard())
 	adapter := domain.NewVaultRoleAdapter(role)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		handler.setCondition(adapter, vaultv1alpha1.ConditionTypeReady, metav1.ConditionTrue,
+		setConditionHelper(adapter, vaultv1alpha1.ConditionTypeReady, metav1.ConditionTrue,
 			vaultv1alpha1.ReasonSucceeded, "test message")
 	}
 }
 
-// Tests for updateStatusWithRetry
-func TestUpdateStatusWithRetry_Success_VaultRole(t *testing.T) {
+// Tests for status updates (previously updateStatusWithRetry, now direct status updates)
+func TestStatusUpdate_Success_VaultRole(t *testing.T) {
 	ctx := context.Background()
 	role := newVaultRole("test-role", "default")
 	fakeClient := newFakeClient(role)
-	handler := NewHandler(fakeClient, vault.NewClientCache(), nil, logr.Discard())
 	adapter := domain.NewVaultRoleAdapter(role)
 
-	// Update status using retry
-	err := handler.updateStatusWithRetry(ctx, adapter, func(a domain.RoleAdapter) {
-		a.SetPhase(vaultv1alpha1.PhaseActive)
-		a.SetMessage("sync completed")
-	})
+	// Set status fields directly on the adapter
+	adapter.SetPhase(vaultv1alpha1.PhaseActive)
+	adapter.SetMessage("sync completed")
 
-	if err != nil {
+	// Update via the K8s client
+	if err := fakeClient.Status().Update(ctx, adapter.GetObject()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -1422,20 +1427,18 @@ func TestUpdateStatusWithRetry_Success_VaultRole(t *testing.T) {
 	}
 }
 
-func TestUpdateStatusWithRetry_Success_VaultClusterRole(t *testing.T) {
+func TestStatusUpdate_Success_VaultClusterRole(t *testing.T) {
 	ctx := context.Background()
 	clusterRole := newVaultClusterRole("test-cluster-role")
 	fakeClient := newFakeClient(clusterRole)
-	handler := NewHandler(fakeClient, vault.NewClientCache(), nil, logr.Discard())
 	adapter := domain.NewVaultClusterRoleAdapter(clusterRole)
 
-	// Update status using retry
-	err := handler.updateStatusWithRetry(ctx, adapter, func(a domain.RoleAdapter) {
-		a.SetPhase(vaultv1alpha1.PhaseActive)
-		a.SetVaultRoleName("test-cluster-role")
-	})
+	// Set status fields directly on the adapter
+	adapter.SetPhase(vaultv1alpha1.PhaseActive)
+	adapter.SetVaultRoleName("test-cluster-role")
 
-	if err != nil {
+	// Update via the K8s client
+	if err := fakeClient.Status().Update(ctx, adapter.GetObject()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -1453,27 +1456,22 @@ func TestUpdateStatusWithRetry_Success_VaultClusterRole(t *testing.T) {
 	}
 }
 
-func TestUpdateStatusWithRetry_UpdatesLatestVersion(t *testing.T) {
+func TestStatusUpdate_UpdatesLatestVersion(t *testing.T) {
 	ctx := context.Background()
 	role := newVaultRole("test-role", "default")
 	fakeClient := newFakeClient(role)
-	handler := NewHandler(fakeClient, vault.NewClientCache(), nil, logr.Discard())
 	adapter := domain.NewVaultRoleAdapter(role)
 
 	// First update
-	err := handler.updateStatusWithRetry(ctx, adapter, func(a domain.RoleAdapter) {
-		a.SetPhase(vaultv1alpha1.PhaseSyncing)
-	})
-	if err != nil {
+	adapter.SetPhase(vaultv1alpha1.PhaseSyncing)
+	if err := fakeClient.Status().Update(ctx, adapter.GetObject()); err != nil {
 		t.Fatalf("first update failed: %v", err)
 	}
 
-	// Second update (adapter still has old resourceVersion, but retry should handle it)
-	err = handler.updateStatusWithRetry(ctx, adapter, func(a domain.RoleAdapter) {
-		a.SetPhase(vaultv1alpha1.PhaseActive)
-		a.SetMessage("second update")
-	})
-	if err != nil {
+	// Second update
+	adapter.SetPhase(vaultv1alpha1.PhaseActive)
+	adapter.SetMessage("second update")
+	if err := fakeClient.Status().Update(ctx, adapter.GetObject()); err != nil {
 		t.Fatalf("second update failed: %v", err)
 	}
 
@@ -1491,20 +1489,17 @@ func TestUpdateStatusWithRetry_UpdatesLatestVersion(t *testing.T) {
 	}
 }
 
-func TestUpdateStatusWithRetry_PreservesExistingStatus(t *testing.T) {
+func TestStatusUpdate_PreservesExistingStatus(t *testing.T) {
 	ctx := context.Background()
 	role := newVaultRole("test-role", "default")
 	role.Status.VaultRoleName = "existing-vault-role"
 	role.Status.Managed = true
 	fakeClient := newFakeClient(role)
-	handler := NewHandler(fakeClient, vault.NewClientCache(), nil, logr.Discard())
 	adapter := domain.NewVaultRoleAdapter(role)
 
 	// Update only the phase, keeping other fields
-	err := handler.updateStatusWithRetry(ctx, adapter, func(a domain.RoleAdapter) {
-		a.SetPhase(vaultv1alpha1.PhaseActive)
-	})
-	if err != nil {
+	adapter.SetPhase(vaultv1alpha1.PhaseActive)
+	if err := fakeClient.Status().Update(ctx, adapter.GetObject()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -1522,41 +1517,36 @@ func TestUpdateStatusWithRetry_PreservesExistingStatus(t *testing.T) {
 	}
 }
 
-func TestUpdateStatusWithRetry_NotFound(t *testing.T) {
+func TestStatusUpdate_NotFound(t *testing.T) {
 	ctx := context.Background()
 	role := newVaultRole("non-existent-role", "default")
 	fakeClient := newFakeClient() // Empty client, role doesn't exist
-	handler := NewHandler(fakeClient, vault.NewClientCache(), nil, logr.Discard())
 	adapter := domain.NewVaultRoleAdapter(role)
 
-	err := handler.updateStatusWithRetry(ctx, adapter, func(a domain.RoleAdapter) {
-		a.SetPhase(vaultv1alpha1.PhaseActive)
-	})
+	adapter.SetPhase(vaultv1alpha1.PhaseActive)
+	err := fakeClient.Status().Update(ctx, adapter.GetObject())
 
 	if err == nil {
 		t.Fatal("expected error for non-existent role")
 	}
 }
 
-func TestUpdateStatusWithRetry_MultipleFields(t *testing.T) {
+func TestStatusUpdate_MultipleFields(t *testing.T) {
 	ctx := context.Background()
 	role := newVaultRole("test-role", "default")
 	fakeClient := newFakeClient(role)
-	handler := NewHandler(fakeClient, vault.NewClientCache(), nil, logr.Discard())
 	adapter := domain.NewVaultRoleAdapter(role)
 
 	now := metav1.Now()
-	err := handler.updateStatusWithRetry(ctx, adapter, func(a domain.RoleAdapter) {
-		a.SetPhase(vaultv1alpha1.PhaseActive)
-		a.SetVaultRoleName("default-test-role")
-		a.SetManaged(true)
-		a.SetResolvedPolicies([]string{"policy1", "policy2"})
-		a.SetBoundServiceAccounts([]string{"default/sa1", "default/sa2"})
-		a.SetLastSyncedAt(&now)
-		a.SetMessage("all fields updated")
-	})
+	adapter.SetPhase(vaultv1alpha1.PhaseActive)
+	adapter.SetVaultRoleName("default-test-role")
+	adapter.SetManaged(true)
+	adapter.SetResolvedPolicies([]string{"policy1", "policy2"})
+	adapter.SetBoundServiceAccounts([]string{"default/sa1", "default/sa2"})
+	adapter.SetLastSyncedAt(&now)
+	adapter.SetMessage("all fields updated")
 
-	if err != nil {
+	if err := fakeClient.Status().Update(ctx, adapter.GetObject()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 

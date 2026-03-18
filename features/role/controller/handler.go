@@ -29,19 +29,16 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/record"
-	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/features/role/domain"
-	"github.com/panteparak/vault-access-operator/pkg/metrics"
 	"github.com/panteparak/vault-access-operator/pkg/vault"
 	"github.com/panteparak/vault-access-operator/shared/controller/binding"
 	"github.com/panteparak/vault-access-operator/shared/controller/conditions"
 	"github.com/panteparak/vault-access-operator/shared/controller/drift"
-	"github.com/panteparak/vault-access-operator/shared/controller/driftmode"
-	"github.com/panteparak/vault-access-operator/shared/controller/syncerror"
 	"github.com/panteparak/vault-access-operator/shared/controller/vaultclient"
+	"github.com/panteparak/vault-access-operator/shared/controller/workflow"
 	"github.com/panteparak/vault-access-operator/shared/events"
 	infraerrors "github.com/panteparak/vault-access-operator/shared/infrastructure/errors"
 )
@@ -49,11 +46,13 @@ import (
 // Handler provides shared role sync/cleanup logic.
 // It works with RoleAdapter to handle both VaultRole and VaultClusterRole.
 type Handler struct {
-	client      client.Client
-	clientCache *vault.ClientCache
-	eventBus    *events.EventBus
-	recorder    record.EventRecorder
-	log         logr.Logger
+	client          client.Client
+	clientCache     *vault.ClientCache
+	eventBus        *events.EventBus
+	recorder        record.EventRecorder
+	log             logr.Logger
+	syncWorkflow    *workflow.SyncWorkflow
+	cleanupWorkflow *workflow.CleanupWorkflow
 }
 
 // NewHandler creates a new role Handler.
@@ -70,332 +69,30 @@ func NewHandler(
 	if len(recorder) > 0 {
 		h.recorder = recorder[0]
 	}
+
+	// Build vault client resolver using the shared vaultclient package
+	resolver := func(ctx context.Context, connRef, resourceID string) (*vault.Client, error) {
+		return vaultclient.Resolve(ctx, c, cache, connRef, resourceID)
+	}
+
+	h.syncWorkflow = workflow.NewSyncWorkflow(c, resolver, bus, log, h.recorder)
+	h.cleanupWorkflow = workflow.NewCleanupWorkflow(c, cache.Get, bus, log)
 	return h
 }
 
 // SyncRole synchronizes a role to Vault.
-// nolint:gocyclo // Reconciliation logic naturally handles drift modes, conflicts, and bindings
 func (h *Handler) SyncRole(ctx context.Context, adapter domain.RoleAdapter) error {
-	log := logr.FromContextOrDiscard(ctx)
-	vaultRoleName := adapter.GetVaultRoleName()
-	authPath := adapter.GetAuthPath()
-	if authPath == "" {
-		authPath = vault.DefaultKubernetesAuthPath
-	}
-
-	// Update last attempt time
-	now := metav1.Now()
-	adapter.SetLastAttemptAt(&now)
-
-	// Resolve effective drift mode
-	effectiveDriftMode := driftmode.Resolve(ctx, h.client, adapter.GetDriftMode(), adapter.GetConnectionRef())
-	adapter.SetEffectiveDriftMode(effectiveDriftMode)
-
-	// Set phase to Syncing if not already active
-	phase := adapter.GetPhase()
-	if phase != vaultv1alpha1.PhaseSyncing && phase != vaultv1alpha1.PhaseActive {
-		if err := h.updateStatusWithRetry(ctx, adapter, func(a domain.RoleAdapter) {
-			a.SetPhase(vaultv1alpha1.PhaseSyncing)
-		}); err != nil {
-			return fmt.Errorf("failed to update status to Syncing: %w", err)
-		}
-	}
-
-	// Get Vault client
-	vaultClient, err := h.getVaultClient(ctx, adapter)
-	if err != nil {
-		return h.handleSyncError(ctx, adapter, err)
-	}
-
-	// Check for conflicts (with adoption support)
-	if err := h.checkConflict(ctx, vaultClient, adapter, authPath, vaultRoleName); err != nil {
-		return h.handleSyncError(ctx, adapter, err)
-	}
-
-	// Resolve policy names from PolicyReferences
-	policyNames, err := h.resolvePolicyNames(ctx, adapter)
-	if err != nil {
-		return h.handleSyncError(ctx, adapter, err)
-	}
-
-	// Verify referenced policies exist in Vault (warning, not blocking)
-	h.verifyPoliciesExistInVault(ctx, vaultClient, adapter, policyNames)
-
-	// Get service account bindings
-	serviceAccountBindings := adapter.GetServiceAccountBindings()
-	log.Info("service account bindings from spec",
-		"roleName", vaultRoleName,
-		"bindings", serviceAccountBindings,
-		"count", len(serviceAccountBindings))
-
-	// Build Kubernetes auth role data
-	roleData := h.buildRoleData(adapter, policyNames, serviceAccountBindings)
-
-	// Calculate spec hash for distinguishing spec changes from Vault drift
-	specHash := h.calculateSpecHash(roleData)
-
-	// Drift detection logic based on effective drift mode
-	driftDetected := false
-	driftSummary := ""
-	kind := "VaultRole"
-	if !adapter.IsNamespaced() {
-		kind = "VaultClusterRole"
-	}
-
-	if adapter.GetPhase() == vaultv1alpha1.PhaseActive && driftmode.ShouldDetect(effectiveDriftMode) {
-		driftDetected, driftSummary = h.detectRoleDrift(ctx, vaultClient, authPath, vaultRoleName, roleData)
-		if driftDetected {
-			log.Info("drift detected in Vault role",
-				"roleName", vaultRoleName, "summary", driftSummary, "mode", effectiveDriftMode)
-		}
-
-		// Update drift status
-		adapter.SetDriftDetected(driftDetected)
-		adapter.SetDriftSummary(driftSummary)
-		adapter.SetLastDriftCheckAt(&now)
-
-		// Set Drifted condition and emit events
-		if driftDetected {
-			h.setCondition(adapter, vaultv1alpha1.ConditionTypeDrifted, metav1.ConditionTrue,
-				vaultv1alpha1.ReasonDriftDetected, driftSummary)
-			if h.recorder != nil {
-				h.recorder.Event(adapter.GetObject(), corev1.EventTypeWarning,
-					"DriftDetected", "Drift detected: "+driftSummary)
-			}
-		} else {
-			h.setCondition(adapter, vaultv1alpha1.ConditionTypeDrifted, metav1.ConditionFalse,
-				vaultv1alpha1.ReasonNoDrift, "No drift detected")
-		}
-
-		// Record drift metric
-		metrics.SetDriftDetected(kind, adapter.GetNamespace(), adapter.GetName(), driftDetected)
-	} else if driftmode.IsIgnore(effectiveDriftMode) {
-		log.V(1).Info("drift detection disabled", "roleName", vaultRoleName, "mode", effectiveDriftMode)
-		adapter.SetDriftDetected(false)
-		adapter.SetDriftSummary("")
-	}
-
-	// Handle drift mode behavior
-	if driftDetected && driftmode.IsDetect(effectiveDriftMode) {
-		// Detect mode: report drift but don't correct
-		log.Info("drift detected (detect mode - not correcting)", "roleName", vaultRoleName)
-
-		// Update status to show drift without correcting (with retry for robustness)
-		if err := h.updateStatusWithRetry(ctx, adapter, func(a domain.RoleAdapter) {
-			a.SetMessage("Drift detected: " + driftSummary)
-			a.SetDriftDetected(driftDetected)
-			a.SetDriftSummary(driftSummary)
-			a.SetLastDriftCheckAt(&now)
-		}); err != nil {
-			log.V(1).Info("failed to update drift status (non-fatal)", "error", err)
-		}
-
-		// Only skip sync if spec hash matches (true Vault-side drift)
-		// If spec changed (hash differs), continue to sync the new spec
-		lastHash := adapter.GetLastAppliedHash()
-		log.Info("comparing spec hashes for drift handling",
-			"roleName", vaultRoleName,
-			"lastAppliedHash", lastHash,
-			"currentSpecHash", specHash,
-			"hashesMatch", lastHash == specHash)
-		if lastHash == specHash {
-			return nil
-		}
-		log.Info("spec changed, continuing sync despite drift", "roleName", vaultRoleName)
-	}
-
-	// Safety check for drift correction
-	if driftDetected && driftmode.IsCorrect(effectiveDriftMode) {
-		annotations := adapter.GetAnnotations()
-		if annotations[vaultv1alpha1.AnnotationAllowDestructive] != vaultv1alpha1.AnnotationValueTrue {
-			log.Info("drift correction blocked - missing allow-destructive annotation",
-				"roleName", vaultRoleName)
-
-			if err := h.updateStatusWithRetry(ctx, adapter, func(a domain.RoleAdapter) {
-				a.SetPhase(vaultv1alpha1.PhaseConflict)
-				a.SetMessage("Drift detected but vault.platform.io/allow-destructive annotation required")
-				a.SetConditions(conditions.Set(
-					a.GetConditions(), a.GetGeneration(),
-					vaultv1alpha1.ConditionTypeReady, metav1.ConditionFalse,
-					vaultv1alpha1.ReasonConflict, "Drift correction requires allow-destructive annotation",
-				))
-			}); err != nil {
-				return fmt.Errorf("failed to update conflict status: %w", err)
-			}
-
-			metrics.IncrementDestructiveBlocked(kind, adapter.GetNamespace())
-			return nil
-		}
-		log.Info("correcting drift with destructive annotation", "roleName", vaultRoleName)
-	}
-
-	// Create/update the Kubernetes auth role
-	if err := vaultClient.WriteKubernetesAuthRole(ctx, authPath, vaultRoleName, roleData); err != nil {
-		return h.handleSyncError(ctx, adapter, infraerrors.NewTransientError("write role", err))
-	}
-
-	// Readback verification — confirm Vault persisted the correct content
-	if hasDrift, summary := h.detectRoleDrift(ctx, vaultClient, authPath, vaultRoleName, roleData); hasDrift {
-		return h.handleSyncError(ctx, adapter, infraerrors.NewTransientError(
-			"readback verification", fmt.Errorf("role content mismatch after write: %s", summary)))
-	}
-
-	// Mark role as managed
-	k8sResource := adapter.GetK8sResourceIdentifier()
-	if err := vaultClient.MarkRoleManaged(ctx, vaultRoleName, k8sResource); err != nil {
-		log.V(1).Info("failed to mark role as managed (non-fatal)", "error", err.Error())
-	}
-
-	// Build binding and policy bindings for status update
-	roleBinding := binding.NewRoleBinding(authPath, vaultRoleName)
-	policyBindings := h.buildPolicyBindings(adapter, policyNames)
-
-	// Track drift correction if we fixed drift
-	driftCorrectedAt := adapter.GetDriftCorrectedAt()
-	if driftDetected {
-		driftCorrectedAt = &now
-		metrics.IncrementDriftCorrected(kind, adapter.GetNamespace())
-	}
-
-	// Update status to Active (with retry for robustness under concurrent access)
-	// All status changes must be inside the callback to survive re-fetch
-	if err := h.updateStatusWithRetry(ctx, adapter, func(a domain.RoleAdapter) {
-		// Set binding after successful sync (must be inside callback)
-		a.SetBinding(roleBinding)
-		a.SetPolicyBindings(policyBindings)
-
-		a.SetPhase(vaultv1alpha1.PhaseActive)
-		a.SetVaultRoleName(vaultRoleName)
-		a.SetManaged(true)
-		a.SetBoundServiceAccounts(serviceAccountBindings)
-		a.SetResolvedPolicies(policyNames)
-		a.SetLastAppliedHash(specHash) // Store hash to detect future spec changes
-		a.SetLastSyncedAt(&now)
-		a.SetRetryCount(0)
-		a.SetNextRetryAt(nil)
-		a.SetMessage("")
-		a.SetDriftDetected(false) // Clear drift flag after successful sync
-		a.SetDriftSummary("")
-		a.SetLastDriftCheckAt(&now)
-		if driftCorrectedAt != nil {
-			a.SetDriftCorrectedAt(driftCorrectedAt)
-		}
-		a.SetConditions(conditions.Set(
-			a.GetConditions(), a.GetGeneration(),
-			vaultv1alpha1.ConditionTypeReady, metav1.ConditionTrue,
-			vaultv1alpha1.ReasonSucceeded, "Role synced to Vault",
-		))
-		a.SetConditions(conditions.Set(
-			a.GetConditions(), a.GetGeneration(),
-			vaultv1alpha1.ConditionTypeSynced, metav1.ConditionTrue,
-			vaultv1alpha1.ReasonSucceeded, "Role synced successfully",
-		))
-		a.SetConditions(conditions.Set(
-			a.GetConditions(), a.GetGeneration(),
-			vaultv1alpha1.ConditionTypeDependencyReady, metav1.ConditionTrue,
-			vaultv1alpha1.ReasonDependencyReady, "All dependencies ready",
-		))
-		a.SetConditions(conditions.Set(
-			a.GetConditions(), a.GetGeneration(),
-			vaultv1alpha1.ConditionTypeDrifted, metav1.ConditionFalse,
-			vaultv1alpha1.ReasonNoDrift, "No drift detected",
-		))
-	}); err != nil {
-		return fmt.Errorf("failed to update status to Active: %w", err)
-	}
-
-	// Emit drift corrected event if we fixed drift
-	if driftDetected && h.recorder != nil {
-		h.recorder.Event(adapter.GetObject(), corev1.EventTypeNormal,
-			"DriftCorrected", "Drift was detected and corrected in Vault")
-	}
-
-	// Publish RoleCreated event
-	if h.eventBus != nil {
-		resource := events.ResourceInfo{
-			Name:           adapter.GetName(),
-			Namespace:      adapter.GetNamespace(),
-			ClusterScoped:  !adapter.IsNamespaced(),
-			ConnectionName: adapter.GetConnectionRef(),
-		}
-		event := events.NewRoleCreated(vaultRoleName, authPath, resource, policyNames, serviceAccountBindings)
-		h.eventBus.PublishAsync(ctx, event)
-	}
-
-	log.Info("role synced successfully", "roleName", vaultRoleName)
-	return nil
+	ops := NewRoleOps(adapter, h)
+	return h.syncWorkflow.Execute(ctx, adapter, ops)
 }
 
 // CleanupRole removes a role from Vault.
 func (h *Handler) CleanupRole(ctx context.Context, adapter domain.RoleAdapter) error {
-	log := logr.FromContextOrDiscard(ctx)
-	vaultRoleName := adapter.GetVaultRoleName()
-	authPath := adapter.GetAuthPath()
-	if authPath == "" {
-		authPath = vault.DefaultKubernetesAuthPath
-	}
-
-	// Track deletion start time
-	if adapter.GetDeletionStartedAt() == nil {
-		now := metav1.Now()
-		adapter.SetDeletionStartedAt(&now)
-	}
-
-	// Update phase to Deleting (non-fatal if it fails)
-	// Note: Not using retry here because this is an informational status update
-	// and the error is ignored. Using retry would cause resource version conflicts
-	// with the subsequent finalizer removal in the reconciler.
-	adapter.SetPhase(vaultv1alpha1.PhaseDeleting)
-	conds := conditions.Set(adapter.GetConditions(), adapter.GetGeneration(),
-		vaultv1alpha1.ConditionTypeDeleting, metav1.ConditionTrue,
-		vaultv1alpha1.ReasonDeletionInProgress, "Deletion in progress")
-	adapter.SetConditions(conds)
-	if err := h.client.Status().Update(ctx, adapter.GetObject()); err != nil {
-		log.V(1).Info("failed to update status to Deleting (ignoring)", "error", err)
-	}
-
-	// Only delete from Vault if deletion policy is Delete
-	deletionPolicy := adapter.GetDeletionPolicy()
-	if deletionPolicy == vaultv1alpha1.DeletionPolicyDelete || deletionPolicy == "" {
-		vaultClient, err := h.clientCache.Get(adapter.GetConnectionRef())
-		if err != nil {
-			log.Info("failed to get Vault client during deletion, continuing with finalizer removal")
-		} else if vaultClient.IsAuthenticated() {
-			if err := vaultClient.DeleteKubernetesAuthRole(ctx, authPath, vaultRoleName); err != nil {
-				log.Error(err, "failed to delete role from Vault")
-			} else {
-				log.Info("deleted role from Vault", "roleName", vaultRoleName)
-			}
-
-			// Remove managed marker
-			if err := vaultClient.RemoveRoleManaged(ctx, vaultRoleName); err != nil {
-				log.V(1).Info("failed to remove managed marker (non-fatal)", "error", err.Error())
-			}
-		}
-	} else {
-		log.Info("DeletionPolicy is Retain, keeping role in Vault", "roleName", vaultRoleName)
-	}
-
-	// Publish RoleDeleted event
-	if h.eventBus != nil {
-		resource := events.ResourceInfo{
-			Name:           adapter.GetName(),
-			Namespace:      adapter.GetNamespace(),
-			ClusterScoped:  !adapter.IsNamespaced(),
-			ConnectionName: adapter.GetConnectionRef(),
-		}
-		h.eventBus.PublishAsync(ctx, events.NewRoleDeleted(vaultRoleName, authPath, resource))
-	}
-
-	log.Info("role cleanup completed", "roleName", vaultRoleName)
-	return nil
+	ops := NewRoleOps(adapter, h)
+	return h.cleanupWorkflow.Execute(ctx, adapter, ops)
 }
 
-// getVaultClient retrieves a Vault client for the role's connection.
-func (h *Handler) getVaultClient(ctx context.Context, adapter domain.RoleAdapter) (*vault.Client, error) {
-	return vaultclient.Resolve(ctx, h.client, h.clientCache,
-		adapter.GetConnectionRef(), adapter.GetK8sResourceIdentifier())
-}
+// --- Helper methods used by RoleOps ---
 
 // checkConflict checks for conflicts with existing Vault roles.
 // Supports adoption via annotation (vault.platform.io/adopt: "true") or ConflictPolicy.
@@ -681,25 +378,6 @@ func normalizeTTLToSeconds(val interface{}) interface{} {
 	return int(d.Seconds())
 }
 
-// handleSyncError updates status for errors.
-func (h *Handler) handleSyncError(ctx context.Context, adapter domain.RoleAdapter, err error) error {
-	return syncerror.Handle(ctx, h.client, h.log, adapter, err, h.recorder)
-}
-
-// setCondition sets or updates a condition on the adapter.
-// nolint:unparam // status and reason kept for API consistency with conditions.Set signature.
-func (h *Handler) setCondition(
-	adapter domain.RoleAdapter,
-	condType string,
-	status metav1.ConditionStatus,
-	reason, message string,
-) {
-	adapter.SetConditions(conditions.Set(
-		adapter.GetConditions(), adapter.GetGeneration(),
-		condType, status, reason, message,
-	))
-}
-
 // calculateSpecHash computes a SHA256 hash of the role data for change detection.
 // This distinguishes K8s spec changes from external Vault drift.
 func (h *Handler) calculateSpecHash(roleData map[string]interface{}) string {
@@ -709,37 +387,4 @@ func (h *Handler) calculateSpecHash(roleData map[string]interface{}) string {
 	}
 	hash := sha256.Sum256(data)
 	return hex.EncodeToString(hash[:])
-}
-
-// updateStatusWithRetry updates the status with retry on conflict.
-// The applyStatus function is called with a fresh copy of the object to apply status changes.
-// This prevents "the object has been modified" errors under concurrent updates.
-func (h *Handler) updateStatusWithRetry(
-	ctx context.Context,
-	adapter domain.RoleAdapter,
-	applyStatus func(domain.RoleAdapter),
-) error {
-	return retry.RetryOnConflict(retry.DefaultBackoff, func() error {
-		// Re-fetch the object to get the latest resourceVersion
-		obj := adapter.GetObject()
-		key := client.ObjectKeyFromObject(obj)
-
-		if adapter.IsNamespaced() {
-			var role vaultv1alpha1.VaultRole
-			if err := h.client.Get(ctx, key, &role); err != nil {
-				return err
-			}
-			freshAdapter := domain.NewVaultRoleAdapter(&role)
-			applyStatus(freshAdapter)
-			return h.client.Status().Update(ctx, freshAdapter.GetObject())
-		}
-
-		var role vaultv1alpha1.VaultClusterRole
-		if err := h.client.Get(ctx, key, &role); err != nil {
-			return err
-		}
-		freshAdapter := domain.NewVaultClusterRoleAdapter(&role)
-		applyStatus(freshAdapter)
-		return h.client.Status().Update(ctx, freshAdapter.GetObject())
-	})
 }
