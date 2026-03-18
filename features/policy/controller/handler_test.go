@@ -32,9 +32,25 @@ import (
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/features/policy/domain"
 	"github.com/panteparak/vault-access-operator/pkg/vault"
+	"github.com/panteparak/vault-access-operator/shared/controller/conditions"
+	"github.com/panteparak/vault-access-operator/shared/controller/syncerror"
 	"github.com/panteparak/vault-access-operator/shared/events"
 	infraerrors "github.com/panteparak/vault-access-operator/shared/infrastructure/errors"
 )
+
+// setConditionHelper is a test helper that calls conditions.Set directly.
+// This replaces the removed handler.setCondition method.
+func setConditionHelper(
+	adapter domain.PolicyAdapter,
+	condType string,
+	status metav1.ConditionStatus,
+	reason, message string,
+) {
+	adapter.SetConditions(conditions.Set(
+		adapter.GetConditions(), adapter.GetGeneration(),
+		condType, status, reason, message,
+	))
+}
 
 // mockVaultClient provides a mock implementation of the Vault client
 type mockVaultClient struct {
@@ -673,12 +689,11 @@ func TestHandleSyncError(t *testing.T) {
 				{Path: "secret/*", Capabilities: []vaultv1alpha1.Capability{"read"}},
 			})
 			fakeClient := newFakeClient(policy)
-			handler := NewHandler(fakeClient, vault.NewClientCache(), nil, logr.Discard())
 
 			adapter := domain.NewVaultPolicyAdapter(policy)
 			ctx := context.Background()
 
-			returnedErr := handler.handleSyncError(ctx, adapter, tt.err)
+			returnedErr := syncerror.Handle(ctx, fakeClient, logr.Discard(), adapter, tt.err)
 
 			// Verify error is returned
 			if returnedErr != tt.err {
@@ -860,9 +875,8 @@ func TestSetCondition(t *testing.T) {
 			{Path: "secret/*", Capabilities: []vaultv1alpha1.Capability{"read"}},
 		})
 		adapter := domain.NewVaultPolicyAdapter(policy)
-		handler := &Handler{log: logr.Discard()}
 
-		handler.setCondition(adapter, vaultv1alpha1.ConditionTypeReady, metav1.ConditionTrue,
+		setConditionHelper(adapter, vaultv1alpha1.ConditionTypeReady, metav1.ConditionTrue,
 			vaultv1alpha1.ReasonSucceeded, "Policy ready")
 
 		conditions := adapter.GetConditions()
@@ -890,14 +904,13 @@ func TestSetCondition(t *testing.T) {
 			{Path: "secret/*", Capabilities: []vaultv1alpha1.Capability{"read"}},
 		})
 		adapter := domain.NewVaultPolicyAdapter(policy)
-		handler := &Handler{log: logr.Discard()}
 
 		// Set initial condition
-		handler.setCondition(adapter, vaultv1alpha1.ConditionTypeReady, metav1.ConditionTrue,
+		setConditionHelper(adapter, vaultv1alpha1.ConditionTypeReady, metav1.ConditionTrue,
 			vaultv1alpha1.ReasonSucceeded, "Initial message")
 
 		// Update with same status but different reason/message
-		handler.setCondition(adapter, vaultv1alpha1.ConditionTypeReady, metav1.ConditionTrue,
+		setConditionHelper(adapter, vaultv1alpha1.ConditionTypeReady, metav1.ConditionTrue,
 			vaultv1alpha1.ReasonSucceeded, "Updated message")
 
 		conditions := adapter.GetConditions()
@@ -915,14 +928,13 @@ func TestSetCondition(t *testing.T) {
 			{Path: "secret/*", Capabilities: []vaultv1alpha1.Capability{"read"}},
 		})
 		adapter := domain.NewVaultPolicyAdapter(policy)
-		handler := &Handler{log: logr.Discard()}
 
 		// Set initial condition as True
-		handler.setCondition(adapter, vaultv1alpha1.ConditionTypeReady, metav1.ConditionTrue,
+		setConditionHelper(adapter, vaultv1alpha1.ConditionTypeReady, metav1.ConditionTrue,
 			vaultv1alpha1.ReasonSucceeded, "Success")
 
 		// Update to False
-		handler.setCondition(adapter, vaultv1alpha1.ConditionTypeReady, metav1.ConditionFalse,
+		setConditionHelper(adapter, vaultv1alpha1.ConditionTypeReady, metav1.ConditionFalse,
 			vaultv1alpha1.ReasonFailed, "Failed")
 
 		conditions := adapter.GetConditions()
@@ -944,11 +956,10 @@ func TestSetCondition(t *testing.T) {
 			{Path: "secret/*", Capabilities: []vaultv1alpha1.Capability{"read"}},
 		})
 		adapter := domain.NewVaultPolicyAdapter(policy)
-		handler := &Handler{log: logr.Discard()}
 
-		handler.setCondition(adapter, vaultv1alpha1.ConditionTypeReady, metav1.ConditionTrue,
+		setConditionHelper(adapter, vaultv1alpha1.ConditionTypeReady, metav1.ConditionTrue,
 			vaultv1alpha1.ReasonSucceeded, "Ready")
-		handler.setCondition(adapter, vaultv1alpha1.ConditionTypeSynced, metav1.ConditionTrue,
+		setConditionHelper(adapter, vaultv1alpha1.ConditionTypeSynced, metav1.ConditionTrue,
 			vaultv1alpha1.ReasonSucceeded, "Synced")
 
 		conditions := adapter.GetConditions()
