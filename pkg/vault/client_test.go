@@ -371,6 +371,511 @@ func TestAuthenticateAppRoleWithMockServer(t *testing.T) {
 	}
 }
 
+func TestAuthenticateJWTWithMockServer(t *testing.T) {
+	tests := []struct {
+		name              string
+		mountPath         string
+		expectedPath      string
+		expectedBody      map[string]string
+		serverStatusCode  int
+		serverResponse    map[string]interface{}
+		wantErr           bool
+		wantAuthenticated bool
+	}{
+		{
+			name:         "successful authentication with default mount path",
+			mountPath:    "",
+			expectedPath: "/v1/auth/jwt/login",
+			expectedBody: map[string]string{
+				"role": "test-role",
+				"jwt":  "test-jwt",
+			},
+			serverStatusCode: http.StatusOK,
+			serverResponse: map[string]interface{}{
+				"auth": map[string]interface{}{
+					"client_token": "s.test-jwt-token",
+				},
+			},
+			wantAuthenticated: true,
+		},
+		{
+			name:         "successful authentication with custom mount path",
+			mountPath:    "custom-jwt",
+			expectedPath: "/v1/auth/custom-jwt/login",
+			expectedBody: map[string]string{
+				"role": "test-role",
+				"jwt":  "test-jwt",
+			},
+			serverStatusCode: http.StatusOK,
+			serverResponse: map[string]interface{}{
+				"auth": map[string]interface{}{
+					"client_token": "s.test-jwt-token",
+				},
+			},
+			wantAuthenticated: true,
+		},
+		{
+			name:         "server returns no auth",
+			mountPath:    "",
+			expectedPath: "/v1/auth/jwt/login",
+			expectedBody: map[string]string{
+				"role": "test-role",
+				"jwt":  "test-jwt",
+			},
+			serverStatusCode: http.StatusOK,
+			serverResponse: map[string]interface{}{
+				"data": map[string]interface{}{},
+			},
+			wantErr: true,
+		},
+		{
+			name:         "server returns error",
+			mountPath:    "",
+			expectedPath: "/v1/auth/jwt/login",
+			expectedBody: map[string]string{
+				"role": "test-role",
+				"jwt":  "test-jwt",
+			},
+			serverStatusCode: http.StatusUnauthorized,
+			serverResponse: map[string]interface{}{
+				"errors": []string{"permission denied"},
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var receivedPath string
+			var receivedBody map[string]interface{}
+
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				receivedPath = r.URL.Path
+				if err := json.NewDecoder(r.Body).Decode(&receivedBody); err != nil {
+					t.Fatalf("failed to decode request body: %v", err)
+				}
+				w.WriteHeader(tt.serverStatusCode)
+				_ = json.NewEncoder(w).Encode(tt.serverResponse)
+			}))
+			defer server.Close()
+
+			client, err := NewClient(ClientConfig{Address: server.URL})
+			if err != nil {
+				t.Fatalf("NewClient() error = %v", err)
+			}
+
+			err = client.AuthenticateJWT(context.Background(), "test-role", tt.mountPath, "test-jwt")
+			if (err != nil) != tt.wantErr {
+				t.Errorf("AuthenticateJWT() error = %v, wantErr %v", err, tt.wantErr)
+			}
+
+			if receivedPath != tt.expectedPath {
+				t.Errorf("AuthenticateJWT() path = %q, want %q", receivedPath, tt.expectedPath)
+			}
+
+			for key, want := range tt.expectedBody {
+				if got, ok := receivedBody[key].(string); !ok || got != want {
+					t.Errorf("AuthenticateJWT() body[%q] = %v, want %q", key, receivedBody[key], want)
+				}
+			}
+
+			if client.IsAuthenticated() != tt.wantAuthenticated {
+				t.Errorf("IsAuthenticated() = %v, want %v", client.IsAuthenticated(), tt.wantAuthenticated)
+			}
+		})
+	}
+}
+
+func TestAuthenticateOIDCWithMockServer(t *testing.T) {
+	tests := []struct {
+		name              string
+		mountPath         string
+		expectedPath      string
+		expectedBody      map[string]string
+		serverStatusCode  int
+		serverResponse    map[string]interface{}
+		wantErr           bool
+		wantAuthenticated bool
+	}{
+		{
+			name:         "successful authentication with default mount path",
+			mountPath:    "",
+			expectedPath: "/v1/auth/oidc/login",
+			expectedBody: map[string]string{
+				"role": "test-role",
+				"jwt":  "test-jwt",
+			},
+			serverStatusCode: http.StatusOK,
+			serverResponse: map[string]interface{}{
+				"auth": map[string]interface{}{
+					"client_token": "s.test-oidc-token",
+				},
+			},
+			wantAuthenticated: true,
+		},
+		{
+			name:         "successful authentication with custom mount path",
+			mountPath:    "custom-oidc",
+			expectedPath: "/v1/auth/custom-oidc/login",
+			expectedBody: map[string]string{
+				"role": "test-role",
+				"jwt":  "test-jwt",
+			},
+			serverStatusCode: http.StatusOK,
+			serverResponse: map[string]interface{}{
+				"auth": map[string]interface{}{
+					"client_token": "s.test-oidc-token",
+				},
+			},
+			wantAuthenticated: true,
+		},
+		{
+			name:         "server returns no auth",
+			mountPath:    "",
+			expectedPath: "/v1/auth/oidc/login",
+			expectedBody: map[string]string{
+				"role": "test-role",
+				"jwt":  "test-jwt",
+			},
+			serverStatusCode: http.StatusOK,
+			serverResponse: map[string]interface{}{
+				"data": map[string]interface{}{},
+			},
+			wantErr: true,
+		},
+		{
+			name:         "server returns error",
+			mountPath:    "",
+			expectedPath: "/v1/auth/oidc/login",
+			expectedBody: map[string]string{
+				"role": "test-role",
+				"jwt":  "test-jwt",
+			},
+			serverStatusCode: http.StatusUnauthorized,
+			serverResponse: map[string]interface{}{
+				"errors": []string{"permission denied"},
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var receivedPath string
+			var receivedBody map[string]interface{}
+
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				receivedPath = r.URL.Path
+				if err := json.NewDecoder(r.Body).Decode(&receivedBody); err != nil {
+					t.Fatalf("failed to decode request body: %v", err)
+				}
+				w.WriteHeader(tt.serverStatusCode)
+				_ = json.NewEncoder(w).Encode(tt.serverResponse)
+			}))
+			defer server.Close()
+
+			client, err := NewClient(ClientConfig{Address: server.URL})
+			if err != nil {
+				t.Fatalf("NewClient() error = %v", err)
+			}
+
+			err = client.AuthenticateOIDC(context.Background(), "test-role", tt.mountPath, "test-jwt")
+			if (err != nil) != tt.wantErr {
+				t.Errorf("AuthenticateOIDC() error = %v, wantErr %v", err, tt.wantErr)
+			}
+
+			if receivedPath != tt.expectedPath {
+				t.Errorf("AuthenticateOIDC() path = %q, want %q", receivedPath, tt.expectedPath)
+			}
+
+			for key, want := range tt.expectedBody {
+				if got, ok := receivedBody[key].(string); !ok || got != want {
+					t.Errorf("AuthenticateOIDC() body[%q] = %v, want %q", key, receivedBody[key], want)
+				}
+			}
+
+			if client.IsAuthenticated() != tt.wantAuthenticated {
+				t.Errorf("IsAuthenticated() = %v, want %v", client.IsAuthenticated(), tt.wantAuthenticated)
+			}
+		})
+	}
+}
+
+func TestAuthenticateAWSWithMockServer(t *testing.T) {
+	tests := []struct {
+		name              string
+		mountPath         string
+		loginData         map[string]interface{}
+		expectedPath      string
+		expectedBody      map[string]string
+		serverStatusCode  int
+		serverResponse    map[string]interface{}
+		wantErr           bool
+		wantAuthenticated bool
+	}{
+		{
+			name:      "successful authentication with default mount path",
+			mountPath: "",
+			loginData: map[string]interface{}{
+				"iam_http_request_method": "POST",
+				"iam_request_url":         "https://sts.amazonaws.com/",
+			},
+			expectedPath: "/v1/auth/aws/login",
+			expectedBody: map[string]string{
+				"role":                    "test-role",
+				"iam_http_request_method": "POST",
+				"iam_request_url":         "https://sts.amazonaws.com/",
+			},
+			serverStatusCode: http.StatusOK,
+			serverResponse: map[string]interface{}{
+				"auth": map[string]interface{}{
+					"client_token": "s.test-aws-token",
+				},
+			},
+			wantAuthenticated: true,
+		},
+		{
+			name:      "successful authentication with custom mount path",
+			mountPath: "custom-aws",
+			loginData: map[string]interface{}{
+				"iam_http_request_method": "POST",
+			},
+			expectedPath: "/v1/auth/custom-aws/login",
+			expectedBody: map[string]string{
+				"role":                    "test-role",
+				"iam_http_request_method": "POST",
+			},
+			serverStatusCode: http.StatusOK,
+			serverResponse: map[string]interface{}{
+				"auth": map[string]interface{}{
+					"client_token": "s.test-aws-token",
+				},
+			},
+			wantAuthenticated: true,
+		},
+		{
+			name:      "server returns no auth",
+			mountPath: "",
+			loginData: map[string]interface{}{
+				"iam_http_request_method": "POST",
+			},
+			expectedPath: "/v1/auth/aws/login",
+			expectedBody: map[string]string{
+				"role":                    "test-role",
+				"iam_http_request_method": "POST",
+			},
+			serverStatusCode: http.StatusOK,
+			serverResponse: map[string]interface{}{
+				"data": map[string]interface{}{},
+			},
+			wantErr: true,
+		},
+		{
+			name:      "server returns error",
+			mountPath: "",
+			loginData: map[string]interface{}{
+				"iam_http_request_method": "POST",
+			},
+			expectedPath: "/v1/auth/aws/login",
+			expectedBody: map[string]string{
+				"role":                    "test-role",
+				"iam_http_request_method": "POST",
+			},
+			serverStatusCode: http.StatusUnauthorized,
+			serverResponse: map[string]interface{}{
+				"errors": []string{"permission denied"},
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var receivedPath string
+			var receivedBody map[string]interface{}
+
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				receivedPath = r.URL.Path
+				if err := json.NewDecoder(r.Body).Decode(&receivedBody); err != nil {
+					t.Fatalf("failed to decode request body: %v", err)
+				}
+				w.WriteHeader(tt.serverStatusCode)
+				_ = json.NewEncoder(w).Encode(tt.serverResponse)
+			}))
+			defer server.Close()
+
+			client, err := NewClient(ClientConfig{Address: server.URL})
+			if err != nil {
+				t.Fatalf("NewClient() error = %v", err)
+			}
+
+			err = client.AuthenticateAWS(context.Background(), "test-role", tt.mountPath, tt.loginData)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("AuthenticateAWS() error = %v, wantErr %v", err, tt.wantErr)
+			}
+
+			if receivedPath != tt.expectedPath {
+				t.Errorf("AuthenticateAWS() path = %q, want %q", receivedPath, tt.expectedPath)
+			}
+
+			for key, want := range tt.expectedBody {
+				if got, ok := receivedBody[key].(string); !ok || got != want {
+					t.Errorf("AuthenticateAWS() body[%q] = %v, want %q", key, receivedBody[key], want)
+				}
+			}
+
+			if client.IsAuthenticated() != tt.wantAuthenticated {
+				t.Errorf("IsAuthenticated() = %v, want %v", client.IsAuthenticated(), tt.wantAuthenticated)
+			}
+		})
+	}
+}
+
+func TestAuthenticateAWSMutatesLoginDataWithRole(t *testing.T) {
+	loginData := map[string]interface{}{
+		"iam_http_request_method": "POST",
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		response := map[string]interface{}{
+			"auth": map[string]interface{}{
+				"client_token": "s.test-aws-token",
+			},
+		}
+		_ = json.NewEncoder(w).Encode(response)
+	}))
+	defer server.Close()
+
+	client, err := NewClient(ClientConfig{Address: server.URL})
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+
+	err = client.AuthenticateAWS(context.Background(), "test-role", "", loginData)
+	if err != nil {
+		t.Fatalf("AuthenticateAWS() error = %v", err)
+	}
+
+	if got, ok := loginData["role"].(string); !ok || got != "test-role" {
+		t.Errorf("AuthenticateAWS() loginData role = %v, want %q", loginData["role"], "test-role")
+	}
+}
+
+func TestAuthenticateGCPWithMockServer(t *testing.T) {
+	tests := []struct {
+		name              string
+		mountPath         string
+		expectedPath      string
+		expectedBody      map[string]string
+		serverStatusCode  int
+		serverResponse    map[string]interface{}
+		wantErr           bool
+		wantAuthenticated bool
+	}{
+		{
+			name:         "successful authentication with default mount path",
+			mountPath:    "",
+			expectedPath: "/v1/auth/gcp/login",
+			expectedBody: map[string]string{
+				"role": "test-role",
+				"jwt":  "signed-jwt",
+			},
+			serverStatusCode: http.StatusOK,
+			serverResponse: map[string]interface{}{
+				"auth": map[string]interface{}{
+					"client_token": "s.test-gcp-token",
+				},
+			},
+			wantAuthenticated: true,
+		},
+		{
+			name:         "successful authentication with custom mount path",
+			mountPath:    "custom-gcp",
+			expectedPath: "/v1/auth/custom-gcp/login",
+			expectedBody: map[string]string{
+				"role": "test-role",
+				"jwt":  "signed-jwt",
+			},
+			serverStatusCode: http.StatusOK,
+			serverResponse: map[string]interface{}{
+				"auth": map[string]interface{}{
+					"client_token": "s.test-gcp-token",
+				},
+			},
+			wantAuthenticated: true,
+		},
+		{
+			name:         "server returns no auth",
+			mountPath:    "",
+			expectedPath: "/v1/auth/gcp/login",
+			expectedBody: map[string]string{
+				"role": "test-role",
+				"jwt":  "signed-jwt",
+			},
+			serverStatusCode: http.StatusOK,
+			serverResponse: map[string]interface{}{
+				"data": map[string]interface{}{},
+			},
+			wantErr: true,
+		},
+		{
+			name:         "server returns error",
+			mountPath:    "",
+			expectedPath: "/v1/auth/gcp/login",
+			expectedBody: map[string]string{
+				"role": "test-role",
+				"jwt":  "signed-jwt",
+			},
+			serverStatusCode: http.StatusUnauthorized,
+			serverResponse: map[string]interface{}{
+				"errors": []string{"permission denied"},
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var receivedPath string
+			var receivedBody map[string]interface{}
+
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				receivedPath = r.URL.Path
+				if err := json.NewDecoder(r.Body).Decode(&receivedBody); err != nil {
+					t.Fatalf("failed to decode request body: %v", err)
+				}
+				w.WriteHeader(tt.serverStatusCode)
+				_ = json.NewEncoder(w).Encode(tt.serverResponse)
+			}))
+			defer server.Close()
+
+			client, err := NewClient(ClientConfig{Address: server.URL})
+			if err != nil {
+				t.Fatalf("NewClient() error = %v", err)
+			}
+
+			err = client.AuthenticateGCP(context.Background(), "test-role", tt.mountPath, "signed-jwt")
+			if (err != nil) != tt.wantErr {
+				t.Errorf("AuthenticateGCP() error = %v, wantErr %v", err, tt.wantErr)
+			}
+
+			if receivedPath != tt.expectedPath {
+				t.Errorf("AuthenticateGCP() path = %q, want %q", receivedPath, tt.expectedPath)
+			}
+
+			for key, want := range tt.expectedBody {
+				if got, ok := receivedBody[key].(string); !ok || got != want {
+					t.Errorf("AuthenticateGCP() body[%q] = %v, want %q", key, receivedBody[key], want)
+				}
+			}
+
+			if client.IsAuthenticated() != tt.wantAuthenticated {
+				t.Errorf("IsAuthenticated() = %v, want %v", client.IsAuthenticated(), tt.wantAuthenticated)
+			}
+		})
+	}
+}
+
 func TestIsHealthy(t *testing.T) {
 	tests := []struct {
 		name           string

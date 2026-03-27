@@ -52,6 +52,19 @@ type SyncWorkflow struct {
 	log           logr.Logger
 }
 
+type syncExecutionState struct {
+	now                metav1.Time
+	effectiveDriftMode vaultv1alpha1.DriftMode
+	vaultResourceName  string
+	kind               string
+	label              string
+	driftDetected      bool
+	driftSummary       string
+	specHash           string
+	vaultClient        *vault.Client
+	log                logr.Logger
+}
+
 // NewSyncWorkflow creates a new SyncWorkflow.
 func NewSyncWorkflow(
 	c client.Client,
@@ -72,193 +85,230 @@ func NewSyncWorkflow(
 // Execute runs the shared sync workflow for a Vault resource.
 // nolint:gocyclo // Reconciliation flow naturally handles drift modes, conflicts, and bindings
 func (w *SyncWorkflow) Execute(ctx context.Context, resource SyncableResource, ops ResourceOps) error {
-	log := logr.FromContextOrDiscard(ctx)
-	vaultResourceName := ops.VaultResourceName()
-	kind := ops.ResourceKind()
-	label := resourceLabel(kind)
-
-	// Step 1: Update last attempt time
-	now := metav1.Now()
-	resource.SetLastAttemptAt(&now)
-
-	// Step 2: Resolve effective drift mode
-	effectiveDriftMode := driftmode.Resolve(ctx, w.client, resource.GetDriftMode(), resource.GetConnectionRef())
-	resource.SetEffectiveDriftMode(effectiveDriftMode)
-
-	// Step 3: Set phase to Syncing if not already active
-	phase := resource.GetPhase()
-	if phase != vaultv1alpha1.PhaseSyncing && phase != vaultv1alpha1.PhaseActive {
-		resource.SetPhase(vaultv1alpha1.PhaseSyncing)
-		if err := w.client.Status().Update(ctx, resource.GetObject()); err != nil {
-			return fmt.Errorf("failed to update status to Syncing: %w", err)
-		}
-	}
-
-	// Step 4: Get Vault client
-	vaultClient, err := w.resolveClient(ctx, resource.GetConnectionRef(), resource.GetK8sResourceIdentifier())
+	state, err := w.initializeSync(ctx, resource, ops)
 	if err != nil {
-		return w.handleSyncError(ctx, resource, err)
+		return err
 	}
 
-	// Step 5: Resource-specific validation
 	if err := ops.Validate(); err != nil {
 		return w.handleSyncError(ctx, resource, err)
 	}
 
-	// Step 6: Check for conflicts (with adoption support)
-	if err := ops.CheckConflict(ctx, vaultClient); err != nil {
+	if err := ops.CheckConflict(ctx, state.vaultClient); err != nil {
 		return w.handleSyncError(ctx, resource, err)
 	}
 
-	// Step 7: Prepare content and calculate spec hash
-	specHash, err := ops.PrepareContent(ctx, vaultClient)
+	state.specHash, err = ops.PrepareContent(ctx, state.vaultClient)
 	if err != nil {
 		return w.handleSyncError(ctx, resource, err)
 	}
 
-	// Step 8: Drift detection
-	driftDetected := false
-	driftSummary := ""
+	w.handleDriftDetection(ctx, resource, ops, state)
 
-	log.V(1).Info("drift detection check",
-		"resource", vaultResourceName,
+	shouldReturn, err := w.handleDriftModes(ctx, resource, state)
+	if err != nil || shouldReturn {
+		return err
+	}
+
+	if shouldReturn := w.handleUnchangedResource(ctx, resource, ops, state); shouldReturn {
+		return nil
+	}
+
+	if err := ops.WriteToVault(ctx, state.vaultClient); err != nil {
+		return w.handleSyncError(ctx, resource,
+			infraerrors.NewTransientError("write "+strings.ToLower(state.label), err))
+	}
+
+	if err := ops.ReadbackVerify(ctx, state.vaultClient); err != nil {
+		return w.handleSyncError(ctx, resource, err)
+	}
+
+	return w.finalizeSuccessfulSync(ctx, resource, ops, state)
+}
+
+func (w *SyncWorkflow) initializeSync(
+	ctx context.Context,
+	resource SyncableResource,
+	ops ResourceOps,
+) (*syncExecutionState, error) {
+	state := &syncExecutionState{
+		now:                metav1.Now(),
+		effectiveDriftMode: driftmode.Resolve(ctx, w.client, resource.GetDriftMode(), resource.GetConnectionRef()),
+		vaultResourceName:  ops.VaultResourceName(),
+		kind:               ops.ResourceKind(),
+		label:              resourceLabel(ops.ResourceKind()),
+		log:                logr.FromContextOrDiscard(ctx),
+	}
+
+	resource.SetLastAttemptAt(&state.now)
+	resource.SetEffectiveDriftMode(state.effectiveDriftMode)
+
+	phase := resource.GetPhase()
+	if phase != vaultv1alpha1.PhaseSyncing && phase != vaultv1alpha1.PhaseActive {
+		resource.SetPhase(vaultv1alpha1.PhaseSyncing)
+		if err := w.client.Status().Update(ctx, resource.GetObject()); err != nil {
+			return nil, fmt.Errorf("failed to update status to Syncing: %w", err)
+		}
+	}
+
+	vaultClient, err := w.resolveClient(ctx, resource.GetConnectionRef(), resource.GetK8sResourceIdentifier())
+	if err != nil {
+		return nil, w.handleSyncError(ctx, resource, err)
+	}
+	state.vaultClient = vaultClient
+
+	return state, nil
+}
+
+func (w *SyncWorkflow) handleDriftDetection(
+	ctx context.Context,
+	resource SyncableResource,
+	ops ResourceOps,
+	state *syncExecutionState,
+) {
+	state.log.V(1).Info("drift detection check",
+		"resource", state.vaultResourceName,
 		"phase", resource.GetPhase(),
-		"driftMode", effectiveDriftMode,
-		"shouldDetect", driftmode.ShouldDetect(effectiveDriftMode))
+		"driftMode", state.effectiveDriftMode,
+		"shouldDetect", driftmode.ShouldDetect(state.effectiveDriftMode))
 
-	if resource.GetPhase() == vaultv1alpha1.PhaseActive && driftmode.ShouldDetect(effectiveDriftMode) {
-		driftDetected, driftSummary = ops.DetectDrift(ctx, vaultClient)
-		if driftDetected {
-			log.Info("drift detected", "resource", vaultResourceName,
-				"summary", driftSummary, "mode", effectiveDriftMode)
+	if resource.GetPhase() == vaultv1alpha1.PhaseActive && driftmode.ShouldDetect(state.effectiveDriftMode) {
+		state.driftDetected, state.driftSummary = ops.DetectDrift(ctx, state.vaultClient)
+		if state.driftDetected {
+			state.log.Info("drift detected", "resource", state.vaultResourceName,
+				"summary", state.driftSummary, "mode", state.effectiveDriftMode)
 		}
 
-		// Update drift status
-		resource.SetDriftDetected(driftDetected)
-		resource.SetDriftSummary(driftSummary)
-		resource.SetLastDriftCheckAt(&now)
+		resource.SetDriftDetected(state.driftDetected)
+		resource.SetDriftSummary(state.driftSummary)
+		resource.SetLastDriftCheckAt(&state.now)
 
-		// Set Drifted condition and emit events
-		if driftDetected {
+		if state.driftDetected {
 			w.setCondition(resource, vaultv1alpha1.ConditionTypeDrifted, metav1.ConditionTrue,
-				vaultv1alpha1.ReasonDriftDetected, driftSummary)
+				vaultv1alpha1.ReasonDriftDetected, state.driftSummary)
 			if w.recorder != nil {
 				w.recorder.Event(resource.GetObject(), corev1.EventTypeWarning,
-					"DriftDetected", "Drift detected: "+driftSummary)
+					"DriftDetected", "Drift detected: "+state.driftSummary)
 			}
 		} else {
 			w.setCondition(resource, vaultv1alpha1.ConditionTypeDrifted, metav1.ConditionFalse,
 				vaultv1alpha1.ReasonNoDrift, "No drift detected")
 		}
 
-		// Record drift metric
-		metrics.SetDriftDetected(kind, resource.GetNamespace(), resource.GetName(), driftDetected)
-	} else if driftmode.IsIgnore(effectiveDriftMode) {
-		log.V(1).Info("drift detection disabled", "resource", vaultResourceName, "mode", effectiveDriftMode)
+		metrics.SetDriftDetected(state.kind, resource.GetNamespace(), resource.GetName(), state.driftDetected)
+		return
+	}
+
+	if driftmode.IsIgnore(state.effectiveDriftMode) {
+		state.log.V(1).Info("drift detection disabled", "resource", state.vaultResourceName, "mode", state.effectiveDriftMode)
 		resource.SetDriftDetected(false)
 		resource.SetDriftSummary("")
 	}
+}
 
-	// Step 9: Handle drift detect mode — report drift but don't correct
-	if driftDetected && driftmode.IsDetect(effectiveDriftMode) {
-		log.Info("drift detected (detect mode - not correcting)", "resource", vaultResourceName)
-		resource.SetMessage("Drift detected: " + driftSummary)
+func (w *SyncWorkflow) handleDriftModes(
+	ctx context.Context,
+	resource SyncableResource,
+	state *syncExecutionState,
+) (bool, error) {
+	if state.driftDetected && driftmode.IsDetect(state.effectiveDriftMode) {
+		state.log.Info("drift detected (detect mode - not correcting)", "resource", state.vaultResourceName)
+		resource.SetMessage("Drift detected: " + state.driftSummary)
 
-		// Update status to show drift without correcting
 		if err := w.client.Status().Update(ctx, resource.GetObject()); err != nil {
-			log.V(1).Info("failed to update drift status (non-fatal)", "error", err)
+			state.log.V(1).Info("failed to update drift status (non-fatal)", "error", err)
 		}
 
-		// Skip update if hash matches — only drift detected, no spec change
-		if resource.GetLastAppliedHash() == specHash {
-			return nil
+		if resource.GetLastAppliedHash() == state.specHash {
+			return true, nil
 		}
 	}
 
-	// Step 10: Safety check for drift correction
-	if driftDetected && driftmode.IsCorrect(effectiveDriftMode) {
-		annotations := resource.GetAnnotations()
-		if annotations[vaultv1alpha1.AnnotationAllowDestructive] != vaultv1alpha1.AnnotationValueTrue {
-			log.Info("drift correction blocked - missing allow-destructive annotation",
-				"resource", vaultResourceName)
-
-			resource.SetPhase(vaultv1alpha1.PhaseConflict)
-			resource.SetDriftDetected(true)
-			resource.SetDriftSummary(driftSummary)
-			resource.SetLastDriftCheckAt(&now)
-			resource.SetMessage("Drift detected but vault.platform.io/allow-destructive annotation required")
-			w.setCondition(resource, vaultv1alpha1.ConditionTypeReady, metav1.ConditionFalse,
-				vaultv1alpha1.ReasonConflict, "Drift correction requires allow-destructive annotation")
-
-			if err := w.client.Status().Update(ctx, resource.GetObject()); err != nil {
-				return fmt.Errorf("failed to update conflict status: %w", err)
-			}
-
-			metrics.IncrementDestructiveBlocked(kind, resource.GetNamespace())
-			return nil
-		}
-		log.Info("correcting drift with destructive annotation", "resource", vaultResourceName)
+	if !state.driftDetected || !driftmode.IsCorrect(state.effectiveDriftMode) {
+		return false, nil
 	}
 
-	// Step 11: Skip if unchanged — no spec change, already active, no drift
-	if resource.GetLastAppliedHash() == specHash &&
-		resource.GetPhase() == vaultv1alpha1.PhaseActive &&
-		!driftDetected {
-		log.V(1).Info("resource unchanged and no drift, skipping update", "resource", vaultResourceName)
-		// Update managed marker for metadata-only changes (best-effort)
-		if err := ops.MarkManaged(ctx, vaultClient); err != nil {
-			log.V(1).Info("failed to update managed marker (non-fatal)", "error", err)
-		}
-		// Still update status to record the drift check
-		if err := w.client.Status().Update(ctx, resource.GetObject()); err != nil {
-			log.V(1).Info("failed to update status (non-fatal)", "error", err)
-		}
-		return nil
+	annotations := resource.GetAnnotations()
+	if annotations[vaultv1alpha1.AnnotationAllowDestructive] == vaultv1alpha1.AnnotationValueTrue {
+		state.log.Info("correcting drift with destructive annotation", "resource", state.vaultResourceName)
+		return false, nil
 	}
 
-	// Step 12: Write to Vault
-	if err := ops.WriteToVault(ctx, vaultClient); err != nil {
-		return w.handleSyncError(ctx, resource,
-			infraerrors.NewTransientError("write "+strings.ToLower(label), err))
+	state.log.Info("drift correction blocked - missing allow-destructive annotation",
+		"resource", state.vaultResourceName)
+
+	resource.SetPhase(vaultv1alpha1.PhaseConflict)
+	resource.SetDriftDetected(true)
+	resource.SetDriftSummary(state.driftSummary)
+	resource.SetLastDriftCheckAt(&state.now)
+	resource.SetMessage("Drift detected but vault.platform.io/allow-destructive annotation required")
+	w.setCondition(resource, vaultv1alpha1.ConditionTypeReady, metav1.ConditionFalse,
+		vaultv1alpha1.ReasonConflict, "Drift correction requires allow-destructive annotation")
+
+	if err := w.client.Status().Update(ctx, resource.GetObject()); err != nil {
+		return false, fmt.Errorf("failed to update conflict status: %w", err)
 	}
 
-	// Step 13: Readback verification
-	if err := ops.ReadbackVerify(ctx, vaultClient); err != nil {
-		return w.handleSyncError(ctx, resource, err)
+	metrics.IncrementDestructiveBlocked(state.kind, resource.GetNamespace())
+	return true, nil
+}
+
+func (w *SyncWorkflow) handleUnchangedResource(
+	ctx context.Context,
+	resource SyncableResource,
+	ops ResourceOps,
+	state *syncExecutionState,
+) bool {
+	if resource.GetLastAppliedHash() != state.specHash ||
+		resource.GetPhase() != vaultv1alpha1.PhaseActive ||
+		state.driftDetected {
+		return false
 	}
 
-	// Step 14: Mark managed (best-effort — log and continue)
-	if err := ops.MarkManaged(ctx, vaultClient); err != nil {
-		log.V(1).Info("failed to mark as managed (non-fatal)", "error", err)
+	state.log.V(1).Info("resource unchanged and no drift, skipping update", "resource", state.vaultResourceName)
+	if err := ops.MarkManaged(ctx, state.vaultClient); err != nil {
+		state.log.V(1).Info("failed to update managed marker (non-fatal)", "error", err)
+	}
+	if err := w.client.Status().Update(ctx, resource.GetObject()); err != nil {
+		state.log.V(1).Info("failed to update status (non-fatal)", "error", err)
 	}
 
-	// Step 15: Apply resource-specific bindings
+	return true
+}
+
+func (w *SyncWorkflow) finalizeSuccessfulSync(
+	ctx context.Context,
+	resource SyncableResource,
+	ops ResourceOps,
+	state *syncExecutionState,
+) error {
+	if err := ops.MarkManaged(ctx, state.vaultClient); err != nil {
+		state.log.V(1).Info("failed to mark as managed (non-fatal)", "error", err)
+	}
+
 	ops.ApplyBindings()
 
-	// Step 16: Track drift correction
-	if driftDetected {
-		resource.SetDriftCorrectedAt(&now)
-		metrics.IncrementDriftCorrected(kind, resource.GetNamespace())
+	if state.driftDetected {
+		resource.SetDriftCorrectedAt(&state.now)
+		metrics.IncrementDriftCorrected(state.kind, resource.GetNamespace())
 	}
 
-	// Step 17: Apply resource-specific active status fields
-	ops.ApplyActiveStatus(specHash, &now)
+	ops.ApplyActiveStatus(state.specHash, &state.now)
 
-	// Step 18: Set common status fields and conditions
 	resource.SetPhase(vaultv1alpha1.PhaseActive)
 	resource.SetManaged(true)
-	resource.SetLastAppliedHash(specHash)
-	resource.SetLastSyncedAt(&now)
+	resource.SetLastAppliedHash(state.specHash)
+	resource.SetLastSyncedAt(&state.now)
 	resource.SetRetryCount(0)
 	resource.SetNextRetryAt(nil)
 	resource.SetMessage("")
 	resource.SetDriftDetected(false)
 	resource.SetDriftSummary("")
-	resource.SetLastDriftCheckAt(&now)
+	resource.SetLastDriftCheckAt(&state.now)
 	w.setCondition(resource, vaultv1alpha1.ConditionTypeReady, metav1.ConditionTrue,
-		vaultv1alpha1.ReasonSucceeded, label+" synced to Vault")
+		vaultv1alpha1.ReasonSucceeded, state.label+" synced to Vault")
 	w.setCondition(resource, vaultv1alpha1.ConditionTypeSynced, metav1.ConditionTrue,
-		vaultv1alpha1.ReasonSucceeded, label+" synced successfully")
+		vaultv1alpha1.ReasonSucceeded, state.label+" synced successfully")
 	w.setCondition(resource, vaultv1alpha1.ConditionTypeDependencyReady, metav1.ConditionTrue,
 		vaultv1alpha1.ReasonDependencyReady, "All dependencies ready")
 	w.setCondition(resource, vaultv1alpha1.ConditionTypeDrifted, metav1.ConditionFalse,
@@ -268,18 +318,16 @@ func (w *SyncWorkflow) Execute(ctx context.Context, resource SyncableResource, o
 		return fmt.Errorf("failed to update status to Active: %w", err)
 	}
 
-	// Step 19: Emit K8s events
-	if driftDetected && w.recorder != nil {
+	if state.driftDetected && w.recorder != nil {
 		w.recorder.Event(resource.GetObject(), corev1.EventTypeNormal,
 			"DriftCorrected", "Drift was detected and corrected in Vault")
 	}
 
-	// Step 20: Publish event bus event
 	if w.eventBus != nil {
 		ops.PublishSyncEvent(ctx, w.eventBus)
 	}
 
-	log.Info(strings.ToLower(label)+" synced successfully", "resource", vaultResourceName)
+	state.log.Info(strings.ToLower(state.label)+" synced successfully", "resource", state.vaultResourceName)
 	return nil
 }
 
