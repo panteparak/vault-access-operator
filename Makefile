@@ -548,6 +548,7 @@ ENVTEST_VERSION ?= $(shell go list -m -f "{{ .Version }}" sigs.k8s.io/controller
 #ENVTEST_K8S_VERSION is the version of Kubernetes to use for setting up ENVTEST binaries (i.e. 1.31)
 ENVTEST_K8S_VERSION ?= $(shell go list -m -f "{{ .Version }}" k8s.io/api | awk -F'[v.]' '{printf "1.%d", $$3}')
 GOLANGCI_LINT_VERSION ?= v2.8.0
+GO_TOOLCHAIN_VERSION ?= $(shell go env GOVERSION)
 
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
@@ -578,19 +579,21 @@ $(GOLANGCI_LINT): $(LOCALBIN)
 	$(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/v2/cmd/golangci-lint,$(GOLANGCI_LINT_VERSION))
 
 # go-install-tool will 'go install' any package with custom target and name of binary, if it doesn't exist
+# The installed binary cache key includes the Go toolchain version to avoid reusing
+# stale binaries across local Go upgrades.
 # $1 - target path with name of binary
 # $2 - package url which can be installed
 # $3 - specific version of package
 define go-install-tool
-@[ -f "$(1)-$(3)" ] || { \
+@[ -f "$(1)-$(3)-$(GO_TOOLCHAIN_VERSION)" ] || { \
 set -e; \
 package=$(2)@$(3) ;\
 echo "Downloading $${package}" ;\
 rm -f $(1) || true ;\
 GOBIN=$(LOCALBIN) go install $${package} ;\
-mv $(1) $(1)-$(3) ;\
+mv $(1) $(1)-$(3)-$(GO_TOOLCHAIN_VERSION) ;\
 } ;\
-ln -sf $(1)-$(3) $(1)
+ln -sf $(1)-$(3)-$(GO_TOOLCHAIN_VERSION) $(1)
 endef
 
 .PHONY: operator-sdk
@@ -669,13 +672,16 @@ catalog-push: ## Push a catalog image.
 ##@ Pre-commit
 
 .PHONY: pre-commit-install
-pre-commit-install: ## Install pre-commit hooks
-	@command -v pre-commit >/dev/null 2>&1 || { echo "Installing pre-commit..."; pip install pre-commit; }
-	pre-commit install
+pre-commit-install: ## Install pre-push hooks (compatibility target name)
+	@command -v pre-commit >/dev/null 2>&1 || { echo "Installing pre-commit..."; python3 -m pip install --user pre-commit; }
+	pre-commit install --hook-type pre-push
 
 .PHONY: pre-commit-run
-pre-commit-run: ## Run pre-commit on all files
-	pre-commit run --all-files
+pre-commit-run: pre-push-run ## Backward-compatible alias for the pre-push hook suite
+
+.PHONY: pre-push-run
+pre-push-run: ## Run pre-push hooks on all files
+	pre-commit run --hook-stage pre-push --all-files
 
 .PHONY: pre-commit-update
 pre-commit-update: ## Update pre-commit hooks to latest versions

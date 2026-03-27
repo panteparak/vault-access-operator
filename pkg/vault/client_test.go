@@ -371,78 +371,24 @@ func TestAuthenticateAppRoleWithMockServer(t *testing.T) {
 	}
 }
 
-func TestAuthenticateJWTWithMockServer(t *testing.T) {
-	tests := []struct {
-		name              string
-		mountPath         string
-		expectedPath      string
-		expectedBody      map[string]string
-		serverStatusCode  int
-		serverResponse    map[string]interface{}
-		wantErr           bool
-		wantAuthenticated bool
-	}{
-		{
-			name:         "successful authentication with default mount path",
-			mountPath:    "",
-			expectedPath: "/v1/auth/jwt/login",
-			expectedBody: map[string]string{
-				"role": "test-role",
-				"jwt":  "test-jwt",
-			},
-			serverStatusCode: http.StatusOK,
-			serverResponse: map[string]interface{}{
-				"auth": map[string]interface{}{
-					"client_token": "s.test-jwt-token",
-				},
-			},
-			wantAuthenticated: true,
-		},
-		{
-			name:         "successful authentication with custom mount path",
-			mountPath:    "custom-jwt",
-			expectedPath: "/v1/auth/custom-jwt/login",
-			expectedBody: map[string]string{
-				"role": "test-role",
-				"jwt":  "test-jwt",
-			},
-			serverStatusCode: http.StatusOK,
-			serverResponse: map[string]interface{}{
-				"auth": map[string]interface{}{
-					"client_token": "s.test-jwt-token",
-				},
-			},
-			wantAuthenticated: true,
-		},
-		{
-			name:         "server returns no auth",
-			mountPath:    "",
-			expectedPath: "/v1/auth/jwt/login",
-			expectedBody: map[string]string{
-				"role": "test-role",
-				"jwt":  "test-jwt",
-			},
-			serverStatusCode: http.StatusOK,
-			serverResponse: map[string]interface{}{
-				"data": map[string]interface{}{},
-			},
-			wantErr: true,
-		},
-		{
-			name:         "server returns error",
-			mountPath:    "",
-			expectedPath: "/v1/auth/jwt/login",
-			expectedBody: map[string]string{
-				"role": "test-role",
-				"jwt":  "test-jwt",
-			},
-			serverStatusCode: http.StatusUnauthorized,
-			serverResponse: map[string]interface{}{
-				"errors": []string{"permission denied"},
-			},
-			wantErr: true,
-		},
-	}
+type authRequestTestCase struct {
+	name              string
+	mountPath         string
+	expectedPath      string
+	expectedBody      map[string]string
+	serverStatusCode  int
+	serverResponse    map[string]interface{}
+	wantErr           bool
+	wantAuthenticated bool
+}
+
+func runAuthWithMockServerTests(
+	t *testing.T,
+	methodName string,
+	tests []authRequestTestCase,
+	authenticate func(context.Context, *Client, authRequestTestCase) error,
+) {
+	t.Helper()
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -464,18 +410,18 @@ func TestAuthenticateJWTWithMockServer(t *testing.T) {
 				t.Fatalf("NewClient() error = %v", err)
 			}
 
-			err = client.AuthenticateJWT(context.Background(), "test-role", tt.mountPath, "test-jwt")
+			err = authenticate(context.Background(), client, tt)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("AuthenticateJWT() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("%s() error = %v, wantErr %v", methodName, err, tt.wantErr)
 			}
 
 			if receivedPath != tt.expectedPath {
-				t.Errorf("AuthenticateJWT() path = %q, want %q", receivedPath, tt.expectedPath)
+				t.Errorf("%s() path = %q, want %q", methodName, receivedPath, tt.expectedPath)
 			}
 
 			for key, want := range tt.expectedBody {
 				if got, ok := receivedBody[key].(string); !ok || got != want {
-					t.Errorf("AuthenticateJWT() body[%q] = %v, want %q", key, receivedBody[key], want)
+					t.Errorf("%s() body[%q] = %v, want %q", methodName, key, receivedBody[key], want)
 				}
 			}
 
@@ -486,45 +432,40 @@ func TestAuthenticateJWTWithMockServer(t *testing.T) {
 	}
 }
 
-func TestAuthenticateOIDCWithMockServer(t *testing.T) {
-	tests := []struct {
-		name              string
-		mountPath         string
-		expectedPath      string
-		expectedBody      map[string]string
-		serverStatusCode  int
-		serverResponse    map[string]interface{}
-		wantErr           bool
-		wantAuthenticated bool
-	}{
+func newTokenAuthRequestTestCases(authMethod string, tokenValue string, clientToken string) []authRequestTestCase {
+	defaultPath := "/v1/auth/" + authMethod + "/login"
+	customMountPath := "custom-" + authMethod
+	customPath := "/v1/auth/" + customMountPath + "/login"
+
+	return []authRequestTestCase{
 		{
 			name:         "successful authentication with default mount path",
 			mountPath:    "",
-			expectedPath: "/v1/auth/oidc/login",
+			expectedPath: defaultPath,
 			expectedBody: map[string]string{
 				"role": "test-role",
-				"jwt":  "test-jwt",
+				"jwt":  tokenValue,
 			},
 			serverStatusCode: http.StatusOK,
 			serverResponse: map[string]interface{}{
 				"auth": map[string]interface{}{
-					"client_token": "s.test-oidc-token",
+					"client_token": clientToken,
 				},
 			},
 			wantAuthenticated: true,
 		},
 		{
 			name:         "successful authentication with custom mount path",
-			mountPath:    "custom-oidc",
-			expectedPath: "/v1/auth/custom-oidc/login",
+			mountPath:    customMountPath,
+			expectedPath: customPath,
 			expectedBody: map[string]string{
 				"role": "test-role",
-				"jwt":  "test-jwt",
+				"jwt":  tokenValue,
 			},
 			serverStatusCode: http.StatusOK,
 			serverResponse: map[string]interface{}{
 				"auth": map[string]interface{}{
-					"client_token": "s.test-oidc-token",
+					"client_token": clientToken,
 				},
 			},
 			wantAuthenticated: true,
@@ -532,10 +473,10 @@ func TestAuthenticateOIDCWithMockServer(t *testing.T) {
 		{
 			name:         "server returns no auth",
 			mountPath:    "",
-			expectedPath: "/v1/auth/oidc/login",
+			expectedPath: defaultPath,
 			expectedBody: map[string]string{
 				"role": "test-role",
-				"jwt":  "test-jwt",
+				"jwt":  tokenValue,
 			},
 			serverStatusCode: http.StatusOK,
 			serverResponse: map[string]interface{}{
@@ -546,10 +487,10 @@ func TestAuthenticateOIDCWithMockServer(t *testing.T) {
 		{
 			name:         "server returns error",
 			mountPath:    "",
-			expectedPath: "/v1/auth/oidc/login",
+			expectedPath: defaultPath,
 			expectedBody: map[string]string{
 				"role": "test-role",
-				"jwt":  "test-jwt",
+				"jwt":  tokenValue,
 			},
 			serverStatusCode: http.StatusUnauthorized,
 			serverResponse: map[string]interface{}{
@@ -558,68 +499,13 @@ func TestAuthenticateOIDCWithMockServer(t *testing.T) {
 			wantErr: true,
 		},
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var receivedPath string
-			var receivedBody map[string]interface{}
-
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				receivedPath = r.URL.Path
-				if err := json.NewDecoder(r.Body).Decode(&receivedBody); err != nil {
-					t.Fatalf("failed to decode request body: %v", err)
-				}
-				w.WriteHeader(tt.serverStatusCode)
-				_ = json.NewEncoder(w).Encode(tt.serverResponse)
-			}))
-			defer server.Close()
-
-			client, err := NewClient(ClientConfig{Address: server.URL})
-			if err != nil {
-				t.Fatalf("NewClient() error = %v", err)
-			}
-
-			err = client.AuthenticateOIDC(context.Background(), "test-role", tt.mountPath, "test-jwt")
-			if (err != nil) != tt.wantErr {
-				t.Errorf("AuthenticateOIDC() error = %v, wantErr %v", err, tt.wantErr)
-			}
-
-			if receivedPath != tt.expectedPath {
-				t.Errorf("AuthenticateOIDC() path = %q, want %q", receivedPath, tt.expectedPath)
-			}
-
-			for key, want := range tt.expectedBody {
-				if got, ok := receivedBody[key].(string); !ok || got != want {
-					t.Errorf("AuthenticateOIDC() body[%q] = %v, want %q", key, receivedBody[key], want)
-				}
-			}
-
-			if client.IsAuthenticated() != tt.wantAuthenticated {
-				t.Errorf("IsAuthenticated() = %v, want %v", client.IsAuthenticated(), tt.wantAuthenticated)
-			}
-		})
-	}
 }
 
-func TestAuthenticateAWSWithMockServer(t *testing.T) {
-	tests := []struct {
-		name              string
-		mountPath         string
-		loginData         map[string]interface{}
-		expectedPath      string
-		expectedBody      map[string]string
-		serverStatusCode  int
-		serverResponse    map[string]interface{}
-		wantErr           bool
-		wantAuthenticated bool
-	}{
+func newAWSAuthRequestTestCases() []authRequestTestCase {
+	return []authRequestTestCase{
 		{
-			name:      "successful authentication with default mount path",
-			mountPath: "",
-			loginData: map[string]interface{}{
-				"iam_http_request_method": "POST",
-				"iam_request_url":         "https://sts.amazonaws.com/",
-			},
+			name:         "successful authentication with default mount path",
+			mountPath:    "",
 			expectedPath: "/v1/auth/aws/login",
 			expectedBody: map[string]string{
 				"role":                    "test-role",
@@ -635,11 +521,8 @@ func TestAuthenticateAWSWithMockServer(t *testing.T) {
 			wantAuthenticated: true,
 		},
 		{
-			name:      "successful authentication with custom mount path",
-			mountPath: "custom-aws",
-			loginData: map[string]interface{}{
-				"iam_http_request_method": "POST",
-			},
+			name:         "successful authentication with custom mount path",
+			mountPath:    "custom-aws",
 			expectedPath: "/v1/auth/custom-aws/login",
 			expectedBody: map[string]string{
 				"role":                    "test-role",
@@ -654,11 +537,8 @@ func TestAuthenticateAWSWithMockServer(t *testing.T) {
 			wantAuthenticated: true,
 		},
 		{
-			name:      "server returns no auth",
-			mountPath: "",
-			loginData: map[string]interface{}{
-				"iam_http_request_method": "POST",
-			},
+			name:         "server returns no auth",
+			mountPath:    "",
 			expectedPath: "/v1/auth/aws/login",
 			expectedBody: map[string]string{
 				"role":                    "test-role",
@@ -671,11 +551,8 @@ func TestAuthenticateAWSWithMockServer(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:      "server returns error",
-			mountPath: "",
-			loginData: map[string]interface{}{
-				"iam_http_request_method": "POST",
-			},
+			name:         "server returns error",
+			mountPath:    "",
 			expectedPath: "/v1/auth/aws/login",
 			expectedBody: map[string]string{
 				"role":                    "test-role",
@@ -688,47 +565,47 @@ func TestAuthenticateAWSWithMockServer(t *testing.T) {
 			wantErr: true,
 		},
 	}
+}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var receivedPath string
-			var receivedBody map[string]interface{}
+func TestAuthenticateJWTWithMockServer(t *testing.T) {
+	runAuthWithMockServerTests(
+		t,
+		"AuthenticateJWT",
+		newTokenAuthRequestTestCases("jwt", "test-jwt", "s.test-jwt-token"),
+		func(ctx context.Context, client *Client, tt authRequestTestCase) error {
+			return client.AuthenticateJWT(ctx, "test-role", tt.mountPath, "test-jwt")
+		},
+	)
+}
 
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				receivedPath = r.URL.Path
-				if err := json.NewDecoder(r.Body).Decode(&receivedBody); err != nil {
-					t.Fatalf("failed to decode request body: %v", err)
+func TestAuthenticateOIDCWithMockServer(t *testing.T) {
+	runAuthWithMockServerTests(
+		t,
+		"AuthenticateOIDC",
+		newTokenAuthRequestTestCases("oidc", "test-jwt", "s.test-oidc-token"),
+		func(ctx context.Context, client *Client, tt authRequestTestCase) error {
+			return client.AuthenticateOIDC(ctx, "test-role", tt.mountPath, "test-jwt")
+		},
+	)
+}
+
+func TestAuthenticateAWSWithMockServer(t *testing.T) {
+	runAuthWithMockServerTests(
+		t,
+		"AuthenticateAWS",
+		newAWSAuthRequestTestCases(),
+		func(ctx context.Context, client *Client, tt authRequestTestCase) error {
+			loginData := make(map[string]interface{}, len(tt.expectedBody)-1)
+			for key, value := range tt.expectedBody {
+				if key == "role" {
+					continue
 				}
-				w.WriteHeader(tt.serverStatusCode)
-				_ = json.NewEncoder(w).Encode(tt.serverResponse)
-			}))
-			defer server.Close()
-
-			client, err := NewClient(ClientConfig{Address: server.URL})
-			if err != nil {
-				t.Fatalf("NewClient() error = %v", err)
+				loginData[key] = value
 			}
 
-			err = client.AuthenticateAWS(context.Background(), "test-role", tt.mountPath, tt.loginData)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("AuthenticateAWS() error = %v, wantErr %v", err, tt.wantErr)
-			}
-
-			if receivedPath != tt.expectedPath {
-				t.Errorf("AuthenticateAWS() path = %q, want %q", receivedPath, tt.expectedPath)
-			}
-
-			for key, want := range tt.expectedBody {
-				if got, ok := receivedBody[key].(string); !ok || got != want {
-					t.Errorf("AuthenticateAWS() body[%q] = %v, want %q", key, receivedBody[key], want)
-				}
-			}
-
-			if client.IsAuthenticated() != tt.wantAuthenticated {
-				t.Errorf("IsAuthenticated() = %v, want %v", client.IsAuthenticated(), tt.wantAuthenticated)
-			}
-		})
-	}
+			return client.AuthenticateAWS(ctx, "test-role", tt.mountPath, loginData)
+		},
+	)
 }
 
 func TestAuthenticateAWSMutatesLoginDataWithRole(t *testing.T) {
@@ -762,118 +639,14 @@ func TestAuthenticateAWSMutatesLoginDataWithRole(t *testing.T) {
 }
 
 func TestAuthenticateGCPWithMockServer(t *testing.T) {
-	tests := []struct {
-		name              string
-		mountPath         string
-		expectedPath      string
-		expectedBody      map[string]string
-		serverStatusCode  int
-		serverResponse    map[string]interface{}
-		wantErr           bool
-		wantAuthenticated bool
-	}{
-		{
-			name:         "successful authentication with default mount path",
-			mountPath:    "",
-			expectedPath: "/v1/auth/gcp/login",
-			expectedBody: map[string]string{
-				"role": "test-role",
-				"jwt":  "signed-jwt",
-			},
-			serverStatusCode: http.StatusOK,
-			serverResponse: map[string]interface{}{
-				"auth": map[string]interface{}{
-					"client_token": "s.test-gcp-token",
-				},
-			},
-			wantAuthenticated: true,
+	runAuthWithMockServerTests(
+		t,
+		"AuthenticateGCP",
+		newTokenAuthRequestTestCases("gcp", "signed-jwt", "s.test-gcp-token"),
+		func(ctx context.Context, client *Client, tt authRequestTestCase) error {
+			return client.AuthenticateGCP(ctx, "test-role", tt.mountPath, "signed-jwt")
 		},
-		{
-			name:         "successful authentication with custom mount path",
-			mountPath:    "custom-gcp",
-			expectedPath: "/v1/auth/custom-gcp/login",
-			expectedBody: map[string]string{
-				"role": "test-role",
-				"jwt":  "signed-jwt",
-			},
-			serverStatusCode: http.StatusOK,
-			serverResponse: map[string]interface{}{
-				"auth": map[string]interface{}{
-					"client_token": "s.test-gcp-token",
-				},
-			},
-			wantAuthenticated: true,
-		},
-		{
-			name:         "server returns no auth",
-			mountPath:    "",
-			expectedPath: "/v1/auth/gcp/login",
-			expectedBody: map[string]string{
-				"role": "test-role",
-				"jwt":  "signed-jwt",
-			},
-			serverStatusCode: http.StatusOK,
-			serverResponse: map[string]interface{}{
-				"data": map[string]interface{}{},
-			},
-			wantErr: true,
-		},
-		{
-			name:         "server returns error",
-			mountPath:    "",
-			expectedPath: "/v1/auth/gcp/login",
-			expectedBody: map[string]string{
-				"role": "test-role",
-				"jwt":  "signed-jwt",
-			},
-			serverStatusCode: http.StatusUnauthorized,
-			serverResponse: map[string]interface{}{
-				"errors": []string{"permission denied"},
-			},
-			wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var receivedPath string
-			var receivedBody map[string]interface{}
-
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				receivedPath = r.URL.Path
-				if err := json.NewDecoder(r.Body).Decode(&receivedBody); err != nil {
-					t.Fatalf("failed to decode request body: %v", err)
-				}
-				w.WriteHeader(tt.serverStatusCode)
-				_ = json.NewEncoder(w).Encode(tt.serverResponse)
-			}))
-			defer server.Close()
-
-			client, err := NewClient(ClientConfig{Address: server.URL})
-			if err != nil {
-				t.Fatalf("NewClient() error = %v", err)
-			}
-
-			err = client.AuthenticateGCP(context.Background(), "test-role", tt.mountPath, "signed-jwt")
-			if (err != nil) != tt.wantErr {
-				t.Errorf("AuthenticateGCP() error = %v, wantErr %v", err, tt.wantErr)
-			}
-
-			if receivedPath != tt.expectedPath {
-				t.Errorf("AuthenticateGCP() path = %q, want %q", receivedPath, tt.expectedPath)
-			}
-
-			for key, want := range tt.expectedBody {
-				if got, ok := receivedBody[key].(string); !ok || got != want {
-					t.Errorf("AuthenticateGCP() body[%q] = %v, want %q", key, receivedBody[key], want)
-				}
-			}
-
-			if client.IsAuthenticated() != tt.wantAuthenticated {
-				t.Errorf("IsAuthenticated() = %v, want %v", client.IsAuthenticated(), tt.wantAuthenticated)
-			}
-		})
-	}
+	)
 }
 
 func TestIsHealthy(t *testing.T) {

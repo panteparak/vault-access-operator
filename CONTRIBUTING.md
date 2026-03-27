@@ -43,6 +43,7 @@ Feature requests are welcome! Please:
 3. **Make your changes** with appropriate tests
 4. **Run validation**:
    ```bash
+   make pre-push-run
    make test
    make lint
    ```
@@ -75,6 +76,9 @@ make test
 # Run linter
 make lint
 
+# Run local pre-push hooks
+make pre-push-run
+
 # Run locally against current kubeconfig
 make run
 ```
@@ -93,6 +97,9 @@ go test ./pkg/vault/... -v
 
 # Lint
 make lint
+
+# Pre-push validation hooks
+make pre-push-run
 ```
 
 ### Running E2E Tests Locally

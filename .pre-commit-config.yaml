@@ -1,6 +1,9 @@
 # Pre-commit hooks configuration
-# Install: pip install pre-commit && pre-commit install
-# Run manually: pre-commit run --all-files
+# Install: python3 -m pip install --user pre-commit && pre-commit install --hook-type pre-push
+# Run pre-push manually: pre-commit run --hook-stage pre-push --all-files
+
+default_install_hook_types: [pre-push]
+default_stages: [pre-push]
 
 repos:
   # Standard pre-commit hooks (official)

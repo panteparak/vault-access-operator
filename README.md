@@ -293,6 +293,10 @@ make test
 # Run linter
 make lint
 
+# Install and run local pre-push hooks
+make pre-commit-install
+make pre-push-run
+
 # Build container image
 make docker-build IMG=my-registry/vault-access-operator:dev
 
@@ -330,7 +334,7 @@ We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) f
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
 3. Make your changes with tests
-4. Run `make test && make lint`
+4. Run `make pre-push-run && make test && make lint`
 5. Commit with [conventional commits](https://www.conventionalcommits.org/)
 6. Open a Pull Request
 
