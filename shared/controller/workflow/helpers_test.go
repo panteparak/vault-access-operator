@@ -32,10 +32,19 @@ import (
 
 // ---------------------------------------------------------------------------
 // testResource wraps a *VaultPolicy to satisfy SyncableResource.
+// Uses SyncStatusAccessor to eliminate boilerplate status delegation.
 // ---------------------------------------------------------------------------
 
 type testResource struct {
 	*vaultv1alpha1.VaultPolicy
+	vaultv1alpha1.SyncStatusAccessor
+}
+
+func newTestResource(p *vaultv1alpha1.VaultPolicy) *testResource {
+	return &testResource{
+		VaultPolicy:        p,
+		SyncStatusAccessor: vaultv1alpha1.NewSyncStatusAccessor(&p.Status.SyncStatus),
+	}
 }
 
 func (r *testResource) GetObject() client.Object         { return r.VaultPolicy }
@@ -49,55 +58,6 @@ func (r *testResource) GetConflictPolicy() vaultv1alpha1.ConflictPolicy {
 	return r.Spec.ConflictPolicy
 }
 func (r *testResource) GetDriftMode() vaultv1alpha1.DriftMode { return r.Spec.DriftMode }
-
-// Status: Phase
-func (r *testResource) GetPhase() vaultv1alpha1.Phase      { return r.Status.Phase }
-func (r *testResource) SetPhase(phase vaultv1alpha1.Phase) { r.Status.Phase = phase }
-
-// Status: Hash
-func (r *testResource) GetLastAppliedHash() string     { return r.Status.LastAppliedHash }
-func (r *testResource) SetLastAppliedHash(hash string) { r.Status.LastAppliedHash = hash }
-
-// Status: General
-func (r *testResource) SetManaged(managed bool)         { r.Status.Managed = managed }
-func (r *testResource) SetLastSyncedAt(t *metav1.Time)  { r.Status.LastSyncedAt = t }
-func (r *testResource) SetLastAttemptAt(t *metav1.Time) { r.Status.LastAttemptAt = t }
-func (r *testResource) SetRetryCount(count int)         { r.Status.RetryCount = count }
-func (r *testResource) GetRetryCount() int              { return r.Status.RetryCount }
-func (r *testResource) SetNextRetryAt(t *metav1.Time)   { r.Status.NextRetryAt = t }
-func (r *testResource) SetMessage(msg string)           { r.Status.Message = msg }
-
-// Status: Conditions
-func (r *testResource) GetConditions() []vaultv1alpha1.Condition { return r.Status.Conditions }
-func (r *testResource) SetConditions(conditions []vaultv1alpha1.Condition) {
-	r.Status.Conditions = conditions
-}
-
-// Status: Drift
-func (r *testResource) GetDriftDetected() bool             { return r.Status.DriftDetected }
-func (r *testResource) SetDriftDetected(d bool)            { r.Status.DriftDetected = d }
-func (r *testResource) SetLastDriftCheckAt(t *metav1.Time) { r.Status.LastDriftCheckAt = t }
-func (r *testResource) GetEffectiveDriftMode() vaultv1alpha1.DriftMode {
-	return r.Status.EffectiveDriftMode
-}
-func (r *testResource) SetEffectiveDriftMode(mode vaultv1alpha1.DriftMode) {
-	r.Status.EffectiveDriftMode = mode
-}
-func (r *testResource) GetDriftSummary() string            { return r.Status.DriftSummary }
-func (r *testResource) SetDriftSummary(summary string)     { r.Status.DriftSummary = summary }
-func (r *testResource) SetDriftCorrectedAt(t *metav1.Time) { r.Status.DriftCorrectedAt = t }
-
-// Status: Deletion
-func (r *testResource) GetDeletionStartedAt() *metav1.Time { return r.Status.DeletionStartedAt }
-func (r *testResource) SetDeletionStartedAt(t *metav1.Time) {
-	r.Status.DeletionStartedAt = t
-}
-
-// Status: Binding
-func (r *testResource) GetBinding() vaultv1alpha1.VaultResourceBinding { return r.Status.Binding }
-func (r *testResource) SetBinding(binding vaultv1alpha1.VaultResourceBinding) {
-	r.Status.Binding = binding
-}
 
 // ---------------------------------------------------------------------------
 // mockOps implements ResourceOps with call recording and configurable errors.

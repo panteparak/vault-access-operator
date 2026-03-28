@@ -71,13 +71,22 @@ type RoleAdapter interface {
 	// IsNamespaced returns true for VaultRole, false for VaultClusterRole
 	IsNamespaced() bool
 
-	// Status accessors and mutators
-	GetPhase() vaultv1alpha1.Phase
-	SetPhase(phase vaultv1alpha1.Phase)
+	// Role-specific status fields
 	SetVaultRoleName(name string)
-	SetManaged(managed bool)
 	SetBoundServiceAccounts(accounts []string)
 	SetResolvedPolicies(policies []string)
+	GetPolicyBindings() []vaultv1alpha1.PolicyBinding
+	SetPolicyBindings(bindings []vaultv1alpha1.PolicyBinding)
+
+	// Drift mode from spec
+	GetDriftMode() vaultv1alpha1.DriftMode
+
+	// Common sync status methods (implemented via SyncStatusAccessor embedding)
+	GetPhase() vaultv1alpha1.Phase
+	SetPhase(phase vaultv1alpha1.Phase)
+	GetLastAppliedHash() string
+	SetLastAppliedHash(hash string)
+	SetManaged(managed bool)
 	SetLastSyncedAt(t *metav1.Time)
 	SetLastAttemptAt(t *metav1.Time)
 	SetRetryCount(count int)
@@ -86,44 +95,33 @@ type RoleAdapter interface {
 	SetMessage(msg string)
 	GetConditions() []vaultv1alpha1.Condition
 	SetConditions(conditions []vaultv1alpha1.Condition)
-
-	// Drift detection and mode
 	GetDriftDetected() bool
 	SetDriftDetected(driftDetected bool)
 	SetLastDriftCheckAt(t *metav1.Time)
-	GetDriftMode() vaultv1alpha1.DriftMode
 	GetEffectiveDriftMode() vaultv1alpha1.DriftMode
 	SetEffectiveDriftMode(mode vaultv1alpha1.DriftMode)
 	GetDriftSummary() string
 	SetDriftSummary(summary string)
 	GetDriftCorrectedAt() *metav1.Time
 	SetDriftCorrectedAt(t *metav1.Time)
-
-	// Deletion tracking
 	GetDeletionStartedAt() *metav1.Time
 	SetDeletionStartedAt(t *metav1.Time)
-
-	// Vault resource binding
 	GetBinding() vaultv1alpha1.VaultResourceBinding
 	SetBinding(binding vaultv1alpha1.VaultResourceBinding)
-
-	// Policy bindings - track relationships to referenced policies
-	GetPolicyBindings() []vaultv1alpha1.PolicyBinding
-	SetPolicyBindings(bindings []vaultv1alpha1.PolicyBinding)
-
-	// Spec hash for distinguishing spec changes from Vault drift
-	GetLastAppliedHash() string
-	SetLastAppliedHash(hash string)
 }
 
 // VaultRoleAdapter adapts VaultRole to the RoleAdapter interface.
 type VaultRoleAdapter struct {
 	*vaultv1alpha1.VaultRole
+	vaultv1alpha1.SyncStatusAccessor
 }
 
 // NewVaultRoleAdapter creates a new VaultRoleAdapter.
 func NewVaultRoleAdapter(r *vaultv1alpha1.VaultRole) *VaultRoleAdapter {
-	return &VaultRoleAdapter{VaultRole: r}
+	return &VaultRoleAdapter{
+		VaultRole:          r,
+		SyncStatusAccessor: vaultv1alpha1.NewSyncStatusAccessor(&r.Status.SyncStatus),
+	}
 }
 
 func (a *VaultRoleAdapter) GetObject() client.Object { return a.VaultRole }
@@ -151,88 +149,34 @@ func (a *VaultRoleAdapter) GetVaultRoleName() string         { return a.Namespac
 func (a *VaultRoleAdapter) GetK8sResourceIdentifier() string { return a.Namespace + "/" + a.Name }
 func (a *VaultRoleAdapter) IsNamespaced() bool               { return true }
 
-// Status accessors
-func (a *VaultRoleAdapter) GetPhase() vaultv1alpha1.Phase      { return a.Status.Phase }
-func (a *VaultRoleAdapter) SetPhase(phase vaultv1alpha1.Phase) { a.Status.Phase = phase }
-func (a *VaultRoleAdapter) SetVaultRoleName(name string)       { a.Status.VaultRoleName = name }
-func (a *VaultRoleAdapter) SetManaged(managed bool)            { a.Status.Managed = managed }
+// Role-specific status fields
+func (a *VaultRoleAdapter) SetVaultRoleName(name string) { a.Status.VaultRoleName = name }
 func (a *VaultRoleAdapter) SetBoundServiceAccounts(accounts []string) {
 	a.Status.BoundServiceAccounts = accounts
 }
 func (a *VaultRoleAdapter) SetResolvedPolicies(policies []string) {
 	a.Status.ResolvedPolicies = policies
 }
-func (a *VaultRoleAdapter) SetLastSyncedAt(t *metav1.Time)  { a.Status.LastSyncedAt = t }
-func (a *VaultRoleAdapter) SetLastAttemptAt(t *metav1.Time) { a.Status.LastAttemptAt = t }
-func (a *VaultRoleAdapter) SetRetryCount(count int)         { a.Status.RetryCount = count }
-func (a *VaultRoleAdapter) GetRetryCount() int              { return a.Status.RetryCount }
-func (a *VaultRoleAdapter) SetNextRetryAt(t *metav1.Time)   { a.Status.NextRetryAt = t }
-func (a *VaultRoleAdapter) SetMessage(msg string)           { a.Status.Message = msg }
-func (a *VaultRoleAdapter) GetConditions() []vaultv1alpha1.Condition {
-	return a.Status.Conditions
-}
-func (a *VaultRoleAdapter) SetConditions(conditions []vaultv1alpha1.Condition) {
-	a.Status.Conditions = conditions
-}
-
-// Drift detection
-func (a *VaultRoleAdapter) GetDriftDetected() bool { return a.Status.DriftDetected }
-func (a *VaultRoleAdapter) SetDriftDetected(driftDetected bool) {
-	a.Status.DriftDetected = driftDetected
-}
-func (a *VaultRoleAdapter) SetLastDriftCheckAt(t *metav1.Time) { a.Status.LastDriftCheckAt = t }
-func (a *VaultRoleAdapter) GetDriftMode() vaultv1alpha1.DriftMode {
-	return a.Spec.DriftMode
-}
-func (a *VaultRoleAdapter) GetEffectiveDriftMode() vaultv1alpha1.DriftMode {
-	return a.Status.EffectiveDriftMode
-}
-func (a *VaultRoleAdapter) SetEffectiveDriftMode(mode vaultv1alpha1.DriftMode) {
-	a.Status.EffectiveDriftMode = mode
-}
-func (a *VaultRoleAdapter) GetDriftSummary() string { return a.Status.DriftSummary }
-func (a *VaultRoleAdapter) SetDriftSummary(summary string) {
-	a.Status.DriftSummary = summary
-}
-func (a *VaultRoleAdapter) GetDriftCorrectedAt() *metav1.Time  { return a.Status.DriftCorrectedAt }
-func (a *VaultRoleAdapter) SetDriftCorrectedAt(t *metav1.Time) { a.Status.DriftCorrectedAt = t }
-
-// Deletion tracking
-func (a *VaultRoleAdapter) GetDeletionStartedAt() *metav1.Time { return a.Status.DeletionStartedAt }
-func (a *VaultRoleAdapter) SetDeletionStartedAt(t *metav1.Time) {
-	a.Status.DeletionStartedAt = t
-}
-
-// Vault resource binding
-func (a *VaultRoleAdapter) GetBinding() vaultv1alpha1.VaultResourceBinding {
-	return a.Status.Binding
-}
-func (a *VaultRoleAdapter) SetBinding(binding vaultv1alpha1.VaultResourceBinding) {
-	a.Status.Binding = binding
-}
-
-// Policy bindings
 func (a *VaultRoleAdapter) GetPolicyBindings() []vaultv1alpha1.PolicyBinding {
 	return a.Status.PolicyBindings
 }
 func (a *VaultRoleAdapter) SetPolicyBindings(bindings []vaultv1alpha1.PolicyBinding) {
 	a.Status.PolicyBindings = bindings
 }
-
-// Spec hash
-func (a *VaultRoleAdapter) GetLastAppliedHash() string { return a.Status.LastAppliedHash }
-func (a *VaultRoleAdapter) SetLastAppliedHash(hash string) {
-	a.Status.LastAppliedHash = hash
-}
+func (a *VaultRoleAdapter) GetDriftMode() vaultv1alpha1.DriftMode { return a.Spec.DriftMode }
 
 // VaultClusterRoleAdapter adapts VaultClusterRole to the RoleAdapter interface.
 type VaultClusterRoleAdapter struct {
 	*vaultv1alpha1.VaultClusterRole
+	vaultv1alpha1.SyncStatusAccessor
 }
 
 // NewVaultClusterRoleAdapter creates a new VaultClusterRoleAdapter.
 func NewVaultClusterRoleAdapter(r *vaultv1alpha1.VaultClusterRole) *VaultClusterRoleAdapter {
-	return &VaultClusterRoleAdapter{VaultClusterRole: r}
+	return &VaultClusterRoleAdapter{
+		VaultClusterRole:   r,
+		SyncStatusAccessor: vaultv1alpha1.NewSyncStatusAccessor(&r.Status.SyncStatus),
+	}
 }
 
 func (a *VaultClusterRoleAdapter) GetObject() client.Object { return a.VaultClusterRole }
@@ -262,84 +206,18 @@ func (a *VaultClusterRoleAdapter) GetVaultRoleName() string         { return a.N
 func (a *VaultClusterRoleAdapter) GetK8sResourceIdentifier() string { return a.Name }
 func (a *VaultClusterRoleAdapter) IsNamespaced() bool               { return false }
 
-// Status accessors
-func (a *VaultClusterRoleAdapter) GetPhase() vaultv1alpha1.Phase      { return a.Status.Phase }
-func (a *VaultClusterRoleAdapter) SetPhase(phase vaultv1alpha1.Phase) { a.Status.Phase = phase }
-func (a *VaultClusterRoleAdapter) SetVaultRoleName(name string)       { a.Status.VaultRoleName = name }
-func (a *VaultClusterRoleAdapter) SetManaged(managed bool)            { a.Status.Managed = managed }
+// Role-specific status fields
+func (a *VaultClusterRoleAdapter) SetVaultRoleName(name string) { a.Status.VaultRoleName = name }
 func (a *VaultClusterRoleAdapter) SetBoundServiceAccounts(accounts []string) {
 	a.Status.BoundServiceAccounts = accounts
 }
 func (a *VaultClusterRoleAdapter) SetResolvedPolicies(policies []string) {
 	a.Status.ResolvedPolicies = policies
 }
-func (a *VaultClusterRoleAdapter) SetLastSyncedAt(t *metav1.Time)  { a.Status.LastSyncedAt = t }
-func (a *VaultClusterRoleAdapter) SetLastAttemptAt(t *metav1.Time) { a.Status.LastAttemptAt = t }
-func (a *VaultClusterRoleAdapter) SetRetryCount(count int)         { a.Status.RetryCount = count }
-func (a *VaultClusterRoleAdapter) GetRetryCount() int              { return a.Status.RetryCount }
-func (a *VaultClusterRoleAdapter) SetNextRetryAt(t *metav1.Time)   { a.Status.NextRetryAt = t }
-func (a *VaultClusterRoleAdapter) SetMessage(msg string)           { a.Status.Message = msg }
-func (a *VaultClusterRoleAdapter) GetConditions() []vaultv1alpha1.Condition {
-	return a.Status.Conditions
-}
-func (a *VaultClusterRoleAdapter) SetConditions(conditions []vaultv1alpha1.Condition) {
-	a.Status.Conditions = conditions
-}
-
-// Drift detection
-func (a *VaultClusterRoleAdapter) GetDriftDetected() bool { return a.Status.DriftDetected }
-func (a *VaultClusterRoleAdapter) SetDriftDetected(driftDetected bool) {
-	a.Status.DriftDetected = driftDetected
-}
-func (a *VaultClusterRoleAdapter) SetLastDriftCheckAt(t *metav1.Time) {
-	a.Status.LastDriftCheckAt = t
-}
-func (a *VaultClusterRoleAdapter) GetDriftMode() vaultv1alpha1.DriftMode {
-	return a.Spec.DriftMode
-}
-func (a *VaultClusterRoleAdapter) GetEffectiveDriftMode() vaultv1alpha1.DriftMode {
-	return a.Status.EffectiveDriftMode
-}
-func (a *VaultClusterRoleAdapter) SetEffectiveDriftMode(mode vaultv1alpha1.DriftMode) {
-	a.Status.EffectiveDriftMode = mode
-}
-func (a *VaultClusterRoleAdapter) GetDriftSummary() string { return a.Status.DriftSummary }
-func (a *VaultClusterRoleAdapter) SetDriftSummary(summary string) {
-	a.Status.DriftSummary = summary
-}
-func (a *VaultClusterRoleAdapter) GetDriftCorrectedAt() *metav1.Time {
-	return a.Status.DriftCorrectedAt
-}
-func (a *VaultClusterRoleAdapter) SetDriftCorrectedAt(t *metav1.Time) {
-	a.Status.DriftCorrectedAt = t
-}
-
-// Deletion tracking
-func (a *VaultClusterRoleAdapter) GetDeletionStartedAt() *metav1.Time {
-	return a.Status.DeletionStartedAt
-}
-func (a *VaultClusterRoleAdapter) SetDeletionStartedAt(t *metav1.Time) {
-	a.Status.DeletionStartedAt = t
-}
-
-// Vault resource binding
-func (a *VaultClusterRoleAdapter) GetBinding() vaultv1alpha1.VaultResourceBinding {
-	return a.Status.Binding
-}
-func (a *VaultClusterRoleAdapter) SetBinding(binding vaultv1alpha1.VaultResourceBinding) {
-	a.Status.Binding = binding
-}
-
-// Policy bindings
 func (a *VaultClusterRoleAdapter) GetPolicyBindings() []vaultv1alpha1.PolicyBinding {
 	return a.Status.PolicyBindings
 }
 func (a *VaultClusterRoleAdapter) SetPolicyBindings(bindings []vaultv1alpha1.PolicyBinding) {
 	a.Status.PolicyBindings = bindings
 }
-
-// Spec hash
-func (a *VaultClusterRoleAdapter) GetLastAppliedHash() string { return a.Status.LastAppliedHash }
-func (a *VaultClusterRoleAdapter) SetLastAppliedHash(hash string) {
-	a.Status.LastAppliedHash = hash
-}
+func (a *VaultClusterRoleAdapter) GetDriftMode() vaultv1alpha1.DriftMode { return a.Spec.DriftMode }

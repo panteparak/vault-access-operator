@@ -60,15 +60,6 @@ type VaultClusterPolicyStatus struct {
 	// RulesCount is the number of rules in the policy
 	// +optional
 	RulesCount int `json:"rulesCount,omitempty"`
-
-	// LastAppliedHash is the hash of the last applied spec
-	// +optional
-	LastAppliedHash string `json:"lastAppliedHash,omitempty"`
-
-	// Binding contains the explicit reference to the Vault resource.
-	// Acts like a foreign key to the Vault policy.
-	// +optional
-	Binding VaultResourceBinding `json:"binding,omitempty"`
 }
 
 // +kubebuilder:object:root=true

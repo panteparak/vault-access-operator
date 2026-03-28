@@ -18,7 +18,6 @@ package events
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
 	"github.com/go-logr/logr"
@@ -28,24 +27,23 @@ import (
 // Handlers should be idempotent and handle errors gracefully.
 type Handler[T Event] func(ctx context.Context, event T) error
 
-// handlerWrapper wraps a typed handler for storage in the bus.
-type handlerWrapper struct {
-	eventType string
-	handler   interface{}
-}
+// handlerFunc is a type-erased handler that accepts any Event.
+// The type assertion is captured at Subscribe time via a closure,
+// so the dispatch path is O(1) with no type switch.
+type handlerFunc func(ctx context.Context, event Event) error
 
 // EventBus manages event publication and subscription for inter-feature communication.
 // It is thread-safe and supports multiple handlers per event type.
 type EventBus struct {
 	mu       sync.RWMutex
-	handlers map[string][]handlerWrapper
+	handlers map[string][]handlerFunc
 	logger   logr.Logger
 }
 
 // NewEventBus creates a new event bus with the given logger.
 func NewEventBus(logger logr.Logger) *EventBus {
 	return &EventBus{
-		handlers: make(map[string][]handlerWrapper),
+		handlers: make(map[string][]handlerFunc),
 		logger:   logger,
 	}
 }
@@ -53,19 +51,25 @@ func NewEventBus(logger logr.Logger) *EventBus {
 // Subscribe registers a handler for events of type T.
 // The handler will be called whenever an event of that type is published.
 // Multiple handlers can be registered for the same event type.
+//
+// The type assertion is captured in a closure at subscribe time, eliminating
+// the need for an exhaustive type switch in the dispatch path. Adding new
+// event types requires no changes to the bus implementation.
 func Subscribe[T Event](bus *EventBus, handler Handler[T]) {
 	var zero T
 	eventType := zero.Type()
 
+	// Capture the type assertion in a closure — the handler is called
+	// with the concrete type already asserted, so dispatch is a direct
+	// function call with no runtime type switch.
+	wrapped := func(ctx context.Context, event Event) error {
+		return handler(ctx, event.(T))
+	}
+
 	bus.mu.Lock()
 	defer bus.mu.Unlock()
 
-	wrapper := handlerWrapper{
-		eventType: eventType,
-		handler:   handler,
-	}
-
-	bus.handlers[eventType] = append(bus.handlers[eventType], wrapper)
+	bus.handlers[eventType] = append(bus.handlers[eventType], wrapped)
 	bus.logger.V(1).Info("handler subscribed", "eventType", eventType)
 }
 
@@ -100,8 +104,8 @@ func (b *EventBus) Publish(ctx context.Context, event Event) error {
 	)
 
 	var lastErr error
-	for i, wrapper := range handlers {
-		if err := b.invokeHandler(ctx, wrapper.handler, event); err != nil {
+	for i, handler := range handlers {
+		if err := handler(ctx, event); err != nil {
 			b.logger.Error(err, "handler failed",
 				"type", event.Type(),
 				"handlerIndex", i,
@@ -121,60 +125,6 @@ func (b *EventBus) PublishAsync(ctx context.Context, event Event) {
 	go func() {
 		_ = b.Publish(ctx, event)
 	}()
-}
-
-// invokeHandler calls the appropriate typed handler based on the event type.
-// This uses type assertions to convert from interface{} to the correct handler type.
-func (b *EventBus) invokeHandler(ctx context.Context, handler interface{}, event Event) error {
-	// Use type switch to handle each event type
-	switch e := event.(type) {
-	// Connection events
-	case ConnectionReady:
-		if h, ok := handler.(Handler[ConnectionReady]); ok {
-			return h(ctx, e)
-		}
-	case ConnectionDisconnected:
-		if h, ok := handler.(Handler[ConnectionDisconnected]); ok {
-			return h(ctx, e)
-		}
-	case ConnectionHealthChanged:
-		if h, ok := handler.(Handler[ConnectionHealthChanged]); ok {
-			return h(ctx, e)
-		}
-
-	// Policy events
-	case PolicyCreated:
-		if h, ok := handler.(Handler[PolicyCreated]); ok {
-			return h(ctx, e)
-		}
-	case PolicyUpdated:
-		if h, ok := handler.(Handler[PolicyUpdated]); ok {
-			return h(ctx, e)
-		}
-	case PolicyDeleted:
-		if h, ok := handler.(Handler[PolicyDeleted]); ok {
-			return h(ctx, e)
-		}
-
-	// Role events
-	case RoleCreated:
-		if h, ok := handler.(Handler[RoleCreated]); ok {
-			return h(ctx, e)
-		}
-	case RoleUpdated:
-		if h, ok := handler.(Handler[RoleUpdated]); ok {
-			return h(ctx, e)
-		}
-	case RoleDeleted:
-		if h, ok := handler.(Handler[RoleDeleted]); ok {
-			return h(ctx, e)
-		}
-
-	default:
-		return fmt.Errorf("unknown event type: %T", event)
-	}
-
-	return fmt.Errorf("handler type mismatch for event: %s", event.Type())
 }
 
 // HandlerCount returns the number of handlers registered for a specific event type.

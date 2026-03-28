@@ -137,8 +137,8 @@ spec:
             properties:
               binding:
                 description: |-
-                  Binding contains the explicit reference to the Vault role.
-                  Acts like a foreign key to the Vault Kubernetes auth role.
+                  Binding contains the explicit reference to the Vault resource.
+                  Acts like a foreign key to the Vault resource.
                 properties:
                   authMount:
                     description: |-
@@ -237,8 +237,8 @@ spec:
                 type: string
               lastAppliedHash:
                 description: |-
-                  LastAppliedHash is the hash of the last applied spec
-                  Used to distinguish between spec changes and external Vault drift
+                  LastAppliedHash is the hash of the last applied spec.
+                  Used to distinguish between spec changes and external Vault drift.
                 type: string
               lastAttemptAt:
                 description: LastAttemptAt is the time of the last sync attempt

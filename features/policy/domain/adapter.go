@@ -60,15 +60,20 @@ type PolicyAdapter interface {
 	// IsEnforceNamespaceBoundary returns whether namespace boundary is enforced
 	IsEnforceNamespaceBoundary() bool
 
-	// Status accessors and mutators
+	// Policy-specific status fields
+	GetVaultName() string
+	SetVaultName(name string)
+	SetRulesCount(count int)
+
+	// Drift mode from spec
+	GetDriftMode() vaultv1alpha1.DriftMode
+
+	// Common sync status methods (implemented via SyncStatusAccessor embedding)
 	GetPhase() vaultv1alpha1.Phase
 	SetPhase(phase vaultv1alpha1.Phase)
 	GetLastAppliedHash() string
 	SetLastAppliedHash(hash string)
-	GetVaultName() string
-	SetVaultName(name string)
 	SetManaged(managed bool)
-	SetRulesCount(count int)
 	SetLastSyncedAt(t *metav1.Time)
 	SetLastAttemptAt(t *metav1.Time)
 	SetRetryCount(count int)
@@ -77,23 +82,16 @@ type PolicyAdapter interface {
 	SetMessage(msg string)
 	GetConditions() []vaultv1alpha1.Condition
 	SetConditions(conditions []vaultv1alpha1.Condition)
-
-	// Drift detection and mode
 	GetDriftDetected() bool
 	SetDriftDetected(driftDetected bool)
 	SetLastDriftCheckAt(t *metav1.Time)
-	GetDriftMode() vaultv1alpha1.DriftMode
 	GetEffectiveDriftMode() vaultv1alpha1.DriftMode
 	SetEffectiveDriftMode(mode vaultv1alpha1.DriftMode)
 	GetDriftSummary() string
 	SetDriftSummary(summary string)
 	SetDriftCorrectedAt(t *metav1.Time)
-
-	// Deletion tracking
 	GetDeletionStartedAt() *metav1.Time
 	SetDeletionStartedAt(t *metav1.Time)
-
-	// Vault resource binding
 	GetBinding() vaultv1alpha1.VaultResourceBinding
 	SetBinding(binding vaultv1alpha1.VaultResourceBinding)
 }
@@ -101,10 +99,14 @@ type PolicyAdapter interface {
 // VaultPolicyAdapter adapts VaultPolicy to the PolicyAdapter interface.
 type VaultPolicyAdapter struct {
 	*vaultv1alpha1.VaultPolicy
+	vaultv1alpha1.SyncStatusAccessor
 }
 
 func NewVaultPolicyAdapter(p *vaultv1alpha1.VaultPolicy) *VaultPolicyAdapter {
-	return &VaultPolicyAdapter{VaultPolicy: p}
+	return &VaultPolicyAdapter{
+		VaultPolicy:        p,
+		SyncStatusAccessor: vaultv1alpha1.NewSyncStatusAccessor(&p.Status.SyncStatus),
+	}
 }
 
 func (a *VaultPolicyAdapter) GetObject() client.Object             { return a.VaultPolicy }
@@ -122,63 +124,22 @@ func (a *VaultPolicyAdapter) IsNamespaced() bool               { return true }
 func (a *VaultPolicyAdapter) IsEnforceNamespaceBoundary() bool {
 	return a.Spec.IsEnforceNamespaceBoundary()
 }
-
-// Status accessors
-func (a *VaultPolicyAdapter) GetPhase() vaultv1alpha1.Phase            { return a.Status.Phase }
-func (a *VaultPolicyAdapter) SetPhase(phase vaultv1alpha1.Phase)       { a.Status.Phase = phase }
-func (a *VaultPolicyAdapter) GetLastAppliedHash() string               { return a.Status.LastAppliedHash }
-func (a *VaultPolicyAdapter) SetLastAppliedHash(hash string)           { a.Status.LastAppliedHash = hash }
-func (a *VaultPolicyAdapter) GetVaultName() string                     { return a.Status.VaultName }
-func (a *VaultPolicyAdapter) SetVaultName(name string)                 { a.Status.VaultName = name }
-func (a *VaultPolicyAdapter) SetManaged(managed bool)                  { a.Status.Managed = managed }
-func (a *VaultPolicyAdapter) SetRulesCount(count int)                  { a.Status.RulesCount = count }
-func (a *VaultPolicyAdapter) SetLastSyncedAt(t *metav1.Time)           { a.Status.LastSyncedAt = t }
-func (a *VaultPolicyAdapter) SetLastAttemptAt(t *metav1.Time)          { a.Status.LastAttemptAt = t }
-func (a *VaultPolicyAdapter) SetRetryCount(count int)                  { a.Status.RetryCount = count }
-func (a *VaultPolicyAdapter) GetRetryCount() int                       { return a.Status.RetryCount }
-func (a *VaultPolicyAdapter) SetNextRetryAt(t *metav1.Time)            { a.Status.NextRetryAt = t }
-func (a *VaultPolicyAdapter) SetMessage(msg string)                    { a.Status.Message = msg }
-func (a *VaultPolicyAdapter) GetConditions() []vaultv1alpha1.Condition { return a.Status.Conditions }
-func (a *VaultPolicyAdapter) SetConditions(conditions []vaultv1alpha1.Condition) {
-	a.Status.Conditions = conditions
-}
-func (a *VaultPolicyAdapter) GetDriftDetected() bool { return a.Status.DriftDetected }
-func (a *VaultPolicyAdapter) SetDriftDetected(driftDetected bool) {
-	a.Status.DriftDetected = driftDetected
-}
-func (a *VaultPolicyAdapter) SetLastDriftCheckAt(t *metav1.Time) { a.Status.LastDriftCheckAt = t }
-func (a *VaultPolicyAdapter) GetDriftMode() vaultv1alpha1.DriftMode {
-	return a.Spec.DriftMode
-}
-func (a *VaultPolicyAdapter) GetEffectiveDriftMode() vaultv1alpha1.DriftMode {
-	return a.Status.EffectiveDriftMode
-}
-func (a *VaultPolicyAdapter) SetEffectiveDriftMode(mode vaultv1alpha1.DriftMode) {
-	a.Status.EffectiveDriftMode = mode
-}
-func (a *VaultPolicyAdapter) GetDriftSummary() string { return a.Status.DriftSummary }
-func (a *VaultPolicyAdapter) SetDriftSummary(summary string) {
-	a.Status.DriftSummary = summary
-}
-func (a *VaultPolicyAdapter) SetDriftCorrectedAt(t *metav1.Time) { a.Status.DriftCorrectedAt = t }
-func (a *VaultPolicyAdapter) GetDeletionStartedAt() *metav1.Time { return a.Status.DeletionStartedAt }
-func (a *VaultPolicyAdapter) SetDeletionStartedAt(t *metav1.Time) {
-	a.Status.DeletionStartedAt = t
-}
-func (a *VaultPolicyAdapter) GetBinding() vaultv1alpha1.VaultResourceBinding {
-	return a.Status.Binding
-}
-func (a *VaultPolicyAdapter) SetBinding(binding vaultv1alpha1.VaultResourceBinding) {
-	a.Status.Binding = binding
-}
+func (a *VaultPolicyAdapter) GetVaultName() string                  { return a.Status.VaultName }
+func (a *VaultPolicyAdapter) SetVaultName(name string)              { a.Status.VaultName = name }
+func (a *VaultPolicyAdapter) SetRulesCount(count int)               { a.Status.RulesCount = count }
+func (a *VaultPolicyAdapter) GetDriftMode() vaultv1alpha1.DriftMode { return a.Spec.DriftMode }
 
 // VaultClusterPolicyAdapter adapts VaultClusterPolicy to the PolicyAdapter interface.
 type VaultClusterPolicyAdapter struct {
 	*vaultv1alpha1.VaultClusterPolicy
+	vaultv1alpha1.SyncStatusAccessor
 }
 
 func NewVaultClusterPolicyAdapter(p *vaultv1alpha1.VaultClusterPolicy) *VaultClusterPolicyAdapter {
-	return &VaultClusterPolicyAdapter{VaultClusterPolicy: p}
+	return &VaultClusterPolicyAdapter{
+		VaultClusterPolicy: p,
+		SyncStatusAccessor: vaultv1alpha1.NewSyncStatusAccessor(&p.Status.SyncStatus),
+	}
 }
 
 func (a *VaultClusterPolicyAdapter) GetObject() client.Object             { return a.VaultClusterPolicy }
@@ -197,59 +158,7 @@ func (a *VaultClusterPolicyAdapter) IsNamespaced() bool               { return f
 // Cluster-scoped policies don't enforce namespace boundary
 func (a *VaultClusterPolicyAdapter) IsEnforceNamespaceBoundary() bool { return false }
 
-// Status accessors
-func (a *VaultClusterPolicyAdapter) GetPhase() vaultv1alpha1.Phase      { return a.Status.Phase }
-func (a *VaultClusterPolicyAdapter) SetPhase(phase vaultv1alpha1.Phase) { a.Status.Phase = phase }
-func (a *VaultClusterPolicyAdapter) GetLastAppliedHash() string         { return a.Status.LastAppliedHash }
-func (a *VaultClusterPolicyAdapter) SetLastAppliedHash(hash string)     { a.Status.LastAppliedHash = hash }
-func (a *VaultClusterPolicyAdapter) GetVaultName() string               { return a.Status.VaultName }
-func (a *VaultClusterPolicyAdapter) SetVaultName(name string)           { a.Status.VaultName = name }
-func (a *VaultClusterPolicyAdapter) SetManaged(managed bool)            { a.Status.Managed = managed }
-func (a *VaultClusterPolicyAdapter) SetRulesCount(count int)            { a.Status.RulesCount = count }
-func (a *VaultClusterPolicyAdapter) SetLastSyncedAt(t *metav1.Time)     { a.Status.LastSyncedAt = t }
-func (a *VaultClusterPolicyAdapter) SetLastAttemptAt(t *metav1.Time)    { a.Status.LastAttemptAt = t }
-func (a *VaultClusterPolicyAdapter) SetRetryCount(count int)            { a.Status.RetryCount = count }
-func (a *VaultClusterPolicyAdapter) GetRetryCount() int                 { return a.Status.RetryCount }
-func (a *VaultClusterPolicyAdapter) SetNextRetryAt(t *metav1.Time)      { a.Status.NextRetryAt = t }
-func (a *VaultClusterPolicyAdapter) SetMessage(msg string)              { a.Status.Message = msg }
-func (a *VaultClusterPolicyAdapter) GetConditions() []vaultv1alpha1.Condition {
-	return a.Status.Conditions
-}
-func (a *VaultClusterPolicyAdapter) SetConditions(conditions []vaultv1alpha1.Condition) {
-	a.Status.Conditions = conditions
-}
-func (a *VaultClusterPolicyAdapter) GetDriftDetected() bool { return a.Status.DriftDetected }
-func (a *VaultClusterPolicyAdapter) SetDriftDetected(driftDetected bool) {
-	a.Status.DriftDetected = driftDetected
-}
-func (a *VaultClusterPolicyAdapter) SetLastDriftCheckAt(t *metav1.Time) {
-	a.Status.LastDriftCheckAt = t
-}
-func (a *VaultClusterPolicyAdapter) GetDriftMode() vaultv1alpha1.DriftMode {
-	return a.Spec.DriftMode
-}
-func (a *VaultClusterPolicyAdapter) GetEffectiveDriftMode() vaultv1alpha1.DriftMode {
-	return a.Status.EffectiveDriftMode
-}
-func (a *VaultClusterPolicyAdapter) SetEffectiveDriftMode(mode vaultv1alpha1.DriftMode) {
-	a.Status.EffectiveDriftMode = mode
-}
-func (a *VaultClusterPolicyAdapter) GetDriftSummary() string { return a.Status.DriftSummary }
-func (a *VaultClusterPolicyAdapter) SetDriftSummary(summary string) {
-	a.Status.DriftSummary = summary
-}
-func (a *VaultClusterPolicyAdapter) SetDriftCorrectedAt(t *metav1.Time) {
-	a.Status.DriftCorrectedAt = t
-}
-func (a *VaultClusterPolicyAdapter) GetDeletionStartedAt() *metav1.Time {
-	return a.Status.DeletionStartedAt
-}
-func (a *VaultClusterPolicyAdapter) SetDeletionStartedAt(t *metav1.Time) {
-	a.Status.DeletionStartedAt = t
-}
-func (a *VaultClusterPolicyAdapter) GetBinding() vaultv1alpha1.VaultResourceBinding {
-	return a.Status.Binding
-}
-func (a *VaultClusterPolicyAdapter) SetBinding(binding vaultv1alpha1.VaultResourceBinding) {
-	a.Status.Binding = binding
-}
+func (a *VaultClusterPolicyAdapter) GetVaultName() string                  { return a.Status.VaultName }
+func (a *VaultClusterPolicyAdapter) SetVaultName(name string)              { a.Status.VaultName = name }
+func (a *VaultClusterPolicyAdapter) SetRulesCount(count int)               { a.Status.RulesCount = count }
+func (a *VaultClusterPolicyAdapter) GetDriftMode() vaultv1alpha1.DriftMode { return a.Spec.DriftMode }

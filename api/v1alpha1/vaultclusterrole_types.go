@@ -82,16 +82,6 @@ type VaultClusterRoleStatus struct {
 	// +optional
 	ResolvedPolicies []string `json:"resolvedPolicies,omitempty"`
 
-	// LastAppliedHash is the hash of the last applied spec
-	// Used to distinguish between spec changes and external Vault drift
-	// +optional
-	LastAppliedHash string `json:"lastAppliedHash,omitempty"`
-
-	// Binding contains the explicit reference to the Vault role.
-	// Acts like a foreign key to the Vault Kubernetes auth role.
-	// +optional
-	Binding VaultResourceBinding `json:"binding,omitempty"`
-
 	// PolicyBindings tracks the relationship between this role and its referenced policies.
 	// Each entry shows the K8s reference and the corresponding Vault policy path.
 	// +optional

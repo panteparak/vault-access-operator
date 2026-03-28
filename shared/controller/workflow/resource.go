@@ -28,8 +28,8 @@ import (
 
 // SyncableResource is the common interface shared by PolicyAdapter and RoleAdapter.
 // It provides the status fields that the shared workflow needs to read and write.
-// Both adapters already implement all these methods — this interface unifies them
-// without requiring any adapter code changes.
+// Both adapters satisfy this interface via SyncStatusAccessor embedding (for common
+// status methods) plus a handful of resource-specific identity/spec methods.
 type SyncableResource interface {
 	client.Object
 
@@ -50,15 +50,18 @@ type SyncableResource interface {
 	GetConflictPolicy() vaultv1alpha1.ConflictPolicy
 	GetDriftMode() vaultv1alpha1.DriftMode
 
-	// Status: Phase
+	// Common sync status methods (implemented via SyncStatusAccessor embedding
+	// in concrete adapter types)
+
+	// Phase
 	GetPhase() vaultv1alpha1.Phase
 	SetPhase(phase vaultv1alpha1.Phase)
 
-	// Status: Hash
+	// Hash
 	GetLastAppliedHash() string
 	SetLastAppliedHash(hash string)
 
-	// Status: General
+	// General sync tracking
 	SetManaged(managed bool)
 	SetLastSyncedAt(t *metav1.Time)
 	SetLastAttemptAt(t *metav1.Time)
@@ -67,11 +70,11 @@ type SyncableResource interface {
 	SetNextRetryAt(t *metav1.Time)
 	SetMessage(msg string)
 
-	// Status: Conditions
+	// Conditions
 	GetConditions() []vaultv1alpha1.Condition
 	SetConditions(conditions []vaultv1alpha1.Condition)
 
-	// Status: Drift
+	// Drift
 	GetDriftDetected() bool
 	SetDriftDetected(driftDetected bool)
 	SetLastDriftCheckAt(t *metav1.Time)
@@ -81,11 +84,11 @@ type SyncableResource interface {
 	SetDriftSummary(summary string)
 	SetDriftCorrectedAt(t *metav1.Time)
 
-	// Status: Deletion
+	// Deletion
 	GetDeletionStartedAt() *metav1.Time
 	SetDeletionStartedAt(t *metav1.Time)
 
-	// Status: Binding
+	// Binding
 	GetBinding() vaultv1alpha1.VaultResourceBinding
 	SetBinding(binding vaultv1alpha1.VaultResourceBinding)
 }

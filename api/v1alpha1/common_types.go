@@ -381,6 +381,16 @@ type SyncStatus struct {
 	// Used for tracking stuck finalizers and deletion timeouts.
 	// +optional
 	DeletionStartedAt *metav1.Time `json:"deletionStartedAt,omitempty"`
+
+	// LastAppliedHash is the hash of the last applied spec.
+	// Used to distinguish between spec changes and external Vault drift.
+	// +optional
+	LastAppliedHash string `json:"lastAppliedHash,omitempty"`
+
+	// Binding contains the explicit reference to the Vault resource.
+	// Acts like a foreign key to the Vault resource.
+	// +optional
+	Binding VaultResourceBinding `json:"binding,omitempty"`
 }
 
 // Finalizer name for the operator

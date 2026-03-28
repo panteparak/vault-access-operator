@@ -114,7 +114,7 @@ func TestSyncWorkflow_HappyPath(t *testing.T) {
 	k8s := newFakeK8sClient(t, policy, conn)
 	wf := newSyncWorkflowForTest(t, k8s)
 
-	res := &testResource{VaultPolicy: policy}
+	res := newTestResource(policy)
 	ops := &mockOps{specHash: "abc123"}
 
 	err := wf.Execute(context.Background(), res, ops)
@@ -193,7 +193,7 @@ func TestSyncWorkflow_ValidateError(t *testing.T) {
 	k8s := newFakeK8sClient(t, policy, conn)
 	wf := newSyncWorkflowForTest(t, k8s)
 
-	res := &testResource{VaultPolicy: policy}
+	res := newTestResource(policy)
 	ops := &mockOps{
 		specHash:    "abc123",
 		validateErr: errors.New("invalid policy: missing rules"),
@@ -229,7 +229,7 @@ func TestSyncWorkflow_WriteToVaultError(t *testing.T) {
 	k8s := newFakeK8sClient(t, policy, conn)
 	wf := newSyncWorkflowForTest(t, k8s)
 
-	res := &testResource{VaultPolicy: policy}
+	res := newTestResource(policy)
 	ops := &mockOps{
 		specHash: "abc123",
 		writeErr: errors.New("vault unavailable"),
@@ -268,7 +268,7 @@ func TestSyncWorkflow_ReadbackVerifyError(t *testing.T) {
 	k8s := newFakeK8sClient(t, policy, conn)
 	wf := newSyncWorkflowForTest(t, k8s)
 
-	res := &testResource{VaultPolicy: policy}
+	res := newTestResource(policy)
 	ops := &mockOps{
 		specHash:    "abc123",
 		readbackErr: errors.New("readback mismatch"),
@@ -301,7 +301,7 @@ func TestSyncWorkflow_MarkManagedError_BestEffort(t *testing.T) {
 	k8s := newFakeK8sClient(t, policy, conn)
 	wf := newSyncWorkflowForTest(t, k8s)
 
-	res := &testResource{VaultPolicy: policy}
+	res := newTestResource(policy)
 	ops := &mockOps{
 		specHash:       "abc123",
 		markManagedErr: errors.New("KV write failed"),
@@ -344,7 +344,7 @@ func TestSyncWorkflow_DriftDetect_SkipIfHashMatches(t *testing.T) {
 	k8s := newFakeK8sClient(t, policy, conn)
 	wf := newSyncWorkflowForTest(t, k8s)
 
-	res := &testResource{VaultPolicy: policy}
+	res := newTestResource(policy)
 	ops := &mockOps{
 		specHash:      "same-hash",
 		driftDetected: true,
@@ -379,7 +379,7 @@ func TestSyncWorkflow_DriftCorrect_BlockedWithoutAnnotation(t *testing.T) {
 	k8s := newFakeK8sClient(t, policy, conn)
 	wf := newSyncWorkflowForTest(t, k8s)
 
-	res := &testResource{VaultPolicy: policy}
+	res := newTestResource(policy)
 	ops := &mockOps{
 		specHash:      "new-hash",
 		driftDetected: true,
@@ -422,7 +422,7 @@ func TestSyncWorkflow_DriftCorrect_AllowedWithAnnotation(t *testing.T) {
 	k8s := newFakeK8sClient(t, policy, conn)
 	wf := newSyncWorkflowForTest(t, k8s)
 
-	res := &testResource{VaultPolicy: policy}
+	res := newTestResource(policy)
 	ops := &mockOps{
 		specHash:      "new-hash",
 		driftDetected: true,
@@ -457,7 +457,7 @@ func TestSyncWorkflow_SkipIfUnchanged(t *testing.T) {
 	k8s := newFakeK8sClient(t, policy, conn)
 	wf := newSyncWorkflowForTest(t, k8s)
 
-	res := &testResource{VaultPolicy: policy}
+	res := newTestResource(policy)
 	ops := &mockOps{
 		specHash:      "same-hash",
 		driftDetected: false,
@@ -491,7 +491,7 @@ func TestSyncWorkflow_DriftIgnoreMode(t *testing.T) {
 	k8s := newFakeK8sClient(t, policy, conn)
 	wf := newSyncWorkflowForTest(t, k8s)
 
-	res := &testResource{VaultPolicy: policy}
+	res := newTestResource(policy)
 	ops := &mockOps{
 		specHash: "new-hash",
 	}
