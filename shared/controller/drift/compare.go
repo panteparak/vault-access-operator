@@ -94,10 +94,14 @@ func (c *Comparator) Result() Result {
 		}
 	}
 
+	// Copy the diffs slice to prevent Reset() from corrupting previously returned results.
+	fields := make([]string, len(c.diffs))
+	copy(fields, c.diffs)
+
 	return Result{
 		HasDrift: true,
-		Fields:   c.diffs,
-		Summary:  "fields differ: " + strings.Join(c.diffs, ", "),
+		Fields:   fields,
+		Summary:  "fields differ: " + strings.Join(fields, ", "),
 	}
 }
 

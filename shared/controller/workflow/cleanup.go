@@ -83,7 +83,10 @@ func (w *CleanupWorkflow) Execute(ctx context.Context, resource SyncableResource
 
 	// Step 4: Delete from Vault if deletion policy is Delete
 	deletionPolicy := resource.GetDeletionPolicy()
-	if deletionPolicy == vaultv1alpha1.DeletionPolicyDelete || deletionPolicy == "" {
+	if deletionPolicy == "" {
+		deletionPolicy = vaultv1alpha1.DeletionPolicyDelete // explicit default
+	}
+	if deletionPolicy == vaultv1alpha1.DeletionPolicyDelete {
 		vaultClient, err := w.getVaultClient(resource.GetConnectionRef())
 		if err != nil {
 			log.Info("failed to get Vault client during deletion, continuing with finalizer removal")

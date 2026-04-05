@@ -146,6 +146,8 @@ func (w *SyncWorkflow) initializeSync(
 	phase := resource.GetPhase()
 	if phase != vaultv1alpha1.PhaseSyncing && phase != vaultv1alpha1.PhaseActive {
 		resource.SetPhase(vaultv1alpha1.PhaseSyncing)
+		// Note: Status().Update errors are returned directly (not via handleSyncError)
+		// because handleSyncError itself calls Status().Update, which would loop.
 		if err := w.client.Status().Update(ctx, resource.GetObject()); err != nil {
 			return nil, fmt.Errorf("failed to update status to Syncing: %w", err)
 		}
@@ -195,7 +197,7 @@ func (w *SyncWorkflow) handleDriftDetection(
 				vaultv1alpha1.ReasonNoDrift, "No drift detected")
 		}
 
-		metrics.SetDriftDetected(state.kind, resource.GetNamespace(), resource.GetName(), state.driftDetected)
+		metrics.SetDriftDetected(state.kind, resource.GetNamespace(), state.driftDetected)
 		return
 	}
 
@@ -222,6 +224,10 @@ func (w *SyncWorkflow) handleDriftModes(
 		if resource.GetLastAppliedHash() == state.specHash {
 			return true, nil
 		}
+		// Spec changed while in detect mode — the write is a user-initiated update,
+		// not a drift correction. Allow it to proceed.
+		state.log.Info("spec changed in detect mode, proceeding with update",
+			"resource", state.vaultResourceName)
 	}
 
 	if !state.driftDetected || !driftmode.IsCorrect(state.effectiveDriftMode) {

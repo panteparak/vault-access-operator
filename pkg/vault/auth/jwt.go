@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	authv1 "k8s.io/api/authentication/v1"
@@ -236,64 +237,19 @@ func parseJWTClaims(token string) (map[string]interface{}, error) {
 
 	// Parse JSON
 	var claims map[string]interface{}
-	if err := jsonUnmarshal(payload, &claims); err != nil {
+	if err := json.Unmarshal(payload, &claims); err != nil {
 		return nil, fmt.Errorf("failed to parse JWT claims: %w", err)
 	}
 
 	return claims, nil
 }
 
-// splitJWT splits a JWT into its parts
+// splitJWT splits a JWT into its header, payload, and signature parts.
 func splitJWT(token string) []string {
-	var parts []string
-	start := 0
-	for i := 0; i < len(token); i++ {
-		if token[i] == '.' {
-			parts = append(parts, token[start:i])
-			start = i + 1
-		}
-	}
-	parts = append(parts, token[start:])
-	return parts
+	return strings.SplitN(token, ".", 3)
 }
 
-// base64URLDecode decodes base64url encoded data
+// base64URLDecode decodes base64url-encoded data using the standard library.
 func base64URLDecode(s string) ([]byte, error) {
-	// Add padding if needed
-	switch len(s) % 4 {
-	case 2:
-		s += "=="
-	case 3:
-		s += "="
-	}
-
-	// Replace URL-safe characters
-	s = replaceBase64URLChars(s)
-
-	// Use standard library
-	return base64StdDecode(s)
-}
-
-// replaceBase64URLChars replaces base64url characters with standard base64
-func replaceBase64URLChars(s string) string {
-	result := make([]byte, len(s))
-	for i := 0; i < len(s); i++ {
-		switch s[i] {
-		case '-':
-			result[i] = '+'
-		case '_':
-			result[i] = '/'
-		default:
-			result[i] = s[i]
-		}
-	}
-	return string(result)
-}
-
-func base64StdDecode(s string) ([]byte, error) {
-	return base64.StdEncoding.DecodeString(s)
-}
-
-func jsonUnmarshal(data []byte, v interface{}) error {
-	return json.Unmarshal(data, v)
+	return base64.RawURLEncoding.DecodeString(s)
 }

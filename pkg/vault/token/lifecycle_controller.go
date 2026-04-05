@@ -292,7 +292,9 @@ func (c *lifecycleControllerImpl) renewConnection(ctx context.Context, connectio
 		}
 	}
 
-	// Update state and notify
+	// Update state under lock, then invoke callback outside the lock
+	// to prevent deadlock if the callback calls back into the controller.
+	var refreshCallback TokenRefreshCallback
 	c.mu.Lock()
 	if s, ok := c.connections[connectionName]; ok {
 		s.lastResult = result
@@ -301,13 +303,13 @@ func (c *lifecycleControllerImpl) renewConnection(ctx context.Context, connectio
 		s.status.RenewalCount++
 		s.status.NextRenewal = c.calculateNextRenewal(result.ExpirationTime, config.RenewalThreshold)
 		s.status.Error = ""
-
-		// Call refresh callback (outside lock would be better, but keeping simple)
-		if s.onRefresh != nil {
-			s.onRefresh(connectionName, result)
-		}
+		refreshCallback = s.onRefresh
 	}
 	c.mu.Unlock()
+
+	if refreshCallback != nil {
+		refreshCallback(connectionName, result)
+	}
 
 	c.log.Info("token renewed",
 		"connection", connectionName,

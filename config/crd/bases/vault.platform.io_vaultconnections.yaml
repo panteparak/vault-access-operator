@@ -655,8 +655,9 @@ spec:
                 description: DiscoveryStatus contains resource discovery status.
                 properties:
                   discoveredResources:
-                    description: DiscoveredResources lists the unmanaged resources
-                      found in Vault.
+                    description: |-
+                      DiscoveredResources lists the unmanaged resources found in Vault.
+                      Capped at 500 entries to prevent exceeding etcd object size limits.
                     items:
                       description: DiscoveredResource represents a Vault resource
                         discovered during scanning.
@@ -688,6 +689,7 @@ spec:
                       - name
                       - type
                       type: object
+                    maxItems: 500
                     type: array
                   lastScanAt:
                     description: LastScanAt is when the last discovery scan was performed.

@@ -216,38 +216,38 @@ func getRegionFromIMDS(ctx context.Context) (string, error) {
 	}
 	token := strings.TrimSpace(string(tokenBytes))
 
-	// Use token to get region
-	azURL := "http://169.254.169.254/latest/meta-data/placement/availability-zone"
-	azReq, err := http.NewRequestWithContext(ctx, "GET", azURL, nil)
+	// Use the region endpoint directly — works for standard AZs, Local Zones,
+	// and Wavelength Zones without the fragile AZ-suffix-stripping heuristic.
+	regionURL := "http://169.254.169.254/latest/meta-data/placement/region"
+	regionReq, err := http.NewRequestWithContext(ctx, "GET", regionURL, nil)
 	if err != nil {
 		return "", err
 	}
-	azReq.Header.Set("X-aws-ec2-metadata-token", token)
+	regionReq.Header.Set("X-aws-ec2-metadata-token", token)
 
-	azResp, err := client.Do(azReq)
+	regionResp, err := client.Do(regionReq)
 	if err != nil {
 		return "", err
 	}
-	defer azResp.Body.Close()
+	defer regionResp.Body.Close()
 
-	azBytes, err := io.ReadAll(azResp.Body)
+	regionBytes, err := io.ReadAll(regionResp.Body)
 	if err != nil {
 		return "", err
 	}
 
-	az := strings.TrimSpace(string(azBytes))
-	if len(az) > 0 {
-		// AZ is region + letter (e.g., us-west-2a -> us-west-2)
-		return az[:len(az)-1], nil
+	region := strings.TrimSpace(string(regionBytes))
+	if region == "" {
+		return "", fmt.Errorf("empty region from IMDS")
 	}
-
-	return "", fmt.Errorf("empty availability zone from IMDS")
+	return region, nil
 }
 
-// getRegionFromIMDSv1 retrieves region using IMDSv1 (no token)
+// getRegionFromIMDSv1 retrieves region using IMDSv1 (no token).
+// Uses the /region endpoint directly instead of stripping AZ suffixes.
 func getRegionFromIMDSv1(ctx context.Context) (string, error) {
-	azURL := "http://169.254.169.254/latest/meta-data/placement/availability-zone"
-	req, err := http.NewRequestWithContext(ctx, "GET", azURL, nil)
+	regionURL := "http://169.254.169.254/latest/meta-data/placement/region"
+	req, err := http.NewRequestWithContext(ctx, "GET", regionURL, nil)
 	if err != nil {
 		return "", err
 	}
@@ -259,15 +259,14 @@ func getRegionFromIMDSv1(ctx context.Context) (string, error) {
 	}
 	defer resp.Body.Close()
 
-	azBytes, err := io.ReadAll(resp.Body)
+	regionBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", err
 	}
 
-	az := strings.TrimSpace(string(azBytes))
-	if len(az) > 0 {
-		return az[:len(az)-1], nil
+	region := strings.TrimSpace(string(regionBytes))
+	if region == "" {
+		return "", fmt.Errorf("empty region from IMDSv1")
 	}
-
-	return "", fmt.Errorf("empty availability zone from IMDSv1")
+	return region, nil
 }

@@ -131,7 +131,7 @@ type LocalSecretKeySelector struct {
 type PolicyRule struct {
 	// Path in Vault to apply the rule to
 	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:Pattern=`^[a-zA-Z0-9/_*{}+-]+$`
+	// +kubebuilder:validation:Pattern=`^[a-zA-Z0-9/_*.{}+-]+$`
 	Path string `json:"path"`
 
 	// Capabilities to grant on this path

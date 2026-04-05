@@ -204,7 +204,8 @@ func (h *Handler) runBootstrap(ctx context.Context, conn *vaultv1alpha1.VaultCon
 		return fmt.Errorf("bootstrap manager not configured")
 	}
 
-	// Get bootstrap token from secret
+	// Get bootstrap token from secret.
+	// SECURITY: bootstrapToken must not appear in error messages or status fields.
 	bootstrapToken, err := h.getSecretData(ctx, &conn.Spec.Auth.Bootstrap.SecretRef)
 	if err != nil {
 		return h.handleSyncError(ctx, conn, fmt.Errorf("failed to get bootstrap token: %w", err))
@@ -300,8 +301,10 @@ func (h *Handler) runBootstrap(ctx context.Context, conn *vaultv1alpha1.VaultCon
 		))
 	}
 
-	// Continue with normal K8s auth flow
-	return h.Sync(ctx, conn)
+	// Bootstrap complete — return nil and let the requeue interval trigger
+	// the next reconcile with a fresh object from the API server.
+	h.log.Info("bootstrap completed, will re-sync on next reconcile")
+	return nil
 }
 
 // buildVaultClient creates an unauthenticated Vault client.

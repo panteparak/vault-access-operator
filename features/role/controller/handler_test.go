@@ -350,7 +350,7 @@ func TestBuildRoleData_VaultRole(t *testing.T) {
 	if len(saNames) != 2 {
 		t.Errorf("expected 2 service account names, got %d", len(saNames))
 	}
-	expectedNames := []string{"default", "app"}
+	expectedNames := []string{"app", "default"} // sorted for deterministic hashing
 	for i, expected := range expectedNames {
 		if saNames[i] != expected {
 			t.Errorf("sa name[%d]: expected %q, got %q", i, expected, saNames[i])

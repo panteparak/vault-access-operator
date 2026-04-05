@@ -70,9 +70,9 @@ func TestSplitJWT(t *testing.T) {
 			expected: 1,
 		},
 		{
-			name:     "JWT with 4 parts",
+			name:     "JWT with extra dots (SplitN caps at 3)",
 			token:    "a.b.c.d",
-			expected: 4,
+			expected: 3, // SplitN with N=3 keeps remaining dots in last part
 		},
 	}
 
@@ -81,49 +81,6 @@ func TestSplitJWT(t *testing.T) {
 			parts := splitJWT(tt.token)
 			if len(parts) != tt.expected {
 				t.Errorf("splitJWT() returned %d parts, expected %d", len(parts), tt.expected)
-			}
-		})
-	}
-}
-
-func TestReplaceBase64URLChars(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected string
-	}{
-		{
-			name:     "replace dash with plus",
-			input:    "abc-def",
-			expected: "abc+def",
-		},
-		{
-			name:     "replace underscore with slash",
-			input:    "abc_def",
-			expected: "abc/def",
-		},
-		{
-			name:     "replace both",
-			input:    "a-b_c-d_e",
-			expected: "a+b/c+d/e",
-		},
-		{
-			name:     "no replacements needed",
-			input:    "abcdef",
-			expected: "abcdef",
-		},
-		{
-			name:     "empty string",
-			input:    "",
-			expected: "",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := replaceBase64URLChars(tt.input)
-			if result != tt.expected {
-				t.Errorf("replaceBase64URLChars(%q) = %q, expected %q", tt.input, result, tt.expected)
 			}
 		})
 	}

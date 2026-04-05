@@ -32,7 +32,9 @@ import (
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/pkg/vault"
@@ -125,8 +127,12 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 
 	log.Info("starting discovery scan")
 
-	// Create scanner and run
-	scanner := NewScanner(vaultClient, conn.Spec.Discovery, log)
+	// Create scanner and run — pass the connection's default auth path for role discovery
+	authPath := ""
+	if conn.Spec.Defaults != nil {
+		authPath = conn.Spec.Defaults.AuthPath
+	}
+	scanner := NewScanner(vaultClient, conn.Spec.Discovery, authPath, log)
 	result := scanner.Scan(ctx)
 
 	// Update metrics
@@ -204,17 +210,27 @@ func (r *Reconciler) createPolicyCR(
 			Name:      discovered.SuggestedCRName,
 			Namespace: namespace,
 			Annotations: map[string]string{
-				vaultv1alpha1.AnnotationAdopt:       "true",
-				vaultv1alpha1.AnnotationDiscovered:  discovered.DiscoveredAt.Format(time.RFC3339),
-				"vault.platform.io/discovered-from": conn.Name,
+				vaultv1alpha1.AnnotationAdopt:         "true",
+				vaultv1alpha1.AnnotationDiscovered:    discovered.DiscoveredAt.Format(time.RFC3339),
+				"vault.platform.io/discovered-from":   conn.Name,
+				"vault.platform.io/discovery-pending": "true",
 			},
 		},
 		Spec: vaultv1alpha1.VaultPolicySpec{
 			ConnectionRef:  conn.Name,
 			ConflictPolicy: vaultv1alpha1.ConflictPolicyAdopt,
 			DriftMode:      vaultv1alpha1.DriftModeDetect,
-			// Rules will be populated during adoption when the policy is synced
-			Rules: []vaultv1alpha1.PolicyRule{},
+			// Placeholder rule satisfies MinItems=1 validation.
+			// Users should replace this with the actual policy rules.
+			// The discovery-pending annotation prevents the operator from
+			// overwriting the adopted Vault policy with this placeholder.
+			Rules: []vaultv1alpha1.PolicyRule{
+				{
+					Path:         "secret/data/placeholder",
+					Capabilities: []vaultv1alpha1.Capability{vaultv1alpha1.CapabilityRead},
+					Description:  "Placeholder rule - replace with actual policy rules from Vault",
+				},
+			},
 		},
 	}
 
@@ -292,10 +308,13 @@ func (r *Reconciler) updateDiscoveryStatus(
 	})
 }
 
-// SetupWithManager sets up the controller with the Manager
+// SetupWithManager sets up the controller with the Manager.
+// Uses GenerationChangedPredicate to avoid reconciling on status-only updates
+// from the connection controller's health checks.
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&vaultv1alpha1.VaultConnection{}).
+		For(&vaultv1alpha1.VaultConnection{},
+			builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Named("discovery").
 		Complete(r)
 }

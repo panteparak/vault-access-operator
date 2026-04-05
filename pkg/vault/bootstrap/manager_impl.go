@@ -103,6 +103,9 @@ func (m *managerImpl) Bootstrap(
 	result.RoleCreated = roleCreated
 
 	// Step 6: Test Kubernetes auth
+	// Save the bootstrap token before the test — testKubernetesAuth replaces
+	// the client's token with a new K8s auth token.
+	savedBootstrapToken := vaultClient.Token()
 	testPassed, err := m.testKubernetesAuth(ctx, vaultClient, config)
 	if err != nil {
 		m.log.Error(err, "kubernetes auth test failed")
@@ -111,6 +114,8 @@ func (m *managerImpl) Bootstrap(
 	result.K8sAuthTestPassed = testPassed
 
 	// Step 7: Revoke bootstrap token (if enabled)
+	// Restore bootstrap token first — testKubernetesAuth replaced it with a K8s auth token.
+	vaultClient.SetToken(savedBootstrapToken)
 	if config.AutoRevoke {
 		if err := vaultClient.RevokeSelf(ctx); err != nil {
 			m.log.Error(err, "failed to revoke bootstrap token")

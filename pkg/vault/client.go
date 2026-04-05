@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/hashicorp/vault/api"
@@ -14,9 +15,12 @@ import (
 // DefaultKubernetesAuthPath is the default path for Kubernetes auth in Vault
 const DefaultKubernetesAuthPath = "auth/kubernetes"
 
-// Client wraps the Vault API client with additional metadata
+// Client wraps the Vault API client with additional metadata.
+// Mutable metadata fields are protected by mu for concurrent access
+// from reconciler goroutines and the token renewal background loop.
 type Client struct {
 	*api.Client
+	mu              sync.RWMutex
 	connectionName  string
 	authenticated   bool
 	tokenExpiration time.Time
@@ -88,33 +92,45 @@ func (c *Client) ConnectionName() string {
 
 // IsAuthenticated returns whether the client has been authenticated
 func (c *Client) IsAuthenticated() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	return c.authenticated
 }
 
 // SetAuthenticated marks the client as authenticated
 func (c *Client) SetAuthenticated(auth bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.authenticated = auth
 }
 
 // TokenExpiration returns when the current Vault token expires.
 // Returns zero time if not set (e.g., static token auth).
 func (c *Client) TokenExpiration() time.Time {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	return c.tokenExpiration
 }
 
 // TokenTTL returns the original TTL of the current Vault token.
 // Returns zero if not set (e.g., static token auth).
 func (c *Client) TokenTTL() time.Duration {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	return c.tokenTTL
 }
 
 // SetTokenExpiration sets when the token expires.
 func (c *Client) SetTokenExpiration(t time.Time) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.tokenExpiration = t
 }
 
 // SetTokenTTL sets the token's original TTL.
 func (c *Client) SetTokenTTL(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.tokenTTL = d
 }
 
@@ -127,8 +143,10 @@ func (c *Client) RenewSelf(ctx context.Context) error {
 	}
 	if secret != nil && secret.Auth != nil && secret.Auth.LeaseDuration > 0 {
 		ttl := time.Duration(secret.Auth.LeaseDuration) * time.Second
+		c.mu.Lock()
 		c.tokenTTL = ttl
 		c.tokenExpiration = time.Now().Add(ttl)
+		c.mu.Unlock()
 	}
 	return nil
 }
@@ -179,6 +197,7 @@ func (c *Client) handleAuthResponse(secret *api.Secret, methodName string) error
 	}
 
 	c.SetToken(secret.Auth.ClientToken)
+	c.mu.Lock()
 	c.authenticated = true
 	c.tokenAccessor = secret.Auth.Accessor
 	if secret.Auth.LeaseDuration > 0 {
@@ -186,6 +205,7 @@ func (c *Client) handleAuthResponse(secret *api.Secret, methodName string) error
 		c.tokenTTL = ttl
 		c.tokenExpiration = time.Now().Add(ttl)
 	}
+	c.mu.Unlock()
 	return nil
 }
 
@@ -193,6 +213,8 @@ func (c *Client) handleAuthResponse(secret *api.Secret, methodName string) error
 // Accessors identify tokens without exposing them, useful for audit
 // correlation and out-of-band revocation.
 func (c *Client) TokenAccessor() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	return c.tokenAccessor
 }
 

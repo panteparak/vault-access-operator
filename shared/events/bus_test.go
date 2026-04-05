@@ -365,9 +365,8 @@ func TestResourceInfo(t *testing.T) {
 
 // --- Panic and context cancellation tests (Gap 6) ---
 
-func TestPublish_HandlerPanics(t *testing.T) {
-	// Document current behavior: handler panics propagate through Publish.
-	// This test verifies whether panic recovery is in place.
+func TestPublish_HandlerPanics_Recovered(t *testing.T) {
+	// Verify that a panicking handler is recovered and remaining handlers still run.
 	bus := NewEventBus(logr.Discard())
 
 	var callCount atomic.Int32
@@ -377,7 +376,7 @@ func TestPublish_HandlerPanics(t *testing.T) {
 		panic("handler panic!")
 	})
 
-	// Register a second handler to check if it still runs
+	// Register a second handler to check if it still runs after the panic
 	Subscribe[ConnectionReady](bus, func(_ context.Context, _ ConnectionReady) error {
 		callCount.Add(1)
 		return nil
@@ -385,25 +384,18 @@ func TestPublish_HandlerPanics(t *testing.T) {
 
 	event := NewConnectionReady("conn", "https://vault:8200", "1.15.0")
 
-	// The current implementation does NOT recover from panics in handlers.
-	// Verify this by catching the panic at the test level.
-	defer func() {
-		r := recover()
-		if r == nil {
-			// If we get here, either:
-			// 1. Panic recovery was added (great!), or
-			// 2. The panic didn't happen
-			// Check if second handler ran
-			if callCount.Load() == 0 {
-				t.Log("panic was recovered but second handler did not run")
-			}
-		} else {
-			// Panic propagated — documenting current behavior
-			t.Logf("panic propagated as expected (no recovery): %v", r)
-		}
-	}()
+	// Publish should not panic — the bus recovers from handler panics
+	err := bus.Publish(context.Background(), event)
 
-	_ = bus.Publish(context.Background(), event)
+	// Should return an error from the recovered panic
+	if err == nil {
+		t.Error("expected error from panicking handler, got nil")
+	}
+
+	// Second handler should have run despite the first handler panicking
+	if callCount.Load() != 1 {
+		t.Errorf("expected second handler to run (callCount=1), got %d", callCount.Load())
+	}
 }
 
 func TestPublishAsync_HandlerError(t *testing.T) {

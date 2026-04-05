@@ -48,7 +48,7 @@ var validCapabilities = map[vaultv1alpha1.Capability]bool{
 }
 
 // pathPattern defines valid characters for Vault paths
-var pathPattern = regexp.MustCompile(`^[a-zA-Z0-9/_*{}\-+]+$`)
+var pathPattern = regexp.MustCompile(`^[a-zA-Z0-9/_*.{}\-+]+$`)
 
 // namespaceVarPattern matches the {{namespace}} variable in paths
 const namespaceVar = "{{namespace}}"

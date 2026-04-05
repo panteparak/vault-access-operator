@@ -453,7 +453,9 @@ type DiscoveryStatus struct {
 	UnmanagedRoles int `json:"unmanagedRoles,omitempty"`
 
 	// DiscoveredResources lists the unmanaged resources found in Vault.
+	// Capped at 500 entries to prevent exceeding etcd object size limits.
 	// +optional
+	// +kubebuilder:validation:MaxItems=500
 	DiscoveredResources []DiscoveredResource `json:"discoveredResources,omitempty"`
 }
 

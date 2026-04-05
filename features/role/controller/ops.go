@@ -94,7 +94,7 @@ func (o *RoleOps) PrepareContent(ctx context.Context, vaultClient *vault.Client)
 	o.roleData = o.handler.buildRoleData(o.adapter, policyNames, o.serviceAccountBindings)
 
 	// Calculate spec hash
-	return o.handler.calculateSpecHash(o.roleData), nil
+	return o.handler.calculateSpecHash(o.roleData)
 }
 
 // DetectDrift compares expected vs actual role data in Vault.

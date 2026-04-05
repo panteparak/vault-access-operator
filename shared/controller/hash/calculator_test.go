@@ -98,9 +98,12 @@ func TestFromBytes_Content(t *testing.T) {
 
 func TestFromMap_Nil(t *testing.T) {
 	t.Parallel()
-	hash := FromMap(nil)
-	if hash != "" {
-		t.Errorf("expected empty hash for nil map, got %s", hash)
+	h, err := FromMap(nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if h != "" {
+		t.Errorf("expected empty hash for nil map, got %s", h)
 	}
 }
 
@@ -115,8 +118,14 @@ func TestFromMap_SameContent(t *testing.T) {
 		"key2": 123,
 	}
 
-	hash1 := FromMap(data1)
-	hash2 := FromMap(data2)
+	hash1, err := FromMap(data1)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	hash2, err := FromMap(data2)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	if hash1 != hash2 {
 		t.Errorf("expected same hash for same map content, got %s vs %s", hash1, hash2)
@@ -128,8 +137,8 @@ func TestFromMap_DifferentContent(t *testing.T) {
 	data1 := map[string]interface{}{"key": "value1"}
 	data2 := map[string]interface{}{"key": "value2"}
 
-	hash1 := FromMap(data1)
-	hash2 := FromMap(data2)
+	hash1, _ := FromMap(data1)
+	hash2, _ := FromMap(data2)
 
 	if hash1 == hash2 {
 		t.Error("expected different hashes for different map content")
@@ -147,8 +156,14 @@ func TestFromMapDeterministic_OrderIndependent(t *testing.T) {
 
 	// Note: Go maps have random iteration order, but building the same
 	// map should produce same result with deterministic function
-	hash1 := FromMapDeterministic(data1)
-	hash2 := FromMapDeterministic(data1)
+	hash1, err := FromMapDeterministic(data1)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	hash2, err := FromMapDeterministic(data1)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	if hash1 != hash2 {
 		t.Errorf("expected same deterministic hash, got %s vs %s", hash1, hash2)
@@ -157,9 +172,12 @@ func TestFromMapDeterministic_OrderIndependent(t *testing.T) {
 
 func TestFromMapDeterministic_Nil(t *testing.T) {
 	t.Parallel()
-	hash := FromMapDeterministic(nil)
-	if hash != "" {
-		t.Errorf("expected empty hash for nil map, got %s", hash)
+	h, err := FromMapDeterministic(nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if h != "" {
+		t.Errorf("expected empty hash for nil map, got %s", h)
 	}
 }
 
@@ -171,44 +189,50 @@ func TestFromJSON_Struct(t *testing.T) {
 	}
 
 	data := testStruct{Name: "test", Value: 42}
-	hash := FromJSON(data)
+	h, err := FromJSON(data)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
-	if hash == "" {
+	if h == "" {
 		t.Error("expected non-empty hash")
 	}
-	if len(hash) != 64 {
-		t.Errorf("expected hash length 64, got %d", len(hash))
+	if len(h) != 64 {
+		t.Errorf("expected hash length 64, got %d", len(h))
 	}
 }
 
 func TestFromJSON_Nil(t *testing.T) {
 	t.Parallel()
-	hash := FromJSON(nil)
-	if hash != "" {
-		t.Errorf("expected empty hash for nil, got %s", hash)
+	h, err := FromJSON(nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if h != "" {
+		t.Errorf("expected empty hash for nil, got %s", h)
 	}
 }
 
-func TestEquals_BothEmpty(t *testing.T) {
+func TestEqualNonEmpty_BothEmpty(t *testing.T) {
 	t.Parallel()
-	if Equals("", "") {
+	if EqualNonEmpty("", "") {
 		t.Error("empty strings should not be equal (falsy)")
 	}
 }
 
-func TestEquals_Same(t *testing.T) {
+func TestEqualNonEmpty_Same(t *testing.T) {
 	t.Parallel()
-	hash := FromString("test")
-	if !Equals(hash, hash) {
+	h := FromString("test")
+	if !EqualNonEmpty(h, h) {
 		t.Error("same hash should be equal")
 	}
 }
 
-func TestEquals_Different(t *testing.T) {
+func TestEqualNonEmpty_Different(t *testing.T) {
 	t.Parallel()
 	hash1 := FromString("test1")
 	hash2 := FromString("test2")
-	if Equals(hash1, hash2) {
+	if EqualNonEmpty(hash1, hash2) {
 		t.Error("different hashes should not be equal")
 	}
 }
@@ -253,6 +277,6 @@ func BenchmarkFromMap(b *testing.B) {
 		"token_ttl":                        "1h",
 	}
 	for i := 0; i < b.N; i++ {
-		FromMap(data)
+		_, _ = FromMap(data)
 	}
 }

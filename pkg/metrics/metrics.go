@@ -97,6 +97,7 @@ var (
 	)
 
 	// DriftDetectedGauge tracks resources with detected drift.
+	// Uses kind+namespace only (not name) to avoid unbounded Prometheus cardinality.
 	DriftDetectedGauge = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Namespace: "vault_access_operator",
@@ -104,7 +105,7 @@ var (
 			Name:      "drift_detected",
 			Help:      "Number of resources with detected drift (1=drift, 0=no drift)",
 		},
-		[]string{"kind", "namespace", "name"},
+		[]string{"kind", "namespace"},
 	)
 
 	// CleanupQueueSizeGauge tracks the size of the cleanup retry queue.
@@ -251,12 +252,12 @@ func SetOrphanedResources(connection, resourceType string, count int) {
 }
 
 // SetDriftDetected sets the drift detection status for a resource.
-func SetDriftDetected(kind, namespace, name string, detected bool) {
+func SetDriftDetected(kind, namespace string, detected bool) {
 	val := 0.0
 	if detected {
 		val = 1.0
 	}
-	DriftDetectedGauge.WithLabelValues(kind, namespace, name).Set(val)
+	DriftDetectedGauge.WithLabelValues(kind, namespace).Set(val)
 }
 
 // SetCleanupQueueSize sets the cleanup queue size.

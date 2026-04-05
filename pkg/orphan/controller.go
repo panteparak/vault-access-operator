@@ -20,6 +20,7 @@ package orphan
 import (
 	"context"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -61,6 +62,7 @@ type Controller struct {
 	log         logr.Logger
 	stopCh      chan struct{}
 	stoppedCh   chan struct{}
+	stopOnce    sync.Once
 }
 
 // ControllerConfig contains configuration for the orphan detection controller.
@@ -115,8 +117,9 @@ func (c *Controller) Start(ctx context.Context) error {
 }
 
 // Stop signals the controller to stop.
+// Safe to call multiple times.
 func (c *Controller) Stop() {
-	close(c.stopCh)
+	c.stopOnce.Do(func() { close(c.stopCh) })
 	<-c.stoppedCh
 }
 

@@ -164,7 +164,9 @@ func (r *BaseReconciler[T]) Reconcile(
 		return ctrl.Result{}, err
 	}
 
-	// Set reconcileID on resource status for kubectl debugging
+	// Set reconcileID on the in-memory resource for kubectl debugging.
+	// This is persisted when the feature handler calls Status().Update()
+	// at the end of Sync/Cleanup — no separate status write needed here.
 	if trackable, ok := any(resource).(ReconcileTrackable); ok {
 		trackable.SetLastReconcileID(reconcileID)
 	}

@@ -101,7 +101,15 @@ func (o *PolicyOps) DetectDrift(ctx context.Context, vaultClient *vault.Client) 
 }
 
 // WriteToVault writes the generated HCL to Vault.
+// Skips the write if the discovery-pending annotation is set — this prevents
+// auto-created discovery CRs from overwriting adopted Vault policies with placeholder rules.
 func (o *PolicyOps) WriteToVault(ctx context.Context, vaultClient *vault.Client) error {
+	annotations := o.adapter.GetAnnotations()
+	if annotations["vault.platform.io/discovery-pending"] == "true" {
+		logr.FromContextOrDiscard(ctx).Info("skipping write for discovery-pending policy",
+			"policy", o.adapter.GetVaultPolicyName())
+		return nil
+	}
 	return vaultClient.WritePolicy(ctx, o.adapter.GetVaultPolicyName(), o.hcl)
 }
 

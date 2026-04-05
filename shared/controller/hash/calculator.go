@@ -22,6 +22,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"sort"
 )
 
@@ -46,25 +47,25 @@ func FromBytes(data []byte) string {
 
 // FromMap calculates a SHA256 hash from a map by JSON-marshaling it.
 // Used for hashing role data maps.
-// Returns empty string if marshaling fails.
-func FromMap(data map[string]interface{}) string {
+// Returns an error if marshaling fails instead of silently returning empty string.
+func FromMap(data map[string]interface{}) (string, error) {
 	if data == nil {
-		return ""
+		return "", nil
 	}
 	jsonBytes, err := json.Marshal(data)
 	if err != nil {
-		return ""
+		return "", fmt.Errorf("failed to marshal map for hashing: %w", err)
 	}
-	return FromBytes(jsonBytes)
+	return FromBytes(jsonBytes), nil
 }
 
 // FromMapDeterministic calculates a deterministic SHA256 hash from a map.
 // Keys are sorted before marshaling to ensure consistent ordering.
 // Use this when you need the hash to be stable across different Go versions
 // or when the map is built from different code paths.
-func FromMapDeterministic(data map[string]interface{}) string {
+func FromMapDeterministic(data map[string]interface{}) (string, error) {
 	if data == nil {
-		return ""
+		return "", nil
 	}
 
 	// Sort keys for deterministic ordering
@@ -86,27 +87,28 @@ func FromMapDeterministic(data map[string]interface{}) string {
 
 	jsonBytes, err := json.Marshal(ordered)
 	if err != nil {
-		return ""
+		return "", fmt.Errorf("failed to marshal ordered map for hashing: %w", err)
 	}
-	return FromBytes(jsonBytes)
+	return FromBytes(jsonBytes), nil
 }
 
 // FromJSON calculates a SHA256 hash from a JSON-serializable value.
-// Returns empty string if marshaling fails.
-func FromJSON(v interface{}) string {
+// Returns an error if marshaling fails.
+func FromJSON(v interface{}) (string, error) {
 	if v == nil {
-		return ""
+		return "", nil
 	}
 	jsonBytes, err := json.Marshal(v)
 	if err != nil {
-		return ""
+		return "", fmt.Errorf("failed to marshal value for hashing: %w", err)
 	}
-	return FromBytes(jsonBytes)
+	return FromBytes(jsonBytes), nil
 }
 
-// Equals compares two hash strings for equality.
-// Handles empty strings gracefully.
-func Equals(a, b string) bool {
+// EqualNonEmpty compares two hash strings for equality.
+// Returns false if either hash is empty — an empty hash means "no hash computed yet"
+// and should not be considered equal to anything, including another empty hash.
+func EqualNonEmpty(a, b string) bool {
 	return a == b && a != ""
 }
 

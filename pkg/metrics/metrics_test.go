@@ -248,7 +248,6 @@ func TestSetDriftDetected(t *testing.T) {
 		name      string
 		kind      string
 		namespace string
-		resName   string
 		detected  bool
 		expected  float64
 	}{
@@ -256,15 +255,13 @@ func TestSetDriftDetected(t *testing.T) {
 			name:      "drift detected",
 			kind:      "VaultPolicy",
 			namespace: "default",
-			resName:   "my-policy",
 			detected:  true,
 			expected:  1.0,
 		},
 		{
 			name:      "no drift",
 			kind:      "VaultPolicy",
-			namespace: "default",
-			resName:   "my-policy-no-drift",
+			namespace: "staging",
 			detected:  false,
 			expected:  0.0,
 		},
@@ -272,9 +269,9 @@ func TestSetDriftDetected(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			SetDriftDetected(tt.kind, tt.namespace, tt.resName, tt.detected)
+			SetDriftDetected(tt.kind, tt.namespace, tt.detected)
 
-			gauge := DriftDetectedGauge.WithLabelValues(tt.kind, tt.namespace, tt.resName)
+			gauge := DriftDetectedGauge.WithLabelValues(tt.kind, tt.namespace)
 			value := testutil.ToFloat64(gauge)
 
 			if value != tt.expected {

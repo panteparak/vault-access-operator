@@ -18,6 +18,7 @@ package events
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	"github.com/go-logr/logr"
@@ -105,17 +106,34 @@ func (b *EventBus) Publish(ctx context.Context, event Event) error {
 
 	var lastErr error
 	for i, handler := range handlers {
-		if err := handler(ctx, event); err != nil {
-			b.logger.Error(err, "handler failed",
-				"type", event.Type(),
-				"handlerIndex", i,
-			)
+		if err := b.safeInvoke(ctx, handler, event, i); err != nil {
 			lastErr = err
-			// Continue to other handlers - don't fail on single handler error
 		}
 	}
 
 	return lastErr
+}
+
+// safeInvoke calls a handler with panic recovery so one bad handler
+// doesn't crash the operator. Remaining handlers continue executing.
+func (b *EventBus) safeInvoke(ctx context.Context, handler handlerFunc, event Event, index int) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("handler panicked: %v", r)
+			b.logger.Error(err, "handler panic recovered",
+				"type", event.Type(),
+				"handlerIndex", index,
+			)
+		}
+	}()
+
+	if err = handler(ctx, event); err != nil {
+		b.logger.Error(err, "handler failed",
+			"type", event.Type(),
+			"handlerIndex", index,
+		)
+	}
+	return err
 }
 
 // PublishAsync sends an event to all subscribed handlers asynchronously.

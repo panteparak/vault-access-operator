@@ -60,14 +60,23 @@ type ScanResult struct {
 type Scanner struct {
 	vaultClient *vault.Client
 	config      *vaultv1alpha1.DiscoveryConfig
+	authPath    string // Kubernetes auth mount path for role discovery
 	log         logr.Logger
 }
 
-// NewScanner creates a new Scanner
-func NewScanner(vaultClient *vault.Client, config *vaultv1alpha1.DiscoveryConfig, log logr.Logger) *Scanner {
+// NewScanner creates a new Scanner.
+// authPath is the Kubernetes auth mount path (defaults to "auth/kubernetes" if empty).
+func NewScanner(
+	vaultClient *vault.Client, config *vaultv1alpha1.DiscoveryConfig,
+	authPath string, log logr.Logger,
+) *Scanner {
+	if authPath == "" {
+		authPath = vault.DefaultKubernetesAuthPath
+	}
 	return &Scanner{
 		vaultClient: vaultClient,
 		config:      config,
+		authPath:    authPath,
 		log:         log.WithName("scanner"),
 	}
 }
@@ -156,8 +165,7 @@ func (s *Scanner) scanPolicies(ctx context.Context, result *ScanResult) error {
 
 // scanRoles scans for unmanaged Kubernetes auth roles
 func (s *Scanner) scanRoles(ctx context.Context, result *ScanResult) error {
-	// Use default auth path
-	authPath := "auth/kubernetes"
+	authPath := s.authPath
 
 	// List all roles in Vault
 	allRoles, err := s.vaultClient.ListKubernetesAuthRoles(ctx, authPath)

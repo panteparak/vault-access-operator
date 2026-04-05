@@ -77,6 +77,12 @@ type VaultBootstrapClient interface {
 	// AuthenticateKubernetesWithToken authenticates using Kubernetes auth with a provided JWT.
 	// Used to test that K8s auth works after setup.
 	AuthenticateKubernetesWithToken(ctx context.Context, role, mountPath, jwt string) error
+
+	// Token returns the current Vault token.
+	Token() string
+
+	// SetToken sets the Vault token.
+	SetToken(token string)
 }
 
 // K8sClusterDiscovery provides Kubernetes cluster information.

@@ -18,10 +18,8 @@ package controller
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -37,6 +35,7 @@ import (
 	"github.com/panteparak/vault-access-operator/shared/controller/binding"
 	"github.com/panteparak/vault-access-operator/shared/controller/conditions"
 	"github.com/panteparak/vault-access-operator/shared/controller/drift"
+	"github.com/panteparak/vault-access-operator/shared/controller/hash"
 	"github.com/panteparak/vault-access-operator/shared/controller/vaultclient"
 	"github.com/panteparak/vault-access-operator/shared/controller/workflow"
 	"github.com/panteparak/vault-access-operator/shared/events"
@@ -328,23 +327,22 @@ func (h *Handler) buildRoleData(
 	namespaceSet := make(map[string]bool)
 
 	for _, saBinding := range serviceAccountBindings {
-		// saBinding format is "namespace/name"
-		var namespace, name string
-		for i := 0; i < len(saBinding); i++ {
-			if saBinding[i] == '/' {
-				namespace = saBinding[:i]
-				name = saBinding[i+1:]
-				break
-			}
+		parts := strings.SplitN(saBinding, "/", 2)
+		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+			// Adapters guarantee "namespace/name" format; log and skip malformed input
+			continue
 		}
-		if name != "" {
-			boundServiceAccountNames = append(boundServiceAccountNames, name)
-			if !namespaceSet[namespace] {
-				namespaceSet[namespace] = true
-				boundServiceAccountNamespaces = append(boundServiceAccountNamespaces, namespace)
-			}
+		namespace, name := parts[0], parts[1]
+		boundServiceAccountNames = append(boundServiceAccountNames, name)
+		if !namespaceSet[namespace] {
+			namespaceSet[namespace] = true
+			boundServiceAccountNamespaces = append(boundServiceAccountNamespaces, namespace)
 		}
 	}
+
+	// Sort for deterministic hashing — map iteration order for namespaceSet is random
+	sort.Strings(boundServiceAccountNames)
+	sort.Strings(boundServiceAccountNamespaces)
 
 	data := map[string]interface{}{
 		"bound_service_account_names":      boundServiceAccountNames,
@@ -378,13 +376,8 @@ func normalizeTTLToSeconds(val interface{}) interface{} {
 	return int(d.Seconds())
 }
 
-// calculateSpecHash computes a SHA256 hash of the role data for change detection.
-// This distinguishes K8s spec changes from external Vault drift.
-func (h *Handler) calculateSpecHash(roleData map[string]interface{}) string {
-	data, err := json.Marshal(roleData)
-	if err != nil {
-		return ""
-	}
-	hash := sha256.Sum256(data)
-	return hex.EncodeToString(hash[:])
+// calculateSpecHash computes a deterministic SHA256 hash of the role data for change detection.
+// Keys are sorted to ensure stable hashing across reconcile cycles.
+func (h *Handler) calculateSpecHash(roleData map[string]interface{}) (string, error) {
+	return hash.FromMapDeterministic(roleData)
 }
