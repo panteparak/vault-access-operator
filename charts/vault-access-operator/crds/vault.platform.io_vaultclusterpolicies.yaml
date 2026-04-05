@@ -129,7 +129,7 @@ spec:
                       type: object
                     path:
                       description: Path in Vault to apply the rule to
-                      pattern: ^[a-zA-Z0-9/_*{}+-]+$
+                      pattern: ^[a-zA-Z0-9/_*.{}+-]+$
                       type: string
                   required:
                   - capabilities
