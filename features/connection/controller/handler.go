@@ -291,6 +291,12 @@ func (h *Handler) runBootstrap(ctx context.Context, conn *vaultv1alpha1.VaultCon
 		"bootstrapRevoked", result.BootstrapRevoked,
 	)
 
+	// Persist bootstrap status so the next reconcile sees BootstrapComplete = true
+	// and proceeds to the normal auth path instead of re-running bootstrap.
+	if err := h.client.Status().Update(ctx, conn); err != nil {
+		return fmt.Errorf("failed to persist bootstrap status: %w", err)
+	}
+
 	// Publish bootstrap completed event
 	if h.eventBus != nil {
 		h.eventBus.PublishAsync(ctx, events.NewBootstrapCompleted(

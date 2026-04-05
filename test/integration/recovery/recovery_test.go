@@ -46,7 +46,11 @@ var _ = Describe("Recovery Integration Tests", func() {
 						Address: testEnv.VaultAddress(),
 						Auth: vaultv1alpha1.AuthConfig{
 							Token: &vaultv1alpha1.TokenAuth{
-								TokenSecretRef: "vault-token",
+								SecretRef: vaultv1alpha1.SecretKeySelector{
+									Name:      "vault-token",
+									Namespace: "default",
+									Key:       "token",
+								},
 							},
 						},
 					},
