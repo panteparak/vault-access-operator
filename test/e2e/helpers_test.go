@@ -224,6 +224,13 @@ func RefreshSharedVaultToken(ctx context.Context) {
 	vc, err := utils.GetTestVaultClient()
 	Expect(err).NotTo(HaveOccurred())
 
+	// Capture the current heartbeat so we can detect a fresh reconcile.
+	var heartbeatBefore *metav1.Time
+	conn, err := utils.GetVaultConnection(ctx, sharedVaultConnectionName, "")
+	if err == nil {
+		heartbeatBefore = conn.Status.LastHeartbeat
+	}
+
 	operatorToken, err := vc.CreateToken(ctx, []string{operatorPolicyName}, "4h")
 	Expect(err).NotTo(HaveOccurred())
 
@@ -233,12 +240,22 @@ func RefreshSharedVaultToken(ctx context.Context) {
 		map[string][]byte{"token": []byte(operatorToken)})
 	Expect(err).NotTo(HaveOccurred())
 
-	// Wait for the operator to pick up the new token and re-sync the connection.
+	// Wait for the operator to pick up the new token and complete a fresh reconcile.
+	// Just checking "Active" is insufficient — the connection may already be Active
+	// with the old (revoked) token. We must wait for LastHeartbeat to advance,
+	// proving the connection reconciled with the new secret.
 	Eventually(func(g Gomega) {
 		conn, err := utils.GetVaultConnection(ctx, sharedVaultConnectionName, "")
 		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(string(conn.Status.Phase)).To(Equal("Active"))
-	}, 30*time.Second, 2*time.Second).Should(Succeed())
+		// Ensure a new reconcile happened after the secret update.
+		if heartbeatBefore != nil {
+			g.Expect(conn.Status.LastHeartbeat).NotTo(BeNil(),
+				"LastHeartbeat should be set after reconcile")
+			g.Expect(conn.Status.LastHeartbeat.After(heartbeatBefore.Time)).To(BeTrue(),
+				"LastHeartbeat should advance after token refresh")
+		}
+	}, 60*time.Second, 2*time.Second).Should(Succeed())
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
