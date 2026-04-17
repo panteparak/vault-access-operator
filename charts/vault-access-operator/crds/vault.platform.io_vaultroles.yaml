@@ -55,8 +55,10 @@ spec:
             description: VaultRoleSpec defines the desired state of VaultRole.
             properties:
               authPath:
-                description: AuthPath is the mount path of the Kubernetes auth method
-                  in Vault
+                description: |-
+                  AuthPath is the mount path of the Vault auth method to manage this role in
+                  (e.g. `auth/kubernetes`, `auth/jwt`). Must include the `auth/` prefix.
+                  Defaults to `auth/kubernetes` when unset.
                 type: string
               conflictPolicy:
                 default: Fail
@@ -87,6 +89,47 @@ spec:
                 - detect
                 - correct
                 type: string
+              jwt:
+                description: |-
+                  JWT contains optional overrides when AuthPath targets a JWT auth mount.
+                  If omitted and AuthPath starts with "auth/jwt", defaults are derived
+                  from ServiceAccounts and the referenced VaultConnection. Must be unset
+                  for non-JWT auth paths.
+                properties:
+                  boundAudiences:
+                    description: |-
+                      BoundAudiences restricts which audiences the token must contain.
+                      Defaults to the VaultConnection's spec.auth.jwt.audiences when the
+                      connection uses JWT auth, otherwise to
+                      ["https://kubernetes.default.svc.cluster.local"].
+                    items:
+                      type: string
+                    type: array
+                  boundClaims:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      BoundClaims is an advanced match — arbitrary claim to value(s).
+                      When set, BoundSubject is ignored.
+                    type: object
+                  boundSubject:
+                    description: |-
+                      BoundSubject restricts the token's sub claim to an exact match.
+                      Defaults to "system:serviceaccount:<namespace>:<serviceAccounts[0]>".
+                      Mutually exclusive with BoundClaims.
+                    type: string
+                  roleType:
+                    description: |-
+                      RoleType is the Vault JWT role type. Only "jwt" is supported.
+                      Defaults to "jwt".
+                    enum:
+                    - jwt
+                    type: string
+                  userClaim:
+                    description: UserClaim is the JWT claim to read as the identity.
+                      Defaults to "sub".
+                    type: string
+                type: object
               policies:
                 description: Policies defines which policies to attach to this role
                 items:

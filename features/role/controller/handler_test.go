@@ -32,6 +32,7 @@ import (
 	"github.com/panteparak/vault-access-operator/features/role/domain"
 	"github.com/panteparak/vault-access-operator/pkg/vault"
 	"github.com/panteparak/vault-access-operator/shared/controller/conditions"
+	"github.com/panteparak/vault-access-operator/shared/controller/drift"
 	"github.com/panteparak/vault-access-operator/shared/controller/syncerror"
 	"github.com/panteparak/vault-access-operator/shared/controller/vaultclient"
 	"github.com/panteparak/vault-access-operator/shared/events"
@@ -331,7 +332,10 @@ func TestBuildRoleData_VaultRole(t *testing.T) {
 	policyNames := []string{"default-policy", "global-policy"}
 	serviceAccountBindings := adapter.GetServiceAccountBindings()
 
-	roleData := handler.buildRoleData(adapter, policyNames, serviceAccountBindings)
+	roleData, err := handler.buildRoleData(adapter, policyNames, serviceAccountBindings, nil)
+	if err != nil {
+		t.Fatalf("buildRoleData returned error: %v", err)
+	}
 
 	// Check policies
 	policies, ok := roleData["policies"].([]string)
@@ -387,7 +391,10 @@ func TestBuildRoleData_VaultClusterRole(t *testing.T) {
 	policyNames := []string{"cluster-policy"}
 	serviceAccountBindings := adapter.GetServiceAccountBindings()
 
-	roleData := handler.buildRoleData(adapter, policyNames, serviceAccountBindings)
+	roleData, err := handler.buildRoleData(adapter, policyNames, serviceAccountBindings, nil)
+	if err != nil {
+		t.Fatalf("buildRoleData returned error: %v", err)
+	}
 
 	// Check bound service account namespaces (should have 2 different namespaces)
 	saNamespaces, ok := roleData["bound_service_account_namespaces"].([]string)
@@ -408,7 +415,10 @@ func TestBuildRoleData_NoTTL(t *testing.T) {
 	handler := NewHandler(fakeClient, vault.NewClientCache(), nil, logr.Discard())
 	adapter := domain.NewVaultRoleAdapter(role)
 
-	roleData := handler.buildRoleData(adapter, []string{}, []string{"default/app"})
+	roleData, err := handler.buildRoleData(adapter, []string{}, []string{"default/app"}, nil)
+	if err != nil {
+		t.Fatalf("buildRoleData returned error: %v", err)
+	}
 
 	if _, exists := roleData["token_ttl"]; exists {
 		t.Error("expected token_ttl to not be set")
@@ -425,7 +435,10 @@ func TestBuildRoleData_MultipleNamespaces(t *testing.T) {
 	adapter := domain.NewVaultRoleAdapter(role)
 
 	bindings := []string{"ns1/sa1", "ns2/sa2", "ns1/sa3", "ns3/sa4"}
-	roleData := handler.buildRoleData(adapter, []string{"policy"}, bindings)
+	roleData, err := handler.buildRoleData(adapter, []string{"policy"}, bindings, nil)
+	if err != nil {
+		t.Fatalf("buildRoleData returned error: %v", err)
+	}
 
 	saNamespaces, ok := roleData["bound_service_account_namespaces"].([]string)
 	if !ok {
@@ -443,7 +456,10 @@ func TestBuildRoleData_EmptyBindings(t *testing.T) {
 	handler := NewHandler(fakeClient, vault.NewClientCache(), nil, logr.Discard())
 	adapter := domain.NewVaultRoleAdapter(role)
 
-	roleData := handler.buildRoleData(adapter, []string{"policy"}, []string{})
+	roleData, err := handler.buildRoleData(adapter, []string{"policy"}, []string{}, nil)
+	if err != nil {
+		t.Fatalf("buildRoleData returned error: %v", err)
+	}
 
 	saNames, ok := roleData["bound_service_account_names"].([]string)
 	if !ok {
@@ -452,6 +468,271 @@ func TestBuildRoleData_EmptyBindings(t *testing.T) {
 	if len(saNames) != 0 {
 		t.Errorf("expected 0 service account names, got %d", len(saNames))
 	}
+}
+
+// --- JWT role payload tests ---
+
+const authPathJWT = "auth/jwt"
+
+func newJWTConnection(name string, audiences []string) *vaultv1alpha1.VaultConnection {
+	return &vaultv1alpha1.VaultConnection{
+		ObjectMeta: metav1.ObjectMeta{Name: name},
+		Spec: vaultv1alpha1.VaultConnectionSpec{
+			Address: "https://vault.example.com:8200",
+			Auth: vaultv1alpha1.AuthConfig{
+				JWT: &vaultv1alpha1.JWTAuth{
+					Role:      "operator",
+					Audiences: audiences,
+				},
+			},
+		},
+	}
+}
+
+func TestBuildRoleData_JWT_DerivesBoundSubjectFromServiceAccount(t *testing.T) {
+	role := newVaultRole("test-role", "bar")
+	role.Spec.AuthPath = authPathJWT
+	role.Spec.ServiceAccounts = []string{"foo-sa"}
+
+	conn := newJWTConnection("vault-jwt", []string{"aud-a", "aud-b"})
+	handler := NewHandler(newFakeClient(role, conn), vault.NewClientCache(), nil, logr.Discard())
+	adapter := domain.NewVaultRoleAdapter(role)
+
+	roleData, err := handler.buildRoleData(adapter, []string{"eso-reader"}, adapter.GetServiceAccountBindings(), conn)
+	if err != nil {
+		t.Fatalf("buildRoleData returned error: %v", err)
+	}
+
+	if roleData["role_type"] != "jwt" {
+		t.Errorf("expected role_type=jwt, got %v", roleData["role_type"])
+	}
+	if roleData["user_claim"] != "sub" {
+		t.Errorf("expected user_claim=sub, got %v", roleData["user_claim"])
+	}
+	if roleData["bound_subject"] != "system:serviceaccount:bar:foo-sa" {
+		t.Errorf("expected bound_subject=system:serviceaccount:bar:foo-sa, got %v", roleData["bound_subject"])
+	}
+	auds, ok := roleData["bound_audiences"].([]string)
+	if !ok {
+		t.Fatalf("expected bound_audiences []string, got %T", roleData["bound_audiences"])
+	}
+	if len(auds) != 2 || auds[0] != "aud-a" || auds[1] != "aud-b" {
+		t.Errorf("expected bound_audiences from connection, got %v", auds)
+	}
+	// k8s-auth-specific keys should not appear
+	if _, has := roleData["bound_service_account_names"]; has {
+		t.Error("JWT payload should not include bound_service_account_names")
+	}
+}
+
+func TestBuildRoleData_JWT_UserClaimOverride(t *testing.T) {
+	role := newVaultRole("test-role", "bar")
+	role.Spec.AuthPath = authPathJWT
+	role.Spec.ServiceAccounts = []string{"foo-sa"}
+	role.Spec.JWT = &vaultv1alpha1.VaultRoleJWTSpec{UserClaim: "email"}
+
+	handler := NewHandler(newFakeClient(role), vault.NewClientCache(), nil, logr.Discard())
+	adapter := domain.NewVaultRoleAdapter(role)
+
+	roleData, err := handler.buildRoleData(adapter, []string{"p"}, adapter.GetServiceAccountBindings(), nil)
+	if err != nil {
+		t.Fatalf("buildRoleData returned error: %v", err)
+	}
+	if roleData["user_claim"] != "email" {
+		t.Errorf("expected user_claim=email, got %v", roleData["user_claim"])
+	}
+}
+
+func TestBuildRoleData_JWT_BoundSubjectOverride(t *testing.T) {
+	role := newVaultRole("test-role", "bar")
+	role.Spec.AuthPath = authPathJWT
+	role.Spec.ServiceAccounts = []string{"foo-sa"}
+	role.Spec.JWT = &vaultv1alpha1.VaultRoleJWTSpec{BoundSubject: "custom-subject"}
+
+	handler := NewHandler(newFakeClient(role), vault.NewClientCache(), nil, logr.Discard())
+	adapter := domain.NewVaultRoleAdapter(role)
+
+	roleData, err := handler.buildRoleData(adapter, []string{"p"}, adapter.GetServiceAccountBindings(), nil)
+	if err != nil {
+		t.Fatalf("buildRoleData returned error: %v", err)
+	}
+	if roleData["bound_subject"] != "custom-subject" {
+		t.Errorf("expected overridden bound_subject, got %v", roleData["bound_subject"])
+	}
+}
+
+func TestBuildRoleData_JWT_BoundClaimsReplacesSubject(t *testing.T) {
+	role := newVaultRole("test-role", "bar")
+	role.Spec.AuthPath = authPathJWT
+	role.Spec.ServiceAccounts = []string{"foo-sa", "bar-sa"}
+	role.Spec.JWT = &vaultv1alpha1.VaultRoleJWTSpec{
+		BoundClaims: map[string]string{"groups": "eso-writers"},
+	}
+
+	handler := NewHandler(newFakeClient(role), vault.NewClientCache(), nil, logr.Discard())
+	adapter := domain.NewVaultRoleAdapter(role)
+
+	roleData, err := handler.buildRoleData(adapter, []string{"p"}, adapter.GetServiceAccountBindings(), nil)
+	if err != nil {
+		t.Fatalf("buildRoleData returned error: %v", err)
+	}
+	if _, has := roleData["bound_subject"]; has {
+		t.Error("bound_subject should be absent when bound_claims is set")
+	}
+	claims, ok := roleData["bound_claims"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected bound_claims map, got %T", roleData["bound_claims"])
+	}
+	if claims["groups"] != "eso-writers" {
+		t.Errorf("expected bound_claims.groups=eso-writers, got %v", claims["groups"])
+	}
+}
+
+func TestBuildRoleData_JWT_FallbackAudienceWhenConnectionNotJWT(t *testing.T) {
+	role := newVaultRole("test-role", "bar")
+	role.Spec.AuthPath = authPathJWT
+	role.Spec.ServiceAccounts = []string{"foo-sa"}
+
+	// Connection uses k8s auth, no JWT audiences.
+	k8sConn := &vaultv1alpha1.VaultConnection{
+		ObjectMeta: metav1.ObjectMeta{Name: "vault-k8s"},
+		Spec: vaultv1alpha1.VaultConnectionSpec{
+			Address: "https://vault.example.com:8200",
+			Auth: vaultv1alpha1.AuthConfig{
+				Kubernetes: &vaultv1alpha1.KubernetesAuth{Role: "operator"},
+			},
+		},
+	}
+
+	handler := NewHandler(newFakeClient(role, k8sConn), vault.NewClientCache(), nil, logr.Discard())
+	adapter := domain.NewVaultRoleAdapter(role)
+
+	roleData, err := handler.buildRoleData(adapter, []string{"p"}, adapter.GetServiceAccountBindings(), k8sConn)
+	if err != nil {
+		t.Fatalf("buildRoleData returned error: %v", err)
+	}
+	auds, ok := roleData["bound_audiences"].([]string)
+	if !ok || len(auds) != 1 || auds[0] != "https://kubernetes.default.svc.cluster.local" {
+		t.Errorf("expected cluster-default bound_audiences, got %v", auds)
+	}
+}
+
+func TestBuildRoleData_JWT_MultipleServiceAccountsRejected(t *testing.T) {
+	role := newVaultRole("test-role", "bar")
+	role.Spec.AuthPath = authPathJWT
+	role.Spec.ServiceAccounts = []string{"sa1", "sa2"}
+
+	handler := NewHandler(newFakeClient(role), vault.NewClientCache(), nil, logr.Discard())
+	adapter := domain.NewVaultRoleAdapter(role)
+
+	if _, err := handler.buildRoleData(adapter, []string{"p"}, adapter.GetServiceAccountBindings(), nil); err == nil {
+		t.Fatal("expected error for multiple service accounts without boundSubject/boundClaims")
+	}
+}
+
+func TestBuildRoleData_KubernetesAuthPathUnchanged(t *testing.T) {
+	role := newVaultRole("test-role", "default")
+	role.Spec.AuthPath = "auth/kubernetes/"
+
+	handler := NewHandler(newFakeClient(role), vault.NewClientCache(), nil, logr.Discard())
+	adapter := domain.NewVaultRoleAdapter(role)
+	serviceAccountBindings := adapter.GetServiceAccountBindings()
+
+	roleData, err := handler.buildRoleData(adapter, []string{"policy"}, serviceAccountBindings, nil)
+	if err != nil {
+		t.Fatalf("buildRoleData returned error: %v", err)
+	}
+	if _, has := roleData["bound_service_account_names"]; !has {
+		t.Error("expected k8s-auth payload for auth/kubernetes/ path")
+	}
+	if _, has := roleData["role_type"]; has {
+		t.Error("k8s-auth payload should not include role_type")
+	}
+}
+
+func TestBuildRoleData_UnknownAuthBackendRejected(t *testing.T) {
+	role := newVaultRole("test-role", "default")
+	role.Spec.AuthPath = "auth/approle"
+
+	handler := NewHandler(newFakeClient(role), vault.NewClientCache(), nil, logr.Discard())
+	adapter := domain.NewVaultRoleAdapter(role)
+	if _, err := handler.buildRoleData(adapter, []string{"p"}, adapter.GetServiceAccountBindings(), nil); err == nil {
+		t.Fatal("expected error for unsupported auth backend")
+	}
+}
+
+func TestResolveJWTBoundSubject_ServiceAccountBindingMalformed(t *testing.T) {
+	role := newVaultRole("test-role", "bar")
+	adapter := domain.NewVaultRoleAdapter(role)
+	// Binding missing the slash — adapters normally guarantee namespace/name form.
+	if _, err := resolveJWTBoundSubject(adapter, &vaultv1alpha1.VaultRoleJWTSpec{}, []string{"badformat"}); err == nil {
+		t.Fatal("expected error for malformed binding")
+	}
+}
+
+func TestCompareJWTRoleFields(t *testing.T) {
+	t.Run("no drift when audiences match regardless of order", func(t *testing.T) {
+		expected := map[string]interface{}{
+			"policies":        []string{"p1", "p2"},
+			"bound_audiences": []string{"aud-a", "aud-b"},
+			"role_type":       "jwt",
+			"user_claim":      "sub",
+			"bound_subject":   "system:serviceaccount:ns:sa",
+		}
+		current := map[string]interface{}{
+			"policies":        []interface{}{"p2", "p1"}, // order reversed, Vault returns interface slice
+			"bound_audiences": []interface{}{"aud-b", "aud-a"},
+			"role_type":       "jwt",
+			"user_claim":      "sub",
+			"bound_subject":   "system:serviceaccount:ns:sa",
+			// Vault may add extra fields that should be ignored
+			"token_num_uses": float64(0),
+		}
+		c := drift.NewComparator()
+		compareJWTRoleFields(c, expected, current)
+		if c.Result().HasDrift {
+			t.Errorf("expected no drift, got: %s", c.Result().Summary)
+		}
+	})
+
+	t.Run("drift when bound_subject differs", func(t *testing.T) {
+		expected := map[string]interface{}{
+			"policies":        []string{"p1"},
+			"bound_audiences": []string{"aud"},
+			"role_type":       "jwt",
+			"user_claim":      "sub",
+			"bound_subject":   "system:serviceaccount:ns:sa",
+		}
+		current := map[string]interface{}{
+			"policies":        []interface{}{"p1"},
+			"bound_audiences": []interface{}{"aud"},
+			"role_type":       "jwt",
+			"user_claim":      "sub",
+			"bound_subject":   "system:serviceaccount:ns:other",
+		}
+		c := drift.NewComparator()
+		compareJWTRoleFields(c, expected, current)
+		if !c.Result().HasDrift {
+			t.Error("expected drift for bound_subject mismatch")
+		}
+	})
+
+	t.Run("falls back to token_policies when policies is absent", func(t *testing.T) {
+		expected := map[string]interface{}{
+			"policies":        []string{"p1"},
+			"bound_audiences": []string{"aud"},
+		}
+		current := map[string]interface{}{
+			// Vault returned only token_policies, not policies
+			"token_policies":  []interface{}{"p1"},
+			"bound_audiences": []interface{}{"aud"},
+		}
+		c := drift.NewComparator()
+		compareJWTRoleFields(c, expected, current)
+		if c.Result().HasDrift {
+			t.Errorf("expected no drift when token_policies matches, got: %s", c.Result().Summary)
+		}
+	})
 }
 
 // Tests for handleSyncError (now delegates to syncerror.Handle)
@@ -1382,7 +1663,7 @@ func BenchmarkBuildRoleData(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = handler.buildRoleData(adapter, policyNames, bindings)
+		_, _ = handler.buildRoleData(adapter, policyNames, bindings, nil)
 	}
 }
 

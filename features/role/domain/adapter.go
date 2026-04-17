@@ -57,6 +57,9 @@ type RoleAdapter interface {
 	// GetTokenMaxTTL returns the maximum TTL for tokens issued by this role
 	GetTokenMaxTTL() string
 
+	// GetJWT returns the optional JWT role overrides (nil if not set).
+	GetJWT() *vaultv1alpha1.VaultRoleJWTSpec
+
 	// GetDeletionPolicy returns the deletion policy
 	GetDeletionPolicy() vaultv1alpha1.DeletionPolicy
 
@@ -142,6 +145,7 @@ func (a *VaultRoleAdapter) GetServiceAccountBindings() []string {
 func (a *VaultRoleAdapter) GetPolicies() []vaultv1alpha1.PolicyReference { return a.Spec.Policies }
 func (a *VaultRoleAdapter) GetTokenTTL() string                          { return a.Spec.TokenTTL }
 func (a *VaultRoleAdapter) GetTokenMaxTTL() string                       { return a.Spec.TokenMaxTTL }
+func (a *VaultRoleAdapter) GetJWT() *vaultv1alpha1.VaultRoleJWTSpec      { return a.Spec.JWT }
 func (a *VaultRoleAdapter) GetDeletionPolicy() vaultv1alpha1.DeletionPolicy {
 	return a.Spec.DeletionPolicy
 }
@@ -199,6 +203,9 @@ func (a *VaultClusterRoleAdapter) GetPolicies() []vaultv1alpha1.PolicyReference 
 }
 func (a *VaultClusterRoleAdapter) GetTokenTTL() string    { return a.Spec.TokenTTL }
 func (a *VaultClusterRoleAdapter) GetTokenMaxTTL() string { return a.Spec.TokenMaxTTL }
+func (a *VaultClusterRoleAdapter) GetJWT() *vaultv1alpha1.VaultRoleJWTSpec {
+	return a.Spec.JWT
+}
 func (a *VaultClusterRoleAdapter) GetDeletionPolicy() vaultv1alpha1.DeletionPolicy {
 	return a.Spec.DeletionPolicy
 }

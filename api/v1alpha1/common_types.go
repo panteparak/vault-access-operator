@@ -164,6 +164,40 @@ type PolicyParameters struct {
 	Required []string `json:"required,omitempty"`
 }
 
+// VaultRoleJWTSpec contains optional overrides for JWT auth roles.
+// When a VaultRole (or VaultClusterRole) targets an auth/jwt mount via AuthPath,
+// the operator derives sensible defaults from ServiceAccounts and the referenced
+// VaultConnection. Fields in this struct let users override those defaults.
+type VaultRoleJWTSpec struct {
+	// UserClaim is the JWT claim to read as the identity. Defaults to "sub".
+	// +optional
+	UserClaim string `json:"userClaim,omitempty"`
+
+	// BoundAudiences restricts which audiences the token must contain.
+	// Defaults to the VaultConnection's spec.auth.jwt.audiences when the
+	// connection uses JWT auth, otherwise to
+	// ["https://kubernetes.default.svc.cluster.local"].
+	// +optional
+	BoundAudiences []string `json:"boundAudiences,omitempty"`
+
+	// BoundSubject restricts the token's sub claim to an exact match.
+	// Defaults to "system:serviceaccount:<namespace>:<serviceAccounts[0]>".
+	// Mutually exclusive with BoundClaims.
+	// +optional
+	BoundSubject string `json:"boundSubject,omitempty"`
+
+	// BoundClaims is an advanced match — arbitrary claim to value(s).
+	// When set, BoundSubject is ignored.
+	// +optional
+	BoundClaims map[string]string `json:"boundClaims,omitempty"`
+
+	// RoleType is the Vault JWT role type. Only "jwt" is supported.
+	// Defaults to "jwt".
+	// +kubebuilder:validation:Enum=jwt
+	// +optional
+	RoleType string `json:"roleType,omitempty"`
+}
+
 // PolicyReference defines a reference to a VaultPolicy or VaultClusterPolicy
 type PolicyReference struct {
 	// Kind of the policy (VaultPolicy or VaultClusterPolicy)

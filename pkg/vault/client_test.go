@@ -1388,3 +1388,28 @@ func TestRenewSelf_Success(t *testing.T) {
 		t.Errorf("TokenExpiration() = %v, expected around %v", client.TokenExpiration(), beforeRenew.Add(expectedTTL))
 	}
 }
+
+func TestAuthBackendForPath(t *testing.T) {
+	cases := []struct {
+		path string
+		want AuthBackend
+	}{
+		{"", AuthBackendKubernetes},
+		{"auth/kubernetes", AuthBackendKubernetes},
+		{"auth/kubernetes/", AuthBackendKubernetes},
+		{"auth/kubernetes-prod", AuthBackendKubernetes},
+		{"auth/kubernetes-prod/", AuthBackendKubernetes},
+		{"auth/jwt", AuthBackendJWT},
+		{"auth/jwt/", AuthBackendJWT},
+		{"auth/jwt-gitlab", AuthBackendJWT},
+		{"auth/jwt/gitlab", AuthBackendJWT},
+		{"auth/approle", AuthBackendUnknown},
+		{"auth/", AuthBackendUnknown},
+		{"kubernetes", AuthBackendUnknown},
+	}
+	for _, tc := range cases {
+		if got := AuthBackendForPath(tc.path); got != tc.want {
+			t.Errorf("AuthBackendForPath(%q) = %q, want %q", tc.path, got, tc.want)
+		}
+	}
+}

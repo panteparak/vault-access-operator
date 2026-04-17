@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -14,6 +15,47 @@ import (
 
 // DefaultKubernetesAuthPath is the default path for Kubernetes auth in Vault
 const DefaultKubernetesAuthPath = "auth/kubernetes"
+
+// DefaultJWTAuthPath is the default path for JWT auth in Vault
+const DefaultJWTAuthPath = "auth/jwt"
+
+// AuthBackend identifies the kind of Vault auth backend a role targets.
+type AuthBackend string
+
+const (
+	// AuthBackendKubernetes identifies the `auth/kubernetes` family of mounts.
+	AuthBackendKubernetes AuthBackend = "kubernetes"
+	// AuthBackendJWT identifies the `auth/jwt` family of mounts.
+	AuthBackendJWT AuthBackend = "jwt"
+	// AuthBackendUnknown is returned for unrecognized auth paths.
+	AuthBackendUnknown AuthBackend = ""
+)
+
+// AuthBackendForPath returns the backend family for an auth mount path.
+// Matches the first path segment after the leading `auth/` so submounts like
+// `auth/kubernetes-prod` or `auth/jwt/gitlab` resolve to their parent family.
+// Empty input resolves to Kubernetes (matching DefaultKubernetesAuthPath).
+// Returns AuthBackendUnknown for paths that don't start with `auth/`.
+func AuthBackendForPath(authPath string) AuthBackend {
+	p := strings.TrimRight(authPath, "/")
+	if p == "" {
+		return AuthBackendKubernetes
+	}
+	const prefix = "auth/"
+	if !strings.HasPrefix(p, prefix) {
+		return AuthBackendUnknown
+	}
+	rest := p[len(prefix):]
+	seg, _, _ := strings.Cut(rest, "/")
+	switch {
+	case seg == "kubernetes" || strings.HasPrefix(seg, "kubernetes"):
+		return AuthBackendKubernetes
+	case seg == "jwt" || strings.HasPrefix(seg, "jwt"):
+		return AuthBackendJWT
+	default:
+		return AuthBackendUnknown
+	}
+}
 
 // Client wraps the Vault API client with additional metadata.
 // Mutable metadata fields are protected by mu for concurrent access

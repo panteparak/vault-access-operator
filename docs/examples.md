@@ -479,6 +479,65 @@ spec:
   tokenMaxTTL: 15m
 ```
 
+### JWT-Backed Role (ESO workloads)
+
+When `authPath` targets a JWT auth mount (e.g. `auth/jwt`), the operator writes
+a JWT role to Vault. Defaults are derived from the referenced `VaultConnection`
+and `serviceAccounts`:
+
+- `role_type=jwt`
+- `user_claim=sub`
+- `bound_subject=system:serviceaccount:<namespace>:<serviceAccounts[0]>`
+- `bound_audiences=<VaultConnection.spec.auth.jwt.audiences>` when available,
+  otherwise `["https://kubernetes.default.svc.cluster.local"]`
+
+```yaml
+apiVersion: vault.platform.io/v1alpha1
+kind: VaultRole
+metadata:
+  name: eso
+  namespace: my-app
+spec:
+  connectionRef: vault-jwt
+  authPath: auth/jwt
+  serviceAccounts:
+    - my-app-eso
+  policies:
+    - kind: VaultPolicy
+      name: app-secrets-reader
+  tokenTTL: 1h
+  tokenMaxTTL: 4h
+```
+
+Override the derived defaults through `spec.jwt`:
+
+```yaml
+apiVersion: vault.platform.io/v1alpha1
+kind: VaultRole
+metadata:
+  name: eso-custom
+  namespace: my-app
+spec:
+  connectionRef: vault-jwt
+  authPath: auth/jwt
+  serviceAccounts:
+    - my-app-eso
+  policies:
+    - kind: VaultPolicy
+      name: app-secrets-reader
+  jwt:
+    userClaim: email
+    boundAudiences:
+      - https://vault.example.com
+    boundClaims:
+      groups: eso-writers
+```
+
+**Multi-serviceAccount caveat**: JWT's `bound_subject` holds a single value.
+A JWT VaultRole with more than one `serviceAccount` must set
+`spec.jwt.boundSubject` or `spec.jwt.boundClaims` explicitly, otherwise
+the webhook rejects the resource.
+
 ---
 
 ## VaultClusterRole Examples

@@ -542,6 +542,70 @@ func TestVaultPolicyValidator_ValidateUpdate(t *testing.T) {
 	}
 }
 
+func TestVaultPolicyValidator_ConnectionRefChange_SameAddressAllowed(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = vaultv1alpha1.AddToScheme(scheme)
+
+	connA := &vaultv1alpha1.VaultConnection{
+		ObjectMeta: metav1.ObjectMeta{Name: "conn-a"},
+		Spec:       vaultv1alpha1.VaultConnectionSpec{Address: "https://vault.example.com:8200"},
+	}
+	connB := &vaultv1alpha1.VaultConnection{
+		ObjectMeta: metav1.ObjectMeta{Name: "conn-b"},
+		Spec:       vaultv1alpha1.VaultConnectionSpec{Address: "https://vault.example.com:8200"},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(connA, connB).Build()
+	v := &VaultPolicyValidator{client: c}
+
+	oldPolicy := &vaultv1alpha1.VaultPolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "p", Namespace: "ns"},
+		Spec: vaultv1alpha1.VaultPolicySpec{
+			ConnectionRef: "conn-a",
+			Rules:         []vaultv1alpha1.PolicyRule{{Path: "secret/*", Capabilities: []vaultv1alpha1.Capability{vaultv1alpha1.CapabilityRead}}},
+		},
+	}
+	newPolicy := oldPolicy.DeepCopy()
+	newPolicy.Spec.ConnectionRef = "conn-b"
+
+	if _, err := v.ValidateUpdate(context.Background(), oldPolicy, newPolicy); err != nil {
+		t.Errorf("expected same-address connectionRef change to be allowed, got %v", err)
+	}
+}
+
+func TestVaultPolicyValidator_ConnectionRefChange_DifferentAddressRejected(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = vaultv1alpha1.AddToScheme(scheme)
+
+	connA := &vaultv1alpha1.VaultConnection{
+		ObjectMeta: metav1.ObjectMeta{Name: "conn-a"},
+		Spec:       vaultv1alpha1.VaultConnectionSpec{Address: "https://vault-a.example.com:8200"},
+	}
+	connB := &vaultv1alpha1.VaultConnection{
+		ObjectMeta: metav1.ObjectMeta{Name: "conn-b"},
+		Spec:       vaultv1alpha1.VaultConnectionSpec{Address: "https://vault-b.example.com:8200"},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(connA, connB).Build()
+	v := &VaultPolicyValidator{client: c}
+
+	oldPolicy := &vaultv1alpha1.VaultPolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "p", Namespace: "ns"},
+		Spec: vaultv1alpha1.VaultPolicySpec{
+			ConnectionRef: "conn-a",
+			Rules:         []vaultv1alpha1.PolicyRule{{Path: "secret/*", Capabilities: []vaultv1alpha1.Capability{vaultv1alpha1.CapabilityRead}}},
+		},
+	}
+	newPolicy := oldPolicy.DeepCopy()
+	newPolicy.Spec.ConnectionRef = "conn-b"
+
+	_, err := v.ValidateUpdate(context.Background(), oldPolicy, newPolicy)
+	if err == nil {
+		t.Fatal("expected different-address connectionRef change to be rejected")
+	}
+	if !strings.Contains(err.Error(), "different Vault instances") {
+		t.Errorf("expected error about different Vault instances, got %v", err)
+	}
+}
+
 func TestVaultPolicyValidator_ValidateDelete(t *testing.T) {
 	policy := &vaultv1alpha1.VaultPolicy{
 		ObjectMeta: metav1.ObjectMeta{
