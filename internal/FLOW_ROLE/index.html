@@ -10,7 +10,7 @@
       
       
       
-        <link rel="canonical" href="https://panteparak.github.io/vault-access-operator/test-evaluation/">
+        <link rel="canonical" href="https://panteparak.github.io/vault-access-operator/internal/FLOW_ROLE/">
       
       
       
@@ -18,19 +18,19 @@
         
       
       
-      <link rel="icon" href="../assets/images/favicon.png">
+      <link rel="icon" href="../../assets/images/favicon.png">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
     
     
       
-        <title>E2E vs Integration Test Evaluation - Vault Access Operator</title>
+        <title>FLOW: VaultRole / VaultClusterRole Sync - Vault Access Operator</title>
       
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
       
         
-        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -49,7 +49,7 @@
       
     
     
-    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -74,7 +74,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#e2e-vs-integration-test-evaluation" class="md-skip">
+        <a href="#flow-vaultrole-vaultclusterrole-sync" class="md-skip">
           Skip to content
         </a>
       
@@ -90,7 +90,7 @@
 
 <header class="md-header md-header--shadow" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href=".." title="Vault Access Operator" class="md-header__button md-logo" aria-label="Vault Access Operator" data-md-component="logo">
+    <a href="../.." title="Vault Access Operator" class="md-header__button md-logo" aria-label="Vault Access Operator" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -110,7 +110,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              E2E vs Integration Test Evaluation
+              FLOW: VaultRole / VaultClusterRole Sync
             
           </span>
         </div>
@@ -226,7 +226,7 @@
 
 <nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href=".." title="Vault Access Operator" class="md-nav__button md-logo" aria-label="Vault Access Operator" data-md-component="logo">
+    <a href="../.." title="Vault Access Operator" class="md-nav__button md-logo" aria-label="Vault Access Operator" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -256,7 +256,7 @@
   
   
     <li class="md-nav__item">
-      <a href=".." class="md-nav__link">
+      <a href="../.." class="md-nav__link">
         
   
   
@@ -283,7 +283,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../getting-started/" class="md-nav__link">
+      <a href="../../getting-started/" class="md-nav__link">
         
   
   
@@ -357,7 +357,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../concepts/" class="md-nav__link">
+      <a href="../../concepts/" class="md-nav__link">
         
   
   
@@ -385,7 +385,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../concepts/architecture/" class="md-nav__link">
+      <a href="../../concepts/architecture/" class="md-nav__link">
         
   
   
@@ -413,7 +413,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../concepts/drift-detection/" class="md-nav__link">
+      <a href="../../concepts/drift-detection/" class="md-nav__link">
         
   
   
@@ -441,7 +441,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../concepts/discovery/" class="md-nav__link">
+      <a href="../../concepts/discovery/" class="md-nav__link">
         
   
   
@@ -523,7 +523,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../auth-methods/" class="md-nav__link">
+      <a href="../../auth-methods/" class="md-nav__link">
         
   
   
@@ -551,7 +551,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../auth-methods/kubernetes/" class="md-nav__link">
+      <a href="../../auth-methods/kubernetes/" class="md-nav__link">
         
   
   
@@ -579,7 +579,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../auth-methods/jwt/" class="md-nav__link">
+      <a href="../../auth-methods/jwt/" class="md-nav__link">
         
   
   
@@ -607,7 +607,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../auth-methods/oidc/" class="md-nav__link">
+      <a href="../../auth-methods/oidc/" class="md-nav__link">
         
   
   
@@ -635,7 +635,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../auth-methods/aws-iam/" class="md-nav__link">
+      <a href="../../auth-methods/aws-iam/" class="md-nav__link">
         
   
   
@@ -663,7 +663,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../auth-methods/gcp-iam/" class="md-nav__link">
+      <a href="../../auth-methods/gcp-iam/" class="md-nav__link">
         
   
   
@@ -691,7 +691,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../auth-methods/approle/" class="md-nav__link">
+      <a href="../../auth-methods/approle/" class="md-nav__link">
         
   
   
@@ -719,7 +719,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../auth-methods/token/" class="md-nav__link">
+      <a href="../../auth-methods/token/" class="md-nav__link">
         
   
   
@@ -747,7 +747,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../auth-methods/bootstrap/" class="md-nav__link">
+      <a href="../../auth-methods/bootstrap/" class="md-nav__link">
         
   
   
@@ -782,7 +782,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../configuration/" class="md-nav__link">
+      <a href="../../configuration/" class="md-nav__link">
         
   
   
@@ -809,7 +809,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api-reference/" class="md-nav__link">
+      <a href="../../api-reference/" class="md-nav__link">
         
   
   
@@ -836,7 +836,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../examples/" class="md-nav__link">
+      <a href="../../examples/" class="md-nav__link">
         
   
   
@@ -863,7 +863,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../webhooks/" class="md-nav__link">
+      <a href="../../webhooks/" class="md-nav__link">
         
   
   
@@ -890,7 +890,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../troubleshooting/" class="md-nav__link">
+      <a href="../../troubleshooting/" class="md-nav__link">
         
   
   
@@ -937,10 +937,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#evaluation-criteria" class="md-nav__link">
+  <a href="#summary" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Evaluation Criteria
+        Summary
       
     </span>
   </a>
@@ -948,22 +948,44 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#test-case-evaluation" class="md-nav__link">
+  <a href="#participants" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Test Case Evaluation
+        Participants
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Test Case Evaluation">
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#full-sync-interaction-kubernetes-auth-backend" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Full Sync Interaction (Kubernetes auth backend)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#auth-backend-branching" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Auth Backend Branching
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Auth Backend Branching">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#1-tc_connection_testgo-2-tests" class="md-nav__link">
+  <a href="#jwt-audience-resolution" class="md-nav__link">
     <span class="md-ellipsis">
       
-        1. tc_connection_test.go (2 tests)
+        JWT Audience Resolution
       
     </span>
   </a>
@@ -971,109 +993,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#2-tc_policy_testgo-5-tests" class="md-nav__link">
+  <a href="#ttl-normalization" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2. tc_policy_test.go (5 tests)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#3-tc_cluster_policy_testgo-4-tests" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        3. tc_cluster_policy_test.go (4 tests)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#4-tc_role_testgo-3-tests" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        4. tc_role_test.go (3 tests)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#5-tc_cluster_role_testgo-5-tests" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        5. tc_cluster_role_test.go (5 tests)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#6-tc_conflict_testgo-3-tests" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        6. tc_conflict_test.go (3 tests)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#7-tc_error_testgo-6-tests" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        7. tc_error_test.go (6 tests)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#8-tc_auth_testgo-5-tests" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        8. tc_auth_test.go (5 tests)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#9-tc_jwt_auth_testgo-7-tests" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        9. tc_jwt_auth_test.go (7 tests)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#10-token_lifecycle_testgo-13-tests" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        10. token_lifecycle_test.go (13 tests)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#11-operator_token_testgo-10-tests" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        11. operator_token_test.go (10 tests)
+        TTL Normalization
       
     </span>
   </a>
@@ -1086,10 +1009,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#summary-table" class="md-nav__link">
+  <a href="#policy-resolution" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Summary Table
+        Policy Resolution
       
     </span>
   </a>
@@ -1097,22 +1020,99 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#completed-migrations" class="md-nav__link">
+  <a href="#drift-comparison-fields" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Completed Migrations
+        Drift Comparison Fields
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Completed Migrations">
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#step-by-step-narrative" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step-by-Step Narrative
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Step-by-Step Narrative">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#operator_token_testgo-10-tests" class="md-nav__link">
+  <a href="#step-1-resolve-policy-names" class="md-nav__link">
     <span class="md-ellipsis">
       
-        operator_token_test.go (10 tests) ✅
+        Step 1: Resolve policy names
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-2-verify-policies-exist-warning-non-blocking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 2: Verify policies exist (warning, non-blocking)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-3-service-account-bindings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 3: Service account bindings
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-4-resolve-connection-best-effort" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 4: Resolve connection (best-effort)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-5-build-role-data-backend-aware" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 5: Build role data (backend-aware)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-6-spec-hash" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 6: Spec hash
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-7-onwards" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 7 onwards
       
     </span>
   </a>
@@ -1125,10 +1125,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#recommended-actions" class="md-nav__link">
+  <a href="#status-fields-set-on-success" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Recommended Actions
+        Status Fields Set on Success
       
     </span>
   </a>
@@ -1136,10 +1136,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#result" class="md-nav__link">
+  <a href="#error-scenarios" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Result
+        Error Scenarios
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cross-references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cross-References
       
     </span>
   </a>
@@ -1163,7 +1174,7 @@
 
 
   
-    <a href="https://github.com/panteparak/vault-access-operator/edit/main/docs/test-evaluation.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/panteparak/vault-access-operator/edit/main/docs/internal/FLOW_ROLE.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -1171,653 +1182,370 @@
   
 
 
-<h1 id="e2e-vs-integration-test-evaluation">E2E vs Integration Test Evaluation<a class="headerlink" href="#e2e-vs-integration-test-evaluation" title="Permanent link">&para;</a></h1>
-<h2 id="evaluation-criteria">Evaluation Criteria<a class="headerlink" href="#evaluation-criteria" title="Permanent link">&para;</a></h2>
+<h1 id="flow-vaultrole-vaultclusterrole-sync">FLOW: VaultRole / VaultClusterRole Sync<a class="headerlink" href="#flow-vaultrole-vaultclusterrole-sync" title="Permanent link">&para;</a></h1>
+<h2 id="summary">Summary<a class="headerlink" href="#summary" title="Permanent link">&para;</a></h2>
+<p>Roles bind a set of Kubernetes service accounts (or JWT identities) to a list of Vault policies. The operator resolves <code>PolicyReference</code> objects (which point at <code>VaultPolicy</code> / <code>VaultClusterPolicy</code> CRs) into concrete Vault policy names, builds a role data payload appropriate for the <strong>auth backend</strong> (Kubernetes or JWT), and writes it to <code>auth/{mount}/role/{name}</code>.</p>
+<p>Like policy, role uses the shared <code>workflow.SyncWorkflow</code>. Unlike policy, role branches on the <strong>auth backend</strong> at several points — backend selection is driven by <code>adapter.GetAuthPath()</code> via <a href="../../pkg/vault/client.go"><code>vault.AuthBackendForPath</code></a>.</p>
+<h2 id="participants">Participants<a class="headerlink" href="#participants" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
 <tr>
-<th>Criteria</th>
-<th>E2E Required</th>
-<th>Integration OK</th>
+<th>#</th>
+<th>Component</th>
+<th>Source</th>
+<th>Role</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>Real K8s networking (Service DNS)</td>
-<td>✅</td>
-<td>❌</td>
-</tr>
-<tr>
-<td>kubectl exec into pods</td>
-<td>✅</td>
-<td>❌</td>
-</tr>
-<tr>
-<td>K8s auth method (TokenReview API)</td>
-<td>✅</td>
-<td>❌</td>
-</tr>
-<tr>
-<td>Operator deployed as real pod</td>
-<td>✅</td>
-<td>❌</td>
-</tr>
-<tr>
-<td>Controller reconciliation logic</td>
-<td>✅</td>
-<td>✅</td>
-</tr>
-<tr>
-<td>Vault API interactions</td>
-<td>✅</td>
-<td>✅</td>
-</tr>
-<tr>
-<td>CRD validation/webhooks</td>
-<td>✅</td>
-<td>✅</td>
-</tr>
-<tr>
-<td>Error handling paths</td>
-<td>✅</td>
-<td>✅</td>
-</tr>
-<tr>
-<td>Simple permission checks</td>
-<td>❌</td>
-<td>✅</td>
-</tr>
-</tbody>
-</table>
-<hr />
-<h2 id="test-case-evaluation">Test Case Evaluation<a class="headerlink" href="#test-case-evaluation" title="Permanent link">&para;</a></h2>
-<h3 id="1-tc_connection_testgo-2-tests">1. tc_connection_test.go (2 tests)<a class="headerlink" href="#1-tc_connection_testgo-2-tests" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>Test</th>
-<th>Verdict</th>
-<th>Reason</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>TC-VC01: Create VaultConnection with token auth</td>
-<td><strong>E2E</strong></td>
-<td>Core CRD, needs real operator reconciliation</td>
-</tr>
-<tr>
-<td>TC-VC02: Verify VaultConnection health check</td>
-<td><strong>E2E</strong></td>
-<td>Tests real health check to Vault service</td>
-</tr>
-</tbody>
-</table>
-<p><strong>Summary:</strong> Keep ALL in E2E (2 tests) - fundamental functionality</p>
-<hr />
-<h3 id="2-tc_policy_testgo-5-tests">2. tc_policy_test.go (5 tests)<a class="headerlink" href="#2-tc_policy_testgo-5-tests" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>Test</th>
-<th>Verdict</th>
-<th>Reason</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>TC-VP01: Create and sync VaultPolicy</td>
-<td><strong>E2E</strong></td>
-<td>Core lifecycle, happy path</td>
-</tr>
-<tr>
-<td>TC-VP02: Substitute {{namespace}} variable</td>
-<td><strong>Integration</strong></td>
-<td>Tests string substitution logic</td>
-</tr>
-<tr>
-<td>TC-VP03: Update VaultPolicy when spec changes</td>
-<td><strong>E2E</strong></td>
-<td>Tests update reconciliation</td>
-</tr>
-<tr>
-<td>TC-VP04-DEL: Handle deletion with finalizer</td>
-<td><strong>E2E</strong></td>
-<td>Tests finalizer with real cleanup</td>
-</tr>
-<tr>
-<td>TC-VP05-RET: Respect deletionPolicy=Retain</td>
-<td><strong>Integration</strong></td>
-<td>Tests flag logic, no cleanup verification needed</td>
-</tr>
-</tbody>
-</table>
-<p><strong>Summary:</strong> E2E: 3, Integration: 2</p>
-<hr />
-<h3 id="3-tc_cluster_policy_testgo-4-tests">3. tc_cluster_policy_test.go (4 tests)<a class="headerlink" href="#3-tc_cluster_policy_testgo-4-tests" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>Test</th>
-<th>Verdict</th>
-<th>Reason</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>TC-CP01: Create and sync cluster policy</td>
-<td><strong>E2E</strong></td>
-<td>Core lifecycle</td>
-</tr>
-<tr>
-<td>TC-CP02: Verify policy HCL content</td>
-<td><strong>E2E</strong></td>
-<td>Part of lifecycle verification</td>
-</tr>
-<tr>
-<td>TC-CP03: Handle invalid connection reference</td>
-<td><strong>Integration</strong></td>
-<td>Error handling path</td>
-</tr>
-<tr>
-<td>TC-CP04: Handle empty rules</td>
-<td><strong>Integration</strong></td>
-<td>Validation error path</td>
-</tr>
-</tbody>
-</table>
-<p><strong>Summary:</strong> E2E: 2, Integration: 2</p>
-<hr />
-<h3 id="4-tc_role_testgo-3-tests">4. tc_role_test.go (3 tests)<a class="headerlink" href="#4-tc_role_testgo-3-tests" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>Test</th>
-<th>Verdict</th>
-<th>Reason</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>TC-VR01: Create namespaced VaultRole</td>
-<td><strong>E2E</strong></td>
-<td>Core lifecycle</td>
-</tr>
-<tr>
-<td>TC-VR02: Verify role configuration</td>
-<td><strong>E2E</strong></td>
-<td>Verification of Vault state</td>
-</tr>
-<tr>
-<td>TC-VR03-DEL: Remove role on deletion</td>
-<td><strong>E2E</strong></td>
-<td>Tests cleanup in Vault</td>
-</tr>
-</tbody>
-</table>
-<p><strong>Summary:</strong> Keep ALL in E2E (3 tests) - core functionality with Vault state verification</p>
-<hr />
-<h3 id="5-tc_cluster_role_testgo-5-tests">5. tc_cluster_role_test.go (5 tests)<a class="headerlink" href="#5-tc_cluster_role_testgo-5-tests" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>Test</th>
-<th>Verdict</th>
-<th>Reason</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>TC-CR01: Create VaultClusterRole</td>
-<td><strong>E2E</strong></td>
-<td>Core lifecycle</td>
-</tr>
-<tr>
-<td>TC-CR02: Verify cluster role config</td>
-<td><strong>E2E</strong></td>
-<td>Vault state verification</td>
-</tr>
-<tr>
-<td>TC-CR03-DEL: Remove on deletion</td>
-<td><strong>E2E</strong></td>
-<td>Cleanup verification</td>
-</tr>
-<tr>
-<td>TC-CR04: Handle invalid connection</td>
-<td><strong>Integration</strong></td>
-<td>Error handling</td>
-</tr>
-<tr>
-<td>TC-CR05: Handle missing policy ref</td>
-<td><strong>Integration</strong></td>
-<td>Error handling</td>
-</tr>
-</tbody>
-</table>
-<p><strong>Summary:</strong> E2E: 3, Integration: 2</p>
-<hr />
-<h3 id="6-tc_conflict_testgo-3-tests">6. tc_conflict_test.go (3 tests)<a class="headerlink" href="#6-tc_conflict_testgo-3-tests" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>Test</th>
-<th>Verdict</th>
-<th>Reason</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>TC-CF01-ADOPT: Adopt existing policy</td>
-<td><strong>E2E</strong></td>
-<td>Tests real Vault state management</td>
-</tr>
-<tr>
-<td>TC-CF02-FAIL: Fail when policy exists</td>
-<td><strong>E2E</strong></td>
-<td>Tests real conflict detection</td>
-</tr>
-<tr>
-<td>TC-CF03-NORM: Create normally (no conflict)</td>
-<td><strong>Integration</strong></td>
-<td>Simple happy path, can use testcontainer</td>
-</tr>
-</tbody>
-</table>
-<p><strong>Summary:</strong> E2E: 2, Integration: 1</p>
-<hr />
-<h3 id="7-tc_error_testgo-6-tests">7. tc_error_test.go (6 tests)<a class="headerlink" href="#7-tc_error_testgo-6-tests" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>Test</th>
-<th>Verdict</th>
-<th>Reason</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>TC-EH01: Invalid connection reference</td>
-<td><strong>Integration</strong></td>
-<td>Simple error path</td>
-</tr>
-<tr>
-<td>TC-EH02: Missing policy reference</td>
-<td><strong>Integration</strong></td>
-<td>Simple error path</td>
-</tr>
-<tr>
-<td>TC-EH03: Namespace boundary violation</td>
-<td><strong>E2E</strong></td>
-<td>Needs real RBAC enforcement</td>
-</tr>
-<tr>
-<td>TC-EH04: VaultConnection unavailable</td>
-<td><strong>E2E</strong></td>
-<td>Tests real connection failure handling</td>
-</tr>
-<tr>
-<td>TC-EH05: Invalid TTL format</td>
-<td><strong>Integration</strong></td>
-<td>Validation error</td>
-</tr>
-<tr>
-<td>TC-EH06: Empty policy rules</td>
-<td><strong>Integration</strong></td>
-<td>Validation error</td>
-</tr>
-</tbody>
-</table>
-<p><strong>Summary:</strong> E2E: 2, Integration: 4</p>
-<hr />
-<h3 id="8-tc_auth_testgo-5-tests">8. tc_auth_test.go (5 tests)<a class="headerlink" href="#8-tc_auth_testgo-5-tests" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>Test</th>
-<th>Verdict</th>
-<th>Reason</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>TC-AU01-01: Allow bound SA to authenticate</td>
-<td><strong>E2E</strong></td>
-<td>Needs real K8s auth + TokenReview</td>
-</tr>
-<tr>
-<td>TC-AU01-02: Reject incorrect SA</td>
-<td><strong>E2E</strong></td>
-<td>Needs real K8s auth rejection</td>
-</tr>
-<tr>
-<td>TC-AU01-03: Reject invalid JWT</td>
-<td><strong>E2E</strong></td>
-<td>Needs real token validation</td>
-</tr>
-<tr>
-<td>TC-AU01-04: Re-authenticate after expiration</td>
-<td><strong>E2E</strong></td>
-<td>Tests real token lifecycle</td>
-</tr>
-<tr>
-<td>TC-AU01-05: Multiple SAs same role</td>
-<td><strong>E2E</strong></td>
-<td>Needs real K8s SA tokens</td>
-</tr>
-</tbody>
-</table>
-<p><strong>Summary:</strong> Keep ALL in E2E (5 tests) - K8s auth method requires real TokenReview API</p>
-<hr />
-<h3 id="9-tc_jwt_auth_testgo-7-tests">9. tc_jwt_auth_test.go (7 tests)<a class="headerlink" href="#9-tc_jwt_auth_testgo-7-tests" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>Test</th>
-<th>Verdict</th>
-<th>Reason</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>TC-AU04-01: JWT auth with SA token</td>
-<td><strong>E2E</strong></td>
-<td>Needs real K8s OIDC issuer</td>
-</tr>
-<tr>
-<td>TC-AU04-02: Reject wrong audience</td>
-<td><strong>Integration</strong></td>
-<td>JWT validation logic</td>
-</tr>
-<tr>
-<td>TC-AU04-03: Reject wrong subject</td>
-<td><strong>Integration</strong></td>
-<td>JWT validation logic</td>
-</tr>
-<tr>
-<td>TC-AU05-01: Discover OIDC config</td>
-<td><strong>E2E</strong></td>
-<td>Tests real K8s /.well-known/openid-configuration</td>
-</tr>
-<tr>
-<td>TC-AU05-02: Auth with OIDC keys</td>
-<td><strong>E2E</strong></td>
-<td>Needs real JWKS endpoint</td>
-</tr>
-<tr>
-<td>TC-AU05-03: Custom audiences</td>
-<td><strong>E2E</strong></td>
-<td>Needs real TokenRequest API</td>
-</tr>
-<tr>
-<td>TC-AU06-01: VaultConnection with JWT</td>
-<td><strong>E2E</strong></td>
-<td>Tests full JWT connection flow</td>
-</tr>
-</tbody>
-</table>
-<p><strong>Summary:</strong> E2E: 5, Integration: 2</p>
-<hr />
-<h3 id="10-token_lifecycle_testgo-13-tests">10. token_lifecycle_test.go (13 tests)<a class="headerlink" href="#10-token_lifecycle_testgo-13-tests" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>Test</th>
-<th>Verdict</th>
-<th>Reason</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Bootstrap: should bootstrap K8s auth</td>
-<td><strong>E2E</strong></td>
-<td>Core bootstrap flow</td>
-</tr>
-<tr>
-<td>Bootstrap: complete and transition</td>
-<td><strong>E2E</strong></td>
-<td>Bootstrap verification</td>
-</tr>
-<tr>
-<td>Bootstrap: K8s auth enabled</td>
-<td><strong>E2E</strong></td>
-<td>Vault state check</td>
-</tr>
-<tr>
-<td>Bootstrap: operator role created</td>
-<td><strong>E2E</strong></td>
-<td>Vault state check</td>
-</tr>
-<tr>
-<td>Bootstrap: not re-bootstrap</td>
-<td><strong>E2E</strong></td>
-<td>Idempotency test</td>
-</tr>
-<tr>
-<td>Bootstrap: token expiration info</td>
-<td><strong>Integration</strong></td>
-<td>Status field check</td>
-</tr>
-<tr>
-<td>Bootstrap: Vault version in status</td>
-<td><strong>Integration</strong></td>
-<td>Status field check</td>
-</tr>
-<tr>
-<td>K8s Auth: connect pre-configured</td>
-<td><strong>E2E</strong></td>
-<td>Non-bootstrap flow</td>
-</tr>
-<tr>
-<td>K8s Auth: NOT bootstrapComplete</td>
-<td><strong>Integration</strong></td>
-<td>Status field check</td>
-</tr>
-<tr>
-<td>K8s Auth: authMethod set</td>
-<td><strong>Integration</strong></td>
-<td>Status field check</td>
-</tr>
-<tr>
-<td>K8s Auth: Vault version</td>
-<td><strong>Integration</strong></td>
-<td>Status field check (duplicate)</td>
-</tr>
-<tr>
-<td>K8s Auth: token expiration</td>
-<td><strong>Integration</strong></td>
-<td>Status field check (duplicate)</td>
-</tr>
-<tr>
-<td>TC-LC07: Renew token</td>
-<td><strong>E2E</strong></td>
-<td>Real token renewal</td>
-</tr>
-</tbody>
-</table>
-<p><strong>Summary:</strong> E2E: 6, Integration: 7 (many are status field checks that could be consolidated)</p>
-<hr />
-<h3 id="11-operator_token_testgo-10-tests">11. operator_token_test.go (10 tests)<a class="headerlink" href="#11-operator_token_testgo-10-tests" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>Test</th>
-<th>Verdict</th>
-<th>Reason</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>TC-OP01: create capability on policies</td>
-<td><strong>Integration</strong></td>
-<td>Just Vault permission check</td>
-</tr>
-<tr>
-<td>TC-OP01: list capability on policies</td>
-<td><strong>Integration</strong></td>
-<td>Just Vault permission check</td>
-</tr>
-<tr>
-<td>TC-OP02: CRUD on auth/kubernetes/role</td>
-<td><strong>Integration</strong></td>
-<td>Just Vault permission check</td>
-</tr>
-<tr>
-<td>TC-OP02: list on auth/kubernetes/role</td>
-<td><strong>Integration</strong></td>
-<td>Just Vault permission check</td>
-</tr>
-<tr>
-<td>TC-OP03: read on sys/health</td>
-<td><strong>Integration</strong></td>
-<td>Just Vault permission check</td>
-</tr>
-<tr>
-<td>TC-OP04: NOT access secret/*</td>
-<td><strong>Integration</strong></td>
-<td>Vault permission denial check</td>
-</tr>
-<tr>
-<td>TC-OP04: NOT access sys/seal</td>
-<td><strong>Integration</strong></td>
-<td>Vault permission denial check</td>
-</tr>
-<tr>
-<td>TC-OP04: NOT access sys/unseal</td>
-<td><strong>Integration</strong></td>
-<td>Vault permission denial check</td>
-</tr>
-<tr>
-<td>TC-OP04: NOT root capability</td>
-<td><strong>Integration</strong></td>
-<td>Vault permission check</td>
-</tr>
-<tr>
-<td>TC-OP05: create/read test policy</td>
-<td><strong>Integration</strong></td>
-<td>Functional permission test</td>
-</tr>
-</tbody>
-</table>
-<p><strong>Summary:</strong> Move ALL to Integration (10 tests) - only needs Vault, no K8s required</p>
-<hr />
-<h2 id="summary-table">Summary Table<a class="headerlink" href="#summary-table" title="Permanent link">&para;</a></h2>
-<table>
-<thead>
-<tr>
-<th>Test File</th>
-<th>Current E2E</th>
-<th>Keep E2E</th>
-<th>Move to Integration</th>
-<th>Status</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>tc_connection_test.go</td>
-<td>2</td>
-<td>2</td>
-<td>0</td>
-<td>-</td>
-</tr>
-<tr>
-<td>tc_policy_test.go</td>
-<td>5</td>
-<td>3</td>
-<td>2</td>
-<td>Pending</td>
-</tr>
-<tr>
-<td>tc_cluster_policy_test.go</td>
-<td>4</td>
-<td>2</td>
-<td>2</td>
-<td>Pending</td>
-</tr>
-<tr>
-<td>tc_role_test.go</td>
-<td>3</td>
-<td>3</td>
-<td>0</td>
-<td>-</td>
-</tr>
-<tr>
-<td>tc_cluster_role_test.go</td>
-<td>5</td>
-<td>3</td>
-<td>2</td>
-<td>Pending</td>
-</tr>
-<tr>
-<td>tc_conflict_test.go</td>
-<td>3</td>
-<td>2</td>
 <td>1</td>
-<td>Pending</td>
+<td><code>RoleReconciler</code> / <code>ClusterRoleReconciler</code></td>
+<td><a href="../../features/role/controller/role_reconciler.go">role_reconciler.go</a>, <a href="../../features/role/controller/clusterrole_reconciler.go">clusterrole_reconciler.go</a></td>
+<td>watches VaultRole + VaultConnection</td>
 </tr>
 <tr>
-<td>tc_error_test.go</td>
-<td>6</td>
 <td>2</td>
+<td><code>roleFeatureHandler</code></td>
+<td>same</td>
+<td>adapter to <code>FeatureHandler[*VaultRole]</code></td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>role.Handler</code></td>
+<td><a href="../../features/role/controller/handler.go:47">handler.go:47</a></td>
+<td><code>SyncRole</code>, <code>CleanupRole</code>, policy resolution, drift comparison</td>
+</tr>
+<tr>
 <td>4</td>
-<td>Pending</td>
+<td><code>RoleAdapter</code></td>
+<td><a href="../../features/role/domain/adapter.go">features/role/domain/adapter.go</a></td>
+<td>interface over both role kinds</td>
 </tr>
 <tr>
-<td>tc_auth_test.go</td>
 <td>5</td>
-<td>5</td>
-<td>0</td>
-<td>-</td>
+<td><code>RoleOps</code></td>
+<td><a href="../../features/role/controller/ops.go:37">ops.go:37</a></td>
+<td>implements <code>workflow.ResourceOps</code> for roles</td>
 </tr>
 <tr>
-<td>tc_jwt_auth_test.go</td>
-<td>7</td>
-<td>5</td>
-<td>2</td>
-<td>Pending</td>
-</tr>
-<tr>
-<td>token_lifecycle_test.go</td>
-<td>13</td>
 <td>6</td>
+<td><code>workflow.SyncWorkflow</code></td>
+<td>shared</td>
+<td>same 9-step orchestration as policy</td>
+</tr>
+<tr>
 <td>7</td>
-<td>Pending</td>
+<td><code>vault.Client</code></td>
+<td>pkg</td>
+<td><code>WriteKubernetesAuthRole</code>, <code>ReadKubernetesAuthRole</code>, <code>KubernetesAuthRoleExists</code>, <code>DeleteKubernetesAuthRole</code>, <code>MarkRoleManaged</code>, <code>GetRoleManagedBy</code>, <code>PolicyExists</code></td>
 </tr>
 <tr>
-<td>operator_token_test.go</td>
-<td>10</td>
-<td>0</td>
-<td>10</td>
-<td><strong>✅ DONE</strong></td>
+<td>8</td>
+<td><code>drift.Comparator</code></td>
+<td><a href="../../shared/controller/drift/compare.go">drift/compare.go</a></td>
+<td>sort-insensitive field-by-field comparison</td>
 </tr>
 <tr>
-<td><strong>TOTAL</strong></td>
-<td><strong>63</strong></td>
-<td><strong>33</strong></td>
-<td><strong>30</strong></td>
-<td>10 done</td>
+<td>9</td>
+<td><code>hash.FromMapDeterministic</code></td>
+<td><a href="../../shared/controller/hash/hash.go">hash/hash.go</a></td>
+<td>sorted-key hashing of role data map</td>
 </tr>
 </tbody>
 </table>
-<h2 id="completed-migrations">Completed Migrations<a class="headerlink" href="#completed-migrations" title="Permanent link">&para;</a></h2>
-<h3 id="operator_token_testgo-10-tests">operator_token_test.go (10 tests) ✅<a class="headerlink" href="#operator_token_testgo-10-tests" title="Permanent link">&para;</a></h3>
+<h2 id="full-sync-interaction-kubernetes-auth-backend">Full Sync Interaction (Kubernetes auth backend)<a class="headerlink" href="#full-sync-interaction-kubernetes-auth-backend" title="Permanent link">&para;</a></h2>
+<pre class="mermaid"><code>sequenceDiagram
+    participant Base as BaseReconciler
+    participant H as role.Handler
+    participant WF as SyncWorkflow
+    participant Ops as RoleOps
+    participant VC as vault.Client
+    participant K8s as K8s API
+    participant Bus as EventBus
+    participant V as Vault
+
+    Base-&gt;&gt;H: Sync(role)
+    H-&gt;&gt;Ops: NewRoleOps(adapter, handler) — authPath defaults to "kubernetes"
+    H-&gt;&gt;WF: Execute
+
+    WF-&gt;&gt;WF: resolve driftMode, resolve vault client
+    WF-&gt;&gt;Ops: Validate — no-op for roles
+    WF-&gt;&gt;Ops: CheckConflict
+    Ops-&gt;&gt;VC: KubernetesAuthRoleExists(authPath, name)
+    VC-&gt;&gt;V: GET /auth/{authPath}/role/{name}
+    alt exists &amp; different owner &amp; !shouldAdopt
+        Ops--&gt;&gt;WF: ConflictError
+    end
+
+    WF-&gt;&gt;Ops: PrepareContent
+
+    Ops-&gt;&gt;H: resolvePolicyNames(adapter)
+    Note over H: for each PolicyRef:&lt;br/&gt;- VaultPolicy → "{namespace}-{name}"&lt;br/&gt;- VaultClusterPolicy → "{name}"
+    H--&gt;&gt;Ops: []string policyNames
+
+    Ops-&gt;&gt;H: verifyPoliciesExistInVault(policyNames)
+    loop each policy
+        H-&gt;&gt;VC: PolicyExists(name)
+        VC-&gt;&gt;V: GET /sys/policies/acl/{name}
+    end
+    alt any missing
+        H-&gt;&gt;H: setCondition(PoliciesResolved=False, Reason=PolicyNotInVault)
+        H-&gt;&gt;Recorder: Event(Warning, PolicyNotInVault)
+        Note over H: non-blocking — Vault allows referencing nonexistent policies
+    else all present
+        H-&gt;&gt;H: setCondition(PoliciesResolved=True)
+    end
+
+    Ops-&gt;&gt;Ops: serviceAccountBindings = adapter.GetServiceAccountBindings() — ["ns/name", ...]
+    Ops-&gt;&gt;Ops: resolveConnection — for default JWT audiences
+
+    Ops-&gt;&gt;H: buildRoleData
+    Note over H: backend = AuthBackendForPath(authPath)
+    alt backend = Kubernetes
+        H-&gt;&gt;H: buildKubernetesRoleData&lt;br/&gt;- split "ns/name" → names[] + namespaces[] (deduped)&lt;br/&gt;- sort both for deterministic hash&lt;br/&gt;- policies = policyNames&lt;br/&gt;- token_ttl, token_max_ttl (optional)
+    else backend = JWT
+        H-&gt;&gt;H: buildJWTRoleData&lt;br/&gt;- role_type = "jwt"&lt;br/&gt;- user_claim default "sub"&lt;br/&gt;- bound_audiences (spec or conn fallback)&lt;br/&gt;- bound_claims OR bound_subject derivation&lt;br/&gt;- policies, token_ttl, token_max_ttl
+    end
+
+    H--&gt;&gt;Ops: roleData map
+
+    Ops-&gt;&gt;H: calculateSpecHash(roleData) → hash.FromMapDeterministic
+    H--&gt;&gt;Ops: specHash
+
+    WF-&gt;&gt;WF: handleDriftDetection (Active + detect/correct)
+    WF-&gt;&gt;Ops: DetectDrift(vc)
+    Ops-&gt;&gt;H: detectRoleDrift
+    H-&gt;&gt;VC: ReadKubernetesAuthRole(authPath, name)
+    VC-&gt;&gt;V: GET /auth/{authPath}/role/{name}
+    V--&gt;&gt;VC: currentData
+    H-&gt;&gt;H: drift.Comparator
+    alt backend = Kubernetes
+        H-&gt;&gt;H: compare policies, bound_service_account_names, bound_service_account_namespaces
+    else backend = JWT
+        H-&gt;&gt;H: compare policies (fallback token_policies), bound_audiences, role_type, user_claim, bound_claims or bound_subject
+    end
+    H-&gt;&gt;H: compareValuesIfExpected token_ttl, token_max_ttl (normalized to int seconds)
+    H--&gt;&gt;Ops: (drifted, summary)
+
+    WF-&gt;&gt;WF: handleDriftModes (same branching as policy)
+
+    WF-&gt;&gt;Ops: WriteToVault
+    Ops-&gt;&gt;VC: WriteKubernetesAuthRole(authPath, name, roleData)
+    VC-&gt;&gt;V: PUT /auth/{authPath}/role/{name}
+
+    WF-&gt;&gt;Ops: ReadbackVerify
+    Ops-&gt;&gt;H: detectRoleDrift (same compare, after write)
+    alt drift still present
+        Ops--&gt;&gt;WF: TransientError
+    end
+
+    WF-&gt;&gt;Ops: MarkManaged
+    Ops-&gt;&gt;VC: MarkRoleManaged(name, k8sResource)
+    VC-&gt;&gt;V: PUT secret/data/vault-access-operator/managed/roles/{name}
+
+    WF-&gt;&gt;Ops: ApplyBindings
+    Ops-&gt;&gt;Ops: adapter.SetBinding(VaultResourceBinding{authMount, path})
+    Ops-&gt;&gt;H: buildPolicyBindings
+    H--&gt;&gt;Ops: []PolicyBinding (tracks resolved + resolution status)
+    Ops-&gt;&gt;Ops: adapter.SetPolicyBindings
+
+    WF-&gt;&gt;Ops: ApplyActiveStatus
+    Ops-&gt;&gt;Ops: adapter.SetVaultRoleName, SetBoundServiceAccounts, SetResolvedPolicies
+
+    WF-&gt;&gt;WF: set Phase=Active, Ready/Synced/DependencyReady=True, Drifted=False
+    WF-&gt;&gt;K8s: Status.Update
+    WF-&gt;&gt;Ops: PublishSyncEvent
+    Ops-&gt;&gt;Bus: PublishAsync(RoleCreated)</code></pre>
+<h2 id="auth-backend-branching">Auth Backend Branching<a class="headerlink" href="#auth-backend-branching" title="Permanent link">&para;</a></h2>
+<pre class="mermaid"><code>flowchart TD
+    Start["NewRoleOps(adapter)"] --&gt; AuthPath{adapter.GetAuthPath}
+    AuthPath --&gt;|empty| Default["default: 'kubernetes'"]
+    AuthPath --&gt;|auth/kubernetes/...| K8sPath["kubernetes backend"]
+    AuthPath --&gt;|auth/jwt/...| JWTPath["jwt backend"]
+    AuthPath --&gt;|other| UnsupportedOut["ValidationError:&lt;br/&gt;unsupported backend"]
+    Default --&gt; K8sPath
+
+    K8sPath --&gt; BuildK8s["buildKubernetesRoleData:&lt;br/&gt;- bound_service_account_names&lt;br/&gt;- bound_service_account_namespaces&lt;br/&gt;- policies"]
+    JWTPath --&gt; BuildJWT["buildJWTRoleData:&lt;br/&gt;- role_type (default 'jwt')&lt;br/&gt;- user_claim (default 'sub')&lt;br/&gt;- bound_audiences&lt;br/&gt;- bound_claims OR bound_subject"]
+
+    BuildJWT --&gt; JWTSub{spec.jwt.boundClaims set?}
+    JWTSub --&gt;|yes| UseClaims["bound_claims = map"]
+    JWTSub --&gt;|no| Subject{spec.jwt.boundSubject&lt;br/&gt;set?}
+    Subject --&gt;|yes| ExplicitSub["bound_subject = override"]
+    Subject --&gt;|no| DeriveSub["derive from first SA&lt;br/&gt;'system:serviceaccount:ns:sa'"]
+    DeriveSub --&gt; MultiSA{more than 1 SA?}
+    MultiSA --&gt;|yes| SubErr["ValidationError:&lt;br/&gt;multi-SA requires explicit subject"]
+    MultiSA --&gt;|no| UseSubject["bound_subject = derived"]</code></pre>
+<h3 id="jwt-audience-resolution">JWT Audience Resolution<a class="headerlink" href="#jwt-audience-resolution" title="Permanent link">&para;</a></h3>
+<p>If <code>spec.jwt.boundAudiences</code> is empty, fall back to:
+1. <code>VaultConnection.Spec.Auth.JWT.Audiences</code> (if present)
+2. Cluster default: <code>https://kubernetes.default.svc.cluster.local</code></p>
+<p>See <a href="../../features/role/controller/handler.go:528">defaultJWTAudiences</a> and <code>defaultJWTAudience</code> constant.</p>
+<h3 id="ttl-normalization">TTL Normalization<a class="headerlink" href="#ttl-normalization" title="Permanent link">&para;</a></h3>
+<p>Vault returns TTLs as integer seconds. The operator normalizes expected values before comparison:
+<a href="../../features/role/controller/handler.go:540">normalizeTTLToSeconds</a> — parses "30s"/"5m"/"1h" to <code>int(d.Seconds())</code>. This prevents false-positive drift where "30s" (expected string) ≠ 30 (actual int).</p>
+<h2 id="policy-resolution">Policy Resolution<a class="headerlink" href="#policy-resolution" title="Permanent link">&para;</a></h2>
+<p>From <a href="../../features/role/controller/handler.go:307">resolvePolicyNames</a>:</p>
+<pre class="mermaid"><code>flowchart TD
+    Start[policies list] --&gt; Loop[for each ref]
+    Loop --&gt; Kind{ref.Kind}
+    Kind --&gt;|VaultPolicy| NamespaceCheck{namespace set?}
+    NamespaceCheck --&gt;|yes| UseNS["policyName = namespace + '-' + name"]
+    NamespaceCheck --&gt;|no, role is namespaced| DefaultNS["namespace = role.Namespace"]
+    NamespaceCheck --&gt;|no, cluster role| Err["ValidationError:&lt;br/&gt;namespace required for&lt;br/&gt;VaultPolicy ref in cluster-scoped role"]
+    DefaultNS --&gt; UseNS
+    Kind --&gt;|VaultClusterPolicy| NameOnly["policyName = name"]
+    Kind --&gt;|other| KindErr["ValidationError:&lt;br/&gt;must be VaultPolicy or VaultClusterPolicy"]
+    UseNS --&gt; Append
+    NameOnly --&gt; Append
+    Append --&gt; Loop
+    Loop -.-&gt;|done| Return[return policyNames]</code></pre>
+<p>Note the <strong>asymmetry</strong>: VaultPolicy (namespaced) gets prefixed with its namespace to prevent collisions across namespaces (<code>prod-read</code> vs <code>staging-read</code>). VaultClusterPolicy keeps its raw name.</p>
+<h2 id="drift-comparison-fields">Drift Comparison Fields<a class="headerlink" href="#drift-comparison-fields" title="Permanent link">&para;</a></h2>
+<pre class="mermaid"><code>graph TB
+    subgraph Kubernetes
+        K1[policies]
+        K2[bound_service_account_names]
+        K3[bound_service_account_namespaces]
+        K4[token_ttl — optional]
+        K5[token_max_ttl — optional]
+    end
+    subgraph JWT
+        J1[policies — fallback token_policies]
+        J2[bound_audiences]
+        J3[role_type — optional]
+        J4[user_claim — optional]
+        J5[bound_claims OR bound_subject]
+        J6[token_ttl, token_max_ttl — optional]
+    end</code></pre>
+<p>The comparator uses <code>CompareStringSlices</code> (order-insensitive via sort) for list fields and <code>CompareValuesIfExpected</code> for optional scalars (drift isn't flagged when the spec doesn't set the field).</p>
+<h2 id="step-by-step-narrative">Step-by-Step Narrative<a class="headerlink" href="#step-by-step-narrative" title="Permanent link">&para;</a></h2>
+<h3 id="step-1-resolve-policy-names">Step 1: Resolve policy names<a class="headerlink" href="#step-1-resolve-policy-names" title="Permanent link">&para;</a></h3>
+<p>Kind-aware: namespaced prefix for VaultPolicy, bare name for VaultClusterPolicy. Cluster roles referencing namespaced policies <strong>must</strong> specify <code>namespace</code> explicitly.</p>
+<h3 id="step-2-verify-policies-exist-warning-non-blocking">Step 2: Verify policies exist (warning, non-blocking)<a class="headerlink" href="#step-2-verify-policies-exist-warning-non-blocking" title="Permanent link">&para;</a></h3>
+<p>Loop <code>PolicyExists</code> for each resolved name. Missing policies emit a warning condition (<code>PoliciesResolved=False</code>) and a K8s event but <strong>do not block</strong> the sync — Vault permits binding non-existent policies. This supports workflows where you create the role CR first and the policy CRs catch up.</p>
+<h3 id="step-3-service-account-bindings">Step 3: Service account bindings<a class="headerlink" href="#step-3-service-account-bindings" title="Permanent link">&para;</a></h3>
+<p><code>RoleAdapter.GetServiceAccountBindings()</code> returns <code>[]string</code> of <code>"namespace/name"</code>:
+- VaultRole (namespaced): adapter prepends the role's own namespace to each SA name.
+- VaultClusterRole: adapter uses the explicit <code>ServiceAccountRef.Namespace</code>.</p>
+<h3 id="step-4-resolve-connection-best-effort">Step 4: Resolve connection (best-effort)<a class="headerlink" href="#step-4-resolve-connection-best-effort" title="Permanent link">&para;</a></h3>
+<p><code>RoleOps.resolveConnection</code> — used only for JWT audience fallback. Return <code>nil</code> on any error.</p>
+<h3 id="step-5-build-role-data-backend-aware">Step 5: Build role data (backend-aware)<a class="headerlink" href="#step-5-build-role-data-backend-aware" title="Permanent link">&para;</a></h3>
 <ul>
-<li><strong>Location</strong>: <code>test/integration/permissions/operator_token_test.go</code></li>
-<li><strong>New infrastructure</strong>: Added <code>WithVaultOnly()</code> option for Vault-only tests</li>
-<li><strong>Test time</strong>: ~5.7 seconds (vs ~30s+ for E2E setup)</li>
+<li><strong>Kubernetes</strong>: split bindings into names + namespaces (deduped), sort both (stable hashing), add optional TTLs.</li>
+<li><strong>JWT</strong>: compute role_type, user_claim, bound_audiences, then either <code>bound_claims</code> map or derived <code>bound_subject</code>. Multi-SA JWT roles require explicit <code>boundSubject</code> or <code>boundClaims</code> (error otherwise).</li>
 </ul>
-<h2 id="recommended-actions">Recommended Actions<a class="headerlink" href="#recommended-actions" title="Permanent link">&para;</a></h2>
-<ol>
-<li>~~<strong>Move operator_token_test.go entirely</strong> to <code>test/integration/permissions/</code>~~ ✅ DONE</li>
-<li><strong>Create <code>test/integration/error/</code></strong> for error handling tests</li>
-<li><strong>Create <code>test/integration/validation/</code></strong> for validation tests (some exist in security/)</li>
-<li><strong>Consolidate token_lifecycle status checks</strong> - many are duplicates</li>
-<li><strong>Keep K8s auth tests in E2E</strong> - TokenReview API requires real K8s</li>
-</ol>
-<h2 id="result">Result<a class="headerlink" href="#result" title="Permanent link">&para;</a></h2>
+<h3 id="step-6-spec-hash">Step 6: Spec hash<a class="headerlink" href="#step-6-spec-hash" title="Permanent link">&para;</a></h3>
+<p><code>hash.FromMapDeterministic(roleData)</code> — sorted keys, JSON marshal, SHA-256. Any change in bindings, policies, or TTLs produces a new hash.</p>
+<h3 id="step-7-onwards">Step 7 onwards<a class="headerlink" href="#step-7-onwards" title="Permanent link">&para;</a></h3>
+<p>Same as policy: drift detection, write, readback, mark managed, apply bindings, status, event.</p>
+<h2 id="status-fields-set-on-success">Status Fields Set on Success<a class="headerlink" href="#status-fields-set-on-success" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>VaultRoleName</code></td>
+<td><code>adapter.GetVaultRoleName()</code></td>
+</tr>
+<tr>
+<td><code>BoundServiceAccounts</code></td>
+<td>resolved <code>"ns/name"</code> list</td>
+</tr>
+<tr>
+<td><code>ResolvedPolicies</code></td>
+<td>resolved Vault policy names</td>
+</tr>
+<tr>
+<td><code>Binding</code></td>
+<td><code>{vaultPath: auth/{mount}/role/{name}, authMount, ...}</code></td>
+</tr>
+<tr>
+<td><code>PolicyBindings[]</code></td>
+<td>per-ref: <code>{VaultPolicyRef, vaultPolicyName, resolved:bool}</code></td>
+</tr>
+<tr>
+<td><code>LastAppliedHash</code></td>
+<td>spec hash</td>
+</tr>
+<tr>
+<td><code>LastSyncedAt</code></td>
+<td>now</td>
+</tr>
+<tr>
+<td><code>EffectiveDriftMode</code></td>
+<td>resolved mode</td>
+</tr>
+</tbody>
+</table>
+<h2 id="error-scenarios">Error Scenarios<a class="headerlink" href="#error-scenarios" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Error</th>
+<th>Step</th>
+<th>Trigger</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ValidationError "invalid policy kind"</code></td>
+<td>resolvePolicyNames</td>
+<td>user set <code>kind: Role</code> or empty</td>
+</tr>
+<tr>
+<td><code>ValidationError "namespace required"</code></td>
+<td>resolvePolicyNames</td>
+<td>cluster role references VaultPolicy without namespace</td>
+</tr>
+<tr>
+<td><code>ValidationError "unsupported auth backend"</code></td>
+<td>buildRoleData</td>
+<td>authPath not kubernetes/jwt</td>
+</tr>
+<tr>
+<td><code>ValidationError "at least one service account"</code></td>
+<td>resolveJWTBoundSubject</td>
+<td>JWT role has no SAs &amp; no <code>boundSubject</code> override</td>
+</tr>
+<tr>
+<td><code>ValidationError "multi-SA JWT VaultRole must set boundSubject"</code></td>
+<td>resolveJWTBoundSubject</td>
+<td>JWT role with &gt;1 SA</td>
+</tr>
+<tr>
+<td><code>ConflictError</code></td>
+<td>CheckConflict</td>
+<td>existing role owned by another resource</td>
+</tr>
+<tr>
+<td><code>DependencyError</code></td>
+<td>vaultclient.Resolve</td>
+<td>connection not Active</td>
+</tr>
+<tr>
+<td><code>TransientError "readback verification"</code></td>
+<td>ReadbackVerify</td>
+<td>role content differs after write (rare)</td>
+</tr>
+<tr>
+<td>Warning <code>PolicyNotInVault</code></td>
+<td>verifyPoliciesExistInVault</td>
+<td>referenced policy missing — non-fatal</td>
+</tr>
+</tbody>
+</table>
+<h2 id="cross-references">Cross-References<a class="headerlink" href="#cross-references" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>E2E tests reduced from 63 to 33</strong> (~48% reduction)</li>
-<li><strong>CI time should improve significantly</strong></li>
-<li><strong>Integration tests provide faster feedback</strong> for error/validation paths</li>
+<li><a href="../FLOW_POLICY/">FLOW_POLICY.md</a> — sibling flow sharing the workflow</li>
+<li><a href="../FLOW_CONNECTION/">FLOW_CONNECTION.md</a> — required dependency</li>
+<li><a href="../FLOW_AUTH/">FLOW_AUTH.md</a> — more on kubernetes vs jwt auth backend handling</li>
+<li><a href="../FLOW_DELETION/">FLOW_DELETION.md</a></li>
+<li><a href="../IMPROVEMENTS/">IMPROVEMENTS.md</a> — drift comparator divergence, backend coverage gaps</li>
 </ul>
 
 
@@ -1894,10 +1622,10 @@
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.instant", "navigation.top", "search.highlight", "content.code.copy", "content.action.edit"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.top", "search.highlight", "content.code.copy", "content.action.edit"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
       
     
   </body>

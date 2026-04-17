@@ -10,31 +10,27 @@
       
       
       
-        <link rel="canonical" href="https://panteparak.github.io/vault-access-operator/concepts/">
+        <link rel="canonical" href="https://panteparak.github.io/vault-access-operator/internal/FLOW_DELETION/">
       
       
-        <link rel="prev" href="../getting-started/">
-      
-      
-        <link rel="next" href="architecture/">
       
       
         
       
       
-      <link rel="icon" href="../assets/images/favicon.png">
+      <link rel="icon" href="../../assets/images/favicon.png">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
     
     
       
-        <title>Overview - Vault Access Operator</title>
+        <title>FLOW: Deletion, Cleanup Queue & Orphan Detection - Vault Access Operator</title>
       
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
       
         
-        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -53,7 +49,7 @@
       
     
     
-    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -78,7 +74,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#concepts-overview" class="md-skip">
+        <a href="#flow-deletion-cleanup-queue-orphan-detection" class="md-skip">
           Skip to content
         </a>
       
@@ -94,7 +90,7 @@
 
 <header class="md-header md-header--shadow" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href=".." title="Vault Access Operator" class="md-header__button md-logo" aria-label="Vault Access Operator" data-md-component="logo">
+    <a href="../.." title="Vault Access Operator" class="md-header__button md-logo" aria-label="Vault Access Operator" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -114,7 +110,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Overview
+              FLOW: Deletion, Cleanup Queue &amp; Orphan Detection
             
           </span>
         </div>
@@ -230,7 +226,7 @@
 
 <nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href=".." title="Vault Access Operator" class="md-nav__button md-logo" aria-label="Vault Access Operator" data-md-component="logo">
+    <a href="../.." title="Vault Access Operator" class="md-nav__button md-logo" aria-label="Vault Access Operator" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -260,7 +256,7 @@
   
   
     <li class="md-nav__item">
-      <a href=".." class="md-nav__link">
+      <a href="../.." class="md-nav__link">
         
   
   
@@ -287,7 +283,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../getting-started/" class="md-nav__link">
+      <a href="../../getting-started/" class="md-nav__link">
         
   
   
@@ -311,20 +307,18 @@
       
   
   
-    
   
   
-  
     
     
     
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
         
           
           <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
@@ -345,7 +339,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_3">
             <span class="md-nav__icon md-icon"></span>
             
@@ -360,37 +354,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Overview
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../concepts/" class="md-nav__link">
         
   
   
@@ -406,248 +373,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#what-is-vault-access-operator" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What is Vault Access Operator?
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#core-design-principles" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Core Design Principles
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Core Design Principles">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#1-declarative-configuration" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        1. Declarative Configuration
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#2-kubernetes-native-experience" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        2. Kubernetes-Native Experience
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#3-feature-driven-architecture" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        3. Feature-Driven Architecture
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#custom-resource-definitions" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Custom Resource Definitions
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Custom Resource Definitions">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#resource-hierarchy" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Resource Hierarchy
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#naming-convention" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Naming Convention
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#key-concepts" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Key Concepts
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Key Concepts">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#architecture" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Architecture
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#drift-detection" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Drift Detection
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#discovery" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Discovery
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#resource-lifecycle" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Resource Lifecycle
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Resource Lifecycle">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#creation-flow" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Creation Flow
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#update-flow" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Update Flow
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#deletion-flow" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Deletion Flow
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#status-fields" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Status Fields
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#next-steps" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Next Steps
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -660,7 +385,7 @@
   
   
     <li class="md-nav__item">
-      <a href="architecture/" class="md-nav__link">
+      <a href="../../concepts/architecture/" class="md-nav__link">
         
   
   
@@ -688,7 +413,7 @@
   
   
     <li class="md-nav__item">
-      <a href="drift-detection/" class="md-nav__link">
+      <a href="../../concepts/drift-detection/" class="md-nav__link">
         
   
   
@@ -716,7 +441,7 @@
   
   
     <li class="md-nav__item">
-      <a href="discovery/" class="md-nav__link">
+      <a href="../../concepts/discovery/" class="md-nav__link">
         
   
   
@@ -798,7 +523,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../auth-methods/" class="md-nav__link">
+      <a href="../../auth-methods/" class="md-nav__link">
         
   
   
@@ -826,7 +551,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../auth-methods/kubernetes/" class="md-nav__link">
+      <a href="../../auth-methods/kubernetes/" class="md-nav__link">
         
   
   
@@ -854,7 +579,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../auth-methods/jwt/" class="md-nav__link">
+      <a href="../../auth-methods/jwt/" class="md-nav__link">
         
   
   
@@ -882,7 +607,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../auth-methods/oidc/" class="md-nav__link">
+      <a href="../../auth-methods/oidc/" class="md-nav__link">
         
   
   
@@ -910,7 +635,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../auth-methods/aws-iam/" class="md-nav__link">
+      <a href="../../auth-methods/aws-iam/" class="md-nav__link">
         
   
   
@@ -938,7 +663,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../auth-methods/gcp-iam/" class="md-nav__link">
+      <a href="../../auth-methods/gcp-iam/" class="md-nav__link">
         
   
   
@@ -966,7 +691,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../auth-methods/approle/" class="md-nav__link">
+      <a href="../../auth-methods/approle/" class="md-nav__link">
         
   
   
@@ -994,7 +719,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../auth-methods/token/" class="md-nav__link">
+      <a href="../../auth-methods/token/" class="md-nav__link">
         
   
   
@@ -1022,7 +747,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../auth-methods/bootstrap/" class="md-nav__link">
+      <a href="../../auth-methods/bootstrap/" class="md-nav__link">
         
   
   
@@ -1057,7 +782,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../configuration/" class="md-nav__link">
+      <a href="../../configuration/" class="md-nav__link">
         
   
   
@@ -1084,7 +809,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api-reference/" class="md-nav__link">
+      <a href="../../api-reference/" class="md-nav__link">
         
   
   
@@ -1111,7 +836,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../examples/" class="md-nav__link">
+      <a href="../../examples/" class="md-nav__link">
         
   
   
@@ -1138,7 +863,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../webhooks/" class="md-nav__link">
+      <a href="../../webhooks/" class="md-nav__link">
         
   
   
@@ -1165,7 +890,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../troubleshooting/" class="md-nav__link">
+      <a href="../../troubleshooting/" class="md-nav__link">
         
   
   
@@ -1212,10 +937,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#what-is-vault-access-operator" class="md-nav__link">
+  <a href="#summary" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What is Vault Access Operator?
+        Summary
       
     </span>
   </a>
@@ -1223,22 +948,22 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#core-design-principles" class="md-nav__link">
+  <a href="#finalizer-guarded-cleanup-active" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Core Design Principles
+        Finalizer-Guarded Cleanup (active)
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Core Design Principles">
+    <nav class="md-nav" aria-label="Finalizer-Guarded Cleanup (active)">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#1-declarative-configuration" class="md-nav__link">
+  <a href="#sequence-policyrole" class="md-nav__link">
     <span class="md-ellipsis">
       
-        1. Declarative Configuration
+        Sequence (policy/role)
       
     </span>
   </a>
@@ -1246,10 +971,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#2-kubernetes-native-experience" class="md-nav__link">
+  <a href="#stuck-deletion" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2. Kubernetes-Native Experience
+        Stuck deletion
       
     </span>
   </a>
@@ -1257,10 +982,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#3-feature-driven-architecture" class="md-nav__link">
+  <a href="#vaultconnection-deletion" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3. Feature-Driven Architecture
+        VaultConnection deletion
       
     </span>
   </a>
@@ -1273,22 +998,22 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#custom-resource-definitions" class="md-nav__link">
+  <a href="#cleanup-queue-not-wired" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Custom Resource Definitions
+        Cleanup Queue (⚠️ not wired)
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Custom Resource Definitions">
+    <nav class="md-nav" aria-label="Cleanup Queue (⚠️ not wired)">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#resource-hierarchy" class="md-nav__link">
+  <a href="#intended-flow" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Resource Hierarchy
+        Intended Flow
       
     </span>
   </a>
@@ -1296,10 +1021,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#naming-convention" class="md-nav__link">
+  <a href="#why-this-matters" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Naming Convention
+        Why this matters
       
     </span>
   </a>
@@ -1312,22 +1037,22 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#key-concepts" class="md-nav__link">
+  <a href="#orphan-detection-not-wired" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Key Concepts
+        Orphan Detection (⚠️ not wired)
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Key Concepts">
+    <nav class="md-nav" aria-label="Orphan Detection (⚠️ not wired)">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#architecture" class="md-nav__link">
+  <a href="#intended-flow_1" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Architecture
+        Intended Flow
       
     </span>
   </a>
@@ -1335,21 +1060,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#drift-detection" class="md-nav__link">
+  <a href="#current-behavior" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Drift Detection
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#discovery" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Discovery
+        Current behavior
       
     </span>
   </a>
@@ -1362,60 +1076,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#resource-lifecycle" class="md-nav__link">
+  <a href="#resource-type-matrix" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Resource Lifecycle
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Resource Lifecycle">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#creation-flow" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Creation Flow
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#update-flow" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Update Flow
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#deletion-flow" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Deletion Flow
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#status-fields" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Status Fields
+        Resource Type Matrix
       
     </span>
   </a>
@@ -1423,10 +1087,32 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#next-steps" class="md-nav__link">
+  <a href="#error-scenarios" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Next Steps
+        Error Scenarios
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#events-emitted" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Events Emitted
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cross-references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cross-References
       
     </span>
   </a>
@@ -1450,7 +1136,7 @@
 
 
   
-    <a href="https://github.com/panteparak/vault-access-operator/edit/main/docs/concepts/index.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/panteparak/vault-access-operator/edit/main/docs/internal/FLOW_DELETION.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -1458,177 +1144,312 @@
   
 
 
-<h1 id="concepts-overview">Concepts Overview<a class="headerlink" href="#concepts-overview" title="Permanent link">&para;</a></h1>
-<p>This section explains the core concepts and design principles behind the Vault Access Operator.</p>
-<h2 id="what-is-vault-access-operator">What is Vault Access Operator?<a class="headerlink" href="#what-is-vault-access-operator" title="Permanent link">&para;</a></h2>
-<p>Vault Access Operator is a Kubernetes operator that manages HashiCorp Vault resources using native Kubernetes workflows. It follows the declarative approach of Kubernetes: you define the desired state, and the operator ensures Vault matches that state.</p>
-<h2 id="core-design-principles">Core Design Principles<a class="headerlink" href="#core-design-principles" title="Permanent link">&para;</a></h2>
-<h3 id="1-declarative-configuration">1. Declarative Configuration<a class="headerlink" href="#1-declarative-configuration" title="Permanent link">&para;</a></h3>
-<p>Instead of running imperative <code>vault</code> CLI commands, you define Vault resources as Kubernetes Custom Resources (CRs):</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault.platform.io/v1alpha1</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">VaultPolicy</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="nt">metadata</span><span class="p">:</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-app-read</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">production</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="nt">spec</span><span class="p">:</span>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">  </span><span class="nt">vaultConnectionRef</span><span class="p">:</span>
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-primary</span>
-<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">  </span><span class="nt">rules</span><span class="p">:</span>
-<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;secret/data/production/*&quot;</span>
-<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="w">      </span><span class="nt">capabilities</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;read&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;list&quot;</span><span class="p p-Indicator">]</span>
-</code></pre></div>
-<p>The operator continuously reconciles this desired state with Vault.</p>
-<h3 id="2-kubernetes-native-experience">2. Kubernetes-Native Experience<a class="headerlink" href="#2-kubernetes-native-experience" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>Familiar tooling</strong>: Use <code>kubectl</code>, Helm, Kustomize, ArgoCD</li>
-<li><strong>RBAC integration</strong>: Kubernetes RBAC controls who can create Vault resources</li>
-<li><strong>Namespace isolation</strong>: VaultPolicy and VaultRole are namespaced; VaultClusterPolicy and VaultClusterRole are cluster-scoped</li>
-<li><strong>GitOps compatible</strong>: Store Vault configuration in Git</li>
-</ul>
-<h3 id="3-feature-driven-architecture">3. Feature-Driven Architecture<a class="headerlink" href="#3-feature-driven-architecture" title="Permanent link">&para;</a></h3>
-<p>The operator is organized as independent features that can be enabled/disabled:</p>
-<table>
-<thead>
-<tr>
-<th>Feature</th>
-<th>Resources</th>
-<th>Purpose</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Connection</td>
-<td>VaultConnection</td>
-<td>Authenticate and connect to Vault</td>
-</tr>
-<tr>
-<td>Policy</td>
-<td>VaultPolicy, VaultClusterPolicy</td>
-<td>Manage Vault ACL policies</td>
-</tr>
-<tr>
-<td>Role</td>
-<td>VaultRole, VaultClusterRole</td>
-<td>Manage Kubernetes auth roles</td>
-</tr>
-<tr>
-<td>Discovery</td>
-<td>(built into VaultConnection)</td>
-<td>Find unmanaged Vault resources</td>
-</tr>
-</tbody>
-</table>
-<h2 id="custom-resource-definitions">Custom Resource Definitions<a class="headerlink" href="#custom-resource-definitions" title="Permanent link">&para;</a></h2>
-<h3 id="resource-hierarchy">Resource Hierarchy<a class="headerlink" href="#resource-hierarchy" title="Permanent link">&para;</a></h3>
-<pre class="mermaid"><code>graph TD
-    VC["VaultConnection&lt;br/&gt;(cluster-scoped)"]
-    VCP["VaultClusterPolicy&lt;br/&gt;(cluster-scoped)"]
-    VP["VaultPolicy&lt;br/&gt;(namespaced)"]
-    VCR["VaultClusterRole&lt;br/&gt;(cluster-scoped)"]
-    VR["VaultRole&lt;br/&gt;(namespaced)"]
+<h1 id="flow-deletion-cleanup-queue-orphan-detection">FLOW: Deletion, Cleanup Queue &amp; Orphan Detection<a class="headerlink" href="#flow-deletion-cleanup-queue-orphan-detection" title="Permanent link">&para;</a></h1>
+<h2 id="summary">Summary<a class="headerlink" href="#summary" title="Permanent link">&para;</a></h2>
+<p>Deletion of a CR goes through three mechanisms:</p>
+<ol>
+<li><strong>Finalizer-guarded cleanup</strong> (every CRD) — standard K8s pattern: a finalizer blocks deletion until <code>Cleanup()</code> runs successfully.</li>
+<li><strong>Persistent cleanup queue</strong> (<code>pkg/cleanup</code>) — ConfigMap-backed retry queue for failed deletions, meant to survive operator restarts. <strong>⚠️ Not wired into main.go.</strong></li>
+<li><strong>Orphan detection</strong> (<code>pkg/orphan</code>) — periodic scan for Vault resources marked as managed whose K8s owner has vanished. <strong>⚠️ Not wired into main.go.</strong></li>
+</ol>
+<p>Only (1) is active today. (2) and (3) are complete implementations with tests but no one calls <code>Start(ctx)</code> on them. This is the single largest feature gap in the codebase.</p>
+<h2 id="finalizer-guarded-cleanup-active">Finalizer-Guarded Cleanup (active)<a class="headerlink" href="#finalizer-guarded-cleanup-active" title="Permanent link">&para;</a></h2>
+<p>Finalizer name: <code>vault.platform.io/finalizer</code> (see <a href="../../api/v1alpha1/common_types.go">api/v1alpha1/common_types.go</a>).</p>
+<p>Added by <a href="../../shared/controller/base/finalizer.go">FinalizerManager.Ensure</a> on first reconcile; removed by <code>BaseReconciler.handleDeletion</code> after <code>Cleanup</code> succeeds.</p>
+<h3 id="sequence-policyrole">Sequence (policy/role)<a class="headerlink" href="#sequence-policyrole" title="Permanent link">&para;</a></h3>
+<pre class="mermaid"><code>sequenceDiagram
+    participant User
+    participant K8s as K8s API
+    participant Base as BaseReconciler
+    participant H as Handler (policy/role)
+    participant CW as CleanupWorkflow
+    participant Ops as PolicyOps/RoleOps
+    participant Cache
+    participant VC as vault.Client
+    participant V as Vault
+    participant Bus as EventBus
 
-    VC --&gt;|authenticates| Vault["HashiCorp Vault"]
-    VCP --&gt;|manages| Policies["Vault ACL Policies"]
-    VP --&gt;|manages| Policies
-    VCR --&gt;|binds SAs to| Policies
-    VR --&gt;|binds SAs to| Policies
-    VCR -.-&gt;|references| VCP
-    VCR -.-&gt;|references| VP
-    VR -.-&gt;|references| VP</code></pre>
-<h3 id="naming-convention">Naming Convention<a class="headerlink" href="#naming-convention" title="Permanent link">&para;</a></h3>
-<p>Resources in Vault are named with a prefix derived from their Kubernetes context:</p>
-<table>
-<thead>
-<tr>
-<th>K8s Resource</th>
-<th>Vault Name Pattern</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>VaultPolicy <code>foo</code> in namespace <code>bar</code></td>
-<td><code>bar-foo</code></td>
-</tr>
-<tr>
-<td>VaultClusterPolicy <code>foo</code></td>
-<td><code>foo</code></td>
-</tr>
-<tr>
-<td>VaultRole <code>foo</code> in namespace <code>bar</code></td>
-<td><code>bar-foo</code></td>
-</tr>
-<tr>
-<td>VaultClusterRole <code>foo</code></td>
-<td><code>foo</code></td>
-</tr>
-</tbody>
-</table>
-<h2 id="key-concepts">Key Concepts<a class="headerlink" href="#key-concepts" title="Permanent link">&para;</a></h2>
-<h3 id="architecture"><a href="architecture/">Architecture</a><a class="headerlink" href="#architecture" title="Permanent link">&para;</a></h3>
-<p>Learn about the operator's internal structure, controller patterns, and reconciliation flow.</p>
-<h3 id="drift-detection"><a href="drift-detection/">Drift Detection</a><a class="headerlink" href="#drift-detection" title="Permanent link">&para;</a></h3>
-<p>Understand how the operator detects and optionally corrects configuration drift between Kubernetes and Vault.</p>
-<h3 id="discovery"><a href="discovery/">Discovery</a><a class="headerlink" href="#discovery" title="Permanent link">&para;</a></h3>
-<p>Discover how to find existing Vault resources that aren't yet managed by Kubernetes CRs.</p>
-<h2 id="resource-lifecycle">Resource Lifecycle<a class="headerlink" href="#resource-lifecycle" title="Permanent link">&para;</a></h2>
-<h3 id="creation-flow">Creation Flow<a class="headerlink" href="#creation-flow" title="Permanent link">&para;</a></h3>
-<pre class="mermaid"><code>flowchart TD
-    A["1. User creates CR (kubectl apply)"] --&gt; B["2. Operator detects new resource"]
-    B --&gt; C["3. Validates configuration"]
-    C --&gt; D["4. Creates resource in Vault"]
-    D --&gt; E["5. Updates CR status (phase: Active)"]</code></pre>
-<h3 id="update-flow">Update Flow<a class="headerlink" href="#update-flow" title="Permanent link">&para;</a></h3>
-<pre class="mermaid"><code>flowchart TD
-    A["1. User updates CR"] --&gt; B["2. Operator detects change (generation changed)"]
-    B --&gt; C["3. Compares desired vs actual state"]
-    C --&gt; D["4. Updates Vault resource"]
-    D --&gt; E["5. Updates CR status"]</code></pre>
-<h3 id="deletion-flow">Deletion Flow<a class="headerlink" href="#deletion-flow" title="Permanent link">&para;</a></h3>
-<pre class="mermaid"><code>flowchart TD
-    A["1. User deletes CR (kubectl delete)"] --&gt; B["2. Operator detects deletion (has finalizer)"]
-    B --&gt; C{"3. deletionPolicy?"}
-    C -- Delete --&gt; D["4a. Removes from Vault"]
-    C -- Retain --&gt; E["4b. Leaves in Vault"]
-    D --&gt; F["5. Removes finalizer, CR deleted"]
-    E --&gt; F</code></pre>
-<h2 id="status-fields">Status Fields<a class="headerlink" href="#status-fields" title="Permanent link">&para;</a></h2>
-<p>All managed resources share common status patterns:</p>
-<table>
-<thead>
-<tr>
-<th>Field</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>phase</code></td>
-<td>Current state: Pending, Syncing, Active, Conflict, Error, Deleting</td>
-</tr>
-<tr>
-<td><code>conditions</code></td>
-<td>Detailed conditions (Ready, Synced, etc.)</td>
-</tr>
-<tr>
-<td><code>lastSyncedAt</code></td>
-<td>When the resource was last synced to Vault</td>
-</tr>
-<tr>
-<td><code>driftDetected</code></td>
-<td>Whether configuration drift exists</td>
-</tr>
-<tr>
-<td><code>lastReconcileID</code></td>
-<td>Correlation ID for log filtering</td>
-</tr>
-</tbody>
-</table>
-<h2 id="next-steps">Next Steps<a class="headerlink" href="#next-steps" title="Permanent link">&para;</a></h2>
+    User-&gt;&gt;K8s: kubectl delete vaultpolicy/myapp
+    K8s-&gt;&gt;K8s: set DeletionTimestamp (object not removed yet — finalizer present)
+    K8s--&gt;&gt;Base: watch event
+    Base-&gt;&gt;K8s: Get(resource)
+    Base-&gt;&gt;Base: DeletionTimestamp != 0 → handleDeletion
+    Base-&gt;&gt;H: Cleanup(resource)
+    H-&gt;&gt;CW: Execute(adapter, ops)
+
+    activate CW
+    CW-&gt;&gt;CW: if DeletionStartedAt nil → set now
+    CW-&gt;&gt;K8s: Status.Update(Phase=Deleting, Deleting cond = True)
+
+    alt DeletionPolicy = Delete (default)
+        CW-&gt;&gt;Cache: Get (lightweight — no validation)
+        alt client authenticated
+            CW-&gt;&gt;Ops: DeleteFromVault
+            Ops-&gt;&gt;VC: DeletePolicy/DeleteKubernetesAuthRole
+            VC-&gt;&gt;V: DELETE
+            alt V returns error
+                Note over CW: logged, but cleanup continues
+            end
+            CW-&gt;&gt;Ops: RemoveManaged
+            Ops-&gt;&gt;VC: RemovePolicyManaged/RemoveRoleManaged
+            VC-&gt;&gt;V: DELETE managed marker
+        else unauthenticated / cache miss
+            Note over CW: log "failed to get Vault client, continuing with finalizer removal"&lt;br/&gt;⚠️ Vault resource LEAKED
+        end
+    else DeletionPolicy = Retain
+        Note over CW: skip Vault deletion entirely
+    end
+
+    CW-&gt;&gt;Ops: PublishDeleteEvent
+    Ops-&gt;&gt;Bus: PublishAsync(PolicyDeleted/RoleDeleted)
+    deactivate CW
+
+    CW--&gt;&gt;H: nil
+    H--&gt;&gt;Base: nil
+    Base-&gt;&gt;Base: FinalizerManager.Remove
+    Base-&gt;&gt;K8s: Patch (remove finalizer)
+    K8s-&gt;&gt;K8s: actually delete object
+    Base-&gt;&gt;Recorder: Event(Normal, "Deleted")</code></pre>
+<h3 id="stuck-deletion">Stuck deletion<a class="headerlink" href="#stuck-deletion" title="Permanent link">&para;</a></h3>
+<p>If <code>Cleanup</code> repeatedly errors and <code>time.Since(DeletionTimestamp) &gt; 5m</code>, <code>BaseReconciler.handleDeletion</code> emits a <code>Warning / DeletionStuck</code> event with elapsed time. The finalizer remains; the user needs to:</p>
 <ul>
-<li><a href="architecture/">Architecture</a> - Deep dive into operator internals</li>
-<li><a href="drift-detection/">Drift Detection</a> - Understand drift modes</li>
-<li><a href="discovery/">Discovery</a> - Find unmanaged Vault resources</li>
-<li><a href="../auth-methods/">Authentication Methods</a> - Choose your auth method</li>
+<li>Fix the underlying issue (usually Vault unreachable), or</li>
+<li>Manually patch the object to remove the finalizer (forces orphan in Vault).</li>
+</ul>
+<h3 id="vaultconnection-deletion">VaultConnection deletion<a class="headerlink" href="#vaultconnection-deletion" title="Permanent link">&para;</a></h3>
+<p>Different: blocked by dependent CRs <strong>before</strong> proceeding. <a href="../../features/connection/controller/handler.go:423">connection.Handler.Cleanup</a> lists all <code>VaultPolicy</code>/<code>VaultClusterPolicy</code>/<code>VaultRole</code>/<code>VaultClusterRole</code> objects, filters by <code>spec.connectionRef == conn.Name</code>. If any exist:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>Phase: Deleting
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>Deleting condition: False, Reason: ChildrenExist, Message: &quot;deletion blocked: N dependent resource(s) still reference...&quot;
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>return error (finalizer NOT removed)
+</code></pre></div>
+<p>User must delete dependents first. Once clear:
+1. <code>Phase=Deleting</code> (no dependents condition)
+2. Disable auth mount if <code>Bootstrap.CleanupAuthMount=true</code> and bootstrap was completed
+3. Revoke operator's self token (5s timeout, best-effort)
+4. Unregister from <code>LifecycleController</code> + <code>TokenReviewerController</code>
+5. Evict from <code>ClientCache</code>
+6. Publish <code>ConnectionDisconnected</code>
+7. Allow finalizer removal</p>
+<h2 id="cleanup-queue-not-wired">Cleanup Queue (⚠️ not wired)<a class="headerlink" href="#cleanup-queue-not-wired" title="Permanent link">&para;</a></h2>
+<p>Persistent retry queue backed by a ConfigMap named <code>vault-cleanup-queue</code> in the operator's namespace.</p>
+<h3 id="intended-flow">Intended Flow<a class="headerlink" href="#intended-flow" title="Permanent link">&para;</a></h3>
+<pre class="mermaid"><code>sequenceDiagram
+    participant CW as CleanupWorkflow
+    participant Q as cleanup.Queue
+    participant CM as ConfigMap
+    participant C as cleanup.Controller
+    participant VC as vault.Client
+    participant V as Vault
+
+    rect rgb(255,240,240)
+        Note over CW,Q: HYPOTHETICAL — no code path calls Q.Enqueue today
+        CW-&gt;&gt;Q: Enqueue({resourceType, vaultName, connectionName, ...}) on Vault delete failure
+        Q-&gt;&gt;CM: Patch Data.queue (JSON array)
+    end
+
+    loop every DefaultRetryInterval = 5m
+        C-&gt;&gt;Q: List
+        Q-&gt;&gt;CM: Get
+        CM--&gt;&gt;Q: items
+        Q--&gt;&gt;C: items
+        loop each item
+            alt Attempts &gt;= MaxAttempts (default 10)
+                C-&gt;&gt;Q: Dequeue(id)
+                Note over C: give up silently
+            else
+                C-&gt;&gt;VC: DeletePolicy/DeleteKubernetesAuthRole (based on ResourceType)
+                alt success
+                    C-&gt;&gt;Q: Dequeue(id)
+                    C-&gt;&gt;C: metric: cleanup_retries_total{result=success}
+                else
+                    C-&gt;&gt;Q: Enqueue updated item (Attempts++, LastError)
+                    C-&gt;&gt;C: metric: cleanup_retries_total{result=failure}
+                end
+            end
+        end
+        C-&gt;&gt;C: metric: cleanup_queue_size
+    end</code></pre>
+<h3 id="why-this-matters">Why this matters<a class="headerlink" href="#why-this-matters" title="Permanent link">&para;</a></h3>
+<p>Without wiring, the current cleanup path has a silent-leak failure mode: <strong>if Vault is unreachable during CR deletion, the finalizer is still removed</strong> (<a href="../../shared/controller/workflow/cleanup.go:91">cleanup.go:91-92</a>):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nx">vaultClient</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">w</span><span class="p">.</span><span class="nx">getVaultClient</span><span class="p">(</span><span class="nx">resource</span><span class="p">.</span><span class="nx">GetConnectionRef</span><span class="p">())</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">    </span><span class="nx">log</span><span class="p">.</span><span class="nx">Info</span><span class="p">(</span><span class="s">&quot;failed to get Vault client during deletion, continuing with finalizer removal&quot;</span><span class="p">)</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="p">}</span>
+</code></pre></div>
+<p>The K8s object is gone, the Vault resource is not — and no mechanism re-attempts it. <code>pkg/cleanup</code> was designed to fix this but isn't invoked.</p>
+<p>See <a href="../IMPROVEMENTS/#1-unwired-controllers">IMPROVEMENTS.md §1</a> and <a href="../IMPROVEMENTS/#2-silent-cleanup-failures-leak-vault-policies">§2</a>.</p>
+<h2 id="orphan-detection-not-wired">Orphan Detection (⚠️ not wired)<a class="headerlink" href="#orphan-detection-not-wired" title="Permanent link">&para;</a></h2>
+<p>Symmetric to the cleanup queue: finds Vault resources that <strong>still</strong> have a managed marker but whose K8s CR is gone.</p>
+<h3 id="intended-flow_1">Intended Flow<a class="headerlink" href="#intended-flow_1" title="Permanent link">&para;</a></h3>
+<pre class="mermaid"><code>sequenceDiagram
+    participant C as orphan.Controller
+    participant Cache as ClientCache
+    participant VC as vault.Client
+    participant V as Vault
+    participant K8s as K8s API
+
+    loop every DefaultScanInterval = 1h
+        C-&gt;&gt;Cache: List() — all connection names
+        loop each connection
+            C-&gt;&gt;Cache: Get(connName)
+            Cache--&gt;&gt;C: vaultClient
+            C-&gt;&gt;VC: ListManagedPolicies(ctx)
+            VC-&gt;&gt;V: LIST + GET managed/policies
+            V--&gt;&gt;VC: map[vaultName]ManagedResource{K8sResource, ...}
+            loop each managed
+                C-&gt;&gt;K8s: Get(VaultPolicy / VaultClusterPolicy) by k8sResource
+                alt NotFound
+                    C-&gt;&gt;C: append OrphanInfo
+                else found
+                    Note over C: not an orphan
+                end
+            end
+            C-&gt;&gt;C: metric: vault_orphaned_resources{type=policy}
+
+            C-&gt;&gt;VC: ListManagedRoles
+            Note over C: same loop for roles
+            C-&gt;&gt;C: metric: vault_orphaned_resources{type=role}
+        end
+    end</code></pre>
+<h3 id="current-behavior">Current behavior<a class="headerlink" href="#current-behavior" title="Permanent link">&para;</a></h3>
+<p>Controller can be constructed and even started (<code>NewController(cfg).Start(ctx)</code>) but nothing calls that in <code>main.go</code>. The <code>NeedsLeaderElection() bool</code> method means it <strong>would</strong> run on the leader only when wired.</p>
+<p>The orphan controller <strong>does not delete</strong> — it only logs and publishes metrics. This is the right default (cleanup is destructive) but there's no delete-on-orphan strategy documented.</p>
+<h2 id="resource-type-matrix">Resource Type Matrix<a class="headerlink" href="#resource-type-matrix" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>CR kind</th>
+<th>Cleanup calls</th>
+<th>Vault path deleted</th>
+<th>Managed marker path deleted</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>VaultPolicy</code></td>
+<td><code>DeletePolicy</code>, <code>RemovePolicyManaged</code></td>
+<td><code>sys/policies/acl/{namespace}-{name}</code></td>
+<td><code>secret/data/vault-access-operator/managed/policies/{namespace}-{name}</code></td>
+</tr>
+<tr>
+<td><code>VaultClusterPolicy</code></td>
+<td><code>DeletePolicy</code>, <code>RemovePolicyManaged</code></td>
+<td><code>sys/policies/acl/{name}</code></td>
+<td><code>secret/data/vault-access-operator/managed/policies/{name}</code></td>
+</tr>
+<tr>
+<td><code>VaultRole</code></td>
+<td><code>DeleteKubernetesAuthRole</code>, <code>RemoveRoleManaged</code></td>
+<td><code>auth/{mount}/role/{namespace}-{name}</code></td>
+<td><code>secret/data/vault-access-operator/managed/roles/{namespace}-{name}</code></td>
+</tr>
+<tr>
+<td><code>VaultClusterRole</code></td>
+<td>same</td>
+<td><code>auth/{mount}/role/{name}</code></td>
+<td><code>.../managed/roles/{name}</code></td>
+</tr>
+<tr>
+<td><code>VaultConnection</code></td>
+<td>dependent-check → DisableAuth (opt-in) → RevokeSelf → Unregister × 2 → Cache.Delete → event</td>
+<td>auth mount (opt-in), token revoke</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<h2 id="error-scenarios">Error Scenarios<a class="headerlink" href="#error-scenarios" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Error</th>
+<th>Origin</th>
+<th>Current outcome</th>
+<th>Ideal outcome</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Vault unreachable during cleanup</td>
+<td><code>getVaultClient</code></td>
+<td>finalizer removed, resource leaked in Vault</td>
+<td>enqueue → cleanup controller retries later</td>
+</tr>
+<tr>
+<td>Vault 403 during delete</td>
+<td><code>DeleteFromVault</code></td>
+<td>logged, finalizer still removed</td>
+<td>enqueue → retry; alert on 403 (permissions issue)</td>
+</tr>
+<tr>
+<td>Delete returns 404</td>
+<td><code>DeleteFromVault</code></td>
+<td>logged as error (Vault returns 404 when policy doesn't exist)</td>
+<td>treat 404 as success</td>
+</tr>
+<tr>
+<td>Managed marker delete fails</td>
+<td><code>RemoveManaged</code></td>
+<td>logged as non-fatal</td>
+<td>orphan scanner may later misattribute resources</td>
+</tr>
+<tr>
+<td>Connection deletion while dependents exist</td>
+<td><code>listDependents</code></td>
+<td>blocked, <code>ChildrenExist</code> condition, user intervention</td>
+<td>add CR-level webhook to reject deletion earlier</td>
+</tr>
+<tr>
+<td>Finalizer manually removed before cleanup completes</td>
+<td>user action</td>
+<td>Vault resource leaked</td>
+<td>orphan scanner should catch it — but it's not running</td>
+</tr>
+</tbody>
+</table>
+<h2 id="events-emitted">Events Emitted<a class="headerlink" href="#events-emitted" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Event Type</th>
+<th>Reason</th>
+<th>When</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Normal</td>
+<td><code>Deleting</code></td>
+<td>cleanup start</td>
+</tr>
+<tr>
+<td>Normal</td>
+<td><code>Deleted</code></td>
+<td>cleanup success + finalizer removed</td>
+</tr>
+<tr>
+<td>Warning</td>
+<td><code>DeleteFailed</code></td>
+<td><code>Cleanup</code> returns error</td>
+</tr>
+<tr>
+<td>Warning</td>
+<td><code>DeletionStuck</code></td>
+<td><code>time.Since(DeletionTimestamp) &gt; 5m</code> and still failing</td>
+</tr>
+<tr>
+<td>Warning</td>
+<td><code>DeletionBlocked</code></td>
+<td>(defined but apparently not emitted; see <a href="../../shared/controller/base/reconciler.go:87">base/reconciler.go:87</a>)</td>
+</tr>
+</tbody>
+</table>
+<p>Connection cleanup emits: <code>ConnectionDisconnected</code>, plus the generic base events.</p>
+<h2 id="cross-references">Cross-References<a class="headerlink" href="#cross-references" title="Permanent link">&para;</a></h2>
+<ul>
+<li><a href="../FLOW_OVERVIEW/">FLOW_OVERVIEW.md</a></li>
+<li><a href="../FLOW_CONNECTION/">FLOW_CONNECTION.md</a> — blocking-on-dependents logic</li>
+<li><a href="../FLOW_POLICY/">FLOW_POLICY.md</a> / <a href="../FLOW_ROLE/">FLOW_ROLE.md</a> — per-kind cleanup ops</li>
+<li><a href="../IMPROVEMENTS/">IMPROVEMENTS.md</a> — cleanup queue wiring, orphan wiring, delete-on-orphan policy</li>
 </ul>
 
 
@@ -1705,10 +1526,10 @@
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.instant", "navigation.top", "search.highlight", "content.code.copy", "content.action.edit"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.top", "search.highlight", "content.code.copy", "content.action.edit"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
       
     
   </body>
