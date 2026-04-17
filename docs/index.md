@@ -110,6 +110,10 @@ The operator provides five CRDs for managing Vault access:
 - [GitHub Repository](https://github.com/panteparak/vault-access-operator)
 - [Issue Tracker](https://github.com/panteparak/vault-access-operator/issues)
 
+## Contributors
+
+Internal contributor documentation (architecture deep-dive, flow designs, known gaps) is published as a separate mini-site at [**/internal/**](internal/PROJECT_OVERVIEW.md) and is not listed in the main nav. Start there if you're working on the operator itself.
+
 ## License
 
 Copyright 2024-2026 Vault Access Operator Contributors.

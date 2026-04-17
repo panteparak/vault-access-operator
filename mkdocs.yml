@@ -33,6 +33,18 @@ theme:
   icon:
     repo: fontawesome/brands/github
 
+# Exclude the contributor-facing `internal/` subtree — it's built separately
+# via `mkdocs-internal.yml` into `site/internal/`.
+exclude_docs: |
+  internal/
+
+validation:
+  nav:
+    omitted_files: ignore
+  links:
+    absolute_links: warn
+    unrecognized_links: warn
+
 plugins:
   - search
 

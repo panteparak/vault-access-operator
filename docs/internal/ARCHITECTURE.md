@@ -359,10 +359,59 @@ All registered from `pkg/metrics/metrics.go`. Prefix: `vault_access_operator_*`.
 | `vault_orphaned_resources` | Gauge | `connection, type` | from `pkg/orphan` (⚠️ not wired) |
 | `cleanup_queue_size` | Gauge | — | from `pkg/cleanup` (⚠️ not wired) |
 | `cleanup_retries_total` | Counter | `resource_type, result` | from `pkg/cleanup` (⚠️ not wired) |
-| `discovered_resources` | Gauge | `connection, type` | from scanner |
+| `discovery_unmanaged_resources` | Gauge | `connection, type` | from scanner |
+| `discovery_scans_total` | Counter | `connection, result` | from scanner |
+| `discovery_adoptions_total` | Counter | `kind, namespace, result` | **registered but never emitted** — see [IMPROVEMENTS.md §31](IMPROVEMENTS.md#31-dead-metrics) |
+| `policy_reconcile_total` | Counter | `kind, namespace, result` | **registered but never emitted** (§31) |
+| `role_reconcile_total` | Counter | `kind, namespace, result` | **registered but never emitted** (§31) |
+
+See [FLOW_METRICS.md](FLOW_METRICS.md) for per-metric emission sites and wiring recommendations.
+
+## RBAC Surface
+
+RBAC is authored via `+kubebuilder:rbac:` markers on the feature reconcilers and webhook validators; `make manifests` aggregates them into [config/rbac/role.yaml](../../config/rbac/role.yaml). The aggregated ClusterRole is what the operator's ServiceAccount is bound to.
+
+| Resource group | Verbs | Granted to (conceptually) | Notes |
+|----------------|-------|---------------------------|-------|
+| `vault.platform.io/vaultconnections` (+status, +finalizers) | full | connection feature | lifecycle ownership |
+| `vault.platform.io/vaultpolicies`, `vaultclusterpolicies` (+status, +finalizers) | full | policy feature | |
+| `vault.platform.io/vaultroles`, `vaultclusterroles` (+status, +finalizers) | full | role feature | |
+| `core/secrets` | get, list, watch | connection feature | auth creds: bootstrap token, AppRole secretID, JWT, GCP SA key, CA cert |
+| `core/serviceaccounts/token` | create | connection feature | TokenRequest API for k8s/jwt/oidc auth flows |
+| `core/events` | create, patch | all features | reconcile events to `kubectl describe` |
+| `coordination.k8s.io/leases` | get, list, watch, create, update, patch, delete | manager | leader election |
+| `authentication.k8s.io/tokenreviews`, `authorization.k8s.io/subjectaccessreviews` | create | metrics server | `--metrics-secure=true` authn/authz |
+| `core/configmaps` | get, list, watch, create, update, patch, delete | **unwired cleanup controller** | ConfigMap-backed retry queue — granted but unused today (see [IMPROVEMENTS.md §34](IMPROVEMENTS.md#34-rbac-aggregates-unwired-controller-needs)) |
+
+See [INSTRUCTIONS.md §2](INSTRUCTIONS.md#2-add-a-new-crd-family) for the contributor workflow when adding new markers.
+
+## Webhook Wiring
+
+The webhook server is **opt-in** — nothing is constructed unless `--enable-webhooks=true`:
+
+```mermaid
+flowchart LR
+    Flag{--enable-webhooks}
+    Flag -->|false| NoServer[webhookServer = nil<br/>no validators registered]
+    Flag -->|true| Certs{--webhook-cert-path}
+    Certs -->|path set| WatchCert["certwatcher.New<br/>(tls.crt, tls.key)"]
+    Certs -->|unset| SelfSigned[self-signed<br/>dev only]
+    WatchCert --> Server[webhook.NewServer]
+    SelfSigned --> Server
+    Server --> Register["× 4 validators<br/>(Policy, ClusterPolicy, Role, ClusterRole)"]
+    Register --> MgrAdd["mgr.Add(webhookCertWatcher)<br/>for hot reload"]
+```
+
+Helm chart ([validatingwebhookconfiguration.yaml](../../charts/vault-access-operator/templates/validatingwebhookconfiguration.yaml)) renders the `ValidatingWebhookConfiguration` only when `webhooks.enabled=true`. TLS comes from cert-manager when `webhooks.certManager.enabled=true`.
+
+See [FLOW_WEBHOOK.md](FLOW_WEBHOOK.md) for request-flow detail and per-validator rules.
 
 ## Cross-References
 
 - [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) — identity, glossary, config
 - [FLOW_OVERVIEW.md](FLOW_OVERVIEW.md) — shared runtime foundations
+- [FLOW_LIFECYCLE.md](FLOW_LIFECYCLE.md) — manager startup and shutdown
+- [FLOW_WEBHOOK.md](FLOW_WEBHOOK.md) — webhook request-path detail
+- [FLOW_METRICS.md](FLOW_METRICS.md) — metric-by-metric emission sites
+- [INSTRUCTIONS.md](INSTRUCTIONS.md) — contributor procedures
 - [IMPROVEMENTS.md](IMPROVEMENTS.md) — disconnects & duplicates called out above

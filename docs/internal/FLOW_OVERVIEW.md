@@ -120,15 +120,19 @@ Every `Reconcile` produces K8s events via `BaseReconciler.recordEvent`:
 
 ## Error Catalog
 
-Errors are structured in [`shared/infrastructure/errors/`](../../shared/infrastructure/errors/) and classified in [`shared/controller/syncerror/handler.go`](../../shared/controller/syncerror/handler.go).
+Errors are structured in [`shared/infrastructure/errors/errors.go`](../../shared/infrastructure/errors/errors.go) and classified in [`shared/controller/syncerror/handler.go`](../../shared/controller/syncerror/handler.go).
 
-| Error Type | Origin | Meaning | Syncerror mapping |
-|-----------|--------|---------|-------------------|
-| `ConflictError` | `checkConflict` (policy/role) | Vault resource exists & is owned by someone else, adoption not permitted | `Phase: Conflict`, `Reason: Conflict` |
-| `ValidationError` | policy namespace-boundary check, role policy-ref kind check, JWT subject derivation | spec fails pre-sync validation | `Phase: Error`, `Reason: ValidationFailed` |
-| `DependencyError` | `vaultclient.Resolve` when VaultConnection missing or not Active | connection unready or missing | `Phase: Error`, `Reason: ConnectionNotReady`, sets `DependencyReady=False` |
-| `TransientError` | Vault API failures, readback mismatches | retryable | `Phase: Error`, `Reason: Failed` — requeue after interval |
-| generic `error` | any other path | unknown failure | `Phase: Error`, `Reason: Failed` |
+Six structured error types are defined. The classifier currently matches four; the other two (`NotFoundError`, `ConnectionError`) fall through to the generic catch-all — see [IMPROVEMENTS.md §29](IMPROVEMENTS.md#29-structured-error-types-notfounderror--connectionerror-defined-but-unused-in-classifier).
+
+| Error Type | Fields | Origin | Meaning | Syncerror mapping |
+|-----------|--------|--------|---------|-------------------|
+| `ConflictError` | ResourceType, ResourceName, Message | `checkConflict` (policy/role) | Vault resource exists & is owned by someone else, adoption not permitted | `Phase: Conflict`, `Reason: Conflict` |
+| `ValidationError` | Field, Value, Message | policy namespace-boundary check, role policy-ref kind check, JWT subject derivation | spec fails pre-sync validation | `Phase: Error`, `Reason: ValidationFailed` |
+| `DependencyError` | Resource, DependencyType, DependencyName, Reason | `vaultclient.Resolve` when VaultConnection missing or not Active | connection unready or missing | `Phase: Error`, `Reason: ConnectionNotReady`, sets `DependencyReady=False` |
+| `TransientError` | Operation, Cause, Retryable | Vault API failures, readback mismatches | retryable | `Phase: Error`, `Reason: Failed` — requeue after interval |
+| `NotFoundError` | ResourceType, ResourceName, Namespace | could signal missing Secret/ServiceAccount references | — **not currently classified** → `Phase: Error`, `Reason: Failed` |
+| `ConnectionError` | ConnectionName, Address, Cause | transport-layer Vault failures (TLS, DNS, TCP) | — **not currently classified** → `Phase: Error`, `Reason: Failed` |
+| generic `error` | — | any other path | unknown failure | `Phase: Error`, `Reason: Failed` |
 
 ### Stuck deletion detection
 
@@ -176,6 +180,81 @@ stateDiagram-v2
 
 Conditions are mutated via [`conditions.Set(conds, gen, type, status, reason, message)`](../../shared/controller/conditions/conditions.go). `LastTransitionTime` is only updated when `status` flips; reason/message changes preserve it.
 
+## Shared Helper Packages
+
+Three small packages provide cross-feature utilities used by policy, role, and (sometimes) the connection handler. Documenting them here avoids repetition in each flow doc.
+
+### `shared/controller/binding/` — Vault-path construction
+
+Primary callers: `PolicyOps.ApplyBindings`, `RoleOps.ApplyBindings`, `resolvePolicyNames` in role handler.
+
+| Function | Input | Output | Use |
+|----------|-------|--------|-----|
+| `VaultPolicyName(ref, roleNamespace)` | `PolicyReference`, string | `"{namespace}-{name}"` or `"{name}"` | deterministic translation from `PolicyRef` kind + name to Vault policy name |
+| `NewPolicyBinding(ref, vaultName, resolved)` | `PolicyReference`, string, bool | `*PolicyBinding` | status field for `VaultRole.Status.PolicyBindings[]` |
+| `NewVaultResourceBinding(kind, path, name, ...)` | — | `VaultResourceBinding` | status field for every synced CR |
+
+The intent: one source of truth for "given a PolicyReference, what's the Vault path?". Duplicate logic in [role/controller/handler.go:307](../../features/role/controller/handler.go:307) exists today — see [IMPROVEMENTS.md §20](IMPROVEMENTS.md#20-duplicate-resolvepolicynames-logic-between-role-handler-and-binding-package).
+
+### `shared/controller/hash/` — Spec hashing
+
+Primary callers: `PolicyOps.PrepareContent`, `RoleOps.PrepareContent`.
+
+| Function | Purpose |
+|----------|---------|
+| `FromMapDeterministic(map[string]interface{}) string` | JSON-marshal with sorted keys → SHA-256 hex. Used for role data. Determinism guaranteed by canonical key order. |
+| `FromString(s string) string` | SHA-256 of arbitrary string. Used for policy HCL after whitespace normalization. |
+
+The hash lives in `Status.LastAppliedHash`. Change detection: `newHash != oldHash → spec changed → proceed to write`. Unchanged hash + unchanged Vault state + drift clean = no-op reconcile.
+
+### `shared/controller/drift/` — Comparator
+
+Primary callers: `role/controller/handler.go` (drift comparison for roles), policy uses whitespace-trim comparison inline (see [IMPROVEMENTS.md §11](IMPROVEMENTS.md#11-drift-comparator-duplication-policy-hcl-vs-role-map)).
+
+| Method | Semantics |
+|--------|-----------|
+| `CompareStringSlices(expected, actual []string) Diff` | Sort-insensitive; returns present/missing/extra sets |
+| `CompareValues(field, expected, actual) Diff` | Simple `reflect.DeepEqual` |
+| `CompareValuesIfExpected(field, expected, actual) Diff` | Only compares if `expected` is non-zero — allows optional fields in spec without causing drift when actual has them set |
+| `Result.AddDiff(...)` | Accumulates diffs; produces `"fields differ: policies, bound_service_account_names"` summary |
+
+### Managed-marker schema
+
+Written to Vault KV v2 at `secret/data/vault-access-operator/managed/{policies|roles}/{vaultName}` via [pkg/vault/managed.go](../../pkg/vault/managed.go).
+
+```json
+{
+  "k8sResource": "VaultPolicy/my-namespace/my-policy",
+  "managedAt": "2026-04-18T12:34:56Z",
+  "lastUpdated": "2026-04-18T12:40:00Z",
+  "ruleDescriptions": {                    // policy only
+    "secret/data/app/*": "app secrets",
+    "secret/data/shared/*": "shared config"
+  }
+}
+```
+
+- `k8sResource` is the foreign-key-like identifier; `{Kind}/{namespace}/{name}` for namespaced, `{Kind}/{name}` for cluster-scoped.
+- `managedAt` is set once when the operator first claims ownership. Never re-written.
+- `lastUpdated` is bumped every successful MarkManaged (essentially every sync).
+- `ruleDescriptions` only populated for policies; gives discovery/orphan context.
+
+**Two operators managing the same Vault path** — if two operator instances (different UIDs) write to the same marker, the last writer wins. There's no ownership lease. This is an unlikely-but-real multi-cluster scenario; see [IMPROVEMENTS.md §G](IMPROVEMENTS.md#g-no-backuprestore-story-for-managed-markers).
+
+## Configuration Precedence
+
+Settings flow from multiple sources. The precedence order, from lowest to highest:
+
+| Source | Where | Can override | Example |
+|--------|-------|--------------|---------|
+| kubebuilder default | `+kubebuilder:default=` in `api/v1alpha1/*_types.go` | yes by any higher source | `authPath: "auth/kubernetes"` on VaultRole |
+| env var | read in feature/base constructors | yes by CLI flag | `OPERATOR_REQUEUE_SUCCESS_INTERVAL=60s` |
+| CLI flag | parsed in `cmd/main.go` | yes by spec | `--leader-elect=true` |
+| Spec field | per-CR in `spec.*` | yes by annotation | `VaultConnection.spec.defaults.driftMode: correct` |
+| Annotation | per-CR in `metadata.annotations` | terminal | `vault.platform.io/adopt=true` — force-overrides `ConflictPolicy: Fail` |
+
+**Cascading resolution** is performed by `driftmode.Resolve`: resource.driftMode → connection.defaults.driftMode → `DriftModeDetect`. This three-step cascade is the prototype for future "inherit from parent connection" patterns.
+
 ## File-system Artifacts
 
 The operator itself **writes no files on disk**. All persistence is via K8s or Vault.
@@ -193,6 +272,7 @@ The operator itself **writes no files on disk**. All persistence is via K8s or V
 | Vault sys: `auth/{mount}/role/{name}` | Vault | ✅ drift | ✅ role sync | role params |
 | `/var/run/secrets/.../namespace` | filesystem | ✅ `getOperatorNamespace` | ❌ | fallback only |
 | `tls.crt` / `tls.key` (metrics + webhook) | filesystem | ✅ `certwatcher` | ❌ | hot-reload |
+| Leader election Lease | K8s `coordination.k8s.io/v1` | ✅ `--leader-elect=true` | ✅ every `LeaseDuration` (15s default) | lease ID `2bf9394e.platform.io` |
 
 Legend: ✅ = touched by this entry point, ❌ = not touched
 
@@ -200,10 +280,15 @@ Legend: ✅ = touched by this entry point, ❌ = not touched
 
 - [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md)
 - [ARCHITECTURE.md](ARCHITECTURE.md)
+- [FLOW_LIFECYCLE.md](FLOW_LIFECYCLE.md) — manager startup and shutdown
 - [FLOW_CONNECTION.md](FLOW_CONNECTION.md) — establishes the client cache the rest of the flows depend on
 - [FLOW_POLICY.md](FLOW_POLICY.md)
 - [FLOW_ROLE.md](FLOW_ROLE.md)
 - [FLOW_DISCOVERY.md](FLOW_DISCOVERY.md)
 - [FLOW_DELETION.md](FLOW_DELETION.md)
 - [FLOW_AUTH.md](FLOW_AUTH.md) — auth-backend selection (bootstrap is a special case covered in FLOW_CONNECTION)
+- [FLOW_WEBHOOK.md](FLOW_WEBHOOK.md) — admission validation
+- [FLOW_EVENTS.md](FLOW_EVENTS.md) — event bus
+- [FLOW_METRICS.md](FLOW_METRICS.md) — Prometheus emission
+- [INSTRUCTIONS.md](INSTRUCTIONS.md) — contributor procedures
 - [IMPROVEMENTS.md](IMPROVEMENTS.md)

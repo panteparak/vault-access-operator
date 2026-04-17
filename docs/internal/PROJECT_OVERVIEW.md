@@ -153,9 +153,9 @@ make e2e-local-down                  # teardown
 |------------|--------|
 | `vault.platform.io/adopt=true` | take over a Vault resource that already exists; overrides `ConflictPolicy` |
 | `vault.platform.io/allow-destructive=true` | required when `DriftMode: correct` — unlocks writes that would overwrite out-of-band changes |
-| `vault.platform.io/discovery-pending=true` | added by discovery auto-create; tells `PolicyOps.WriteToVault` to **skip** the write until the user fills in real rules |
-| `vault.platform.io/discovered=<RFC3339>` | timestamp, informational |
-| `vault.platform.io/discovered-from=<connName>` | source connection for a discovered CR |
+| `vault.platform.io/discovery-pending=true` | added by discovery auto-create; tells `PolicyOps.WriteToVault` to **skip** the write until the user fills in real rules (raw string — see [IMPROVEMENTS.md §30](IMPROVEMENTS.md#30-raw-string-annotations-lack-constants-generalizes-14)) |
+| `vault.platform.io/discovered-at=<RFC3339>` | timestamp, informational; constant `AnnotationDiscovered` at [common_types.go:447](../../api/v1alpha1/common_types.go:447) |
+| `vault.platform.io/discovered-from=<connName>` | source connection for a discovered CR (raw string) |
 
 ## Document Index
 
@@ -164,10 +164,15 @@ Read in order for the clearest picture:
 1. [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) — you are here
 2. [ARCHITECTURE.md](ARCHITECTURE.md) — static layers, patterns, CRD relationships
 3. [FLOW_OVERVIEW.md](FLOW_OVERVIEW.md) — ports, types, errors, file artifacts shared across flows
-4. [FLOW_CONNECTION.md](FLOW_CONNECTION.md) — VaultConnection: bootstrap, auth, renewal, health
-5. [FLOW_POLICY.md](FLOW_POLICY.md) — VaultPolicy / VaultClusterPolicy sync lifecycle
-6. [FLOW_ROLE.md](FLOW_ROLE.md) — VaultRole / VaultClusterRole sync lifecycle
-7. [FLOW_DISCOVERY.md](FLOW_DISCOVERY.md) — scanning, matching, auto-creation
-8. [FLOW_DELETION.md](FLOW_DELETION.md) — finalizers, cleanup queue, orphan detection
-9. [FLOW_AUTH.md](FLOW_AUTH.md) — auth-backend branching, TokenProvider, lifecycle, rotation
-10. [IMPROVEMENTS.md](IMPROVEMENTS.md) — **disconnects, duplicates, gaps, and recommendations** ⭐
+4. [FLOW_LIFECYCLE.md](FLOW_LIFECYCLE.md) — manager startup, leader election, shutdown
+5. [FLOW_CONNECTION.md](FLOW_CONNECTION.md) — VaultConnection: bootstrap, auth, renewal, health
+6. [FLOW_POLICY.md](FLOW_POLICY.md) — VaultPolicy / VaultClusterPolicy sync lifecycle
+7. [FLOW_ROLE.md](FLOW_ROLE.md) — VaultRole / VaultClusterRole sync lifecycle
+8. [FLOW_DISCOVERY.md](FLOW_DISCOVERY.md) — scanning, matching, auto-creation
+9. [FLOW_DELETION.md](FLOW_DELETION.md) — finalizers, cleanup queue, orphan detection
+10. [FLOW_AUTH.md](FLOW_AUTH.md) — auth-backend branching, TokenProvider, lifecycle, rotation
+11. [FLOW_WEBHOOK.md](FLOW_WEBHOOK.md) — admission validators, TLS, cert-manager integration
+12. [FLOW_EVENTS.md](FLOW_EVENTS.md) — event bus mechanics, publisher/subscriber matrix
+13. [FLOW_METRICS.md](FLOW_METRICS.md) — Prometheus metrics, emission sites, dead metrics
+14. [INSTRUCTIONS.md](INSTRUCTIONS.md) — **contributor procedures** (add an auth method, debug a stuck reconcile, etc.) ⭐
+15. [IMPROVEMENTS.md](IMPROVEMENTS.md) — **disconnects, duplicates, gaps, and recommendations** ⭐

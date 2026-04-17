@@ -143,24 +143,39 @@ func (c cacheAdapter) Get(name string) (cleanup.VaultClient, error) {
 
 ---
 
-## 🟠 5. `DiscoveredResources` unbounded growth
+## 🟠 5. `DiscoveredResources` growth — API-server validation (updated 2026-04-18)
 
-**Evidence:** [features/discovery/controller/controller.go:301-305](../../features/discovery/controller/controller.go:301):
+**Evidence (updated):** [api/v1alpha1/vaultconnection_types.go:458](../../api/v1alpha1/vaultconnection_types.go:458) has a kubebuilder marker:
+```go
+// +kubebuilder:validation:MaxItems=500
+DiscoveredResources []DiscoveredResource `json:"discoveredResources,omitempty"`
+```
+So the limit **is** expressed — but via API-server schema validation, not in-controller truncation. The scanner at [controller.go:301-305](../../features/discovery/controller/controller.go:301) still writes the full `result.DiscoveredResources` slice without checking length:
 
 ```go
 conn.Status.DiscoveryStatus.DiscoveredResources = result.DiscoveredResources
 ```
 
-No truncation. The auto-memory mentions 500 as an intended cap but it isn't enforced in code.
+**Impact (reframed):** On a Vault with more than 500 unmanaged resources matching the discovery patterns, the *first* scan succeeds up to the point of `Status().Update` — at which point the API server rejects the write with:
+```
+VaultConnection.vault.platform.io "X" is invalid:
+  status.discoveryStatus.discoveredResources: Too many: 600: must have at most 500 items
+```
+The reconcile returns that error, `Phase` flips to `Error`, the `discovery_scans_total{result=failure}` counter bumps, and the next scan (1h later) tries the identical write and fails identically. Recovery is **not automatic** — the user must tighten discovery patterns (`spec.discovery.policyPatterns`) or delete the CR.
 
-**Impact:** On a Vault with thousands of policies/roles, the first scan can push `VaultConnection.status` past etcd's per-object size limit (default 1.5 MB). Status update fails, whole reconciliation fails, gauge never updates.
+Additionally, `etcd`'s per-object size limit (default 1.5 MB) is a separate ceiling. Even with 500 items cap, if each `DiscoveredResource` is large (long names, metadata), the payload might still push an etcd rejection. 500 × typical 200 B ≈ 100 KB, which is comfortable; 500 × 3 KB ≈ 1.5 MB, which is not.
 
 **Fix:**
 ```go
 const maxDiscoveredInStatus = 500
 if len(result.DiscoveredResources) > maxDiscoveredInStatus {
+    truncated := len(result.DiscoveredResources) - maxDiscoveredInStatus
     result.DiscoveredResources = result.DiscoveredResources[:maxDiscoveredInStatus]
-    // set a condition: DiscoveryResultsTruncated with count
+    // expose the fact via condition
+    conditions.Set(&conn.Status.Conditions, conn.Generation,
+        "DiscoveryResultsTruncated", metav1.ConditionTrue,
+        "Capped", fmt.Sprintf("discovery results truncated: %d items omitted", truncated))
+    // log.Info, bump metric, emit warning event
 }
 ```
 Plus: emit per-discovered-resource **K8s events** (already done for the aggregate) rather than persisting the full list in status.
@@ -545,7 +560,174 @@ All metrics are gauges or counters. No `reconcile_duration_seconds` histogram. H
 
 ---
 
-## Priority Ranking (if you can only fix 5)
+---
+
+## 🟠 27. Event bus has no production subscribers
+
+**Evidence:** Grep confirms `events.Subscribe` is only called from `*_test.go` files across the entire codebase. Production publishers fire into the void.
+
+Publishers (live): `ConnectionReady`, `ConnectionDisconnected`, `BootstrapCompleted`, `PolicyCreated`, `PolicyDeleted`, `RoleCreated`, `RoleDeleted` — 7 types emitted.
+Types declared but never published: `ConnectionHealthChanged`, `PolicyUpdated`, `RoleUpdated`, `TokenRenewed`, `TokenRenewalFailed`, `TokenReviewerRefreshed` — 6 types ghost scaffolding.
+
+**Impact:** The intended cross-feature reactivity never happens. Policy/role sync on connection recovery is handled by `ConnectionPhaseChangedPredicate` + enqueue map-funcs instead. That works but means the bus is deadweight.
+
+**Fix options:**
+1. **Delete the bus + ghost event types.** Replace `PublishAsync` with direct recorder events. Simplest, but loses future extensibility.
+2. **Wire one subscriber as proof-of-life.** For example, when `PolicyCreated` fires, re-enqueue any `VaultRole` whose `status.policyBindings[].resolved=false` references that policy name — faster recovery than the current 30s requeue. Adds a visible benefit.
+3. **Ship the bus as-is**, document as scaffold, note in this file that dead publish calls are intentional.
+
+Recommendation: option 2. Gives the bus at least one subscriber and delivers a user-visible improvement.
+
+---
+
+## 🟡 28. `AnnotationDiscovered` value doc/code drift (self-reported)
+
+**Evidence:** `PROJECT_OVERVIEW.md` (before this update) annotations table showed `vault.platform.io/discovered=<RFC3339>`; actual constant at [common_types.go:447](../../api/v1alpha1/common_types.go:447) is `AnnotationDiscovered = "vault.platform.io/discovered-at"`. Fixed inline while generating the contributor docs.
+
+**Impact:** A reader copying from the table would look for the wrong annotation name.
+
+**Fix:** Add a doc linter to CI — grep `docs/internal/` for literal `vault.platform.io/...` and diff against the constants block. Catches future drift automatically.
+
+---
+
+## 🟡 29. Structured error types `NotFoundError` / `ConnectionError` defined but unused in classifier
+
+**Evidence:** [shared/infrastructure/errors/errors.go](../../shared/infrastructure/errors/errors.go) defines 6 error types. [shared/controller/syncerror/handler.go](../../shared/controller/syncerror/handler.go) `Handle` classifies only 4 (`ConflictError`, `ValidationError`, `DependencyError`, `TransientError`) → maps every unmatched error to generic `PhaseError / ReasonFailed`.
+
+**Impact:**
+- `NotFoundError` scenarios (e.g., referenced Secret missing) are classified the same as a Vault 500. Users have to read the message to distinguish.
+- `ConnectionError` (network/TLS issues at the transport layer) would be nice to surface as a distinct condition — today it mashes together with generic `TransientError`.
+
+**Fix:** Extend the `syncerror.Handle` switch to recognize these two types and map to distinct reasons (e.g., `ReasonNotFound`, `ReasonNetworkError`).
+
+---
+
+## 🟡 30. Raw-string annotations lack constants (generalizes §14)
+
+**Evidence:**
+- `vault.platform.io/discovery-pending` at [policy/controller/ops.go:108](../../features/policy/controller/ops.go:108) and [discovery/controller/controller.go:216](../../features/discovery/controller/controller.go:216) — raw strings on both sides.
+- `vault.platform.io/discovered-from` at [discovery/controller/controller.go:217](../../features/discovery/controller/controller.go:217) — raw string.
+
+Neither has a constant in [common_types.go](../../api/v1alpha1/common_types.go).
+
+**Impact:** Renaming an annotation requires grepping every call site. Typos aren't caught at compile time.
+
+**Fix:** Add to `common_types.go`:
+```go
+AnnotationDiscoveryPending = "vault.platform.io/discovery-pending"
+AnnotationDiscoveredFrom   = "vault.platform.io/discovered-from"
+```
+Replace raw strings with constants.
+
+---
+
+## 🟠 31. Dead metrics — registered but never emitted
+
+**Evidence:**
+- `PolicyReconcileTotal` at [metrics.go:67](../../pkg/metrics/metrics.go:67), helper `IncrementPolicyReconcile` at [metrics.go:232](../../pkg/metrics/metrics.go:232) — **never called** outside test code (verified by grep).
+- `RoleReconcileTotal` at [metrics.go:78](../../pkg/metrics/metrics.go:78), helper `IncrementRoleReconcile` at [metrics.go:241](../../pkg/metrics/metrics.go:241) — same.
+- `AdoptionTotal` at [metrics.go:155](../../pkg/metrics/metrics.go:155), helper `IncrementAdoption` at [metrics.go:288](../../pkg/metrics/metrics.go:288) — same.
+
+3 of 14 metrics are registered series that always read as zero (no value ever observed). Another 3 (`OrphanedResourcesGauge`, `CleanupQueueSizeGauge`, `CleanupRetriesTotal`) are emitted only from the unwired cleanup/orphan controllers (§1) — so zero in practice.
+
+**Impact:**
+- Prometheus series exist but are always empty → dashboards built against them show flat lines.
+- Someone reading `/metrics` sees metric names and assumes instrumentation is present.
+- Alerts based on these metrics never fire.
+
+**Fix:** For each dead metric, either:
+- (a) Add the emission call at the natural site (`IncrementPolicyReconcile` in `BaseReconciler.handleSync` post-call; `IncrementAdoption` in `CheckConflict` when `shouldAdopt` path is taken), OR
+- (b) Remove the metric + helper to stop claiming instrumentation that doesn't exist.
+
+---
+
+## 🟠 32. Undocumented shutdown drain timeout
+
+**Evidence:** [cmd/main.go:197-215](../../cmd/main.go:197) constructs `ctrl.Manager` without setting `Options.GracefulShutdownTimeout`. Controller-runtime's default is 30 seconds.
+
+**Impact:** On SIGTERM:
+- In-flight `Reconcile` calls are given the reconcile-scoped context (not the shutdown ctx) — they run to completion unless they check for cancellation themselves.
+- If a long-running operation (e.g., bootstrap under a slow STS endpoint, or a TokenRequest API call against an overloaded kube-apiserver) takes >30s, the manager returns before it finishes. In-flight work aborts mid-write.
+- K8s' default `terminationGracePeriodSeconds=30` means SIGKILL shortly follows — another 30s after that.
+
+**Fix:**
+```go
+mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+    ...
+    GracefulShutdownTimeout: ptr.To(2 * time.Minute),
+})
+```
+Plus: document intended drain duration in the Helm chart `terminationGracePeriodSeconds` (default is K8s' 30s, likely too short for in-flight Vault ops).
+
+---
+
+## 🟠 33. Health probes are trivial pings
+
+**Evidence:** [cmd/main.go:333-340](../../cmd/main.go:333):
+```go
+mgr.AddHealthzCheck("healthz", healthz.Ping)
+mgr.AddReadyzCheck("readyz", healthz.Ping)
+```
+`healthz.Ping` always returns `nil`. It tells you the HTTP server is up. That's it.
+
+**Impact:** A pod with:
+- stuck informer caches (e.g., kube-apiserver connectivity issue),
+- a populated but stale `ClientCache` (every Vault call failing 403),
+- a leader-elected lease but no reconcile progress,
+
+will still answer `200 OK` to `/readyz`. Service traffic keeps routing to it.
+
+**Fix:** Add informed checks:
+```go
+mgr.AddReadyzCheck("informers-synced", func(_ *http.Request) error {
+    ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+    defer cancel()
+    if !mgr.GetCache().WaitForCacheSync(ctx) {
+        return errors.New("cache not synced")
+    }
+    return nil
+})
+
+// Optional: connection-cache has at least one entry after 2 minutes
+// (skip if no VaultConnections exist, but flag if cache is empty while connections exist)
+```
+Keep `/healthz` as the trivial ping (liveness = pod-level restart trigger).
+
+---
+
+## 🟡 34. RBAC aggregates unwired-controller permissions
+
+**Evidence:** [config/rbac/role.yaml](../../config/rbac/role.yaml) grants verbs that only the cleanup/orphan controllers would need (e.g., Secret writes for the cleanup ConfigMap) — controllers that aren't wired (§1).
+
+**Impact:** Least-privilege audits flag permissions that look excessive for the running feature set. Users operating under strict RBAC policies may want to trim the unused grants, but doing so would break the moment §1 is fixed.
+
+**Fix:** Split RBAC into optional Helm values: `rbac.cleanupEnabled=true` gates the Secret-write permissions. Keep them off by default until §1 is wired.
+
+---
+
+## 🟠 35. `ConnectionPhaseChangedPredicate` fan-out on health-check changes
+
+**Evidence:** [shared/controller/watches/predicates.go](../../shared/controller/watches/predicates.go) triggers on phase **or** health-check-timestamp change. The connection reconciler writes health status every 30s.
+
+**Impact:** If a connection is unhealthy:
+- Every 30s, the connection controller updates `Status.LastHealthCheck` → the predicate returns `true` → all dependent policy/role reconcilers are enqueued → each re-runs its full `Sync` (which will hit `DependencyError` and exit, but still burns K8s API calls and log noise).
+- For a cluster with 200 dependent policies + 100 roles referencing an unhealthy connection, that's 300 wasted reconciles every 30s = 10/sec sustained.
+
+**Fix:** Tighten the predicate to trigger only on `Phase` transition (ignore `LastHealthCheck`, `LastHeartbeat`, consecutiveFails updates). The current `ConnectionPhaseChangedPredicate` name suggests that's the intent, so this is likely a bug.
+
+---
+
+## 🟠 36. No `connectionRef` existence webhook check
+
+**Evidence:** Webhooks validate policy/role spec shape and inter-CR naming collisions, but don't verify the referenced `VaultConnection` actually exists.
+
+**Impact:** Users can `kubectl apply` a `VaultPolicy` referencing a nonexistent `VaultConnection`. It will be accepted, then fail at the next reconcile with `DependencyError → ConnectionNotReady`. The user sees the error in status, not at apply time.
+
+**Fix:** Add a dependency check similar to `checkPolicyDependencies` ([vaultrole_webhook.go:173](../../internal/webhook/vaultrole_webhook.go:173)) but emitting a **warning** (not an error — the connection might be applied in the same kubectl command with ordering issues).
+
+---
+
+## Priority Ranking (if you can only fix 7)
 
 | Rank | Fix | Why first |
 |------|-----|-----------|
@@ -553,7 +735,9 @@ All metrics are gauges or counters. No `reconcile_duration_seconds` histogram. H
 | 2 | §2 — stop removing finalizer on cleanup failure | closely coupled to §1; together they fix resource leakage |
 | 3 | §4 — VaultRole `discovery-pending` annotation parity | silent auth-loss footgun for discovery users |
 | 4 | §8 — VaultConnection admission webhook | shifts many "what happened to my connection?" tickets from reconcile-time to apply-time |
-| 5 | §5 — cap `DiscoveredResources` in status | one large Vault triggers unrecoverable status failure |
+| 5 | §5 — cap `DiscoveredResources` **in controller** (not just schema) | one large Vault triggers unrecoverable `Phase=Error` until user trims patterns |
+| 6 | §35 — `ConnectionPhaseChangedPredicate` health-check fan-out | reconcile storm for unhealthy connections; trivial predicate tightening |
+| 7 | §31 + §33 — remove dead metrics and fix trivial health probes | cheap-and-visible improvements to operational surface |
 
 ---
 
@@ -562,9 +746,14 @@ All metrics are gauges or counters. No `reconcile_duration_seconds` histogram. H
 - [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md)
 - [ARCHITECTURE.md](ARCHITECTURE.md) — same unwired-controllers note in "Shared infrastructure" callout
 - [FLOW_OVERVIEW.md](FLOW_OVERVIEW.md) — pre-flight note
-- [FLOW_CONNECTION.md](FLOW_CONNECTION.md) — dual reconciler, auth dispatch chain, listDependents
+- [FLOW_LIFECYCLE.md](FLOW_LIFECYCLE.md) — shutdown timeout §32, health probes §33, RBAC §34
+- [FLOW_CONNECTION.md](FLOW_CONNECTION.md) — dual reconciler, auth dispatch chain, listDependents, fan-out §35
 - [FLOW_POLICY.md](FLOW_POLICY.md) — HCL normalization, discovery-pending, duplicate shouldAdopt
 - [FLOW_ROLE.md](FLOW_ROLE.md) — backend coverage, resolvePolicyNames duplication, JWT subject derivation
-- [FLOW_DISCOVERY.md](FLOW_DISCOVERY.md) — unbounded list, role annotation gap
+- [FLOW_DISCOVERY.md](FLOW_DISCOVERY.md) — §5 (updated), role annotation gap
 - [FLOW_DELETION.md](FLOW_DELETION.md) — silent cleanup failures
 - [FLOW_AUTH.md](FLOW_AUTH.md) — unwired lifecycle/rotator, auth dispatch refactor, backend coverage gap
+- [FLOW_WEBHOOK.md](FLOW_WEBHOOK.md) — missing connection webhook §8, connectionRef-existence §36
+- [FLOW_EVENTS.md](FLOW_EVENTS.md) — §27 no subscribers, dead event types
+- [FLOW_METRICS.md](FLOW_METRICS.md) — §31 dead metrics, §K no latency histograms
+- [INSTRUCTIONS.md](INSTRUCTIONS.md) — contributor procedures touching most of these subsystems
