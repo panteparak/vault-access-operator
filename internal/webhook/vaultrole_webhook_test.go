@@ -1976,3 +1976,171 @@ func TestVaultRoleValidator_DependencyValidationOnUpdate(t *testing.T) {
 		t.Errorf("ValidateUpdate() expected 1 warning, got %d: %v", len(warnings), warnings)
 	}
 }
+
+const authPathJWT = "auth/jwt"
+
+func TestIsJWTAuthPath(t *testing.T) {
+	cases := []struct {
+		path string
+		want bool
+	}{
+		{"", false},
+		{"auth/kubernetes", false},
+		{"auth/kubernetes-prod", false},
+		{"auth/jwt", true},
+		{"auth/jwt/", true},
+		{"auth/jwt/gitlab", true},
+		{"auth/jwt-gitlab", true},
+		{"auth/approle", false},
+		{"jwt", false},
+	}
+	for _, tc := range cases {
+		if got := isJWTAuthPath(tc.path); got != tc.want {
+			t.Errorf("isJWTAuthPath(%q) = %v, want %v", tc.path, got, tc.want)
+		}
+	}
+}
+
+func TestValidateJWTSpec(t *testing.T) {
+	cases := []struct {
+		name                string
+		authPath            string
+		jwt                 *vaultv1alpha1.VaultRoleJWTSpec
+		serviceAccountCount int
+		wantErrSubstring    string
+	}{
+		{
+			name:                "non-jwt path with no jwt spec",
+			authPath:            "auth/kubernetes",
+			serviceAccountCount: 1,
+		},
+		{
+			name:                "jwt path with single SA, no override",
+			authPath:            authPathJWT,
+			serviceAccountCount: 1,
+		},
+		{
+			name:                "jwt path with multi-SA and explicit boundSubject",
+			authPath:            authPathJWT,
+			jwt:                 &vaultv1alpha1.VaultRoleJWTSpec{BoundSubject: "sub"},
+			serviceAccountCount: 3,
+		},
+		{
+			name:                "jwt path with multi-SA and explicit boundClaims",
+			authPath:            authPathJWT,
+			jwt:                 &vaultv1alpha1.VaultRoleJWTSpec{BoundClaims: map[string]string{"k": "v"}},
+			serviceAccountCount: 2,
+		},
+		{
+			name:                "jwt path with multi-SA, no override, rejected",
+			authPath:            authPathJWT,
+			serviceAccountCount: 2,
+			wantErrSubstring:    "more than one serviceAccount",
+		},
+		{
+			name:                "jwt set but authPath is k8s, rejected",
+			authPath:            "auth/kubernetes",
+			jwt:                 &vaultv1alpha1.VaultRoleJWTSpec{BoundSubject: "x"},
+			serviceAccountCount: 1,
+			wantErrSubstring:    "may only be used when authPath targets a JWT auth mount",
+		},
+		{
+			name:                "boundSubject and boundClaims mutually exclusive",
+			authPath:            authPathJWT,
+			jwt:                 &vaultv1alpha1.VaultRoleJWTSpec{BoundSubject: "x", BoundClaims: map[string]string{"k": "v"}},
+			serviceAccountCount: 1,
+			wantErrSubstring:    "mutually exclusive",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			errs := validateJWTSpec(tc.authPath, tc.jwt, tc.serviceAccountCount)
+			if tc.wantErrSubstring == "" {
+				if len(errs) > 0 {
+					t.Errorf("expected no errors, got %v", errs)
+				}
+				return
+			}
+			if len(errs) == 0 {
+				t.Fatalf("expected error containing %q, got none", tc.wantErrSubstring)
+			}
+			if !strings.Contains(strings.Join(errs, "; "), tc.wantErrSubstring) {
+				t.Errorf("expected error containing %q, got %v", tc.wantErrSubstring, errs)
+			}
+		})
+	}
+}
+
+func TestVaultRoleValidator_ValidateCreate_JWT(t *testing.T) {
+	ctx := context.Background()
+	scheme := runtime.NewScheme()
+	_ = vaultv1alpha1.AddToScheme(scheme)
+	client := fake.NewClientBuilder().WithScheme(scheme).Build()
+	v := &VaultRoleValidator{client: client}
+
+	cases := []struct {
+		name        string
+		role        *vaultv1alpha1.VaultRole
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name: "jwt single SA",
+			role: &vaultv1alpha1.VaultRole{
+				ObjectMeta: metav1.ObjectMeta{Name: "r1", Namespace: "ns"},
+				Spec: vaultv1alpha1.VaultRoleSpec{
+					ConnectionRef:   "c",
+					AuthPath:        authPathJWT,
+					ServiceAccounts: []string{"sa1"},
+					Policies:        []vaultv1alpha1.PolicyReference{{Kind: "VaultClusterPolicy", Name: "p"}},
+				},
+			},
+		},
+		{
+			name: "jwt multi SA without override rejected",
+			role: &vaultv1alpha1.VaultRole{
+				ObjectMeta: metav1.ObjectMeta{Name: "r2", Namespace: "ns"},
+				Spec: vaultv1alpha1.VaultRoleSpec{
+					ConnectionRef:   "c",
+					AuthPath:        authPathJWT,
+					ServiceAccounts: []string{"sa1", "sa2"},
+					Policies:        []vaultv1alpha1.PolicyReference{{Kind: "VaultClusterPolicy", Name: "p"}},
+				},
+			},
+			wantErr:     true,
+			errContains: "more than one serviceAccount",
+		},
+		{
+			name: "jwt sub-spec with k8s auth path rejected",
+			role: &vaultv1alpha1.VaultRole{
+				ObjectMeta: metav1.ObjectMeta{Name: "r3", Namespace: "ns"},
+				Spec: vaultv1alpha1.VaultRoleSpec{
+					ConnectionRef:   "c",
+					AuthPath:        "auth/kubernetes",
+					ServiceAccounts: []string{"sa1"},
+					Policies:        []vaultv1alpha1.PolicyReference{{Kind: "VaultClusterPolicy", Name: "p"}},
+					JWT:             &vaultv1alpha1.VaultRoleJWTSpec{BoundSubject: "x"},
+				},
+			},
+			wantErr:     true,
+			errContains: "may only be used when authPath",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := v.ValidateCreate(ctx, tc.role)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected error containing %q, got nil", tc.errContains)
+				}
+				if !strings.Contains(err.Error(), tc.errContains) {
+					t.Errorf("expected error containing %q, got %q", tc.errContains, err.Error())
+				}
+				return
+			}
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}

@@ -143,6 +143,11 @@ func (v *VaultRoleValidator) validate(role *vaultv1alpha1.VaultRole) (admission.
 		}
 	}
 
+	// Validate JWT-specific constraints
+	if jwtErrs := validateJWTSpec(role.Spec.AuthPath, role.Spec.JWT, len(role.Spec.ServiceAccounts)); len(jwtErrs) > 0 {
+		errs = append(errs, jwtErrs...)
+	}
+
 	if len(errs) > 0 {
 		return nil, fmt.Errorf("validation failed: %s", strings.Join(errs, "; "))
 	}
@@ -280,11 +285,68 @@ func (v *VaultClusterRoleValidator) validate(role *vaultv1alpha1.VaultClusterRol
 		}
 	}
 
+	// Validate JWT-specific constraints
+	if jwtErrs := validateJWTSpec(role.Spec.AuthPath, role.Spec.JWT, len(role.Spec.ServiceAccounts)); len(jwtErrs) > 0 {
+		errs = append(errs, jwtErrs...)
+	}
+
 	if len(errs) > 0 {
 		return nil, fmt.Errorf("validation failed: %s", strings.Join(errs, "; "))
 	}
 
 	return nil, nil
+}
+
+// validateJWTSpec enforces constraints on the optional spec.jwt sub-object
+// and the combination of authPath / serviceAccounts / jwt.
+//
+// Rules:
+//   - spec.jwt may only be set when authPath targets a JWT auth mount.
+//   - When authPath is a JWT mount, any of:
+//   - len(serviceAccounts) <= 1, OR
+//   - spec.jwt.boundSubject is set, OR
+//   - spec.jwt.boundClaims is set
+//     is acceptable. Otherwise the operator cannot derive a single bound_subject.
+//   - spec.jwt.boundSubject and spec.jwt.boundClaims are mutually exclusive.
+func validateJWTSpec(authPath string, jwt *vaultv1alpha1.VaultRoleJWTSpec, serviceAccountCount int) []string {
+	var errs []string
+	isJWT := isJWTAuthPath(authPath)
+
+	if jwt != nil && !isJWT {
+		errs = append(errs, "spec.jwt may only be used when authPath targets a JWT auth mount (e.g. auth/jwt)")
+		return errs
+	}
+
+	if !isJWT {
+		return nil
+	}
+
+	if jwt != nil && jwt.BoundSubject != "" && len(jwt.BoundClaims) > 0 {
+		errs = append(errs, "spec.jwt.boundSubject and spec.jwt.boundClaims are mutually exclusive")
+	}
+
+	// Derivation can only produce a single bound_subject; require explicit override for multi-SA.
+	if serviceAccountCount > 1 {
+		hasOverride := jwt != nil && (jwt.BoundSubject != "" || len(jwt.BoundClaims) > 0)
+		if !hasOverride {
+			errs = append(errs, "JWT VaultRole with more than one serviceAccount must set spec.jwt.boundSubject or spec.jwt.boundClaims explicitly")
+		}
+	}
+	return errs
+}
+
+// isJWTAuthPath returns true if the given authPath identifies a JWT auth mount.
+// Mirrors vault.AuthBackendForPath without taking a dependency on pkg/vault
+// from the webhook package.
+func isJWTAuthPath(authPath string) bool {
+	p := strings.TrimRight(authPath, "/")
+	const prefix = "auth/"
+	if !strings.HasPrefix(p, prefix) {
+		return false
+	}
+	rest := p[len(prefix):]
+	seg, _, _ := strings.Cut(rest, "/")
+	return seg == "jwt" || strings.HasPrefix(seg, "jwt")
 }
 
 // validateWithContext performs validation including dependency checks for VaultClusterRole

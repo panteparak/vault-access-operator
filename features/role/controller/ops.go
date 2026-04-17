@@ -21,7 +21,9 @@ import (
 	"fmt"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/features/role/domain"
 	"github.com/panteparak/vault-access-operator/pkg/vault"
 	"github.com/panteparak/vault-access-operator/shared/controller/binding"
@@ -90,11 +92,33 @@ func (o *RoleOps) PrepareContent(ctx context.Context, vaultClient *vault.Client)
 	// Get service account bindings
 	o.serviceAccountBindings = o.adapter.GetServiceAccountBindings()
 
-	// Build Kubernetes auth role data
-	o.roleData = o.handler.buildRoleData(o.adapter, policyNames, o.serviceAccountBindings)
+	// Build auth-backend-specific role data. Connection is best-effort —
+	// the workflow has already verified it's Active; a transient fetch
+	// failure here falls back to cluster-default values.
+	connection := o.resolveConnection(ctx)
+	roleData, err := o.handler.buildRoleData(o.adapter, policyNames, o.serviceAccountBindings, connection)
+	if err != nil {
+		return "", err
+	}
+	o.roleData = roleData
 
 	// Calculate spec hash
 	return o.handler.calculateSpecHash(o.roleData)
+}
+
+// resolveConnection fetches the referenced VaultConnection from the API
+// server. Returns nil if the reference is empty or the fetch fails —
+// defaulting will then fall back to cluster-default values.
+func (o *RoleOps) resolveConnection(ctx context.Context) *vaultv1alpha1.VaultConnection {
+	connRef := o.adapter.GetConnectionRef()
+	if connRef == "" {
+		return nil
+	}
+	conn := &vaultv1alpha1.VaultConnection{}
+	if err := o.handler.client.Get(ctx, client.ObjectKey{Name: connRef}, conn); err != nil {
+		return nil
+	}
+	return conn
 }
 
 // DetectDrift compares expected vs actual role data in Vault.

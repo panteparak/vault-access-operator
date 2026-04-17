@@ -96,10 +96,13 @@ func (v *VaultPolicyValidator) ValidateCreate(ctx context.Context, policy *vault
 func (v *VaultPolicyValidator) ValidateUpdate(ctx context.Context, oldPolicy, policy *vaultv1alpha1.VaultPolicy) (admission.Warnings, error) {
 	vaultpolicylog.Info("validating VaultPolicy update", "name", policy.Name, "namespace", policy.Namespace)
 
-	// connectionRef is immutable after creation
+	// connectionRef may only change when both connections point at the same
+	// Vault instance (spec.address). Different addresses would move the policy
+	// to a different Vault and silently orphan the original.
 	if oldPolicy.Spec.ConnectionRef != policy.Spec.ConnectionRef {
-		return nil, fmt.Errorf("spec.connectionRef is immutable (was %q, attempted %q)",
-			oldPolicy.Spec.ConnectionRef, policy.Spec.ConnectionRef)
+		if err := v.checkConnectionRefSameAddress(ctx, oldPolicy.Spec.ConnectionRef, policy.Spec.ConnectionRef); err != nil {
+			return nil, err
+		}
 	}
 
 	return v.validateVaultPolicy(policy)
@@ -158,10 +161,12 @@ func (v *VaultClusterPolicyValidator) ValidateCreate(ctx context.Context, policy
 func (v *VaultClusterPolicyValidator) ValidateUpdate(ctx context.Context, oldPolicy, policy *vaultv1alpha1.VaultClusterPolicy) (admission.Warnings, error) {
 	vaultpolicylog.Info("validating VaultClusterPolicy update", "name", policy.Name)
 
-	// connectionRef is immutable after creation
+	// connectionRef may only change when both connections point at the same
+	// Vault instance (spec.address). See VaultPolicy ValidateUpdate for rationale.
 	if oldPolicy.Spec.ConnectionRef != policy.Spec.ConnectionRef {
-		return nil, fmt.Errorf("spec.connectionRef is immutable (was %q, attempted %q)",
-			oldPolicy.Spec.ConnectionRef, policy.Spec.ConnectionRef)
+		if err := checkConnectionRefSameAddress(ctx, v.client, oldPolicy.Spec.ConnectionRef, policy.Spec.ConnectionRef); err != nil {
+			return nil, err
+		}
 	}
 
 	return v.validateVaultClusterPolicy(policy)
@@ -300,6 +305,41 @@ func ValidateCapability(cap vaultv1alpha1.Capability) error {
 // IsValidCapability checks if a capability is valid
 func IsValidCapability(cap vaultv1alpha1.Capability) bool {
 	return validCapabilities[cap]
+}
+
+// checkConnectionRefSameAddress is the VaultPolicyValidator method form.
+func (v *VaultPolicyValidator) checkConnectionRefSameAddress(ctx context.Context, oldRef, newRef string) error {
+	return checkConnectionRefSameAddress(ctx, v.client, oldRef, newRef)
+}
+
+// checkConnectionRefSameAddress allows a connectionRef change only when both
+// the old and new VaultConnections resolve to the same spec.address. When one
+// or both connections can't be fetched, we err on the side of the existing
+// immutability behaviour and reject the change.
+func checkConnectionRefSameAddress(ctx context.Context, c client.Client, oldRef, newRef string) error {
+	if c == nil {
+		// Without a client we can't compare addresses — preserve the old
+		// immutability semantic to avoid silent migrations across Vault instances.
+		return fmt.Errorf("spec.connectionRef is immutable (was %q, attempted %q)", oldRef, newRef)
+	}
+
+	oldConn := &vaultv1alpha1.VaultConnection{}
+	if err := c.Get(ctx, types.NamespacedName{Name: oldRef}, oldConn); err != nil {
+		return fmt.Errorf("spec.connectionRef change rejected: cannot resolve previous VaultConnection %q: %w", oldRef, err)
+	}
+	newConn := &vaultv1alpha1.VaultConnection{}
+	if err := c.Get(ctx, types.NamespacedName{Name: newRef}, newConn); err != nil {
+		return fmt.Errorf("spec.connectionRef change rejected: cannot resolve new VaultConnection %q: %w", newRef, err)
+	}
+
+	if oldConn.Spec.Address != newConn.Spec.Address {
+		return fmt.Errorf(
+			"spec.connectionRef change rejected: VaultConnection %q (address %q) and %q (address %q) target different Vault instances",
+			oldRef, oldConn.Spec.Address, newRef, newConn.Spec.Address,
+		)
+	}
+
+	return nil
 }
 
 // checkPolicyNameCollision checks if a VaultClusterPolicy exists that would create a naming collision

@@ -164,6 +164,8 @@ func (h *Handler) shouldAdopt(adapter domain.RoleAdapter) bool {
 // detectRoleDrift compares the expected role data with the current Vault role.
 // Returns whether drift was detected and a summary of differing fields.
 // Uses the shared drift.Comparator for consistent field comparison.
+// Branches on the auth backend so JWT and k8s-auth roles compare only fields
+// they each actually set.
 func (h *Handler) detectRoleDrift(
 	ctx context.Context,
 	vaultClient *vault.Client,
@@ -181,15 +183,14 @@ func (h *Handler) detectRoleDrift(
 		return false, ""
 	}
 
-	// Use shared drift comparator for consistent field comparison
 	comparator := drift.NewComparator()
 
-	// Compare string slice fields (order-independent)
-	comparator.CompareStringSlices("policies", expectedData["policies"], currentData["policies"])
-	comparator.CompareStringSlices("bound_service_account_names",
-		expectedData["bound_service_account_names"], currentData["bound_service_account_names"])
-	comparator.CompareStringSlices("bound_service_account_namespaces",
-		expectedData["bound_service_account_namespaces"], currentData["bound_service_account_namespaces"])
+	switch vault.AuthBackendForPath(authPath) {
+	case vault.AuthBackendJWT:
+		compareJWTRoleFields(comparator, expectedData, currentData)
+	default:
+		compareKubernetesRoleFields(comparator, expectedData, currentData)
+	}
 
 	// Compare optional TTL fields (only if expected is set).
 	// Vault normalizes Go duration strings (e.g. "30s") to integer seconds (30),
@@ -201,6 +202,36 @@ func (h *Handler) detectRoleDrift(
 
 	result := comparator.Result()
 	return result.HasDrift, result.Summary
+}
+
+// compareKubernetesRoleFields compares k8s-auth-specific role fields.
+func compareKubernetesRoleFields(c *drift.Comparator, expected, current map[string]interface{}) {
+	c.CompareStringSlices("policies", expected["policies"], current["policies"])
+	c.CompareStringSlices("bound_service_account_names",
+		expected["bound_service_account_names"], current["bound_service_account_names"])
+	c.CompareStringSlices("bound_service_account_namespaces",
+		expected["bound_service_account_namespaces"], current["bound_service_account_namespaces"])
+}
+
+// compareJWTRoleFields compares JWT-auth-specific role fields.
+// Vault may return `token_policies` instead of `policies` for newer role versions,
+// so we fall back to `token_policies` when `policies` is missing.
+func compareJWTRoleFields(c *drift.Comparator, expected, current map[string]interface{}) {
+	currentPolicies := current["policies"]
+	if currentPolicies == nil {
+		currentPolicies = current["token_policies"]
+	}
+	c.CompareStringSlices("policies", expected["policies"], currentPolicies)
+	c.CompareStringSlices("bound_audiences",
+		expected["bound_audiences"], current["bound_audiences"])
+	c.CompareValuesIfExpected("role_type", expected["role_type"], current["role_type"])
+	c.CompareValuesIfExpected("user_claim", expected["user_claim"], current["user_claim"])
+	if _, hasClaims := expected["bound_claims"]; hasClaims {
+		c.CompareValues("bound_claims", expected["bound_claims"], current["bound_claims"])
+	} else {
+		c.CompareValuesIfExpected("bound_subject",
+			expected["bound_subject"], current["bound_subject"])
+	}
 }
 
 // buildPolicyBindings creates PolicyBinding entries for tracking.
@@ -315,8 +346,34 @@ func (h *Handler) resolvePolicyNames(_ context.Context, adapter domain.RoleAdapt
 	return policyNames, nil
 }
 
-// buildRoleData constructs the data map for the Kubernetes auth role.
+// buildRoleData constructs the data map for the Vault role write.
+// Branches on the auth backend indicated by adapter.GetAuthPath().
+//
+// For k8s-auth mounts, the connection argument may be nil.
+// For JWT mounts, the connection is consulted for default audiences and may
+// still be nil — a cluster-default audience is used as fallback.
 func (h *Handler) buildRoleData(
+	adapter domain.RoleAdapter,
+	policyNames []string,
+	serviceAccountBindings []string,
+	connection *vaultv1alpha1.VaultConnection,
+) (map[string]interface{}, error) {
+	backend := vault.AuthBackendForPath(adapter.GetAuthPath())
+	switch backend {
+	case vault.AuthBackendKubernetes:
+		return h.buildKubernetesRoleData(adapter, policyNames, serviceAccountBindings), nil
+	case vault.AuthBackendJWT:
+		return h.buildJWTRoleData(adapter, policyNames, serviceAccountBindings, connection)
+	default:
+		return nil, infraerrors.NewValidationError(
+			"authPath", adapter.GetAuthPath(),
+			"unsupported auth backend: only auth/kubernetes and auth/jwt are implemented",
+		)
+	}
+}
+
+// buildKubernetesRoleData constructs the payload for a Kubernetes auth role.
+func (h *Handler) buildKubernetesRoleData(
 	adapter domain.RoleAdapter,
 	policyNames []string,
 	serviceAccountBindings []string,
@@ -359,6 +416,122 @@ func (h *Handler) buildRoleData(
 	}
 
 	return data
+}
+
+// defaultJWTAudience is used when no VaultConnection-level audiences are
+// available — the operator's own in-cluster SA token issuer.
+const defaultJWTAudience = "https://kubernetes.default.svc.cluster.local"
+
+// buildJWTRoleData constructs the payload for a Vault JWT auth role.
+// Derives role_type, user_claim and bound_subject from the spec when the
+// optional jwt sub-object does not override them.
+func (h *Handler) buildJWTRoleData(
+	adapter domain.RoleAdapter,
+	policyNames []string,
+	serviceAccountBindings []string,
+	connection *vaultv1alpha1.VaultConnection,
+) (map[string]interface{}, error) {
+	jwtSpec := adapter.GetJWT()
+	if jwtSpec == nil {
+		jwtSpec = &vaultv1alpha1.VaultRoleJWTSpec{}
+	}
+
+	roleType := jwtSpec.RoleType
+	if roleType == "" {
+		roleType = "jwt"
+	}
+
+	userClaim := jwtSpec.UserClaim
+	if userClaim == "" {
+		userClaim = "sub"
+	}
+
+	audiences := jwtSpec.BoundAudiences
+	if len(audiences) == 0 {
+		audiences = defaultJWTAudiences(connection)
+	}
+
+	data := map[string]interface{}{
+		"role_type":       roleType,
+		"user_claim":      userClaim,
+		"bound_audiences": audiences,
+		"policies":        policyNames,
+	}
+
+	if len(jwtSpec.BoundClaims) > 0 {
+		// Cast map[string]string to map[string]interface{} for Vault API.
+		claims := make(map[string]interface{}, len(jwtSpec.BoundClaims))
+		for k, v := range jwtSpec.BoundClaims {
+			claims[k] = v
+		}
+		data["bound_claims"] = claims
+	} else {
+		subject, err := resolveJWTBoundSubject(adapter, jwtSpec, serviceAccountBindings)
+		if err != nil {
+			return nil, err
+		}
+		data["bound_subject"] = subject
+	}
+
+	if ttl := adapter.GetTokenTTL(); ttl != "" {
+		data["token_ttl"] = ttl
+	}
+	if maxTTL := adapter.GetTokenMaxTTL(); maxTTL != "" {
+		data["token_max_ttl"] = maxTTL
+	}
+
+	return data, nil
+}
+
+// resolveJWTBoundSubject returns either the explicit override, or derives
+// "system:serviceaccount:<ns>:<sa>" from the first service account binding.
+// Rejects multi-SA specs that don't provide an explicit override — bound_subject
+// only holds a single value.
+func resolveJWTBoundSubject(
+	adapter domain.RoleAdapter,
+	jwtSpec *vaultv1alpha1.VaultRoleJWTSpec,
+	serviceAccountBindings []string,
+) (string, error) {
+	if jwtSpec.BoundSubject != "" {
+		return jwtSpec.BoundSubject, nil
+	}
+	if len(serviceAccountBindings) == 0 {
+		return "", infraerrors.NewValidationError(
+			"serviceAccounts", "",
+			"at least one service account is required to derive jwt bound_subject",
+		)
+	}
+	if len(serviceAccountBindings) > 1 {
+		return "", infraerrors.NewValidationError(
+			"serviceAccounts", fmt.Sprintf("%d entries", len(serviceAccountBindings)),
+			"JWT VaultRole with more than one serviceAccount must set "+
+				"spec.jwt.boundSubject or spec.jwt.boundClaims explicitly",
+		)
+	}
+	parts := strings.SplitN(serviceAccountBindings[0], "/", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return "", infraerrors.NewValidationError(
+			"serviceAccounts", serviceAccountBindings[0],
+			"service account binding must be in namespace/name format",
+		)
+	}
+	// Unused when the binding itself is well-formed — reference to silence linters
+	// when adapter is otherwise unused here.
+	_ = adapter
+	return fmt.Sprintf("system:serviceaccount:%s:%s", parts[0], parts[1]), nil
+}
+
+// defaultJWTAudiences returns the fallback audiences for a JWT role when
+// the spec does not set bound_audiences explicitly. Prefers the referenced
+// VaultConnection's JWT auth audiences when available; otherwise falls back
+// to the in-cluster SA token issuer.
+func defaultJWTAudiences(connection *vaultv1alpha1.VaultConnection) []string {
+	if connection != nil && connection.Spec.Auth.JWT != nil && len(connection.Spec.Auth.JWT.Audiences) > 0 {
+		audiences := make([]string, len(connection.Spec.Auth.JWT.Audiences))
+		copy(audiences, connection.Spec.Auth.JWT.Audiences)
+		return audiences
+	}
+	return []string{defaultJWTAudience}
 }
 
 // normalizeTTLToSeconds converts a Go duration string (e.g. "30s", "5m", "1h")
