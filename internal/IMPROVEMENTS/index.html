@@ -1005,10 +1005,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#17-normalizehcl-is-whitespace-only-doesnt-handle-comments-reordering" class="md-nav__link">
+  <a href="#17-normalizehcl-strips-comments-collapses-whitespace-resolved-partial" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🟡 17. normalizeHCL is whitespace-only, doesn't handle comments / reordering
+        ✅ 17. normalizeHCL strips comments + collapses whitespace — RESOLVED (partial)
       
     </span>
   </a>
@@ -1849,8 +1849,27 @@ Catches mismatches at compile time.</p>
 - Standardized status-update patterns</p>
 <p>Mark this as intentional in a comment, so future maintainers don't feel pressure to unify.</p>
 <hr />
-<h2 id="17-normalizehcl-is-whitespace-only-doesnt-handle-comments-reordering">🟡 17. <code>normalizeHCL</code> is whitespace-only, doesn't handle comments / reordering<a class="headerlink" href="#17-normalizehcl-is-whitespace-only-doesnt-handle-comments-reordering" title="Permanent link">&para;</a></h2>
-<p><strong>Evidence:</strong> <a href="../../features/policy/controller/handler.go:235">policy/controller/handler.go:235-245</a>:</p>
+<h2 id="17-normalizehcl-strips-comments-collapses-whitespace-resolved-partial">✅ 17. <code>normalizeHCL</code> strips comments + collapses whitespace — RESOLVED (partial)<a class="headerlink" href="#17-normalizehcl-strips-comments-collapses-whitespace-resolved-partial" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p><strong>Status</strong>: The user-reported pain ("adding <code># managed by ops</code> in the Vault UI trips drift every reconcile") is fixed. <code>normalizeHCL</code> now:
+- Strips line comments (<code>#…</code> and <code>//…</code>).
+- Strips block comments (<code>/* … */</code> but only if a matching <code>*/</code> exists — otherwise treats <code>/*</code> as part of a path glob like <code>secret/*</code>).
+- Collapses runs of whitespace within a line to a single space.
+- Drops empty lines.</p>
+<p><strong>Explicitly NOT fixed in this pass</strong> (deferred to a future HCL-AST-walk refactor using <code>github.com/hashicorp/hcl/v2</code>):
+- Rule reordering (two policies with <code>path</code> blocks in a different order still compare unequal).
+- Capability-list reordering within a rule.</p>
+<p>These residual false positives are manageable because the operator-generated HCL comes from a deterministic <code>GeneratePolicyHCL</code> codepath.</p>
+<p><strong>Tests</strong>: <code>features/policy/controller/normalize_hcl_test.go</code>:
+- <code>TestNormalizeHCL_StripsHumanAddedComments</code> — 4 sub-cases (line, slash, block, inline) all equal generated.
+- <code>TestNormalizeHCL_PreservesPathGlobs</code> — regression test for <code>secret/*</code> path globs (the bug I introduced and caught during implementation; requires a matched <code>*/</code> before treating <code>/*</code> as a comment start).
+- <code>TestNormalizeHCL_CollapsesWhitespace</code> — multi-space + tabs.
+- <code>TestNormalizeHCL_StillDetectsSemanticDifferences</code> — negative test so real differences don't get normalized away.</p>
+</blockquote>
+<details><summary>Original finding (kept for history)</summary>
+
+**Evidence:** [policy/controller/handler.go:235-245](../../features/policy/controller/handler.go:235):
+
 <div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">h</span><span class="w"> </span><span class="o">*</span><span class="nx">Handler</span><span class="p">)</span><span class="w"> </span><span class="nx">normalizeHCL</span><span class="p">(</span><span class="nx">hcl</span><span class="w"> </span><span class="kt">string</span><span class="p">)</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="p">{</span>
 <a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a><span class="w">    </span><span class="nx">lines</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">strings</span><span class="p">.</span><span class="nx">Split</span><span class="p">(</span><span class="nx">hcl</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;\n&quot;</span><span class="p">)</span>
 <a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a><span class="w">    </span><span class="o">...</span>
@@ -1861,10 +1880,14 @@ Catches mismatches at compile time.</p>
 <a id="__codelineno-17-8" name="__codelineno-17-8" href="#__codelineno-17-8"></a><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="nx">strings</span><span class="p">.</span><span class="nx">Join</span><span class="p">(</span><span class="nx">normalized</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;\n&quot;</span><span class="p">)</span>
 <a id="__codelineno-17-9" name="__codelineno-17-9" href="#__codelineno-17-9"></a><span class="p">}</span>
 </code></pre></div>
-<p><strong>Impact:</strong>
-- A user manually adding a comment in Vault's HCL (<code># managed by ops team</code>) trips drift detection every reconcile.
-- Reordered rules (semantically equivalent) trip drift.</p>
-<p><strong>Fix:</strong> Parse HCL semantically, compare canonical trees. <code>github.com/hashicorp/hcl/v2</code> already in <code>go.sum</code>. Normalize rules into a set of <code>(path, capabilities, params)</code> tuples, sort, hash.</p>
+
+**Impact:**
+- A user manually adding a comment in Vault's HCL (`# managed by ops team`) trips drift detection every reconcile.
+- Reordered rules (semantically equivalent) trip drift.
+
+**Fix:** Parse HCL semantically, compare canonical trees. `github.com/hashicorp/hcl/v2` already in `go.sum`. Normalize rules into a set of `(path, capabilities, params)` tuples, sort, hash.
+</details>
+
 <hr />
 <h2 id="18-phase-string-vs-typed-enum-inconsistency-in-status-updates">🟡 18. <code>Phase</code> string vs typed enum inconsistency in status updates<a class="headerlink" href="#18-phase-string-vs-typed-enum-inconsistency-in-status-updates" title="Permanent link">&para;</a></h2>
 <p><strong>Evidence:</strong> most code uses <code>vaultv1alpha1.PhaseSyncing</code> constant, but some string literal <code>"Syncing"</code> usages exist in tests and the cleanup workflow hardcodes <code>PhaseDeleting</code>.</p>
