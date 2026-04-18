@@ -906,10 +906,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#8-connection-webhook-missing" class="md-nav__link">
+  <a href="#8-connection-webhook-resolved" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🟠 8. Connection webhook missing
+        ✅ 8. Connection webhook — RESOLVED
       
     </span>
   </a>
@@ -1682,16 +1682,34 @@ Plus: emit per-discovered-resource **K8s events** (already done for the aggregat
 2. Add webhook validation that rejects <code>authPath</code> not in the supported set with a clear message.
 3. Plan incremental backend support — start with AppRole roles, then JWT is already done, then cloud IAM.</p>
 <hr />
-<h2 id="8-connection-webhook-missing">🟠 8. Connection webhook missing<a class="headerlink" href="#8-connection-webhook-missing" title="Permanent link">&para;</a></h2>
-<p><strong>Evidence:</strong> <a href="../../cmd/main.go:297">cmd/main.go:297-314</a> registers webhooks for <code>VaultPolicy</code>, <code>VaultClusterPolicy</code>, <code>VaultRole</code>, <code>VaultClusterRole</code> — but <strong>not <code>VaultConnection</code></strong>.</p>
-<p><strong>Impact:</strong> Malformed connections (e.g., multiple auth sub-structs set, typos in <code>address</code>, missing required fields for selected backend) only fail at reconcile time with <code>Phase=Error</code>. Users see the error in status, not at <code>kubectl apply</code> time.</p>
-<p><strong>Common mistakes only caught at reconcile:</strong>
-- Both <code>Auth.Bootstrap</code> and <code>Auth.Kubernetes</code> set (both are valid in isolation; the second is used only after bootstrap)
-- <code>Auth.AppRole</code> with no <code>SecretIDRef</code>
-- <code>Auth.OIDC</code> with <code>UseServiceAccountToken=false</code> and no <code>JWTSecretRef</code>
-- <code>address</code> without <code>https://</code> prefix
-- <code>Discovery.Enabled=true</code> with <code>AutoCreateCRs=true</code> but no <code>TargetNamespace</code></p>
-<p><strong>Fix:</strong> Add <code>VaultConnectionValidator</code> under <code>internal/webhook/</code> paralleling the policy/role validators. Validation rules to cover each auth method's required fields, URL format, and discovery prereqs.</p>
+<h2 id="8-connection-webhook-resolved">✅ 8. Connection webhook — RESOLVED<a class="headerlink" href="#8-connection-webhook-resolved" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p><strong>Status</strong>: Fixed. New <code>internal/webhook/vaultconnection_webhook.go</code> adds a <code>VaultConnectionValidator</code>. Wired into <code>cmd/main.go</code> via <code>SetupVaultConnectionWebhookWithManager</code> alongside the other four validators. Rules enforced:
+- Exactly one auth method (except the legal <code>bootstrap + kubernetes</code> transition pair).
+- <code>spec.address</code> is immutable on update (moving to a different Vault would orphan everything).
+- <code>spec.auth.appRole.roleId</code> required when AppRole is selected.
+- <code>spec.auth.oidc</code>: either <code>useServiceAccountToken=true</code> or <code>jwtSecretRef</code> set.
+- <code>spec.discovery.targetNamespace</code> required when <code>autoCreateCRs=true</code>.
+- <code>http://</code> address emits a warning (not rejected — valid for local testing).</p>
+<p><strong>Tests</strong>: 10 subtests in <code>vaultconnection_webhook_test.go</code> across 6 functions. Coverage includes every rule above plus the immutability check.</p>
+</blockquote>
+<details><summary>Original finding (kept for history)</summary>
+
+
+**Evidence:** [cmd/main.go:297-314](../../cmd/main.go:297) registers webhooks for `VaultPolicy`, `VaultClusterPolicy`, `VaultRole`, `VaultClusterRole` — but **not `VaultConnection`**.
+
+**Impact:** Malformed connections (e.g., multiple auth sub-structs set, typos in `address`, missing required fields for selected backend) only fail at reconcile time with `Phase=Error`. Users see the error in status, not at `kubectl apply` time.
+
+**Common mistakes only caught at reconcile:**
+- Both `Auth.Bootstrap` and `Auth.Kubernetes` set (both are valid in isolation; the second is used only after bootstrap)
+- `Auth.AppRole` with no `SecretIDRef`
+- `Auth.OIDC` with `UseServiceAccountToken=false` and no `JWTSecretRef`
+- `address` without `https://` prefix
+- `Discovery.Enabled=true` with `AutoCreateCRs=true` but no `TargetNamespace`
+
+**Fix:** Add `VaultConnectionValidator` under `internal/webhook/` paralleling the policy/role validators. Validation rules to cover each auth method's required fields, URL format, and discovery prereqs.
+</details>
+
 <hr />
 <h2 id="9-dual-reconcilers-on-vaultconnection-status-race-resolved-discovery-side">✅ 9. Dual reconcilers on <code>VaultConnection</code> → status race — RESOLVED (discovery side)<a class="headerlink" href="#9-dual-reconcilers-on-vaultconnection-status-race-resolved-discovery-side" title="Permanent link">&para;</a></h2>
 <blockquote>
