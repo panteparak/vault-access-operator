@@ -983,10 +983,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#15-listdependents-on-list-operations-no-indexing" class="md-nav__link">
+  <a href="#15-listdependents-on-list-operations-resolved" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🟡 15. listDependents O(N) list operations, no indexing
+        ✅ 15. listDependents O(N) list operations — RESOLVED
       
     </span>
   </a>
@@ -1038,10 +1038,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#20-duplicate-resolvepolicynames-logic-between-role-handler-and-binding-package" class="md-nav__link">
+  <a href="#20-duplicate-resolvepolicynames-logic-resolved" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🟡 20. Duplicate resolvePolicyNames logic between role handler and binding package
+        ✅ 20. Duplicate resolvePolicyNames logic — RESOLVED
       
     </span>
   </a>
@@ -1352,10 +1352,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#36-no-connectionref-existence-webhook-check" class="md-nav__link">
+  <a href="#36-no-connectionref-existence-webhook-check-resolved" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🟠 36. No connectionRef existence webhook check
+        ✅ 36. No connectionRef existence webhook check — RESOLVED
       
     </span>
   </a>
@@ -1772,16 +1772,27 @@ Catches mismatches at compile time.</p>
 <p>Other annotation keys use constants from <code>api/v1alpha1</code> (e.g., <code>AnnotationAdopt</code>, <code>AnnotationDiscovered</code>). Only this one is a raw string.</p>
 <p><strong>Fix:</strong> Add <code>AnnotationDiscoveryPending = "vault.platform.io/discovery-pending"</code> to <a href="../../api/v1alpha1/common_types.go">common_types.go</a> and reference it here + in the discovery auto-create (§4).</p>
 <hr />
-<h2 id="15-listdependents-on-list-operations-no-indexing">🟡 15. <code>listDependents</code> O(N) list operations, no indexing<a class="headerlink" href="#15-listdependents-on-list-operations-no-indexing" title="Permanent link">&para;</a></h2>
-<p><strong>Evidence:</strong> <a href="../../features/connection/controller/handler.go:368">connection/controller/handler.go:368-420</a>: on <strong>every</strong> connection delete, lists all VaultPolicies, VaultClusterPolicies, VaultRoles, VaultClusterRoles cluster-wide, then filters by <code>ConnectionRef == conn.Name</code>.</p>
-<p><strong>Impact:</strong> In a large cluster, 4 full list operations per cleanup. Not hot-path (deletes are rare), but also not scalable if the operator ever manages thousands of CRs.</p>
-<p><strong>Fix:</strong> Use a field index set up in <code>SetupWithManager</code>:
+<h2 id="15-listdependents-on-list-operations-resolved">✅ 15. <code>listDependents</code> O(N) list operations — RESOLVED<a class="headerlink" href="#15-listdependents-on-list-operations-resolved" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p><strong>Status</strong>: Fixed. <code>connection.Reconciler.SetupWithManager</code> now registers a <code>spec.connectionRef</code> field indexer for all four dependent CRD kinds (VaultPolicy, VaultClusterPolicy, VaultRole, VaultClusterRole). <code>Handler.listDependents</code> queries with <code>client.MatchingFields{IndexFieldConnectionRef: name}</code> instead of listing every CR cluster-wide and filtering in Go.</p>
+<p><strong>Tests</strong>: existing Cleanup tests migrated to a shared <code>newClientBuilderWithConnectionRefIndex(scheme)</code> helper that registers the same indexer on fake clients — they now exercise the same query path as production. No behavior regressions.</p>
+</blockquote>
+<details><summary>Original finding (kept for history)</summary>
+
+
+**Evidence:** [connection/controller/handler.go:368-420](../../features/connection/controller/handler.go:368): on **every** connection delete, lists all VaultPolicies, VaultClusterPolicies, VaultRoles, VaultClusterRoles cluster-wide, then filters by `ConnectionRef == conn.Name`.
+
+**Impact:** In a large cluster, 4 full list operations per cleanup. Not hot-path (deletes are rare), but also not scalable if the operator ever manages thousands of CRs.
+
+**Fix:** Use a field index set up in `SetupWithManager`:
 <div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="nx">mgr</span><span class="p">.</span><span class="nx">GetFieldIndexer</span><span class="p">().</span><span class="nx">IndexField</span><span class="p">(</span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">VaultPolicy</span><span class="p">{},</span><span class="w"> </span><span class="s">&quot;spec.connectionRef&quot;</span><span class="p">,</span><span class="w"> </span><span class="kd">func</span><span class="p">(</span><span class="nx">obj</span><span class="w"> </span><span class="nx">client</span><span class="p">.</span><span class="nx">Object</span><span class="p">)</span><span class="w"> </span><span class="p">[]</span><span class="kt">string</span><span class="w"> </span><span class="p">{</span>
 <a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="p">[]</span><span class="kt">string</span><span class="p">{</span><span class="nx">obj</span><span class="p">.(</span><span class="o">*</span><span class="nx">VaultPolicy</span><span class="p">).</span><span class="nx">Spec</span><span class="p">.</span><span class="nx">ConnectionRef</span><span class="p">}</span>
 <a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a><span class="p">})</span>
 <a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a><span class="c1">// Then at cleanup:</span>
 <a id="__codelineno-16-5" name="__codelineno-16-5" href="#__codelineno-16-5"></a><span class="nx">mgr</span><span class="p">.</span><span class="nx">GetClient</span><span class="p">().</span><span class="nx">List</span><span class="p">(</span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">list</span><span class="p">,</span><span class="w"> </span><span class="nx">client</span><span class="p">.</span><span class="nx">MatchingFields</span><span class="p">{</span><span class="s">&quot;spec.connectionRef&quot;</span><span class="p">:</span><span class="w"> </span><span class="nx">conn</span><span class="p">.</span><span class="nx">Name</span><span class="p">})</span>
-</code></pre></div></p>
+</code></pre></div>
+</details>
+
 <hr />
 <h2 id="16-connection-handler-doesnt-use-the-shared-workflow">🟡 16. Connection handler doesn't use the shared workflow<a class="headerlink" href="#16-connection-handler-doesnt-use-the-shared-workflow" title="Permanent link">&para;</a></h2>
 <p><strong>Evidence:</strong> <a href="../FLOW_CONNECTION/#divergence-from-other-flows">FLOW_CONNECTION.md §Divergence</a></p>
@@ -1829,12 +1840,23 @@ Catches mismatches at compile time.</p>
 1. Docs: add an example recipe for multi-SA JWT roles using <code>bound_claims: { "kubernetes.io/serviceaccount/name": ["sa1", "sa2"] }</code>.
 2. Consider auto-synthesizing <code>bound_claims</code> when multiple SAs are given and the user hasn't set <code>bound_subject</code> or <code>bound_claims</code> explicitly.</p>
 <hr />
-<h2 id="20-duplicate-resolvepolicynames-logic-between-role-handler-and-binding-package">🟡 20. Duplicate <code>resolvePolicyNames</code> logic between role handler and binding package<a class="headerlink" href="#20-duplicate-resolvepolicynames-logic-between-role-handler-and-binding-package" title="Permanent link">&para;</a></h2>
-<p><strong>Evidence:</strong>
-- <a href="../../features/role/controller/handler.go:307">role/controller/handler.go:307-347</a> <code>resolvePolicyNames</code>
-- <a href="../../shared/controller/binding/paths.go">shared/controller/binding/paths.go</a> has <code>VaultPolicyName(ref, namespace)</code> — the same logic inline</p>
-<p><strong>Impact:</strong> Two sources of truth for "given a <code>PolicyReference</code>, what's the Vault name?"</p>
-<p><strong>Fix:</strong> Delete the role-handler inline version, call <code>binding.VaultPolicyName</code> everywhere.</p>
+<h2 id="20-duplicate-resolvepolicynames-logic-resolved">✅ 20. Duplicate <code>resolvePolicyNames</code> logic — RESOLVED<a class="headerlink" href="#20-duplicate-resolvepolicynames-logic-resolved" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p><strong>Status</strong>: Fixed. <code>role.Handler.resolvePolicyNames</code> now delegates the actual name mapping to <code>binding.VaultPolicyName</code> and only keeps the role-feature-specific validation (unknown kind, namespace required on cluster role). Single source of truth for "given a PolicyReference, what's the Vault policy name?".</p>
+<p><strong>Tests</strong>: existing role handler unit tests continue to pass — they exercise the validation layer that still lives in the handler. The delegated-to mapping is covered by <code>shared/controller/binding</code> tests.</p>
+</blockquote>
+<details><summary>Original finding (kept for history)</summary>
+
+
+**Evidence:**
+- [role/controller/handler.go:307-347](../../features/role/controller/handler.go:307) `resolvePolicyNames`
+- [shared/controller/binding/paths.go](../../shared/controller/binding/paths.go) has `VaultPolicyName(ref, namespace)` — the same logic inline
+
+**Impact:** Two sources of truth for "given a `PolicyReference`, what's the Vault name?"
+
+**Fix:** Delete the role-handler inline version, call `binding.VaultPolicyName` everywhere.
+</details>
+
 <hr />
 <h2 id="21-inconsistent-logger-name-scoping">🟢 21. Inconsistent logger-name scoping<a class="headerlink" href="#21-inconsistent-logger-name-scoping" title="Permanent link">&para;</a></h2>
 <p><strong>Evidence:</strong>
@@ -2045,10 +2067,21 @@ Keep `/healthz` as the trivial ping (liveness = pod-level restart trigger).
 </details>
 
 <hr />
-<h2 id="36-no-connectionref-existence-webhook-check">🟠 36. No <code>connectionRef</code> existence webhook check<a class="headerlink" href="#36-no-connectionref-existence-webhook-check" title="Permanent link">&para;</a></h2>
-<p><strong>Evidence:</strong> Webhooks validate policy/role spec shape and inter-CR naming collisions, but don't verify the referenced <code>VaultConnection</code> actually exists.</p>
-<p><strong>Impact:</strong> Users can <code>kubectl apply</code> a <code>VaultPolicy</code> referencing a nonexistent <code>VaultConnection</code>. It will be accepted, then fail at the next reconcile with <code>DependencyError → ConnectionNotReady</code>. The user sees the error in status, not at apply time.</p>
-<p><strong>Fix:</strong> Add a dependency check similar to <code>checkPolicyDependencies</code> (<a href="../../internal/webhook/vaultrole_webhook.go:173">vaultrole_webhook.go:173</a>) but emitting a <strong>warning</strong> (not an error — the connection might be applied in the same kubectl command with ordering issues).</p>
+<h2 id="36-no-connectionref-existence-webhook-check-resolved">✅ 36. No <code>connectionRef</code> existence webhook check — RESOLVED<a class="headerlink" href="#36-no-connectionref-existence-webhook-check-resolved" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p><strong>Status</strong>: Fixed. Added <code>checkConnectionRefExists</code> helper in <code>internal/webhook/connectionref_check.go</code>. Wired into all four policy/role validators (<code>ValidateCreate</code> for policy + cluster policy, <code>validateWithContext</code> for role + cluster role). Emits a <strong>warning</strong>, not an error — users applying a batch that includes both the connection and the dependent resource shouldn't be blocked by apply ordering.</p>
+<p><strong>Tests</strong>: <code>connectionref_check_test.go</code> covers the 4 code paths (nil client, empty ref, existing, missing). <code>TestVaultPolicyValidator_WarnsOnMissingConnection</code> is the policy-side end-to-end assertion.</p>
+</blockquote>
+<details><summary>Original finding (kept for history)</summary>
+
+
+**Evidence:** Webhooks validate policy/role spec shape and inter-CR naming collisions, but don't verify the referenced `VaultConnection` actually exists.
+
+**Impact:** Users can `kubectl apply` a `VaultPolicy` referencing a nonexistent `VaultConnection`. It will be accepted, then fail at the next reconcile with `DependencyError → ConnectionNotReady`. The user sees the error in status, not at apply time.
+
+**Fix:** Add a dependency check similar to `checkPolicyDependencies` ([vaultrole_webhook.go:173](../../internal/webhook/vaultrole_webhook.go:173)) but emitting a **warning** (not an error — the connection might be applied in the same kubectl command with ordering issues).
+</details>
+
 <hr />
 <h2 id="priority-ranking-if-you-can-only-fix-7">Priority Ranking (if you can only fix 7)<a class="headerlink" href="#priority-ranking-if-you-can-only-fix-7" title="Permanent link">&para;</a></h2>
 <table>
