@@ -1297,10 +1297,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#31-dead-metrics-registered-but-never-emitted" class="md-nav__link">
+  <a href="#31-dead-metrics-registered-but-never-emitted-resolved" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🟠 31. Dead metrics — registered but never emitted
+        ✅ 31. Dead metrics — registered but never emitted — RESOLVED
       
     </span>
   </a>
@@ -1308,10 +1308,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#32-undocumented-shutdown-drain-timeout" class="md-nav__link">
+  <a href="#32-undocumented-shutdown-drain-timeout-resolved" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🟠 32. Undocumented shutdown drain timeout
+        ✅ 32. Undocumented shutdown drain timeout — RESOLVED
       
     </span>
   </a>
@@ -1319,10 +1319,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#33-health-probes-are-trivial-pings" class="md-nav__link">
+  <a href="#33-health-probes-are-trivial-pings-resolved" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🟠 33. Health probes are trivial pings
+        ✅ 33. Health probes are trivial pings — RESOLVED
       
     </span>
   </a>
@@ -1341,10 +1341,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#35-connectionphasechangedpredicate-fan-out-on-health-check-changes" class="md-nav__link">
+  <a href="#35-connectionphasechangedpredicate-fan-out-on-health-check-changes-incorrect-finding" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🟠 35. ConnectionPhaseChangedPredicate fan-out on health-check changes
+        ❌ 35. ConnectionPhaseChangedPredicate fan-out on health-check changes — INCORRECT FINDING
       
     </span>
   </a>
@@ -1907,46 +1907,80 @@ Types declared but never published: <code>ConnectionHealthChanged</code>, <code>
 </code></pre></div>
 Replace raw strings with constants.</p>
 <hr />
-<h2 id="31-dead-metrics-registered-but-never-emitted">🟠 31. Dead metrics — registered but never emitted<a class="headerlink" href="#31-dead-metrics-registered-but-never-emitted" title="Permanent link">&para;</a></h2>
-<p><strong>Evidence:</strong>
-- <code>PolicyReconcileTotal</code> at <a href="../../pkg/metrics/metrics.go:67">metrics.go:67</a>, helper <code>IncrementPolicyReconcile</code> at <a href="../../pkg/metrics/metrics.go:232">metrics.go:232</a> — <strong>never called</strong> outside test code (verified by grep).
-- <code>RoleReconcileTotal</code> at <a href="../../pkg/metrics/metrics.go:78">metrics.go:78</a>, helper <code>IncrementRoleReconcile</code> at <a href="../../pkg/metrics/metrics.go:241">metrics.go:241</a> — same.
-- <code>AdoptionTotal</code> at <a href="../../pkg/metrics/metrics.go:155">metrics.go:155</a>, helper <code>IncrementAdoption</code> at <a href="../../pkg/metrics/metrics.go:288">metrics.go:288</a> — same.</p>
-<p>3 of 14 metrics are registered series that always read as zero (no value ever observed). Another 3 (<code>OrphanedResourcesGauge</code>, <code>CleanupQueueSizeGauge</code>, <code>CleanupRetriesTotal</code>) are emitted only from the unwired cleanup/orphan controllers (§1) — so zero in practice.</p>
-<p><strong>Impact:</strong>
+<h2 id="31-dead-metrics-registered-but-never-emitted-resolved">✅ 31. Dead metrics — registered but never emitted — RESOLVED<a class="headerlink" href="#31-dead-metrics-registered-but-never-emitted-resolved" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p><strong>Status</strong>: Fixed. Wired emission for all three previously-dead metrics:
+- <code>policy_reconcile_total{kind, namespace, result}</code> — emitted from both <code>PolicyReconciler.Reconcile</code> and <code>ClusterPolicyReconciler.Reconcile</code> after the BaseReconciler call.
+- <code>role_reconcile_total{kind, namespace, result}</code> — same pattern in role + clusterrole reconcilers.
+- <code>discovery_adoptions_total{kind, namespace, result}</code> — emitted at both adopt paths in <code>policy.Handler.checkConflict</code> and <code>role.Handler.checkConflict</code> (success-only; conflict-blocked is not an adoption attempt).</p>
+<p><strong>Tests</strong>: <code>features/{policy,role}/controller/reconciler_metrics_test.go</code> cover both reconcile metric emission (NotFound success path) and the helper <code>kindForMetric</code>/<code>roleKindForMetric</code> mapping that distinguishes namespaced from cluster-scoped variants.</p>
+</blockquote>
+<details><summary>Original finding (kept for history)</summary>
+
+
+**Evidence:**
+- `PolicyReconcileTotal` at [metrics.go:67](../../pkg/metrics/metrics.go:67), helper `IncrementPolicyReconcile` at [metrics.go:232](../../pkg/metrics/metrics.go:232) — **never called** outside test code (verified by grep).
+- `RoleReconcileTotal` at [metrics.go:78](../../pkg/metrics/metrics.go:78), helper `IncrementRoleReconcile` at [metrics.go:241](../../pkg/metrics/metrics.go:241) — same.
+- `AdoptionTotal` at [metrics.go:155](../../pkg/metrics/metrics.go:155), helper `IncrementAdoption` at [metrics.go:288](../../pkg/metrics/metrics.go:288) — same.
+
+3 of 14 metrics are registered series that always read as zero (no value ever observed). Another 3 (`OrphanedResourcesGauge`, `CleanupQueueSizeGauge`, `CleanupRetriesTotal`) are emitted only from the unwired cleanup/orphan controllers (§1) — so zero in practice.
+
+**Impact:**
 - Prometheus series exist but are always empty → dashboards built against them show flat lines.
-- Someone reading <code>/metrics</code> sees metric names and assumes instrumentation is present.
-- Alerts based on these metrics never fire.</p>
-<p><strong>Fix:</strong> For each dead metric, either:
-- (a) Add the emission call at the natural site (<code>IncrementPolicyReconcile</code> in <code>BaseReconciler.handleSync</code> post-call; <code>IncrementAdoption</code> in <code>CheckConflict</code> when <code>shouldAdopt</code> path is taken), OR
-- (b) Remove the metric + helper to stop claiming instrumentation that doesn't exist.</p>
+- Someone reading `/metrics` sees metric names and assumes instrumentation is present.
+- Alerts based on these metrics never fire.
+
+**Fix:** For each dead metric, either:
+- (a) Add the emission call at the natural site (`IncrementPolicyReconcile` in `BaseReconciler.handleSync` post-call; `IncrementAdoption` in `CheckConflict` when `shouldAdopt` path is taken), OR
+- (b) Remove the metric + helper to stop claiming instrumentation that doesn't exist.
+</details>
+
 <hr />
-<h2 id="32-undocumented-shutdown-drain-timeout">🟠 32. Undocumented shutdown drain timeout<a class="headerlink" href="#32-undocumented-shutdown-drain-timeout" title="Permanent link">&para;</a></h2>
-<p><strong>Evidence:</strong> <a href="../../cmd/main.go:197">cmd/main.go:197-215</a> constructs <code>ctrl.Manager</code> without setting <code>Options.GracefulShutdownTimeout</code>. Controller-runtime's default is 30 seconds.</p>
-<p><strong>Impact:</strong> On SIGTERM:
-- In-flight <code>Reconcile</code> calls are given the reconcile-scoped context (not the shutdown ctx) — they run to completion unless they check for cancellation themselves.
-- If a long-running operation (e.g., bootstrap under a slow STS endpoint, or a TokenRequest API call against an overloaded kube-apiserver) takes &gt;30s, the manager returns before it finishes. In-flight work aborts mid-write.
-- K8s' default <code>terminationGracePeriodSeconds=30</code> means SIGKILL shortly follows — another 30s after that.</p>
-<p><strong>Fix:</strong>
+<h2 id="32-undocumented-shutdown-drain-timeout-resolved">✅ 32. Undocumented shutdown drain timeout — RESOLVED<a class="headerlink" href="#32-undocumented-shutdown-drain-timeout-resolved" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p><strong>Status</strong>: Fixed. <code>cmd/main.go</code> now sets <code>Options.GracefulShutdownTimeout: ptr.To(2 * time.Minute)</code> explicitly. The default was 30s — too short for slow Vault bootstrap or auth flows on first reconcile. Helm chart's <code>terminationGracePeriodSeconds</code> should be ≥ 150s (already implicit; 30s default leaves no headroom).</p>
+</blockquote>
+<details><summary>Original finding (kept for history)</summary>
+
+
+**Evidence:** [cmd/main.go:197-215](../../cmd/main.go:197) constructs `ctrl.Manager` without setting `Options.GracefulShutdownTimeout`. Controller-runtime's default is 30 seconds.
+
+**Impact:** On SIGTERM:
+- In-flight `Reconcile` calls are given the reconcile-scoped context (not the shutdown ctx) — they run to completion unless they check for cancellation themselves.
+- If a long-running operation (e.g., bootstrap under a slow STS endpoint, or a TokenRequest API call against an overloaded kube-apiserver) takes >30s, the manager returns before it finishes. In-flight work aborts mid-write.
+- K8s' default `terminationGracePeriodSeconds=30` means SIGKILL shortly follows — another 30s after that.
+
+**Fix:**
 <div class="highlight"><pre><span></span><code><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="nx">mgr</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">ctrl</span><span class="p">.</span><span class="nx">NewManager</span><span class="p">(</span><span class="nx">ctrl</span><span class="p">.</span><span class="nx">GetConfigOrDie</span><span class="p">(),</span><span class="w"> </span><span class="nx">ctrl</span><span class="p">.</span><span class="nx">Options</span><span class="p">{</span>
 <a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a><span class="w">    </span><span class="o">...</span>
 <a id="__codelineno-22-3" name="__codelineno-22-3" href="#__codelineno-22-3"></a><span class="w">    </span><span class="nx">GracefulShutdownTimeout</span><span class="p">:</span><span class="w"> </span><span class="nx">ptr</span><span class="p">.</span><span class="nx">To</span><span class="p">(</span><span class="mi">2</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="nx">time</span><span class="p">.</span><span class="nx">Minute</span><span class="p">),</span>
 <a id="__codelineno-22-4" name="__codelineno-22-4" href="#__codelineno-22-4"></a><span class="p">})</span>
 </code></pre></div>
-Plus: document intended drain duration in the Helm chart <code>terminationGracePeriodSeconds</code> (default is K8s' 30s, likely too short for in-flight Vault ops).</p>
+Plus: document intended drain duration in the Helm chart `terminationGracePeriodSeconds` (default is K8s' 30s, likely too short for in-flight Vault ops).
+</details>
+
 <hr />
-<h2 id="33-health-probes-are-trivial-pings">🟠 33. Health probes are trivial pings<a class="headerlink" href="#33-health-probes-are-trivial-pings" title="Permanent link">&para;</a></h2>
-<p><strong>Evidence:</strong> <a href="../../cmd/main.go:333">cmd/main.go:333-340</a>:
+<h2 id="33-health-probes-are-trivial-pings-resolved">✅ 33. Health probes are trivial pings — RESOLVED<a class="headerlink" href="#33-health-probes-are-trivial-pings-resolved" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p><strong>Status</strong>: Fixed. <code>/healthz</code> keeps the trivial <code>Ping</code> (correct for liveness). <code>/readyz</code> now also has an <code>informers-synced</code> check that calls <code>mgr.GetCache().WaitForCacheSync(ctx)</code> with a 2s timeout. Pods with un-synced caches no longer ready-pass and won't receive Service traffic prematurely.</p>
+</blockquote>
+<details><summary>Original finding (kept for history)</summary>
+
+
+**Evidence:** [cmd/main.go:333-340](../../cmd/main.go:333):
 <div class="highlight"><pre><span></span><code><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="nx">mgr</span><span class="p">.</span><span class="nx">AddHealthzCheck</span><span class="p">(</span><span class="s">&quot;healthz&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">healthz</span><span class="p">.</span><span class="nx">Ping</span><span class="p">)</span>
 <a id="__codelineno-23-2" name="__codelineno-23-2" href="#__codelineno-23-2"></a><span class="nx">mgr</span><span class="p">.</span><span class="nx">AddReadyzCheck</span><span class="p">(</span><span class="s">&quot;readyz&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">healthz</span><span class="p">.</span><span class="nx">Ping</span><span class="p">)</span>
 </code></pre></div>
-<code>healthz.Ping</code> always returns <code>nil</code>. It tells you the HTTP server is up. That's it.</p>
-<p><strong>Impact:</strong> A pod with:
+`healthz.Ping` always returns `nil`. It tells you the HTTP server is up. That's it.
+
+**Impact:** A pod with:
 - stuck informer caches (e.g., kube-apiserver connectivity issue),
-- a populated but stale <code>ClientCache</code> (every Vault call failing 403),
-- a leader-elected lease but no reconcile progress,</p>
-<p>will still answer <code>200 OK</code> to <code>/readyz</code>. Service traffic keeps routing to it.</p>
-<p><strong>Fix:</strong> Add informed checks:
+- a populated but stale `ClientCache` (every Vault call failing 403),
+- a leader-elected lease but no reconcile progress,
+
+will still answer `200 OK` to `/readyz`. Service traffic keeps routing to it.
+
+**Fix:** Add informed checks:
 <div class="highlight"><pre><span></span><code><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="nx">mgr</span><span class="p">.</span><span class="nx">AddReadyzCheck</span><span class="p">(</span><span class="s">&quot;informers-synced&quot;</span><span class="p">,</span><span class="w"> </span><span class="kd">func</span><span class="p">(</span><span class="nx">_</span><span class="w"> </span><span class="o">*</span><span class="nx">http</span><span class="p">.</span><span class="nx">Request</span><span class="p">)</span><span class="w"> </span><span class="kt">error</span><span class="w"> </span><span class="p">{</span>
 <a id="__codelineno-24-2" name="__codelineno-24-2" href="#__codelineno-24-2"></a><span class="w">    </span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="nx">cancel</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">WithTimeout</span><span class="p">(</span><span class="nx">context</span><span class="p">.</span><span class="nx">Background</span><span class="p">(),</span><span class="w"> </span><span class="mi">2</span><span class="o">*</span><span class="nx">time</span><span class="p">.</span><span class="nx">Second</span><span class="p">)</span>
 <a id="__codelineno-24-3" name="__codelineno-24-3" href="#__codelineno-24-3"></a><span class="w">    </span><span class="k">defer</span><span class="w"> </span><span class="nx">cancel</span><span class="p">()</span>
@@ -1959,19 +1993,31 @@ Plus: document intended drain duration in the Helm chart <code>terminationGraceP
 <a id="__codelineno-24-10" name="__codelineno-24-10" href="#__codelineno-24-10"></a><span class="c1">// Optional: connection-cache has at least one entry after 2 minutes</span>
 <a id="__codelineno-24-11" name="__codelineno-24-11" href="#__codelineno-24-11"></a><span class="c1">// (skip if no VaultConnections exist, but flag if cache is empty while connections exist)</span>
 </code></pre></div>
-Keep <code>/healthz</code> as the trivial ping (liveness = pod-level restart trigger).</p>
+Keep `/healthz` as the trivial ping (liveness = pod-level restart trigger).
+</details>
+
 <hr />
 <h2 id="34-rbac-aggregates-unwired-controller-permissions">🟡 34. RBAC aggregates unwired-controller permissions<a class="headerlink" href="#34-rbac-aggregates-unwired-controller-permissions" title="Permanent link">&para;</a></h2>
 <p><strong>Evidence:</strong> <a href="../../config/rbac/role.yaml">config/rbac/role.yaml</a> grants verbs that only the cleanup/orphan controllers would need (e.g., Secret writes for the cleanup ConfigMap) — controllers that aren't wired (§1).</p>
 <p><strong>Impact:</strong> Least-privilege audits flag permissions that look excessive for the running feature set. Users operating under strict RBAC policies may want to trim the unused grants, but doing so would break the moment §1 is fixed.</p>
 <p><strong>Fix:</strong> Split RBAC into optional Helm values: <code>rbac.cleanupEnabled=true</code> gates the Secret-write permissions. Keep them off by default until §1 is wired.</p>
 <hr />
-<h2 id="35-connectionphasechangedpredicate-fan-out-on-health-check-changes">🟠 35. <code>ConnectionPhaseChangedPredicate</code> fan-out on health-check changes<a class="headerlink" href="#35-connectionphasechangedpredicate-fan-out-on-health-check-changes" title="Permanent link">&para;</a></h2>
-<p><strong>Evidence:</strong> <a href="../../shared/controller/watches/predicates.go">shared/controller/watches/predicates.go</a> triggers on phase <strong>or</strong> health-check-timestamp change. The connection reconciler writes health status every 30s.</p>
-<p><strong>Impact:</strong> If a connection is unhealthy:
-- Every 30s, the connection controller updates <code>Status.LastHealthCheck</code> → the predicate returns <code>true</code> → all dependent policy/role reconcilers are enqueued → each re-runs its full <code>Sync</code> (which will hit <code>DependencyError</code> and exit, but still burns K8s API calls and log noise).
-- For a cluster with 200 dependent policies + 100 roles referencing an unhealthy connection, that's 300 wasted reconciles every 30s = 10/sec sustained.</p>
-<p><strong>Fix:</strong> Tighten the predicate to trigger only on <code>Phase</code> transition (ignore <code>LastHealthCheck</code>, <code>LastHeartbeat</code>, consecutiveFails updates). The current <code>ConnectionPhaseChangedPredicate</code> name suggests that's the intent, so this is likely a bug.</p>
+<h2 id="35-connectionphasechangedpredicate-fan-out-on-health-check-changes-incorrect-finding">❌ 35. <code>ConnectionPhaseChangedPredicate</code> fan-out on health-check changes — INCORRECT FINDING<a class="headerlink" href="#35-connectionphasechangedpredicate-fan-out-on-health-check-changes-incorrect-finding" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p><strong>Status</strong>: Withdrawn after code re-verification. The predicate at <a href="../../shared/controller/watches/predicates.go:45">shared/controller/watches/predicates.go:45-64</a> only triggers on <code>Status.Phase</code> OR <code>Status.Healthy</code> <em>transitions</em> — not on heartbeat timestamp changes. The existing test <code>TestConnectionPhaseChangedPredicate_Update_NoChange</code> even explicitly covers a "version updated, no phase change" scenario and asserts the predicate returns <code>false</code>. The fan-out storm I claimed in the original doc pass does not occur. Leaving the entry here (struck through) so cross-references stay stable.</p>
+</blockquote>
+<details><summary>Original (incorrect) finding (kept for history)</summary>
+
+
+**Evidence:** [shared/controller/watches/predicates.go](../../shared/controller/watches/predicates.go) triggers on phase **or** health-check-timestamp change. The connection reconciler writes health status every 30s.
+
+**Impact:** If a connection is unhealthy:
+- Every 30s, the connection controller updates `Status.LastHealthCheck` → the predicate returns `true` → all dependent policy/role reconcilers are enqueued → each re-runs its full `Sync` (which will hit `DependencyError` and exit, but still burns K8s API calls and log noise).
+- For a cluster with 200 dependent policies + 100 roles referencing an unhealthy connection, that's 300 wasted reconciles every 30s = 10/sec sustained.
+
+**Fix:** Tighten the predicate to trigger only on `Phase` transition (ignore `LastHealthCheck`, `LastHeartbeat`, consecutiveFails updates). The current `ConnectionPhaseChangedPredicate` name suggests that's the intent, so this is likely a bug.
+</details>
+
 <hr />
 <h2 id="36-no-connectionref-existence-webhook-check">🟠 36. No <code>connectionRef</code> existence webhook check<a class="headerlink" href="#36-no-connectionref-existence-webhook-check" title="Permanent link">&para;</a></h2>
 <p><strong>Evidence:</strong> Webhooks validate policy/role spec shape and inter-CR naming collisions, but don't verify the referenced <code>VaultConnection</code> actually exists.</p>
