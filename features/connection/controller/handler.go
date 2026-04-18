@@ -101,6 +101,17 @@ func NewHandler(cfg HandlerConfig) *Handler {
 
 // Sync synchronizes the VaultConnection with Vault.
 // It handles three phases: bootstrap → transition → production.
+//
+// Design note (IMPROVEMENTS §16): this method deliberately does NOT use
+// `shared/controller/workflow.SyncWorkflow` (which powers Policy/Role
+// reconciliation). That workflow assumes a resource shape of
+// "validate → conflict check → prepare content → write → readback" —
+// steps which don't map onto a VaultConnection whose sync flow is
+// "authenticate → health check → update auth status". Forcing a fit
+// would require heavy per-step parameterization and still leave callers
+// stepping around the connection-specific bootstrap state machine. The
+// duplicated error-handling / status-update shape is intentional and
+// should not be "unified" without revisiting the workflow interface.
 func (h *Handler) Sync(ctx context.Context, conn *vaultv1alpha1.VaultConnection) error {
 	log := logr.FromContextOrDiscard(ctx)
 

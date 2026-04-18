@@ -991,7 +991,7 @@ func TestCalculateHash(t *testing.T) {
 	handler := &Handler{log: logr.Discard()}
 
 	t.Run("same content produces same hash", func(t *testing.T) {
-		content := "path \"secret/*\" { capabilities = [\"read\"] }"
+		content := existingPolicyHCL
 		hash1 := handler.calculateHash(content)
 		hash2 := handler.calculateHash(content)
 
@@ -1001,7 +1001,7 @@ func TestCalculateHash(t *testing.T) {
 	})
 
 	t.Run("different content produces different hash", func(t *testing.T) {
-		content1 := "path \"secret/*\" { capabilities = [\"read\"] }"
+		content1 := existingPolicyHCL
 		content2 := "path \"secret/*\" { capabilities = [\"read\", \"list\"] }"
 		hash1 := handler.calculateHash(content1)
 		hash2 := handler.calculateHash(content2)

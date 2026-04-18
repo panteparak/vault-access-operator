@@ -251,6 +251,13 @@ func main() {
 
 	// Initialize features using Feature-Driven Design
 	// Each feature is a self-contained vertical slice with its own controller, handler, and domain logic
+	//
+	// The four `mgr.GetEventRecorderFor(...) //nolint:staticcheck` below use the v1 events
+	// API (k8s.io/client-go/tools/record). controller-runtime v0.23 deprecated this in favor
+	// of GetEventRecorder, which returns a v1beta1 events.EventRecorder with a different
+	// signature (requires `regarding`, `related`, `action`, `note`). Migrating is a
+	// cross-cutting API change affecting every Event/Eventf call site, so we've deferred it.
+	// See IMPROVEMENTS.md §24 for the full rationale.
 
 	// Connection feature manages VaultConnection resources and provides the shared ClientCache
 	connFeature := connection.New(connection.Config{

@@ -51,9 +51,11 @@ func newPolicyOpsTestHarness(t *testing.T) *policyOpsTestHarness {
 				atomic.AddInt32(&h.readHit, 1)
 			}
 			w.Header().Set("Content-Type", "application/json")
-			// Return placeholder HCL that the normalizer would treat as non-empty
-			// but distinct from anything we'd generate — confirms the skip.
-			_, _ = w.Write([]byte(`{"data":{"rules":"path \"different\" { capabilities = [\"read\"] }"}}`))
+			// Return placeholder HCL under Vault's `data.policy` key (the Go
+			// SDK's GetPolicyWithContext reads from there). The value differs
+			// from anything we'd generate — confirms the skip for the write
+			// test and seeds the DetectDrift scenario with known-divergent text.
+			_, _ = w.Write([]byte(`{"data":{"policy":"path \"different\" { capabilities = [\"read\"] }"}}`))
 		default:
 			w.WriteHeader(http.StatusOK)
 		}
@@ -165,5 +167,58 @@ func TestPolicyOps_ReadbackVerify_RunsWhenAnnotationCleared(t *testing.T) {
 	}
 	if got := atomic.LoadInt32(&h.readHit); got != 1 {
 		t.Errorf("expected 1 readback against Vault, got %d", got)
+	}
+}
+
+// TestPolicyOps_DetectDrift_ProducesDiffPreview verifies IMPROVEMENTS §11:
+// when Vault returns HCL different from what we expect, the drift summary
+// now includes line-level +/- markers (field "rules"), not just the legacy
+// "policy content differs". Operators reading the PolicyDrifted condition
+// see what changed without manually diffing.
+func TestPolicyOps_DetectDrift_ProducesDiffPreview(t *testing.T) {
+	h := newPolicyOpsTestHarness(t)
+	adapter := newPolicyAdapterWithAnnotations(nil)
+	// Harness returns `path "different" { capabilities = ["read"] }` on GET.
+	// Our expected HCL differs in both path and capabilities so the summary
+	// preview exercises both `-` (Vault side) and `+` (expected side) markers.
+	ops := &PolicyOps{
+		adapter: adapter,
+		handler: &Handler{},
+		hcl:     `path "ours" { capabilities = ["list"] }`,
+	}
+
+	drifted, summary := ops.DetectDrift(context.Background(), h.vaultClient(t))
+	if !drifted {
+		t.Fatalf("expected drift; got none (summary=%q)", summary)
+	}
+	if !strings.Contains(summary, "fields differ: rules") {
+		t.Errorf("summary should include field label; got:\n%s", summary)
+	}
+	if !strings.Contains(summary, `- path "different"`) {
+		t.Errorf("summary should include `-` preview of Vault side; got:\n%s", summary)
+	}
+	if !strings.Contains(summary, `+ path "ours"`) {
+		t.Errorf("summary should include `+` preview of expected side; got:\n%s", summary)
+	}
+}
+
+// TestPolicyOps_DetectDrift_NoDriftOnMatch: if normalized HCL matches, no
+// drift and no summary — keeps the happy path unchanged by §11.
+func TestPolicyOps_DetectDrift_NoDriftOnMatch(t *testing.T) {
+	h := newPolicyOpsTestHarness(t)
+	adapter := newPolicyAdapterWithAnnotations(nil)
+	ops := &PolicyOps{
+		adapter: adapter,
+		handler: &Handler{},
+		// Match what the harness returns so normalizeHCL produces the same text.
+		hcl: `path "different" { capabilities = ["read"] }`,
+	}
+
+	drifted, summary := ops.DetectDrift(context.Background(), h.vaultClient(t))
+	if drifted {
+		t.Errorf("expected no drift for matching HCL; got summary=%q", summary)
+	}
+	if summary != "" {
+		t.Errorf("expected empty summary on match; got %q", summary)
 	}
 }

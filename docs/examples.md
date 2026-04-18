@@ -536,7 +536,77 @@ spec:
 **Multi-serviceAccount caveat**: JWT's `bound_subject` holds a single value.
 A JWT VaultRole with more than one `serviceAccount` must set
 `spec.jwt.boundSubject` or `spec.jwt.boundClaims` explicitly, otherwise
-the webhook rejects the resource.
+the webhook rejects the resource. The three supported patterns for a
+multi-SA JWT role are:
+
+#### Pattern A — one VaultRole per ServiceAccount (recommended)
+
+Most explicit; no shared vault role; simplest to reason about. Each role
+issues a distinct Vault token with a distinct alias, so audit logs show
+which SA authenticated.
+
+```yaml
+apiVersion: vault.platform.io/v1alpha1
+kind: VaultRole
+metadata: { name: eso-reader, namespace: my-app }
+spec:
+  connectionRef: vault-jwt
+  authPath: auth/jwt
+  serviceAccounts: [eso-reader]
+  policies:
+    - { kind: VaultPolicy, name: app-secrets-reader }
+---
+apiVersion: vault.platform.io/v1alpha1
+kind: VaultRole
+metadata: { name: eso-writer, namespace: my-app }
+spec:
+  connectionRef: vault-jwt
+  authPath: auth/jwt
+  serviceAccounts: [eso-writer]
+  policies:
+    - { kind: VaultPolicy, name: app-secrets-writer }
+```
+
+#### Pattern B — explicit `boundSubject` to a shared value
+
+If your SAs' JWTs all carry a shared claim (e.g. every pod mounts the
+same SA after a controller swap), set the literal shared `sub` value:
+
+```yaml
+spec:
+  serviceAccounts: [reader-sa, writer-sa]
+  jwt:
+    # Matches tokens whose `sub` equals this exact string.
+    boundSubject: system:serviceaccount:my-app:shared-sa
+```
+
+This only makes sense when your workloads actually share the SA — if
+each SA produces a different `sub`, Vault rejects the mismatched ones.
+
+#### Pattern C — `boundClaims` on a stable identity-token claim
+
+When your IdP issues JWTs with a claim that identifies a team or
+project (not per-SA), match on that instead. Our CRD's
+`boundClaims` is `map[string]string`, so you provide one string per
+claim:
+
+```yaml
+spec:
+  serviceAccounts: [reader-sa, writer-sa]  # informational only; not used in Vault match
+  jwt:
+    boundClaims:
+      # Match any token whose `groups` claim is exactly "platform-team".
+      groups: platform-team
+```
+
+#### Known limitation: list-valued `bound_claims`
+
+Vault's JWT backend natively accepts list-valued `bound_claims` (any
+match wins), e.g. `{"sub": ["sa1", "sa2"]}`. Our CRD schema currently
+models `boundClaims` as `map[string]string` and cannot emit the list
+form. If you need multi-value matching against a single claim, use
+Pattern A (one VaultRole per SA) until the CRD is widened to
+`map[string][]string`. Tracked in [IMPROVEMENTS.md §19](internal/IMPROVEMENTS.md#19-jwt-bound_subject-derivation-is-brittle).
 
 ---
 

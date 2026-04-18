@@ -27,6 +27,7 @@ import (
 	"github.com/panteparak/vault-access-operator/features/policy/domain"
 	"github.com/panteparak/vault-access-operator/pkg/vault"
 	"github.com/panteparak/vault-access-operator/shared/controller/binding"
+	"github.com/panteparak/vault-access-operator/shared/controller/drift"
 	"github.com/panteparak/vault-access-operator/shared/events"
 	infraerrors "github.com/panteparak/vault-access-operator/shared/infrastructure/errors"
 )
@@ -89,7 +90,10 @@ func (o *PolicyOps) PrepareContent(_ context.Context, _ *vault.Client) (string, 
 	return o.handler.calculateHash(o.hcl), nil
 }
 
-// DetectDrift compares expected vs actual HCL content in Vault.
+// DetectDrift compares expected vs actual HCL content in Vault. When drift
+// is detected the summary now includes a compact line-level diff preview
+// (IMPROVEMENTS §11) so operators seeing the PolicyDrifted condition know
+// *what* changed, not just that something changed.
 func (o *PolicyOps) DetectDrift(ctx context.Context, vaultClient *vault.Client) (bool, string) {
 	log := logr.FromContextOrDiscard(ctx)
 	currentHCL, err := vaultClient.ReadPolicy(ctx, o.adapter.GetVaultPolicyName())
@@ -99,10 +103,10 @@ func (o *PolicyOps) DetectDrift(ctx context.Context, vaultClient *vault.Client) 
 	}
 	normalizedCurrent := o.handler.normalizeHCL(currentHCL)
 	normalizedExpected := o.handler.normalizeHCL(o.hcl)
-	if normalizedCurrent != normalizedExpected {
-		return true, "policy content differs"
-	}
-	return false, ""
+	comparator := drift.NewComparator()
+	comparator.CompareMultilineText("rules", normalizedExpected, normalizedCurrent)
+	result := comparator.Result()
+	return result.HasDrift, result.Summary
 }
 
 // WriteToVault writes the generated HCL to Vault.

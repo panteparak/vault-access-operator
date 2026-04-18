@@ -379,7 +379,19 @@ But the operator **authenticates** to Vault via 8 methods (§6). There's an asym
 
 ---
 
-## 🟡 11. Drift comparator duplication (policy HCL vs role map)
+## ✅ 11. Drift comparator duplication (policy HCL vs role map) — RESOLVED
+
+> **Status**: Fixed. `drift.Comparator` gained `CompareMultilineText(fieldName, expected, actual)` which stores a per-field line-level preview in `Result.Summary`. Policy `DetectDrift` delegates to the comparator instead of returning the generic `"policy content differs"` message, so the `PolicyDrifted` condition now surfaces what changed with `- ` (Vault side) and `+ ` (expected side) markers.
+>
+> Preview is capped at `multilineDiffMaxLines` (6) and overflow is summarized as `... (N more)` so a wildly divergent blob doesn't flood the condition field.
+>
+> **Tests**:
+> - `shared/controller/drift/compare_test.go` — 5 new tests: identical, single-line change, max-lines cap, combined with scalar fields, Reset() clears details.
+> - `features/policy/controller/ops_test.go` — 2 new integration tests that hit the harness's httptest Vault: `TestPolicyOps_DetectDrift_ProducesDiffPreview` asserts the summary has both markers; `TestPolicyOps_DetectDrift_NoDriftOnMatch` keeps the happy path pinned.
+>
+> **Not in scope for §11**: full LCS-based diff (the current implementation is set-difference on unique lines — sufficient for deterministic operator-generated HCL, but won't produce ideal output for reordered lines). Deferred to a future iteration if real-world drift messages show that limitation.
+
+<details><summary>Original finding (kept for history)</summary>
 
 **Evidence:**
 - Policy: string normalize + compare in [policy/controller/handler.go:235-245](../../features/policy/controller/handler.go:235) and [ops.go:88-101](../../features/policy/controller/ops.go:88).
@@ -388,6 +400,7 @@ But the operator **authenticates** to Vault via 8 methods (§6). There's an asym
 **Impact:** Two different drift philosophies. Policy drift is either "yes" or "no" with no detail — users see `"policy content differs"` and must diff manually. Role drift lists exactly which fields changed.
 
 **Fix:** Extend `drift.Comparator` with `CompareMultilineText("rules", expectedHCL, actualHCL)` that produces a unified diff summary, then use it from policy's `DetectDrift`. This unifies behavior AND improves user-facing drift messages for policies.
+</details>
 
 ---
 
@@ -483,7 +496,15 @@ mgr.GetClient().List(ctx, &list, client.MatchingFields{"spec.connectionRef": con
 
 ---
 
-## 🟡 16. Connection handler doesn't use the shared workflow
+## ✅ 16. Connection handler doesn't use the shared workflow — RESOLVED (as documentation)
+
+> **Status**: Clarifying comment added to `connection.Handler.Sync` at [features/connection/controller/handler.go:104](../../features/connection/controller/handler.go:104). The comment names IMPROVEMENTS §16 explicitly so future maintainers who wonder "why doesn't this use SyncWorkflow like Policy/Role?" find the rationale without opening this file.
+>
+> **Recommendation stands**: leave the duplication as-is. The workflow's shape (`validate → conflict → prepare content → write → readback`) doesn't match connection's flow (`authenticate → health check → update auth status`). Unifying would require heavy per-step parameterization and still leave callers stepping around the connection-specific bootstrap state machine. The comment documents this judgment call.
+>
+> **Not in scope**: the recommendation also mentioned extracting `handleSyncError` with auth-error detection + cache evict. That's a genuine code-sharing opportunity but independent of the "should this use SyncWorkflow" question. Deferred as its own follow-up — would be sized as "extract one helper, test existing callers remain unchanged" without crossing the workflow boundary.
+
+<details><summary>Original finding (kept for history)</summary>
 
 **Evidence:** [FLOW_CONNECTION.md §Divergence](FLOW_CONNECTION.md#divergence-from-other-flows)
 
@@ -496,6 +517,7 @@ mgr.GetClient().List(ctx, &list, client.MatchingFields{"spec.connectionRef": con
 - Standardized status-update patterns
 
 Mark this as intentional in a comment, so future maintainers don't feel pressure to unify.
+</details>
 
 ---
 
@@ -559,7 +581,15 @@ func (h *Handler) normalizeHCL(hcl string) string {
 
 ---
 
-## 🟡 19. JWT `bound_subject` derivation is brittle
+## ✅ 19. JWT `bound_subject` derivation is brittle — RESOLVED (as documentation)
+
+> **Status**: Docs updated. `docs/examples.md` under "JWT-Backed Role" now includes three multi-SA patterns (one-role-per-SA, shared-boundSubject, boundClaims on stable claim) plus an explicit "known limitation" note that our CRD's `BoundClaims map[string]string` can't emit list-valued bound_claims the way Vault natively accepts them.
+>
+> **Not done**: auto-synthesizing `bound_claims` when multiple SAs are given and the user hasn't set `bound_subject`/`bound_claims` explicitly — would require widening the CRD field to `map[string][]string` (a breaking schema change). Tracked separately since it's feature work, not a fix.
+>
+> **Why this scope**: the user-facing pain was "error message tells me to set one of these fields but doesn't show how". The doc recipe resolves that — users now have three concrete patterns and know which CRD field fits their situation. The schema widening is a separate product decision.
+
+<details><summary>Original finding (kept for history)</summary>
 
 **Evidence:** [role/controller/handler.go:490-522](../../features/role/controller/handler.go:490):
 
@@ -578,6 +608,7 @@ func resolveJWTBoundSubject(adapter RoleAdapter, jwtSpec *VaultRoleJWTSpec, serv
 **Fix:**
 1. Docs: add an example recipe for multi-SA JWT roles using `bound_claims: { "kubernetes.io/serviceaccount/name": ["sa1", "sa2"] }`.
 2. Consider auto-synthesizing `bound_claims` when multiple SAs are given and the user hasn't set `bound_subject` or `bound_claims` explicitly.
+</details>
 
 ---
 
@@ -601,7 +632,15 @@ func resolveJWTBoundSubject(adapter RoleAdapter, jwtSpec *VaultRoleJWTSpec, serv
 
 ---
 
-## 🟢 21. Inconsistent logger-name scoping
+## ✅ 21. Inconsistent logger-name scoping — RESOLVED (audit confirmed consistent)
+
+> **Status**: Audit completed. Logger-name scoping is already consistent across the codebase. The hierarchy is: top-level `setup` → per-feature (`setup.connection`, `setup.policy`, `setup.role`, `setup.discovery`) → per-component (`setup.connection.handler`, `setup.connection.reconciler`, `setup.role.vaultrole`, etc.). No inconsistencies found — finding was overstated in the original pass.
+>
+> **What's intentionally different** (not a bug):
+> - `Handler` instances are shared between the VaultRole/VaultClusterRole (and VaultPolicy/VaultClusterPolicy) reconcilers, so they don't scope further than the feature level — the reconciler-level scope sits on the `BaseReconciler`'s logger instead.
+> - `workflow.SyncWorkflow` and `workflow.CleanupWorkflow` inherit the handler's logger without adding their own scope — they rely on `ctx`-carried logger for Reconcile-time metadata.
+
+<details><summary>Original finding (kept for history)</summary>
 
 **Evidence:**
 - Connection feature: `log.WithName("connection")`
@@ -609,14 +648,24 @@ func resolveJWTBoundSubject(adapter RoleAdapter, jwtSpec *VaultRoleJWTSpec, serv
 - Discovery: `"discovery-controller"`, `"scanner"` (nested)
 
 **Fix:** Standardize on 2-level scoping: `"{feature}.{component}"` e.g., `policy.handler`, `policy.reconciler`, `connection.bootstrap`. Makes log parsing consistent.
+</details>
 
 ---
 
-## 🟢 22. Inconsistent use of `logr.FromContextOrDiscard(ctx)` vs passed-in `log logr.Logger`
+## ✅ 22. Inconsistent use of `logr.FromContextOrDiscard(ctx)` vs passed-in `log logr.Logger` — RESOLVED (documented intentional divergence)
+
+> **Status**: Resolved by documentation. `shared/controller/watches/doc.go` was added to explain the intentional divergence: feature handlers (called from `Reconcile` with `BaseReconciler`-injected logger) use `logr.FromContextOrDiscard`; `watches` MapFuncs (which run in controller-runtime's event-dispatch loop, where context may not carry a request-scoped logger) use `sigs.k8s.io/controller-runtime/pkg/log.FromContext` so the fallback is the global logger rather than silent discard.
+>
+> **Why keep both**: forcing uniformity would either silently drop diagnostically-useful MapFunc output (if we picked `FromContextOrDiscard`) or pull the controller-runtime log package into every handler (if we picked `log.FromContext`). The divergence is small, well-localized by package, and now explained at the point of divergence.
+>
+> **Audit confirmed**: within each package the pattern is already uniform — `features/*/controller/` all use `logr.FromContextOrDiscard`, `shared/controller/workflow/` same, `shared/controller/watches/` uses `log.FromContext`.
+
+<details><summary>Original finding (kept for history)</summary>
 
 **Evidence:** Some methods take `log` explicitly (e.g., `runBootstrap`), others fetch from context. Mixing both is confusing.
 
 **Fix:** Pick one. Recommend `logr.FromContextOrDiscard(ctx)` because `BaseReconciler.Reconcile` already enriches the context with `reconcileID`.
+</details>
 
 ---
 
@@ -644,11 +693,22 @@ A global package var mutated during init based on env. Works, but test isolation
 
 ---
 
-## 🟢 24. Ghost `nolint:staticcheck` comments on recorder calls
+## ✅ 24. Ghost `nolint:staticcheck` comments on recorder calls — RESOLVED (documented rationale)
+
+> **Status**: Investigated. The nolint pragmas suppress a genuine `SA1019` warning from staticcheck: `mgr.GetEventRecorderFor` is deprecated in controller-runtime ≥v0.23 in favor of `mgr.GetEventRecorder`. However, the replacement returns `events.EventRecorder` (v1beta1 API, from `k8s.io/client-go/tools/events`), which has a different method signature from `record.EventRecorder` (v1 API, from `k8s.io/client-go/tools/record`) — `Eventf` requires additional `regarding`, `related`, `action`, `note` parameters. Every handler call site uses the v1 API, so migrating is a cross-cutting API refactor affecting ~30 call sites, not a one-line change.
+>
+> **Resolution in this tier**: added a block comment at [cmd/main.go:252](../../cmd/main.go:252) documenting *why* the nolints exist (not just that they do). Future maintainers can see at a glance whether the migration is worth doing.
+>
+> **Worth noting**: controller-runtime's own `manager.go` and its test suite use the same `//nolint:staticcheck` workaround for the same reason — this is the idiomatic way to opt into the deprecated-but-not-removed API.
+>
+> **Not done**: the full migration to `events.EventRecorder`. Tracked as future Tier-5 work when feature-parity with the v1beta1 events API is confirmed across all recorder call sites (structured events with `action`/`note`).
+
+<details><summary>Original finding (kept for history)</summary>
 
 **Evidence:** [cmd/main.go:244, 259, 274, 288](../../cmd/main.go:244) — `mgr.GetEventRecorderFor("...")` flagged with `//nolint:staticcheck`. Suggests a deprecation warning being silenced.
 
 **Fix:** Check the upstream deprecation notice — likely `GetEventRecorderFor` is deprecated in favor of `NewRecorder` or similar. Address once rather than carrying the nolint forever.
+</details>
 
 ---
 
