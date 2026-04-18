@@ -357,6 +357,7 @@ func TestMetricsRegistered(t *testing.T) {
 		DriftDetectedGauge,
 		CleanupQueueSizeGauge,
 		CleanupRetriesTotal,
+		ReconcileDurationSeconds,
 	}
 
 	for i, c := range collectors {
@@ -369,5 +370,28 @@ func TestMetricsRegistered(t *testing.T) {
 		if desc == nil {
 			t.Errorf("collector %d returned nil descriptor", i)
 		}
+	}
+}
+
+// TestObserveReconcileDuration pins IMPROVEMENTS Missing Features §K:
+// the reconcile duration histogram records observations under the correct
+// kind+result label combinations. Uses testutil.CollectAndCount on the
+// whole HistogramVec and asserts the per-label-tuple sample count via
+// testutil.ToFloat64 on the Sum, then the observation count via a direct
+// Describe/Collect roundtrip would require testutil.CollectAndCount which
+// returns series count only — sufficient to pin 3 distinct label tuples.
+func TestObserveReconcileDuration(t *testing.T) {
+	ReconcileDurationSeconds.Reset()
+
+	ObserveReconcileDuration("VaultPolicy", 0.42, true)
+	ObserveReconcileDuration("VaultPolicy", 2.5, true)
+	ObserveReconcileDuration("VaultRole", 1.0, false)
+
+	// Two distinct label tuples should have observations: (VaultPolicy,
+	// success) and (VaultRole, failure). CollectAndCount on the whole
+	// vec returns the number of child series with at least one sample.
+	seriesCount := testutil.CollectAndCount(ReconcileDurationSeconds)
+	if seriesCount != 2 {
+		t.Errorf("expected 2 distinct (kind,result) series, got count=%d", seriesCount)
 	}
 }

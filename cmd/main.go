@@ -36,6 +36,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -97,6 +98,12 @@ func main() {
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
 	flag.BoolVar(&enableWebhooks, "enable-webhooks", false,
 		"If set, admission webhooks will be enabled. Requires webhook certificates to be configured.")
+	var watchNamespacesFlag string
+	flag.StringVar(&watchNamespacesFlag, "watch-namespaces", "",
+		"Comma-separated list of namespaces the operator should watch. "+
+			"Empty (default) watches all namespaces. Cluster-scoped CRDs "+
+			"(VaultClusterPolicy, VaultClusterRole) are always watched regardless. "+
+			"IMPROVEMENTS Missing Features §A.")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -211,6 +218,27 @@ func main() {
 	// 2 minutes is a compromise: enough headroom for the slowest reconcile we've
 	// seen in production, less than the Helm chart's terminationGracePeriodSeconds.
 	gracefulShutdown := 2 * time.Minute
+
+	// Build cache.Options for --watch-namespaces (IMPROVEMENTS §A). When
+	// the flag is empty the cache watches every namespace (default). When
+	// it's a comma-separated list, the cache is scoped to just those
+	// namespaces — useful for large multi-tenant clusters where one
+	// operator deployment serves a subset of the workloads.
+	cacheOpts := cache.Options{}
+	if watchNamespacesFlag != "" {
+		namespaces := strings.Split(watchNamespacesFlag, ",")
+		cacheOpts.DefaultNamespaces = make(map[string]cache.Config, len(namespaces))
+		for _, ns := range namespaces {
+			ns = strings.TrimSpace(ns)
+			if ns == "" {
+				continue
+			}
+			cacheOpts.DefaultNamespaces[ns] = cache.Config{}
+		}
+		setupLog.Info("cache scoped to namespaces",
+			"namespaces", cacheOpts.DefaultNamespaces)
+	}
+
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                  scheme,
 		Metrics:                 metricsServerOptions,
@@ -219,6 +247,7 @@ func main() {
 		LeaderElection:          enableLeaderElection,
 		LeaderElectionID:        "2bf9394e.platform.io",
 		GracefulShutdownTimeout: &gracefulShutdown,
+		Cache:                   cacheOpts,
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
 		// when the Manager ends. This requires the binary to immediately end when the
 		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly

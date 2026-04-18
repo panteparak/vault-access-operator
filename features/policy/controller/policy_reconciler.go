@@ -89,10 +89,18 @@ func (r *PolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 }
 
 // SetupWithManager sets up the controller with the Manager.
+//
+// The `For` predicate fires on generation changes (spec mutations) OR when
+// the `vault.platform.io/reconcile-now` annotation is added/updated —
+// the latter supporting IMPROVEMENTS Missing Features §H's force-reconcile
+// trigger without bumping the spec.
 func (r *PolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&vaultv1alpha1.VaultPolicy{},
-			builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+			builder.WithPredicates(predicate.Or(
+				predicate.GenerationChangedPredicate{},
+				watches.ReconcileNowAnnotationPredicate{},
+			))).
 		Watches(
 			&vaultv1alpha1.VaultConnection{},
 			handler.EnqueueRequestsFromMapFunc(

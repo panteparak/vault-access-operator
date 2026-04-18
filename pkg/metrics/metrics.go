@@ -183,6 +183,25 @@ var (
 		},
 		[]string{"connection", "result"},
 	)
+
+	// ReconcileDurationSeconds tracks the wall-clock duration of a single
+	// Reconcile call, keyed by CR kind and result. Enables alerting on
+	// reconcile latency regressions (e.g. "p99 > 10s for VaultPolicy").
+	// Introduced for IMPROVEMENTS.md Missing Features §K.
+	//
+	// Buckets are chosen for a typical operator Reconcile: most complete
+	// under 1s when Vault is local and responsive; slow cases sit in the
+	// 5–30s range when Vault is contended or network-partitioned.
+	ReconcileDurationSeconds = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Namespace: "vault_access_operator",
+			Subsystem: "reconcile",
+			Name:      "duration_seconds",
+			Help:      "Wall-clock duration of a Reconcile call, seconds",
+			Buckets:   []float64{0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60},
+		},
+		[]string{"kind", "result"},
+	)
 )
 
 func init() {
@@ -202,7 +221,19 @@ func init() {
 		AdoptionTotal,
 		DiscoveredResourcesGauge,
 		DiscoveryScanTotal,
+		ReconcileDurationSeconds,
 	)
+}
+
+// ObserveReconcileDuration records a Reconcile duration observation.
+// Called from BaseReconciler.Reconcile so every CR kind's reconcile
+// latency is tracked uniformly.
+func ObserveReconcileDuration(kind string, durationSeconds float64, success bool) {
+	result := ResultFailure
+	if success {
+		result = ResultSuccess
+	}
+	ReconcileDurationSeconds.WithLabelValues(kind, result).Observe(durationSeconds)
 }
 
 // SetConnectionHealth sets the health status for a connection.

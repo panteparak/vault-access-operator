@@ -94,11 +94,16 @@ func (r *ClusterPolicyReconciler) Reconcile(
 	return result, err
 }
 
-// SetupWithManager sets up the controller with the Manager.
+// SetupWithManager sets up the controller with the Manager. The For
+// predicate fires on generation changes OR on reconcile-now annotation
+// changes (IMPROVEMENTS Missing Features §H).
 func (r *ClusterPolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&vaultv1alpha1.VaultClusterPolicy{},
-			builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+			builder.WithPredicates(predicate.Or(
+				predicate.GenerationChangedPredicate{},
+				watches.ReconcileNowAnnotationPredicate{},
+			))).
 		Watches(
 			&vaultv1alpha1.VaultConnection{},
 			handler.EnqueueRequestsFromMapFunc(

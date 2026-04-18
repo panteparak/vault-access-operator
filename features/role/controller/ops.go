@@ -190,12 +190,20 @@ func (o *RoleOps) ApplyActiveStatus(_ string, _ *metav1.Time) {
 }
 
 // ApplyBindings sets the role binding and policy bindings after sync.
+// Also emits a K8s event for every PolicyBinding that transitioned from
+// unresolved to resolved in this reconcile — IMPROVEMENTS Missing
+// Features §J. Operators inspecting `kubectl describe vaultrole X` now
+// see the moment each dependency was satisfied, not just the pre-existing
+// "PolicyNotFound" warning events.
 func (o *RoleOps) ApplyBindings() {
 	roleBinding := binding.NewRoleBinding(o.authPath, o.adapter.GetVaultRoleName())
 	o.adapter.SetBinding(roleBinding)
 
+	previous := o.adapter.GetPolicyBindings()
 	policyBindings := o.handler.buildPolicyBindings(o.adapter, o.policyNames)
 	o.adapter.SetPolicyBindings(policyBindings)
+
+	o.handler.emitPolicyResolvedEvents(o.adapter, previous, policyBindings)
 }
 
 // PublishSyncEvent publishes a RoleCreated event.

@@ -469,6 +469,18 @@ const (
 	// annotation after replacing placeholders with the real spec.
 	AnnotationDiscoveryPending = "vault.platform.io/discovery-pending"
 
+	// AnnotationReconcileNow, when set to any value, forces an immediate
+	// reconcile of the annotated CR even if spec.generation didn't change.
+	// Useful after a Vault-side manual fix to pull the operator back in sync
+	// without bumping the spec.
+	//
+	// The handler clears this annotation at the end of a successful sync so
+	// the trigger is single-shot — without that clearing step, the watcher
+	// would re-enqueue on every reconcile and loop forever.
+	//
+	// IMPROVEMENTS Missing Features §H.
+	AnnotationReconcileNow = "vault.platform.io/reconcile-now"
+
 	// AnnotationValueTrue is the canonical value for boolean annotation flags
 	AnnotationValueTrue = "true"
 )

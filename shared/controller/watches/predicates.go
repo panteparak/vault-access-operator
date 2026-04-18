@@ -17,6 +17,7 @@ limitations under the License.
 package watches
 
 import (
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
@@ -64,5 +65,81 @@ func (ConnectionPhaseChangedPredicate) Update(e event.UpdateEvent) bool {
 }
 
 func (ConnectionPhaseChangedPredicate) Generic(e event.GenericEvent) bool {
+	return false
+}
+
+// ConnectionReadyChangedPredicate triggers only when the VaultConnection's
+// `Ready` condition transitions between True and False (or enters/leaves
+// the condition set).
+//
+// This is a stricter filter than `ConnectionPhaseChangedPredicate`, which
+// also fires on intermediate Phase transitions (Pending → Syncing → Active)
+// that don't actually affect dependent-CR readiness. Use this predicate
+// when a dependent controller only needs to react to "can I use this
+// connection now?" changes — the k8s-idiomatic pattern.
+//
+// Introduced for IMPROVEMENTS.md Missing Features §F.
+type ConnectionReadyChangedPredicate struct {
+	predicate.Funcs
+}
+
+func (ConnectionReadyChangedPredicate) Create(event.CreateEvent) bool { return true }
+
+func (ConnectionReadyChangedPredicate) Delete(event.DeleteEvent) bool { return true }
+
+func (ConnectionReadyChangedPredicate) Update(e event.UpdateEvent) bool {
+	oldConn, okOld := e.ObjectOld.(*vaultv1alpha1.VaultConnection)
+	newConn, okNew := e.ObjectNew.(*vaultv1alpha1.VaultConnection)
+	if !okOld || !okNew {
+		return true
+	}
+	return isConnectionReady(oldConn) != isConnectionReady(newConn)
+}
+
+func (ConnectionReadyChangedPredicate) Generic(event.GenericEvent) bool { return false }
+
+// ReconcileNowAnnotationPredicate triggers on Update events where the
+// `vault.platform.io/reconcile-now` annotation was added or changed value
+// between the old and new resource. Combined with
+// `predicate.GenerationChangedPredicate` via `predicate.Or`, it gives
+// users a way to force an immediate reconcile of a CR whose spec hasn't
+// changed — e.g. after fixing a problem in Vault manually.
+//
+// The handler is responsible for clearing the annotation after a successful
+// sync so the predicate doesn't re-fire on every reconcile. Create/Delete
+// events fall through to the always-enqueue default so newly-annotated CRs
+// are picked up immediately on first sight.
+//
+// Introduced for IMPROVEMENTS.md Missing Features §H.
+type ReconcileNowAnnotationPredicate struct {
+	predicate.Funcs
+}
+
+func (ReconcileNowAnnotationPredicate) Create(event.CreateEvent) bool { return true }
+
+func (ReconcileNowAnnotationPredicate) Delete(event.DeleteEvent) bool { return false }
+
+func (ReconcileNowAnnotationPredicate) Update(e event.UpdateEvent) bool {
+	if e.ObjectOld == nil || e.ObjectNew == nil {
+		return false
+	}
+	oldVal := e.ObjectOld.GetAnnotations()[vaultv1alpha1.AnnotationReconcileNow]
+	newVal := e.ObjectNew.GetAnnotations()[vaultv1alpha1.AnnotationReconcileNow]
+	// Trigger only when the annotation newly appears or its value changed
+	// while non-empty. Clearing the annotation (non-empty → empty) is NOT
+	// a trigger — that's the handler acknowledging the previous reconcile.
+	return newVal != "" && newVal != oldVal
+}
+
+func (ReconcileNowAnnotationPredicate) Generic(event.GenericEvent) bool { return false }
+
+// isConnectionReady reports whether the connection's Ready condition is
+// present and True. A missing condition counts as not-ready.
+func isConnectionReady(conn *vaultv1alpha1.VaultConnection) bool {
+	for _, c := range conn.Status.Conditions {
+		if c.Type == vaultv1alpha1.ConditionTypeReady {
+			return c.Status == metav1.ConditionTrue
+		}
+	}
 	return false
 }

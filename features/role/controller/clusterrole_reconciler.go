@@ -97,10 +97,15 @@ func (r *ClusterRoleReconciler) Reconcile(
 // VaultConnection phase changes, plus VaultPolicy and VaultClusterPolicy
 // create/update events (IMPROVEMENTS §27) so cluster roles blocked on
 // unresolved PolicyBindings reconcile immediately when the policy appears.
+// The For predicate also fires on reconcile-now annotation changes so
+// users can force a sync without bumping the generation (§H).
 func (r *ClusterRoleReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&vaultv1alpha1.VaultClusterRole{},
-			builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+			builder.WithPredicates(predicate.Or(
+				predicate.GenerationChangedPredicate{},
+				watches.ReconcileNowAnnotationPredicate{},
+			))).
 		Watches(
 			&vaultv1alpha1.VaultConnection{},
 			handler.EnqueueRequestsFromMapFunc(

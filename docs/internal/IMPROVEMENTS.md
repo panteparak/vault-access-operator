@@ -785,38 +785,48 @@ A global package var mutated during init based on env. Works, but test isolation
 
 ## Missing Features (not disconnects, but absent)
 
-### A. No per-namespace operator mode
-Current operator watches all namespaces. Large multi-tenant clusters may want `--namespace=X` filtering. `controller-runtime` supports this via `Cache.Options{DefaultNamespaces: ...}` but no flag is exposed.
+### ✅ A. `--watch-namespaces` flag — RESOLVED
+Fixed. `cmd/main.go` exposes `--watch-namespaces=ns1,ns2,ns3` which threads through `ctrl.Options.Cache.DefaultNamespaces`. Empty value (default) retains the all-namespaces behavior. Cluster-scoped CRDs continue to be watched regardless.
 
-### B. No PolicyBinding reverse-index
-`VaultRole.Status.PolicyBindings` tracks role→policy. Nothing tracks policy→role. Useful for debugging "who uses this policy?" via `kubectl describe vaultpolicy X`.
+### B. No PolicyBinding reverse-index (still missing)
+`VaultRole.Status.PolicyBindings` tracks role→policy. Nothing tracks policy→role. Useful for debugging "who uses this policy?" via `kubectl describe vaultpolicy X`. **Not done**: requires new `VaultPolicy.Status.UsedByRoles []string` field + two-way index maintenance, which is a non-trivial schema change. Deferred.
 
-### C. No sealed / init auto-recovery hook
-When Vault is sealed, the operator marks `Phase=Error` and backs off. After unseal, it recovers on the next reconcile (30s). No event-driven notification (Vault has a sealed-state API but the operator doesn't subscribe).
+### C. No sealed / init auto-recovery hook (still missing)
+When Vault is sealed, the operator marks `Phase=Error` and backs off. After unseal, it recovers on the next reconcile (30s). No event-driven notification (Vault has a sealed-state API but the operator doesn't subscribe). **Deferred**: requires a long-lived goroutine per connection polling `sys/seal-status` at a faster cadence than the regular reconcile, which changes the operator's background-work model. Not done.
 
-### D. No multi-cluster support
-One operator = one cluster's worth of CRs. Multi-cluster setups need multiple operator deployments, each with its own set of CRs. No leader-across-clusters story.
+### D. No multi-cluster support (out of scope)
+One operator = one cluster's worth of CRs. Multi-cluster setups need multiple operator deployments, each with its own set of CRs. Explicitly out of scope for the single-operator architecture.
 
-### E. No policy templating
-Beyond `{{namespace}}` and `{{name}}` in paths, there's no way to template capabilities or rule structures. Larger orgs often want `templates/` with references. Out of scope or future work?
+### E. No policy templating (still missing)
+Beyond `{{namespace}}` and `{{name}}` in paths, there's no way to template capabilities or rule structures. **Deferred**: likely a Helm-chart-level concern (generate the VaultPolicy CR with capabilities rendered via Helm values), not an operator concern.
 
-### F. No VaultConnection status.ready condition hook for dependent CRs
-Policy/role rely on `VaultConnection.Status.Phase == Active` to proceed. A more k8s-idiomatic pattern would be a `Ready` condition, with `conditionalReady` predicate for dependent CRs. The `ConnectionPhaseChangedPredicate` half-does this.
+### ✅ F. `Ready` condition predicate for dependent CRs — RESOLVED
+Fixed. `VaultConnection.Status.Conditions[Ready]` already existed; added `shared/controller/watches/ConnectionReadyChangedPredicate` which fires strictly on Ready True↔False transitions (vs. the broader `ConnectionPhaseChangedPredicate` that also fires on intermediate phase hops). Dependent CRs can now wire the stricter predicate if they want to react only to usability changes. The existing `ConnectionPhaseChangedPredicate` remains the default for today's consumers — no behavior change without opt-in.
 
-### G. No backup/restore story for managed-markers
-If the `secret/data/vault-access-operator/managed/` KV tree is accidentally deleted, all policies/roles look unmanaged and become conflict-blocked. No "rebuild from CRs" command.
+### G. No backup/restore story for managed-markers (still missing)
+If the `secret/data/vault-access-operator/managed/` KV tree is accidentally deleted, all policies/roles look unmanaged and become conflict-blocked. **Deferred**: would be its own CLI tool (`vault-access-operator rebuild-markers`) rather than an operator feature.
 
-### H. No `reconcile-now` trigger
-Users wanting immediate re-sync must edit the spec (to bump generation) or delete a condition. No annotation-based force trigger.
+### ✅ H. `reconcile-now` annotation trigger — RESOLVED
+Fixed. New `vault.platform.io/reconcile-now` annotation (constant at [common_types.go:486](../../api/v1alpha1/common_types.go:486)) + `ReconcileNowAnnotationPredicate` in the watches package. Wired into Policy/ClusterPolicy/Role/ClusterRole reconcilers via `predicate.Or(GenerationChangedPredicate, ReconcileNowAnnotationPredicate)`. `BaseReconciler.Reconcile` auto-clears the annotation via `client.RawPatch(MergePatchType, ...)` after a successful sync so the predicate is one-shot; failed syncs retain the annotation so the user's intent outlives a transient error.
 
-### I. No dry-run / plan mode
-Especially useful for drift correction: "show me what would change if I set `driftMode: correct`". Discovery auto-create would also benefit from dry-run.
+Tests: 5 predicate tests covering add/update/clear/unrelated-change + 2 base-reconciler integration tests pinning the patch-clear (success) and no-clear (error) behaviors.
 
-### J. No standardized PolicyBinding resolution event
-When a referenced policy becomes available after previously missing, no `PolicyResolved` event. Operators inspecting events see the "not found" but not the resolution.
+Usage: `kubectl annotate vaultpolicy foo vault.platform.io/reconcile-now="$(date -Iseconds)" --overwrite`.
 
-### K. Metrics: no latency histograms
-All metrics are gauges or counters. No `reconcile_duration_seconds` histogram. Hard to alert on slow Vault or slow syncs.
+### I. No dry-run / plan mode (still missing)
+**Deferred**: would require a DriftMode variant that simulates the sync-workflow without calling Vault write endpoints, plus status field(s) to surface the computed diff. Non-trivial and best designed in conjunction with CRD schema additions, not grafted on.
+
+### ✅ J. `PolicyResolved` event — RESOLVED
+Fixed. `features/role/controller/handler.go:emitPolicyResolvedEvents` detects the per-binding Resolved=false → Resolved=true transition between reconciles and emits a K8s event with reason `PolicyResolved`, message naming the K8sRef and Vault policy path. Steady-state reconciles don't re-emit. Fresh bindings that land already-resolved DO emit (first time the user sees the dependency satisfied). Called from `RoleOps.ApplyBindings` which is the single path where PolicyBindings are updated.
+
+Tests: `policy_resolved_event_test.go` with 5 table cases covering transition, no-change, fresh-already-resolved, nil-recorder no-op, and still-unresolved no-op.
+
+### ✅ K. Reconcile duration histogram — RESOLVED
+Fixed. New `vault_access_operator_reconcile_duration_seconds` Prometheus histogram with labels `kind` (VaultPolicy/VaultRole/VaultConnection/VaultDiscovery/...) and `result` (success|failure). Buckets tuned for typical operator reconcile latency: 0.01s–60s, with breakpoints at 0.05/0.1/0.25/0.5/1/2.5/5/10/30s. Recorded unconditionally in `BaseReconciler.Reconcile` via deferred `metrics.ObserveReconcileDuration` so every CR kind benefits without per-feature wiring.
+
+Enables alerts like `histogram_quantile(0.99, rate(vault_access_operator_reconcile_duration_seconds_bucket[5m])) > 10` for p99 regressions.
+
+Tests: `pkg/metrics/metrics_test.go:TestObserveReconcileDuration` + histogram registration pinned in `TestMetricsRegistered`.
 
 ---
 

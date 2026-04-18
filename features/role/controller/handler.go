@@ -283,6 +283,47 @@ func (h *Handler) contains(slice []string, val string) bool {
 	return false
 }
 
+// emitPolicyResolvedEvents fires a K8s event for each PolicyBinding that
+// flipped from Resolved=false to Resolved=true between `previous` and
+// `current`. No-op when the recorder is nil (unit tests) or when nothing
+// transitioned. Matching is by the `K8sRef` field (e.g.
+// `VaultPolicy/ns/name`) which is stable per binding and invariant of
+// list order. Implements IMPROVEMENTS Missing Features §J.
+func (h *Handler) emitPolicyResolvedEvents(
+	adapter domain.RoleAdapter,
+	previous, current []vaultv1alpha1.PolicyBinding,
+) {
+	if h.recorder == nil {
+		return
+	}
+	// Build a lookup of previous Resolved status keyed by K8sRef. A missing
+	// entry counts as previously-unresolved, so a brand-new binding that
+	// lands already-resolved (e.g. policy existed before the role was
+	// created) still fires its first-time resolved event.
+	prior := make(map[string]bool, len(previous))
+	for _, b := range previous {
+		prior[b.K8sRef] = b.Resolved
+	}
+	for _, b := range current {
+		if !b.Resolved {
+			continue
+		}
+		if prior[b.K8sRef] {
+			continue
+		}
+		h.recorder.Eventf(adapter.GetObject(), corev1.EventTypeNormal,
+			eventReasonPolicyResolved,
+			"Policy dependency %q is now resolved (Vault policy %q)",
+			b.K8sRef, b.VaultPolicyPath,
+		)
+	}
+}
+
+// eventReasonPolicyResolved is the K8s event reason emitted when a
+// previously-unresolved PolicyBinding becomes resolved. Names should be
+// UpperCamelCase per k8s convention.
+const eventReasonPolicyResolved = "PolicyResolved"
+
 // verifyPoliciesExistInVault checks that each resolved policy actually exists in Vault.
 // Missing policies are reported as a warning condition and event, but do NOT block the sync.
 // Vault allows binding non-existent policies; this is informational for the user.
