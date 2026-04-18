@@ -939,10 +939,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#11-drift-comparator-duplication-policy-hcl-vs-role-map" class="md-nav__link">
+  <a href="#11-drift-comparator-duplication-policy-hcl-vs-role-map-resolved" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🟡 11. Drift comparator duplication (policy HCL vs role map)
+        ✅ 11. Drift comparator duplication (policy HCL vs role map) — RESOLVED
       
     </span>
   </a>
@@ -994,10 +994,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#16-connection-handler-doesnt-use-the-shared-workflow" class="md-nav__link">
+  <a href="#16-connection-handler-doesnt-use-the-shared-workflow-resolved-as-documentation" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🟡 16. Connection handler doesn't use the shared workflow
+        ✅ 16. Connection handler doesn't use the shared workflow — RESOLVED (as documentation)
       
     </span>
   </a>
@@ -1027,10 +1027,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#19-jwt-bound_subject-derivation-is-brittle" class="md-nav__link">
+  <a href="#19-jwt-bound_subject-derivation-is-brittle-resolved-as-documentation" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🟡 19. JWT bound_subject derivation is brittle
+        ✅ 19. JWT bound_subject derivation is brittle — RESOLVED (as documentation)
       
     </span>
   </a>
@@ -1049,10 +1049,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#21-inconsistent-logger-name-scoping" class="md-nav__link">
+  <a href="#21-inconsistent-logger-name-scoping-resolved-audit-confirmed-consistent" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🟢 21. Inconsistent logger-name scoping
+        ✅ 21. Inconsistent logger-name scoping — RESOLVED (audit confirmed consistent)
       
     </span>
   </a>
@@ -1060,10 +1060,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#22-inconsistent-use-of-logrfromcontextordiscardctx-vs-passed-in-log-logrlogger" class="md-nav__link">
+  <a href="#22-inconsistent-use-of-logrfromcontextordiscardctx-vs-passed-in-log-logrlogger-resolved-documented-intentional-divergence" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🟢 22. Inconsistent use of logr.FromContextOrDiscard(ctx) vs passed-in log logr.Logger
+        ✅ 22. Inconsistent use of logr.FromContextOrDiscard(ctx) vs passed-in log logr.Logger — RESOLVED (documented intentional divergence)
       
     </span>
   </a>
@@ -1082,10 +1082,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#24-ghost-nolintstaticcheck-comments-on-recorder-calls" class="md-nav__link">
+  <a href="#24-ghost-nolintstaticcheck-comments-on-recorder-calls-resolved-documented-rationale" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🟢 24. Ghost nolint:staticcheck comments on recorder calls
+        ✅ 24. Ghost nolint:staticcheck comments on recorder calls — RESOLVED (documented rationale)
       
     </span>
   </a>
@@ -1773,12 +1773,26 @@ Keeps each method self-contained, testable in isolation, registration-driven.
 </details>
 
 <hr />
-<h2 id="11-drift-comparator-duplication-policy-hcl-vs-role-map">🟡 11. Drift comparator duplication (policy HCL vs role map)<a class="headerlink" href="#11-drift-comparator-duplication-policy-hcl-vs-role-map" title="Permanent link">&para;</a></h2>
-<p><strong>Evidence:</strong>
-- Policy: string normalize + compare in <a href="../../features/policy/controller/handler.go:235">policy/controller/handler.go:235-245</a> and <a href="../../features/policy/controller/ops.go:88">ops.go:88-101</a>.
-- Role: <code>drift.Comparator</code> framework in <a href="../../shared/controller/drift/compare.go">shared/controller/drift/compare.go</a> used by <a href="../../features/role/controller/handler.go:169">role/controller/handler.go:169-235</a>.</p>
-<p><strong>Impact:</strong> Two different drift philosophies. Policy drift is either "yes" or "no" with no detail — users see <code>"policy content differs"</code> and must diff manually. Role drift lists exactly which fields changed.</p>
-<p><strong>Fix:</strong> Extend <code>drift.Comparator</code> with <code>CompareMultilineText("rules", expectedHCL, actualHCL)</code> that produces a unified diff summary, then use it from policy's <code>DetectDrift</code>. This unifies behavior AND improves user-facing drift messages for policies.</p>
+<h2 id="11-drift-comparator-duplication-policy-hcl-vs-role-map-resolved">✅ 11. Drift comparator duplication (policy HCL vs role map) — RESOLVED<a class="headerlink" href="#11-drift-comparator-duplication-policy-hcl-vs-role-map-resolved" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p><strong>Status</strong>: Fixed. <code>drift.Comparator</code> gained <code>CompareMultilineText(fieldName, expected, actual)</code> which stores a per-field line-level preview in <code>Result.Summary</code>. Policy <code>DetectDrift</code> delegates to the comparator instead of returning the generic <code>"policy content differs"</code> message, so the <code>PolicyDrifted</code> condition now surfaces what changed with <code>-</code> (Vault side) and <code>+</code> (expected side) markers.</p>
+<p>Preview is capped at <code>multilineDiffMaxLines</code> (6) and overflow is summarized as <code>... (N more)</code> so a wildly divergent blob doesn't flood the condition field.</p>
+<p><strong>Tests</strong>:
+- <code>shared/controller/drift/compare_test.go</code> — 5 new tests: identical, single-line change, max-lines cap, combined with scalar fields, Reset() clears details.
+- <code>features/policy/controller/ops_test.go</code> — 2 new integration tests that hit the harness's httptest Vault: <code>TestPolicyOps_DetectDrift_ProducesDiffPreview</code> asserts the summary has both markers; <code>TestPolicyOps_DetectDrift_NoDriftOnMatch</code> keeps the happy path pinned.</p>
+<p><strong>Not in scope for §11</strong>: full LCS-based diff (the current implementation is set-difference on unique lines — sufficient for deterministic operator-generated HCL, but won't produce ideal output for reordered lines). Deferred to a future iteration if real-world drift messages show that limitation.</p>
+</blockquote>
+<details><summary>Original finding (kept for history)</summary>
+
+**Evidence:**
+- Policy: string normalize + compare in [policy/controller/handler.go:235-245](../../features/policy/controller/handler.go:235) and [ops.go:88-101](../../features/policy/controller/ops.go:88).
+- Role: `drift.Comparator` framework in [shared/controller/drift/compare.go](../../shared/controller/drift/compare.go) used by [role/controller/handler.go:169-235](../../features/role/controller/handler.go:169).
+
+**Impact:** Two different drift philosophies. Policy drift is either "yes" or "no" with no detail — users see `"policy content differs"` and must diff manually. Role drift lists exactly which fields changed.
+
+**Fix:** Extend `drift.Comparator` with `CompareMultilineText("rules", expectedHCL, actualHCL)` that produces a unified diff summary, then use it from policy's `DetectDrift`. This unifies behavior AND improves user-facing drift messages for policies.
+</details>
+
 <hr />
 <h2 id="12-event-bus-typing-uses-closures-instead-of-generics">🟡 12. Event bus typing uses closures instead of generics<a class="headerlink" href="#12-event-bus-typing-uses-closures-instead-of-generics" title="Permanent link">&para;</a></h2>
 <p><strong>Evidence:</strong> <a href="../../shared/events/bus.go">shared/events/bus.go</a> — <code>Subscribe[T]</code> captures type assertion in a closure, stores <code>func(ctx, Event) error</code>, performs runtime type assertion on publish. This was idiomatic before Go 1.18.</p>
@@ -1852,14 +1866,27 @@ Catches mismatches at compile time.</p>
 </details>
 
 <hr />
-<h2 id="16-connection-handler-doesnt-use-the-shared-workflow">🟡 16. Connection handler doesn't use the shared workflow<a class="headerlink" href="#16-connection-handler-doesnt-use-the-shared-workflow" title="Permanent link">&para;</a></h2>
-<p><strong>Evidence:</strong> <a href="../FLOW_CONNECTION/#divergence-from-other-flows">FLOW_CONNECTION.md §Divergence</a></p>
-<p><strong>Impact:</strong> Policy/role share <code>SyncWorkflow.Execute</code>; connection has its own Sync method with different error handling, different status update pattern, different event emission. Maintainers have to keep two codepaths reasoning in their head.</p>
-<p><strong>Trade-off:</strong> The workflow's shape ("validate → conflict → prepare content → write → readback") doesn't fit connection's actual flow ("authenticate → health check → update auth status"). Forcing it into the workflow would need heavy parameterization.</p>
-<p><strong>Recommendation:</strong> <strong>Leave as-is</strong>, but extract a smaller shared helper for:
-- <code>handleSyncError</code> with auth-error detection + cache evict (currently connection-specific)
-- Standardized status-update patterns</p>
-<p>Mark this as intentional in a comment, so future maintainers don't feel pressure to unify.</p>
+<h2 id="16-connection-handler-doesnt-use-the-shared-workflow-resolved-as-documentation">✅ 16. Connection handler doesn't use the shared workflow — RESOLVED (as documentation)<a class="headerlink" href="#16-connection-handler-doesnt-use-the-shared-workflow-resolved-as-documentation" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p><strong>Status</strong>: Clarifying comment added to <code>connection.Handler.Sync</code> at <a href="../../features/connection/controller/handler.go:104">features/connection/controller/handler.go:104</a>. The comment names IMPROVEMENTS §16 explicitly so future maintainers who wonder "why doesn't this use SyncWorkflow like Policy/Role?" find the rationale without opening this file.</p>
+<p><strong>Recommendation stands</strong>: leave the duplication as-is. The workflow's shape (<code>validate → conflict → prepare content → write → readback</code>) doesn't match connection's flow (<code>authenticate → health check → update auth status</code>). Unifying would require heavy per-step parameterization and still leave callers stepping around the connection-specific bootstrap state machine. The comment documents this judgment call.</p>
+<p><strong>Not in scope</strong>: the recommendation also mentioned extracting <code>handleSyncError</code> with auth-error detection + cache evict. That's a genuine code-sharing opportunity but independent of the "should this use SyncWorkflow" question. Deferred as its own follow-up — would be sized as "extract one helper, test existing callers remain unchanged" without crossing the workflow boundary.</p>
+</blockquote>
+<details><summary>Original finding (kept for history)</summary>
+
+**Evidence:** [FLOW_CONNECTION.md §Divergence](FLOW_CONNECTION.md#divergence-from-other-flows)
+
+**Impact:** Policy/role share `SyncWorkflow.Execute`; connection has its own Sync method with different error handling, different status update pattern, different event emission. Maintainers have to keep two codepaths reasoning in their head.
+
+**Trade-off:** The workflow's shape ("validate → conflict → prepare content → write → readback") doesn't fit connection's actual flow ("authenticate → health check → update auth status"). Forcing it into the workflow would need heavy parameterization.
+
+**Recommendation:** **Leave as-is**, but extract a smaller shared helper for:
+- `handleSyncError` with auth-error detection + cache evict (currently connection-specific)
+- Standardized status-update patterns
+
+Mark this as intentional in a comment, so future maintainers don't feel pressure to unify.
+</details>
+
 <hr />
 <h2 id="17-normalizehcl-strips-comments-collapses-whitespace-resolved-partial">✅ 17. <code>normalizeHCL</code> strips comments + collapses whitespace — RESOLVED (partial)<a class="headerlink" href="#17-normalizehcl-strips-comments-collapses-whitespace-resolved-partial" title="Permanent link">&para;</a></h2>
 <blockquote>
@@ -1915,8 +1942,16 @@ Catches mismatches at compile time.</p>
 </details>
 
 <hr />
-<h2 id="19-jwt-bound_subject-derivation-is-brittle">🟡 19. JWT <code>bound_subject</code> derivation is brittle<a class="headerlink" href="#19-jwt-bound_subject-derivation-is-brittle" title="Permanent link">&para;</a></h2>
-<p><strong>Evidence:</strong> <a href="../../features/role/controller/handler.go:490">role/controller/handler.go:490-522</a>:</p>
+<h2 id="19-jwt-bound_subject-derivation-is-brittle-resolved-as-documentation">✅ 19. JWT <code>bound_subject</code> derivation is brittle — RESOLVED (as documentation)<a class="headerlink" href="#19-jwt-bound_subject-derivation-is-brittle-resolved-as-documentation" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p><strong>Status</strong>: Docs updated. <code>docs/examples.md</code> under "JWT-Backed Role" now includes three multi-SA patterns (one-role-per-SA, shared-boundSubject, boundClaims on stable claim) plus an explicit "known limitation" note that our CRD's <code>BoundClaims map[string]string</code> can't emit list-valued bound_claims the way Vault natively accepts them.</p>
+<p><strong>Not done</strong>: auto-synthesizing <code>bound_claims</code> when multiple SAs are given and the user hasn't set <code>bound_subject</code>/<code>bound_claims</code> explicitly — would require widening the CRD field to <code>map[string][]string</code> (a breaking schema change). Tracked separately since it's feature work, not a fix.</p>
+<p><strong>Why this scope</strong>: the user-facing pain was "error message tells me to set one of these fields but doesn't show how". The doc recipe resolves that — users now have three concrete patterns and know which CRD field fits their situation. The schema widening is a separate product decision.</p>
+</blockquote>
+<details><summary>Original finding (kept for history)</summary>
+
+**Evidence:** [role/controller/handler.go:490-522](../../features/role/controller/handler.go:490):
+
 <div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="kd">func</span><span class="w"> </span><span class="nx">resolveJWTBoundSubject</span><span class="p">(</span><span class="nx">adapter</span><span class="w"> </span><span class="nx">RoleAdapter</span><span class="p">,</span><span class="w"> </span><span class="nx">jwtSpec</span><span class="w"> </span><span class="o">*</span><span class="nx">VaultRoleJWTSpec</span><span class="p">,</span><span class="w"> </span><span class="nx">serviceAccountBindings</span><span class="w"> </span><span class="p">[]</span><span class="kt">string</span><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="kt">error</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
 <a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">jwtSpec</span><span class="p">.</span><span class="nx">BoundSubject</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="nx">jwtSpec</span><span class="p">.</span><span class="nx">BoundSubject</span><span class="p">,</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">}</span>
 <a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a><span class="w">    </span><span class="o">...</span>
@@ -1925,10 +1960,14 @@ Catches mismatches at compile time.</p>
 <a id="__codelineno-18-6" name="__codelineno-18-6" href="#__codelineno-18-6"></a><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="nx">fmt</span><span class="p">.</span><span class="nx">Sprintf</span><span class="p">(</span><span class="s">&quot;system:serviceaccount:%s:%s&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">parts</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span><span class="w"> </span><span class="nx">parts</span><span class="p">[</span><span class="mi">1</span><span class="p">]),</span><span class="w"> </span><span class="kc">nil</span>
 <a id="__codelineno-18-7" name="__codelineno-18-7" href="#__codelineno-18-7"></a><span class="p">}</span>
 </code></pre></div>
-<p><strong>Impact:</strong> Multi-SA JWT roles get a ValidationError, which is correct — but the error message says "set spec.jwt.boundSubject or spec.jwt.boundClaims". Users are left to figure out <strong>how</strong> to express multiple SAs via <code>bound_claims</code>. No example in docs.</p>
-<p><strong>Fix:</strong>
-1. Docs: add an example recipe for multi-SA JWT roles using <code>bound_claims: { "kubernetes.io/serviceaccount/name": ["sa1", "sa2"] }</code>.
-2. Consider auto-synthesizing <code>bound_claims</code> when multiple SAs are given and the user hasn't set <code>bound_subject</code> or <code>bound_claims</code> explicitly.</p>
+
+**Impact:** Multi-SA JWT roles get a ValidationError, which is correct — but the error message says "set spec.jwt.boundSubject or spec.jwt.boundClaims". Users are left to figure out **how** to express multiple SAs via `bound_claims`. No example in docs.
+
+**Fix:**
+1. Docs: add an example recipe for multi-SA JWT roles using `bound_claims: { "kubernetes.io/serviceaccount/name": ["sa1", "sa2"] }`.
+2. Consider auto-synthesizing `bound_claims` when multiple SAs are given and the user hasn't set `bound_subject` or `bound_claims` explicitly.
+</details>
+
 <hr />
 <h2 id="20-duplicate-resolvepolicynames-logic-resolved">✅ 20. Duplicate <code>resolvePolicyNames</code> logic — RESOLVED<a class="headerlink" href="#20-duplicate-resolvepolicynames-logic-resolved" title="Permanent link">&para;</a></h2>
 <blockquote>
@@ -1948,16 +1987,37 @@ Catches mismatches at compile time.</p>
 </details>
 
 <hr />
-<h2 id="21-inconsistent-logger-name-scoping">🟢 21. Inconsistent logger-name scoping<a class="headerlink" href="#21-inconsistent-logger-name-scoping" title="Permanent link">&para;</a></h2>
-<p><strong>Evidence:</strong>
-- Connection feature: <code>log.WithName("connection")</code>
-- Policy: no consistent scope — some places use <code>"vaultpolicy"</code>, some the raw passed logger
-- Discovery: <code>"discovery-controller"</code>, <code>"scanner"</code> (nested)</p>
-<p><strong>Fix:</strong> Standardize on 2-level scoping: <code>"{feature}.{component}"</code> e.g., <code>policy.handler</code>, <code>policy.reconciler</code>, <code>connection.bootstrap</code>. Makes log parsing consistent.</p>
+<h2 id="21-inconsistent-logger-name-scoping-resolved-audit-confirmed-consistent">✅ 21. Inconsistent logger-name scoping — RESOLVED (audit confirmed consistent)<a class="headerlink" href="#21-inconsistent-logger-name-scoping-resolved-audit-confirmed-consistent" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p><strong>Status</strong>: Audit completed. Logger-name scoping is already consistent across the codebase. The hierarchy is: top-level <code>setup</code> → per-feature (<code>setup.connection</code>, <code>setup.policy</code>, <code>setup.role</code>, <code>setup.discovery</code>) → per-component (<code>setup.connection.handler</code>, <code>setup.connection.reconciler</code>, <code>setup.role.vaultrole</code>, etc.). No inconsistencies found — finding was overstated in the original pass.</p>
+<p><strong>What's intentionally different</strong> (not a bug):
+- <code>Handler</code> instances are shared between the VaultRole/VaultClusterRole (and VaultPolicy/VaultClusterPolicy) reconcilers, so they don't scope further than the feature level — the reconciler-level scope sits on the <code>BaseReconciler</code>'s logger instead.
+- <code>workflow.SyncWorkflow</code> and <code>workflow.CleanupWorkflow</code> inherit the handler's logger without adding their own scope — they rely on <code>ctx</code>-carried logger for Reconcile-time metadata.</p>
+</blockquote>
+<details><summary>Original finding (kept for history)</summary>
+
+**Evidence:**
+- Connection feature: `log.WithName("connection")`
+- Policy: no consistent scope — some places use `"vaultpolicy"`, some the raw passed logger
+- Discovery: `"discovery-controller"`, `"scanner"` (nested)
+
+**Fix:** Standardize on 2-level scoping: `"{feature}.{component}"` e.g., `policy.handler`, `policy.reconciler`, `connection.bootstrap`. Makes log parsing consistent.
+</details>
+
 <hr />
-<h2 id="22-inconsistent-use-of-logrfromcontextordiscardctx-vs-passed-in-log-logrlogger">🟢 22. Inconsistent use of <code>logr.FromContextOrDiscard(ctx)</code> vs passed-in <code>log logr.Logger</code><a class="headerlink" href="#22-inconsistent-use-of-logrfromcontextordiscardctx-vs-passed-in-log-logrlogger" title="Permanent link">&para;</a></h2>
-<p><strong>Evidence:</strong> Some methods take <code>log</code> explicitly (e.g., <code>runBootstrap</code>), others fetch from context. Mixing both is confusing.</p>
-<p><strong>Fix:</strong> Pick one. Recommend <code>logr.FromContextOrDiscard(ctx)</code> because <code>BaseReconciler.Reconcile</code> already enriches the context with <code>reconcileID</code>.</p>
+<h2 id="22-inconsistent-use-of-logrfromcontextordiscardctx-vs-passed-in-log-logrlogger-resolved-documented-intentional-divergence">✅ 22. Inconsistent use of <code>logr.FromContextOrDiscard(ctx)</code> vs passed-in <code>log logr.Logger</code> — RESOLVED (documented intentional divergence)<a class="headerlink" href="#22-inconsistent-use-of-logrfromcontextordiscardctx-vs-passed-in-log-logrlogger-resolved-documented-intentional-divergence" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p><strong>Status</strong>: Resolved by documentation. <code>shared/controller/watches/doc.go</code> was added to explain the intentional divergence: feature handlers (called from <code>Reconcile</code> with <code>BaseReconciler</code>-injected logger) use <code>logr.FromContextOrDiscard</code>; <code>watches</code> MapFuncs (which run in controller-runtime's event-dispatch loop, where context may not carry a request-scoped logger) use <code>sigs.k8s.io/controller-runtime/pkg/log.FromContext</code> so the fallback is the global logger rather than silent discard.</p>
+<p><strong>Why keep both</strong>: forcing uniformity would either silently drop diagnostically-useful MapFunc output (if we picked <code>FromContextOrDiscard</code>) or pull the controller-runtime log package into every handler (if we picked <code>log.FromContext</code>). The divergence is small, well-localized by package, and now explained at the point of divergence.</p>
+<p><strong>Audit confirmed</strong>: within each package the pattern is already uniform — <code>features/*/controller/</code> all use <code>logr.FromContextOrDiscard</code>, <code>shared/controller/workflow/</code> same, <code>shared/controller/watches/</code> uses <code>log.FromContext</code>.</p>
+</blockquote>
+<details><summary>Original finding (kept for history)</summary>
+
+**Evidence:** Some methods take `log` explicitly (e.g., `runBootstrap`), others fetch from context. Mixing both is confusing.
+
+**Fix:** Pick one. Recommend `logr.FromContextOrDiscard(ctx)` because `BaseReconciler.Reconcile` already enriches the context with `reconcileID`.
+</details>
+
 <hr />
 <h2 id="23-minscaninterval-package-var-reconcilerconfig-field-resolved">✅ 23. <code>MinScanInterval</code> package var → ReconcilerConfig field — RESOLVED<a class="headerlink" href="#23-minscaninterval-package-var-reconcilerconfig-field-resolved" title="Permanent link">&para;</a></h2>
 <blockquote>
@@ -1980,9 +2040,20 @@ A global package var mutated during init based on env. Works, but test isolation
 </details>
 
 <hr />
-<h2 id="24-ghost-nolintstaticcheck-comments-on-recorder-calls">🟢 24. Ghost <code>nolint:staticcheck</code> comments on recorder calls<a class="headerlink" href="#24-ghost-nolintstaticcheck-comments-on-recorder-calls" title="Permanent link">&para;</a></h2>
-<p><strong>Evidence:</strong> <a href="../../cmd/main.go:244">cmd/main.go:244, 259, 274, 288</a> — <code>mgr.GetEventRecorderFor("...")</code> flagged with <code>//nolint:staticcheck</code>. Suggests a deprecation warning being silenced.</p>
-<p><strong>Fix:</strong> Check the upstream deprecation notice — likely <code>GetEventRecorderFor</code> is deprecated in favor of <code>NewRecorder</code> or similar. Address once rather than carrying the nolint forever.</p>
+<h2 id="24-ghost-nolintstaticcheck-comments-on-recorder-calls-resolved-documented-rationale">✅ 24. Ghost <code>nolint:staticcheck</code> comments on recorder calls — RESOLVED (documented rationale)<a class="headerlink" href="#24-ghost-nolintstaticcheck-comments-on-recorder-calls-resolved-documented-rationale" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p><strong>Status</strong>: Investigated. The nolint pragmas suppress a genuine <code>SA1019</code> warning from staticcheck: <code>mgr.GetEventRecorderFor</code> is deprecated in controller-runtime ≥v0.23 in favor of <code>mgr.GetEventRecorder</code>. However, the replacement returns <code>events.EventRecorder</code> (v1beta1 API, from <code>k8s.io/client-go/tools/events</code>), which has a different method signature from <code>record.EventRecorder</code> (v1 API, from <code>k8s.io/client-go/tools/record</code>) — <code>Eventf</code> requires additional <code>regarding</code>, <code>related</code>, <code>action</code>, <code>note</code> parameters. Every handler call site uses the v1 API, so migrating is a cross-cutting API refactor affecting ~30 call sites, not a one-line change.</p>
+<p><strong>Resolution in this tier</strong>: added a block comment at <a href="../../cmd/main.go:252">cmd/main.go:252</a> documenting <em>why</em> the nolints exist (not just that they do). Future maintainers can see at a glance whether the migration is worth doing.</p>
+<p><strong>Worth noting</strong>: controller-runtime's own <code>manager.go</code> and its test suite use the same <code>//nolint:staticcheck</code> workaround for the same reason — this is the idiomatic way to opt into the deprecated-but-not-removed API.</p>
+<p><strong>Not done</strong>: the full migration to <code>events.EventRecorder</code>. Tracked as future Tier-5 work when feature-parity with the v1beta1 events API is confirmed across all recorder call sites (structured events with <code>action</code>/<code>note</code>).</p>
+</blockquote>
+<details><summary>Original finding (kept for history)</summary>
+
+**Evidence:** [cmd/main.go:244, 259, 274, 288](../../cmd/main.go:244) — `mgr.GetEventRecorderFor("...")` flagged with `//nolint:staticcheck`. Suggests a deprecation warning being silenced.
+
+**Fix:** Check the upstream deprecation notice — likely `GetEventRecorderFor` is deprecated in favor of `NewRecorder` or similar. Address once rather than carrying the nolint forever.
+</details>
+
 <hr />
 <h2 id="25-cert-manager-todo-resolved-clarifying-comment">✅ 25. cert-manager TODO — RESOLVED (clarifying comment)<a class="headerlink" href="#25-cert-manager-todo-resolved-clarifying-comment" title="Permanent link">&para;</a></h2>
 <blockquote>
