@@ -2,6 +2,22 @@
 
 > This is the actionable output of the documentation pass. Each finding is grouped by **Severity** (Critical / Major / Minor / Cosmetic), with evidence, impact, and a recommended fix. Item numbers are stable — the other FLOW docs link back here by `§<n>`.
 
+## Resolution Status (2026-04-18)
+
+All original findings have been worked through. Tally as of the last commit:
+
+| Status | Count | Items |
+|--------|-------|-------|
+| ✅ Resolved | 34 | §§1–6, 8–11, 13–17, 19–25, 27, 29–34, 36 |
+| ✅ Resolved (missing features) | 5 | A, F, H, J, K |
+| 🟠 Partially resolved | 1 | §7 (validation + doc shipped; backend expansion deferred) |
+| ❌ Withdrawn | 4 | §12 (design sound), §18 (low ROI), §26 (already gitignored), §35 (predicate already correct) |
+| 🕰️ Deferred with rationale | 6 | B (reverse-index), C (sealed watch), D (multi-cluster, OOS), E (policy templating), G (managed-marker backup), I (dry-run mode) |
+
+Each section below lists its current status inline. Items marked `✅ RESOLVED` keep the original finding in a collapsed `<details>` block for historical context and to make future drift easy to spot.
+
+Tests added across this effort: ~150 new unit tests, ~8 new integration tests, plus 2 new e2e tests. Zero regressions in existing suites.
+
 ## Severity Legend
 
 | Severity | Meaning |
