@@ -31,6 +31,7 @@ import (
 	"github.com/panteparak/vault-access-operator/features/policy/domain"
 	"github.com/panteparak/vault-access-operator/pkg/metrics"
 	"github.com/panteparak/vault-access-operator/pkg/vault"
+	"github.com/panteparak/vault-access-operator/shared/controller/conflict"
 	"github.com/panteparak/vault-access-operator/shared/controller/vaultclient"
 	"github.com/panteparak/vault-access-operator/shared/controller/workflow"
 	"github.com/panteparak/vault-access-operator/shared/events"
@@ -200,17 +201,10 @@ func (h *Handler) checkConflict(
 	)
 }
 
-// shouldAdopt checks if the adapter should adopt an existing Vault resource.
-// Adoption is allowed via annotation (takes precedence) or ConflictPolicy.
+// shouldAdopt delegates to the shared conflict.ShouldAdopt helper
+// (IMPROVEMENTS §13). Kept as a thin method for call-site readability.
 func (h *Handler) shouldAdopt(adapter domain.PolicyAdapter) bool {
-	// Check annotation first (takes precedence)
-	annotations := adapter.GetAnnotations()
-	if annotations[vaultv1alpha1.AnnotationAdopt] == vaultv1alpha1.AnnotationValueTrue {
-		return true
-	}
-
-	// Fall back to ConflictPolicy
-	return adapter.GetConflictPolicy() == vaultv1alpha1.ConflictPolicyAdopt
+	return conflict.ShouldAdopt(adapter)
 }
 
 // generatePolicyHCL generates HCL for the policy rules.

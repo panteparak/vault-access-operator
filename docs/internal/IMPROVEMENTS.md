@@ -399,7 +399,16 @@ Catches mismatches at compile time.
 
 ---
 
-## 🟡 13. Duplicated `shouldAdopt` / `checkConflict` logic
+## ✅ 13. Duplicated `shouldAdopt` logic — RESOLVED (shouldAdopt extracted; checkConflict deferred)
+
+> **Status**: `shouldAdopt` extracted. The policy and role handlers' `shouldAdopt` functions were byte-for-byte identical modulo the adapter type. New package `shared/controller/conflict` exposes `ShouldAdopt(AdoptCandidate) bool` with a minimal interface both adapters satisfy. Policy and role handlers now delegate.
+>
+> **Deferred**: the broader `checkConflict` extraction (generic `Check[A any]` with callbacks for `Exists` / `GetManagedBy` / `ShouldAdopt`) is valuable but riskier — the three moving parts differ between policy and role in ways that resist clean abstraction. The current `shouldAdopt` extraction handles the actual duplication that was byte-for-byte; `checkConflict` stays in each handler where it's already well tested.
+>
+> **Tests**: `shared/controller/conflict/adopt_test.go` pins the annotation-wins-over-policy precedence rule with 5 table cases. Existing handler tests cover the full `checkConflict` end-to-end.
+
+<details><summary>Original finding (kept for history)</summary>
+
 
 **Evidence:**
 - [policy/controller/handler.go:172-181](../../features/policy/controller/handler.go:172) `shouldAdopt(PolicyAdapter) bool`
@@ -423,6 +432,7 @@ type Checker[A any] interface {
 
 func Check[A any](ctx, vc, a A, checker Checker[A]) error { ... }
 ```
+</details>
 
 ---
 
