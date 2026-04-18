@@ -715,7 +715,19 @@ All metrics are gauges or counters. No `reconcile_duration_seconds` histogram. H
 
 ---
 
-## 🟠 27. Event bus has no production subscribers
+## ✅ 27. Event bus subscribers — RESOLVED via k8s watch (not the event bus)
+
+> **Status**: Fixed the user-visible problem. The role reconciler now watches VaultPolicy + VaultClusterPolicy create/update events via a controller-runtime `Watches(...)` + MapFunc that filters to roles with unresolved PolicyBindings referencing the triggering policy. Roles blocked on a not-yet-applied policy now reconcile in milliseconds of the policy appearing instead of waiting up to 30s for the next scheduled sync.
+>
+> **Why k8s watch instead of the internal event bus**: the k8s API server already fires Create events for every CR, and controller-runtime dispatches them directly. Re-publishing through the internal event bus would be an extra layer with no benefit — same semantics, more code. The internal bus remains as scaffold for future cross-feature signals (e.g., external SIEM audit export, cross-cluster coordination) that don't have a natural k8s representation.
+>
+> **Tests**: `shared/controller/watches/policy_watch_test.go`:
+> - `TestRoleRequestsForPolicy` — enqueues only waiting roles, not resolved or unrelated ones.
+> - `TestClusterRoleRequestsForPolicy` — mirror for cluster-scoped roles.
+> - `TestPolicyCreatedOrUpdatedPredicate` — confirms Delete events don't enqueue (handled by next scheduled reconcile, which re-runs `PolicyExists`).
+
+<details><summary>Original finding (kept for history)</summary>
+
 
 **Evidence:** Grep confirms `events.Subscribe` is only called from `*_test.go` files across the entire codebase. Production publishers fire into the void.
 
@@ -730,6 +742,7 @@ Types declared but never published: `ConnectionHealthChanged`, `PolicyUpdated`, 
 3. **Ship the bus as-is**, document as scaffold, note in this file that dead publish calls are intentional.
 
 Recommendation: option 2. Gives the bus at least one subscriber and delivers a user-visible improvement.
+</details>
 
 ---
 

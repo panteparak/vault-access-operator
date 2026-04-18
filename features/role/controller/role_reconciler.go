@@ -87,7 +87,14 @@ func (r *RoleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	return result, err
 }
 
-// SetupWithManager sets up the controller with the Manager.
+// SetupWithManager sets up the controller with the Manager. It watches
+// three event sources:
+//   - The VaultRole itself (generation changes trigger reconcile).
+//   - VaultConnection phase transitions (IMPROVEMENTS §1 / existing behavior).
+//   - VaultPolicy + VaultClusterPolicy creates/updates (IMPROVEMENTS §27) —
+//     so a role blocked on an unresolved PolicyBinding reconciles within
+//     milliseconds of the policy appearing instead of waiting up to 30s
+//     for the next scheduled sync.
 func (r *RoleReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&vaultv1alpha1.VaultRole{},
@@ -98,6 +105,20 @@ func (r *RoleReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				watches.RoleRequestsForConnection(mgr.GetClient()),
 			),
 			builder.WithPredicates(watches.ConnectionPhaseChangedPredicate{}),
+		).
+		Watches(
+			&vaultv1alpha1.VaultPolicy{},
+			handler.EnqueueRequestsFromMapFunc(
+				watches.RoleRequestsForPolicy(mgr.GetClient()),
+			),
+			builder.WithPredicates(watches.PolicyCreatedOrUpdatedPredicate),
+		).
+		Watches(
+			&vaultv1alpha1.VaultClusterPolicy{},
+			handler.EnqueueRequestsFromMapFunc(
+				watches.RoleRequestsForPolicy(mgr.GetClient()),
+			),
+			builder.WithPredicates(watches.PolicyCreatedOrUpdatedPredicate),
 		).
 		Named("vaultrole").
 		Complete(r)

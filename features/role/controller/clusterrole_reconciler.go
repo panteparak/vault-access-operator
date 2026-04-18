@@ -93,7 +93,10 @@ func (r *ClusterRoleReconciler) Reconcile(
 	return result, err
 }
 
-// SetupWithManager sets up the controller with the Manager.
+// SetupWithManager sets up the controller with the Manager. Watches
+// VaultConnection phase changes, plus VaultPolicy and VaultClusterPolicy
+// create/update events (IMPROVEMENTS §27) so cluster roles blocked on
+// unresolved PolicyBindings reconcile immediately when the policy appears.
 func (r *ClusterRoleReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&vaultv1alpha1.VaultClusterRole{},
@@ -104,6 +107,20 @@ func (r *ClusterRoleReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				watches.ClusterRoleRequestsForConnection(mgr.GetClient()),
 			),
 			builder.WithPredicates(watches.ConnectionPhaseChangedPredicate{}),
+		).
+		Watches(
+			&vaultv1alpha1.VaultPolicy{},
+			handler.EnqueueRequestsFromMapFunc(
+				watches.ClusterRoleRequestsForPolicy(mgr.GetClient()),
+			),
+			builder.WithPredicates(watches.PolicyCreatedOrUpdatedPredicate),
+		).
+		Watches(
+			&vaultv1alpha1.VaultClusterPolicy{},
+			handler.EnqueueRequestsFromMapFunc(
+				watches.ClusterRoleRequestsForPolicy(mgr.GetClient()),
+			),
+			builder.WithPredicates(watches.PolicyCreatedOrUpdatedPredicate),
 		).
 		Named("vaultclusterrole").
 		Complete(r)
