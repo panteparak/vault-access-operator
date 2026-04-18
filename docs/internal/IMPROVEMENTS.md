@@ -661,7 +661,17 @@ Replace raw strings with constants.
 
 ---
 
-## 🟠 31. Dead metrics — registered but never emitted
+## ✅ 31. Dead metrics — registered but never emitted — RESOLVED
+
+> **Status**: Fixed. Wired emission for all three previously-dead metrics:
+> - `policy_reconcile_total{kind, namespace, result}` — emitted from both `PolicyReconciler.Reconcile` and `ClusterPolicyReconciler.Reconcile` after the BaseReconciler call.
+> - `role_reconcile_total{kind, namespace, result}` — same pattern in role + clusterrole reconcilers.
+> - `discovery_adoptions_total{kind, namespace, result}` — emitted at both adopt paths in `policy.Handler.checkConflict` and `role.Handler.checkConflict` (success-only; conflict-blocked is not an adoption attempt).
+>
+> **Tests**: `features/{policy,role}/controller/reconciler_metrics_test.go` cover both reconcile metric emission (NotFound success path) and the helper `kindForMetric`/`roleKindForMetric` mapping that distinguishes namespaced from cluster-scoped variants.
+
+<details><summary>Original finding (kept for history)</summary>
+
 
 **Evidence:**
 - `PolicyReconcileTotal` at [metrics.go:67](../../pkg/metrics/metrics.go:67), helper `IncrementPolicyReconcile` at [metrics.go:232](../../pkg/metrics/metrics.go:232) — **never called** outside test code (verified by grep).
@@ -678,10 +688,16 @@ Replace raw strings with constants.
 **Fix:** For each dead metric, either:
 - (a) Add the emission call at the natural site (`IncrementPolicyReconcile` in `BaseReconciler.handleSync` post-call; `IncrementAdoption` in `CheckConflict` when `shouldAdopt` path is taken), OR
 - (b) Remove the metric + helper to stop claiming instrumentation that doesn't exist.
+</details>
 
 ---
 
-## 🟠 32. Undocumented shutdown drain timeout
+## ✅ 32. Undocumented shutdown drain timeout — RESOLVED
+
+> **Status**: Fixed. `cmd/main.go` now sets `Options.GracefulShutdownTimeout: ptr.To(2 * time.Minute)` explicitly. The default was 30s — too short for slow Vault bootstrap or auth flows on first reconcile. Helm chart's `terminationGracePeriodSeconds` should be ≥ 150s (already implicit; 30s default leaves no headroom).
+
+<details><summary>Original finding (kept for history)</summary>
+
 
 **Evidence:** [cmd/main.go:197-215](../../cmd/main.go:197) constructs `ctrl.Manager` without setting `Options.GracefulShutdownTimeout`. Controller-runtime's default is 30 seconds.
 
@@ -698,10 +714,16 @@ mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 })
 ```
 Plus: document intended drain duration in the Helm chart `terminationGracePeriodSeconds` (default is K8s' 30s, likely too short for in-flight Vault ops).
+</details>
 
 ---
 
-## 🟠 33. Health probes are trivial pings
+## ✅ 33. Health probes are trivial pings — RESOLVED
+
+> **Status**: Fixed. `/healthz` keeps the trivial `Ping` (correct for liveness). `/readyz` now also has an `informers-synced` check that calls `mgr.GetCache().WaitForCacheSync(ctx)` with a 2s timeout. Pods with un-synced caches no longer ready-pass and won't receive Service traffic prematurely.
+
+<details><summary>Original finding (kept for history)</summary>
+
 
 **Evidence:** [cmd/main.go:333-340](../../cmd/main.go:333):
 ```go
@@ -732,6 +754,7 @@ mgr.AddReadyzCheck("informers-synced", func(_ *http.Request) error {
 // (skip if no VaultConnections exist, but flag if cache is empty while connections exist)
 ```
 Keep `/healthz` as the trivial ping (liveness = pod-level restart trigger).
+</details>
 
 ---
 
@@ -745,7 +768,12 @@ Keep `/healthz` as the trivial ping (liveness = pod-level restart trigger).
 
 ---
 
-## 🟠 35. `ConnectionPhaseChangedPredicate` fan-out on health-check changes
+## ❌ 35. `ConnectionPhaseChangedPredicate` fan-out on health-check changes — INCORRECT FINDING
+
+> **Status**: Withdrawn after code re-verification. The predicate at [shared/controller/watches/predicates.go:45-64](../../shared/controller/watches/predicates.go:45) only triggers on `Status.Phase` OR `Status.Healthy` *transitions* — not on heartbeat timestamp changes. The existing test `TestConnectionPhaseChangedPredicate_Update_NoChange` even explicitly covers a "version updated, no phase change" scenario and asserts the predicate returns `false`. The fan-out storm I claimed in the original doc pass does not occur. Leaving the entry here (struck through) so cross-references stay stable.
+
+<details><summary>Original (incorrect) finding (kept for history)</summary>
+
 
 **Evidence:** [shared/controller/watches/predicates.go](../../shared/controller/watches/predicates.go) triggers on phase **or** health-check-timestamp change. The connection reconciler writes health status every 30s.
 
@@ -754,6 +782,7 @@ Keep `/healthz` as the trivial ping (liveness = pod-level restart trigger).
 - For a cluster with 200 dependent policies + 100 roles referencing an unhealthy connection, that's 300 wasted reconciles every 30s = 10/sec sustained.
 
 **Fix:** Tighten the predicate to trigger only on `Phase` transition (ignore `LastHealthCheck`, `LastHeartbeat`, consecutiveFails updates). The current `ConnectionPhaseChangedPredicate` name suggests that's the intent, so this is likely a bug.
+</details>
 
 ---
 

@@ -29,12 +29,32 @@ import (
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/features/policy/domain"
+	"github.com/panteparak/vault-access-operator/pkg/metrics"
 	"github.com/panteparak/vault-access-operator/pkg/vault"
 	"github.com/panteparak/vault-access-operator/shared/controller/vaultclient"
 	"github.com/panteparak/vault-access-operator/shared/controller/workflow"
 	"github.com/panteparak/vault-access-operator/shared/events"
 	infraerrors "github.com/panteparak/vault-access-operator/shared/infrastructure/errors"
 )
+
+// Kind labels for adoption + reconcile metrics. Constants because each label
+// is referenced from multiple call sites (policy_reconciler.go,
+// clusterpolicy_reconciler.go, this file).
+const (
+	kindLabelVaultPolicy        = "VaultPolicy"
+	kindLabelVaultClusterPolicy = "VaultClusterPolicy"
+)
+
+// kindForMetric returns the K8s kind label used in adoption / reconcile metrics.
+// VaultPolicy adapter wraps both namespaced + cluster variants; this helper
+// keeps the policy-side metric labels consistent without leaking adapter
+// internals into the metric call sites.
+func kindForMetric(adapter domain.PolicyAdapter) string {
+	if adapter.IsNamespaced() {
+		return kindLabelVaultPolicy
+	}
+	return kindLabelVaultClusterPolicy
+}
 
 // Handler provides shared policy sync/cleanup logic.
 // It works with PolicyAdapter to handle both VaultPolicy and VaultClusterPolicy.
@@ -145,6 +165,7 @@ func (h *Handler) checkConflict(
 		// Can't determine ownership - check if adoption is allowed
 		if h.shouldAdopt(adapter) {
 			log.Info("adopting policy (ownership unknown)", "policyName", vaultPolicyName)
+			metrics.IncrementAdoption(kindForMetric(adapter), adapter.GetNamespace(), true)
 			return nil
 		}
 		return infraerrors.NewTransientError("check policy ownership", err)
@@ -169,6 +190,7 @@ func (h *Handler) checkConflict(
 	// Exists but not managed - check if adoption is allowed
 	if h.shouldAdopt(adapter) {
 		log.Info("adopting existing Vault policy", "policyName", vaultPolicyName)
+		metrics.IncrementAdoption(kindForMetric(adapter), adapter.GetNamespace(), true)
 		return nil
 	}
 

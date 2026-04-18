@@ -32,6 +32,7 @@ import (
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/features/policy/domain"
+	"github.com/panteparak/vault-access-operator/pkg/metrics"
 	"github.com/panteparak/vault-access-operator/shared/controller/base"
 )
 
@@ -76,10 +77,15 @@ func NewPolicyReconciler(
 // +kubebuilder:rbac:groups=vault.platform.io,resources=vaultconnections,verbs=get;list;watch
 
 // Reconcile implements the reconciliation loop for VaultPolicy.
+// Emits `vault_access_operator_policy_reconcile_total{kind, namespace, result}`
+// on every completion (IMPROVEMENTS §31 — the metric was registered but never
+// emitted before this fix).
 func (r *PolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	return r.base.Reconcile(ctx, req, &policyFeatureHandler{handler: r.handler}, func() *vaultv1alpha1.VaultPolicy {
-		return &vaultv1alpha1.VaultPolicy{}
-	})
+	feature := &policyFeatureHandler{handler: r.handler}
+	newObj := func() *vaultv1alpha1.VaultPolicy { return &vaultv1alpha1.VaultPolicy{} }
+	result, err := r.base.Reconcile(ctx, req, feature, newObj)
+	metrics.IncrementPolicyReconcile(kindLabelVaultPolicy, req.Namespace, err == nil)
+	return result, err
 }
 
 // SetupWithManager sets up the controller with the Manager.

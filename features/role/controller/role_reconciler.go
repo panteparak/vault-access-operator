@@ -32,6 +32,7 @@ import (
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/features/role/domain"
+	"github.com/panteparak/vault-access-operator/pkg/metrics"
 	"github.com/panteparak/vault-access-operator/shared/controller/base"
 )
 
@@ -76,10 +77,14 @@ func NewRoleReconciler(
 // +kubebuilder:rbac:groups=vault.platform.io,resources=vaultconnections,verbs=get;list;watch
 
 // Reconcile implements the reconciliation loop for VaultRole.
+// Emits `vault_access_operator_role_reconcile_total{kind, namespace, result}`
+// per IMPROVEMENTS §31 (registered-but-dead before this fix).
 func (r *RoleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	return r.base.Reconcile(ctx, req, &roleFeatureHandler{handler: r.handler}, func() *vaultv1alpha1.VaultRole {
+	result, err := r.base.Reconcile(ctx, req, &roleFeatureHandler{handler: r.handler}, func() *vaultv1alpha1.VaultRole {
 		return &vaultv1alpha1.VaultRole{}
 	})
+	metrics.IncrementRoleReconcile(kindLabelVaultRole, req.Namespace, err == nil)
+	return result, err
 }
 
 // SetupWithManager sets up the controller with the Manager.

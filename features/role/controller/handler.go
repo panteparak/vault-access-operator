@@ -31,6 +31,7 @@ import (
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/features/role/domain"
+	"github.com/panteparak/vault-access-operator/pkg/metrics"
 	"github.com/panteparak/vault-access-operator/pkg/vault"
 	"github.com/panteparak/vault-access-operator/shared/controller/binding"
 	"github.com/panteparak/vault-access-operator/shared/controller/conditions"
@@ -41,6 +42,23 @@ import (
 	"github.com/panteparak/vault-access-operator/shared/events"
 	infraerrors "github.com/panteparak/vault-access-operator/shared/infrastructure/errors"
 )
+
+// Kind labels used in adoption + reconcile metrics. Extracted as constants
+// because they appear at multiple emission sites and the goconst linter (and
+// future readers) prefer a single source of truth.
+const (
+	kindLabelVaultRole        = "VaultRole"
+	kindLabelVaultClusterRole = "VaultClusterRole"
+)
+
+// roleKindForMetric returns the K8s kind label used in adoption / reconcile
+// metrics. Mirrors policy's kindForMetric to keep the labels consistent.
+func roleKindForMetric(adapter domain.RoleAdapter) string {
+	if adapter.IsNamespaced() {
+		return kindLabelVaultRole
+	}
+	return kindLabelVaultClusterRole
+}
 
 // Handler provides shared role sync/cleanup logic.
 // It works with RoleAdapter to handle both VaultRole and VaultClusterRole.
@@ -127,6 +145,7 @@ func (h *Handler) checkConflict(
 		// Can't determine ownership - check if adoption is allowed
 		if h.shouldAdopt(adapter) {
 			log.Info("adopting role (ownership unknown)", "roleName", vaultRoleName)
+			metrics.IncrementAdoption(roleKindForMetric(adapter), adapter.GetNamespace(), true)
 			return nil
 		}
 		return infraerrors.NewTransientError("check role ownership", err)
@@ -147,6 +166,7 @@ func (h *Handler) checkConflict(
 	// Exists but not managed - check if adoption is allowed
 	if h.shouldAdopt(adapter) {
 		log.Info("adopting existing Vault role", "roleName", vaultRoleName)
+		metrics.IncrementAdoption(roleKindForMetric(adapter), adapter.GetNamespace(), true)
 		return nil
 	}
 

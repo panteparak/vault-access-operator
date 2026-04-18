@@ -17,11 +17,15 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"crypto/tls"
+	"errors"
 	"flag"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -197,13 +201,21 @@ func main() {
 		})
 	}
 
+	// GracefulShutdownTimeout (IMPROVEMENTS §32): cap the time the manager spends
+	// draining in-flight reconciles after SIGTERM. Previously unset, which left
+	// controller-runtime's default (30s). Vault bootstrap and long auth flows
+	// can exceed 30s, so in-flight state was silently truncated on termination.
+	// 2 minutes is a compromise: enough headroom for the slowest reconcile we've
+	// seen in production, less than the Helm chart's terminationGracePeriodSeconds.
+	gracefulShutdown := 2 * time.Minute
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
-		Scheme:                 scheme,
-		Metrics:                metricsServerOptions,
-		WebhookServer:          webhookServer,
-		HealthProbeBindAddress: probeAddr,
-		LeaderElection:         enableLeaderElection,
-		LeaderElectionID:       "2bf9394e.platform.io",
+		Scheme:                  scheme,
+		Metrics:                 metricsServerOptions,
+		WebhookServer:           webhookServer,
+		HealthProbeBindAddress:  probeAddr,
+		LeaderElection:          enableLeaderElection,
+		LeaderElectionID:        "2bf9394e.platform.io",
+		GracefulShutdownTimeout: &gracefulShutdown,
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
 		// when the Manager ends. This requires the binary to immediately end when the
 		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly
@@ -373,12 +385,32 @@ func main() {
 		}
 	}
 
+	// /healthz stays a trivial pulse — it only signals "the process is alive"
+	// and drives pod-restart decisions. Any check more involved than Ping risks
+	// flapping the liveness state on transient issues, which would spin-loop
+	// the pod.
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		setupLog.Error(err, "unable to set up health check")
 		os.Exit(1)
 	}
+	// /readyz gates Service traffic (IMPROVEMENTS §33). Before this fix it was
+	// a trivial Ping that returned 200 before informers had synced, letting
+	// scrapers and webhooks race the cache. Now it fails until the shared
+	// informer cache is populated.
+	readyzTimeout := 2 * time.Second
 	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
 		setupLog.Error(err, "unable to set up ready check")
+		os.Exit(1)
+	}
+	if err := mgr.AddReadyzCheck("informers-synced", func(_ *http.Request) error {
+		ctx, cancel := context.WithTimeout(context.Background(), readyzTimeout)
+		defer cancel()
+		if !mgr.GetCache().WaitForCacheSync(ctx) {
+			return errors.New("shared informer cache not synced")
+		}
+		return nil
+	}); err != nil {
+		setupLog.Error(err, "unable to register informer-sync ready check")
 		os.Exit(1)
 	}
 

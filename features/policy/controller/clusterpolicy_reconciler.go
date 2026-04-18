@@ -32,6 +32,7 @@ import (
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/features/policy/domain"
+	"github.com/panteparak/vault-access-operator/pkg/metrics"
 	"github.com/panteparak/vault-access-operator/shared/controller/base"
 )
 
@@ -76,17 +77,21 @@ func NewClusterPolicyReconciler(
 // +kubebuilder:rbac:groups=vault.platform.io,resources=vaultclusterpolicies/finalizers,verbs=update
 
 // Reconcile implements the reconciliation loop for VaultClusterPolicy.
+// Emits `vault_access_operator_policy_reconcile_total` per IMPROVEMENTS §31.
+// Cluster-scoped resources have empty namespace; the metric label honors that.
 func (r *ClusterPolicyReconciler) Reconcile(
 	ctx context.Context,
 	req ctrl.Request,
 ) (ctrl.Result, error) {
-	return r.base.Reconcile(
+	result, err := r.base.Reconcile(
 		ctx, req,
 		&clusterPolicyFeatureHandler{handler: r.handler},
 		func() *vaultv1alpha1.VaultClusterPolicy {
 			return &vaultv1alpha1.VaultClusterPolicy{}
 		},
 	)
+	metrics.IncrementPolicyReconcile(kindLabelVaultClusterPolicy, "", err == nil)
+	return result, err
 }
 
 // SetupWithManager sets up the controller with the Manager.
