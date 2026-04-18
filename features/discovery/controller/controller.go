@@ -38,6 +38,7 @@ import (
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/pkg/vault"
+	"github.com/panteparak/vault-access-operator/shared/controller/conditions"
 )
 
 const (
@@ -291,15 +292,41 @@ func (r *Reconciler) createRoleCR(
 	return nil
 }
 
-// updateDiscoveryStatus updates the discovery status with retry on conflict.
-// This is necessary because the connection controller also updates VaultConnection status,
-// leading to potential optimistic lock conflicts.
+// MaxDiscoveredResourcesInStatus caps how many DiscoveredResource entries
+// the controller will write to a single VaultConnection status (IMPROVEMENTS §5).
+// The CRD's `+kubebuilder:validation:MaxItems=500` schema marker enforces this
+// at the API server, so writes that exceed it would be rejected with
+// "Too many: N: must have at most 500 items" — looping the reconciler forever.
+// We pre-truncate here so the user gets a clean Truncated condition instead.
+const MaxDiscoveredResourcesInStatus = 500
+
+// updateDiscoveryStatus updates the discovery status using a server-side
+// merge patch (IMPROVEMENTS §9). Previously this used Update inside
+// retry.RetryOnConflict because the connection controller also writes to
+// VaultConnection.Status — both writers using full Update produced
+// optimistic-concurrency conflicts. With MergeFrom, the patch only carries
+// the DiscoveryStatus subset of fields and tolerates concurrent changes to
+// the connection-controller-owned fields (Phase, AuthStatus, Health).
+//
+// retry.RetryOnConflict is preserved as a belt-and-braces guard for the
+// rare case where the resource is mid-deletion or the API server still
+// rejects a stale patch.
 func (r *Reconciler) updateDiscoveryStatus(
 	ctx context.Context,
 	connectionName string,
 	scanTime metav1.Time,
 	result *ScanResult,
 ) error {
+	// IMPROVEMENTS §5: cap the slice before persisting. We track how many we
+	// dropped so the user can see it via the DiscoveryResultsTruncated condition.
+	totalDiscovered := len(result.DiscoveredResources)
+	persistedResources := result.DiscoveredResources
+	truncatedCount := 0
+	if totalDiscovered > MaxDiscoveredResourcesInStatus {
+		persistedResources = result.DiscoveredResources[:MaxDiscoveredResourcesInStatus]
+		truncatedCount = totalDiscovered - MaxDiscoveredResourcesInStatus
+	}
+
 	return retry.RetryOnConflict(retry.DefaultBackoff, func() error {
 		// Re-fetch the VaultConnection to get the latest version
 		var conn vaultv1alpha1.VaultConnection
@@ -310,6 +337,13 @@ func (r *Reconciler) updateDiscoveryStatus(
 			return err
 		}
 
+		// Capture the pre-mutation snapshot so MergeFrom can compute the
+		// minimal field-level patch that touches ONLY the discovery-owned
+		// status subset. Anything we don't change here stays untouched on
+		// the server even if the connection controller wrote to it
+		// concurrently.
+		original := conn.DeepCopy()
+
 		// Initialize discovery status if needed
 		if conn.Status.DiscoveryStatus == nil {
 			conn.Status.DiscoveryStatus = &vaultv1alpha1.DiscoveryStatus{}
@@ -319,10 +353,42 @@ func (r *Reconciler) updateDiscoveryStatus(
 		conn.Status.DiscoveryStatus.LastScanAt = &scanTime
 		conn.Status.DiscoveryStatus.UnmanagedPolicies = len(result.UnmanagedPolicies)
 		conn.Status.DiscoveryStatus.UnmanagedRoles = len(result.UnmanagedRoles)
-		conn.Status.DiscoveryStatus.DiscoveredResources = result.DiscoveredResources
+		conn.Status.DiscoveryStatus.DiscoveredResources = persistedResources
 
-		return r.Status().Update(ctx, &conn)
+		// Surface the truncation as a condition so users can tighten their
+		// discovery patterns rather than wonder why the count doesn't match.
+		setDiscoveryTruncatedCondition(&conn, truncatedCount, totalDiscovered)
+
+		return r.Status().Patch(ctx, &conn, client.MergeFrom(original))
 	})
+}
+
+// setDiscoveryTruncatedCondition adds, updates, or removes the
+// DiscoveryResultsTruncated condition based on whether truncation happened.
+// Idempotent: if the previous condition matches the desired state, no change
+// is made (controller-runtime conditions library handles LastTransitionTime).
+func setDiscoveryTruncatedCondition(conn *vaultv1alpha1.VaultConnection, truncated, total int) {
+	const condType = "DiscoveryResultsTruncated"
+	if truncated > 0 {
+		msg := fmt.Sprintf(
+			"%d of %d discovered resources omitted from status (cap=%d). "+
+				"Tighten spec.discovery.{policy,role}Patterns to reduce.",
+			truncated, total, MaxDiscoveredResourcesInStatus)
+		conn.Status.Conditions = conditions.Set(
+			conn.Status.Conditions, conn.Generation,
+			condType, metav1.ConditionTrue,
+			"Capped", msg,
+		)
+		return
+	}
+	// No truncation this scan — clear the condition to False so a previously-set
+	// True doesn't linger after the user fixes their patterns.
+	conn.Status.Conditions = conditions.Set(
+		conn.Status.Conditions, conn.Generation,
+		condType, metav1.ConditionFalse,
+		"WithinCap",
+		fmt.Sprintf("All %d discovered resources persisted (cap=%d).", total, MaxDiscoveredResourcesInStatus),
+	)
 }
 
 // SetupWithManager sets up the controller with the Manager.

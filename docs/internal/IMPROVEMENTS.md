@@ -183,7 +183,14 @@ func (c cacheAdapter) Get(name string) (cleanup.VaultClient, error) {
 
 ---
 
-## 🟠 5. `DiscoveredResources` growth — API-server validation (updated 2026-04-18)
+## ✅ 5. `DiscoveredResources` growth — RESOLVED
+
+> **Status**: Fixed. `Reconciler.updateDiscoveryStatus` now truncates `result.DiscoveredResources` at `MaxDiscoveredResourcesInStatus = 500` before persisting and sets a `DiscoveryResultsTruncated` condition (True/Capped or False/WithinCap) so users can see how many entries were dropped without reading scanner logs.
+>
+> **Tests**: `features/discovery/controller/truncate_test.go` covers over-cap (truncation + True condition), under-cap (False condition cleared), and the §9 patch-based concurrent-write scenario.
+
+<details><summary>Original finding (kept for history)</summary>
+
 
 **Evidence (updated):** [api/v1alpha1/vaultconnection_types.go:458](../../api/v1alpha1/vaultconnection_types.go:458) has a kubebuilder marker:
 ```go
@@ -219,6 +226,7 @@ if len(result.DiscoveredResources) > maxDiscoveredInStatus {
 }
 ```
 Plus: emit per-discovered-resource **K8s events** (already done for the aggregate) rather than persisting the full list in status.
+</details>
 
 ---
 
@@ -293,7 +301,16 @@ But the operator **authenticates** to Vault via 8 methods (§6). There's an asym
 
 ---
 
-## 🟠 9. Dual reconcilers on `VaultConnection` → status race
+## ✅ 9. Dual reconcilers on `VaultConnection` → status race — RESOLVED (discovery side)
+
+> **Status**: Fixed on the discovery side, which was the secondary writer that conflicted with the connection controller. `updateDiscoveryStatus` now uses `r.Status().Patch(ctx, conn, client.MergeFrom(original))` instead of `Status().Update`. The patch carries only the DiscoveryStatus subset of fields and the `DiscoveryResultsTruncated` condition, so concurrent writes from the connection controller (Phase, AuthStatus, Healthy) are no longer overwritten.
+>
+> **Connection-handler side**: left on `Status().Update` because it's the canonical writer for the fields it touches. With the discovery side using Patch, the conflict surface is gone.
+>
+> **Tests**: `TestUpdateDiscoveryStatus_UsesPatch_NoConflictWithConcurrentConnectionUpdate` simulates the race by mutating Phase out-of-band between Get and Patch, then confirms both writes survive (discovery's DiscoveryStatus AND the concurrent Phase=Active).
+
+<details><summary>Original finding (kept for history)</summary>
+
 
 **Evidence:**
 - [features/connection/controller/reconciler.go](../../features/connection/controller/reconciler.go) watches `VaultConnection` for auth + health.
@@ -310,6 +327,7 @@ But the operator **authenticates** to Vault via 8 methods (§6). There's an asym
 1. **Subresource split**: move discovery state into its own CRD (`VaultDiscoveryScan` owned by the connection). Clean architecturally, breaking API change.
 2. **Patch instead of Update**: both controllers should use `client.Status().Patch(ctx, obj, client.MergeFrom(original))` to scope updates to their own fields. Eliminates most conflicts.
 3. **Wrap all status updates in retry.RetryOnConflict** everywhere.
+</details>
 
 ---
 
