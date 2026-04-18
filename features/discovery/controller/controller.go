@@ -43,6 +43,12 @@ import (
 const (
 	// DefaultScanInterval is the default interval between discovery scans
 	DefaultScanInterval = time.Hour
+
+	// discoveryPlaceholder is the sentinel value used in auto-created VaultRole
+	// CRs to satisfy MinItems=1 schema validation. Combined with
+	// AnnotationDiscoveryPending, it ensures no write ever reaches Vault before
+	// the user replaces it with real values.
+	discoveryPlaceholder = "discovery-placeholder-replace-me"
 )
 
 // MinScanInterval is the minimum allowed scan interval.
@@ -210,10 +216,10 @@ func (r *Reconciler) createPolicyCR(
 			Name:      discovered.SuggestedCRName,
 			Namespace: namespace,
 			Annotations: map[string]string{
-				vaultv1alpha1.AnnotationAdopt:         "true",
-				vaultv1alpha1.AnnotationDiscovered:    discovered.DiscoveredAt.Format(time.RFC3339),
-				"vault.platform.io/discovered-from":   conn.Name,
-				"vault.platform.io/discovery-pending": "true",
+				vaultv1alpha1.AnnotationAdopt:            vaultv1alpha1.AnnotationValueTrue,
+				vaultv1alpha1.AnnotationDiscovered:       discovered.DiscoveredAt.Format(time.RFC3339),
+				vaultv1alpha1.AnnotationDiscoveredFrom:   conn.Name,
+				vaultv1alpha1.AnnotationDiscoveryPending: vaultv1alpha1.AnnotationValueTrue,
 			},
 		},
 		Spec: vaultv1alpha1.VaultPolicySpec{
@@ -253,17 +259,28 @@ func (r *Reconciler) createRoleCR(
 			Name:      discovered.SuggestedCRName,
 			Namespace: namespace,
 			Annotations: map[string]string{
-				vaultv1alpha1.AnnotationAdopt:       "true",
-				vaultv1alpha1.AnnotationDiscovered:  discovered.DiscoveredAt.Format(time.RFC3339),
-				"vault.platform.io/discovered-from": conn.Name,
+				vaultv1alpha1.AnnotationAdopt:          vaultv1alpha1.AnnotationValueTrue,
+				vaultv1alpha1.AnnotationDiscovered:     discovered.DiscoveredAt.Format(time.RFC3339),
+				vaultv1alpha1.AnnotationDiscoveredFrom: conn.Name,
+				// discovery-pending blocks RoleOps.WriteToVault from overwriting
+				// the adopted Vault role with the placeholder spec below.
+				// Users MUST remove this annotation after replacing the placeholders
+				// with their real serviceAccounts and policies.
+				vaultv1alpha1.AnnotationDiscoveryPending: vaultv1alpha1.AnnotationValueTrue,
 			},
 		},
 		Spec: vaultv1alpha1.VaultRoleSpec{
 			ConnectionRef:  conn.Name,
 			ConflictPolicy: vaultv1alpha1.ConflictPolicyAdopt,
 			DriftMode:      vaultv1alpha1.DriftModeDetect,
-			// ServiceAccounts will need to be filled in manually
-			ServiceAccounts: []string{},
+			// Placeholder values satisfy MinItems=1 on ServiceAccounts + Policies
+			// so the K8s API server accepts the CR. The discovery-pending annotation
+			// ensures these are never written to Vault; the user replaces them with
+			// the real spec after reviewing the adopted Vault role.
+			ServiceAccounts: []string{discoveryPlaceholder},
+			Policies: []vaultv1alpha1.PolicyReference{
+				{Kind: "VaultClusterPolicy", Name: discoveryPlaceholder},
+			},
 		},
 	}
 

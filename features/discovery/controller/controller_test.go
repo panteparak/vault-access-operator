@@ -143,6 +143,11 @@ func newVaultClientFromServer(t *testing.T, server *httptest.Server, cache *vaul
 	cache.Set(connName, vc)
 }
 
+// testConnName is the canonical connection name used by discovery controller tests.
+// Extracted as a constant because it appears enough times (4+) that the goconst
+// linter flags the raw strings.
+const testConnName = "test-conn"
+
 // newVaultConnection creates a VaultConnection object for testing.
 func newVaultConnection(
 	discovery *vaultv1alpha1.DiscoveryConfig,
@@ -150,7 +155,7 @@ func newVaultConnection(
 ) *vaultv1alpha1.VaultConnection {
 	conn := &vaultv1alpha1.VaultConnection{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "test-conn",
+			Name: testConnName,
 		},
 		Spec: vaultv1alpha1.VaultConnectionSpec{
 			Address: "https://vault.example.com:8200",
@@ -575,11 +580,20 @@ func TestAutoCreateCRs_Success(t *testing.T) {
 	}, &policy); err != nil {
 		t.Fatalf("failed to get created VaultPolicy: %v", err)
 	}
-	if policy.Annotations[vaultv1alpha1.AnnotationAdopt] != "true" {
+	if policy.Annotations[vaultv1alpha1.AnnotationAdopt] != vaultv1alpha1.AnnotationValueTrue {
 		t.Error("VaultPolicy should have adopt annotation set to 'true'")
 	}
-	if policy.Spec.ConnectionRef != "test-conn" {
-		t.Errorf("VaultPolicy.Spec.ConnectionRef = %q, want %q", policy.Spec.ConnectionRef, "test-conn")
+	// §4 regression: discovery-pending must be set so the operator doesn't
+	// overwrite the adopted Vault policy with the placeholder rule below.
+	if policy.Annotations[vaultv1alpha1.AnnotationDiscoveryPending] != vaultv1alpha1.AnnotationValueTrue {
+		t.Error("VaultPolicy should carry discovery-pending=true to block placeholder writes")
+	}
+	if policy.Annotations[vaultv1alpha1.AnnotationDiscoveredFrom] != testConnName {
+		t.Errorf("VaultPolicy.discovered-from = %q, want %q",
+			policy.Annotations[vaultv1alpha1.AnnotationDiscoveredFrom], testConnName)
+	}
+	if policy.Spec.ConnectionRef != testConnName {
+		t.Errorf("VaultPolicy.Spec.ConnectionRef = %q, want %q", policy.Spec.ConnectionRef, testConnName)
 	}
 
 	// Verify VaultRole was created
@@ -590,11 +604,30 @@ func TestAutoCreateCRs_Success(t *testing.T) {
 	}, &role); err != nil {
 		t.Fatalf("failed to get created VaultRole: %v", err)
 	}
-	if role.Annotations[vaultv1alpha1.AnnotationAdopt] != "true" {
+	if role.Annotations[vaultv1alpha1.AnnotationAdopt] != vaultv1alpha1.AnnotationValueTrue {
 		t.Error("VaultRole should have adopt annotation set to 'true'")
 	}
-	if role.Spec.ConnectionRef != "test-conn" {
-		t.Errorf("VaultRole.Spec.ConnectionRef = %q, want %q", role.Spec.ConnectionRef, "test-conn")
+	// §4 regression: without discovery-pending, the first reconcile would
+	// write ServiceAccounts=[placeholder] over the adopted Vault role,
+	// unbinding every real workload. The annotation is load-bearing.
+	if role.Annotations[vaultv1alpha1.AnnotationDiscoveryPending] != vaultv1alpha1.AnnotationValueTrue {
+		t.Error("VaultRole MUST carry discovery-pending=true — missing annotation causes silent auth loss (IMPROVEMENTS §4)")
+	}
+	if role.Annotations[vaultv1alpha1.AnnotationDiscoveredFrom] != testConnName {
+		t.Errorf("VaultRole.discovered-from = %q, want %q",
+			role.Annotations[vaultv1alpha1.AnnotationDiscoveredFrom], testConnName)
+	}
+	if role.Spec.ConnectionRef != testConnName {
+		t.Errorf("VaultRole.Spec.ConnectionRef = %q, want %q", role.Spec.ConnectionRef, testConnName)
+	}
+	// §4 — MinItems=1 on ServiceAccounts + Policies means the old empty-slice
+	// spec would be rejected by the API server (kubebuilder schema validation).
+	// Fake-client tests mask this, so assert the placeholder values explicitly.
+	if got, want := role.Spec.ServiceAccounts, []string{discoveryPlaceholder}; len(got) != 1 || got[0] != want[0] {
+		t.Errorf("VaultRole.Spec.ServiceAccounts = %v, want %v", got, want)
+	}
+	if len(role.Spec.Policies) != 1 || role.Spec.Policies[0].Name != discoveryPlaceholder {
+		t.Errorf("VaultRole.Spec.Policies = %v, want one placeholder ref", role.Spec.Policies)
 	}
 }
 

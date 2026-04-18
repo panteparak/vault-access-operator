@@ -119,7 +119,18 @@ func (c cacheAdapter) Get(name string) (cleanup.VaultClient, error) {
 
 ---
 
-## 🔴 4. `discovery-pending` annotation inconsistency
+## ✅ 4. `discovery-pending` annotation inconsistency — RESOLVED
+
+> **Status**: Fixed in `fix(discovery): safely adopt VaultRole via discovery-pending guard` (branch `claude/sad-ritchie-c15629`). Addressed §14 and §30 in the same commit.
+>
+> **Resolution**:
+> - Added constants `AnnotationDiscoveryPending` and `AnnotationDiscoveredFrom` in [api/v1alpha1/common_types.go](../../api/v1alpha1/common_types.go).
+> - Auto-created `VaultRole` now carries the `discovery-pending=true` annotation and placeholder `ServiceAccounts`/`Policies` (satisfies `MinItems=1` — the old `[]string{}` would have been rejected by API-server schema validation, meaning the bug was even deeper than originally reported).
+> - Added skip guards in both `RoleOps.WriteToVault` *and* `RoleOps.ReadbackVerify` (mirrored to `PolicyOps.ReadbackVerify` which had the same latent TransientError loop).
+> - Tests: unit tests in `features/{role,policy}/controller/ops_test.go`; integration test `INT-DISC-PEND01/02` in `test/integration/role/discovery_pending_test.go` (real Vault container); e2e test `TC-DISC05-ROLE-ADOPTION` in `test/e2e/tc_discovery_autocreate_test.go`.
+
+<details><summary>Original finding (kept for history)</summary>
+
 
 **Evidence:**
 - [features/discovery/controller/controller.go:216-217](../../features/discovery/controller/controller.go:216): VaultPolicy auto-create **adds** `vault.platform.io/discovery-pending: "true"`.
@@ -140,6 +151,7 @@ func (c cacheAdapter) Get(name string) (cleanup.VaultClient, error) {
    ```
 3. Document this annotation prominently in the user-facing discovery docs (`docs/concepts/discovery.md`).
 4. Consider a status condition like `DiscoveryPending=True` so `kubectl get vaultpolicy/vaultrole -o wide` shows the adoption-pending state.
+</details>
 
 ---
 

@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/go-logr/logr"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -127,12 +128,29 @@ func (o *RoleOps) DetectDrift(ctx context.Context, vaultClient *vault.Client) (b
 }
 
 // WriteToVault creates/updates the Kubernetes auth role in Vault.
+// Skips the write if the discovery-pending annotation is set — this prevents
+// auto-created discovery CRs from overwriting the adopted Vault role with placeholder
+// service accounts and policies (which would unbind every real workload on first sync).
+// Mirrors the guard in PolicyOps.WriteToVault.
 func (o *RoleOps) WriteToVault(ctx context.Context, vaultClient *vault.Client) error {
+	if o.adapter.GetAnnotations()[vaultv1alpha1.AnnotationDiscoveryPending] == vaultv1alpha1.AnnotationValueTrue {
+		logr.FromContextOrDiscard(ctx).Info("skipping write for discovery-pending role",
+			"role", o.adapter.GetVaultRoleName())
+		return nil
+	}
 	return vaultClient.WriteKubernetesAuthRole(ctx, o.authPath, o.adapter.GetVaultRoleName(), o.roleData)
 }
 
 // ReadbackVerify reads back the role and checks for drift.
+// Skipped when the discovery-pending annotation is set — WriteToVault is also skipped
+// in that case, so comparing real Vault state against the placeholder spec would always
+// report drift and return TransientError, looping the reconciler forever.
 func (o *RoleOps) ReadbackVerify(ctx context.Context, vaultClient *vault.Client) error {
+	if o.adapter.GetAnnotations()[vaultv1alpha1.AnnotationDiscoveryPending] == vaultv1alpha1.AnnotationValueTrue {
+		logr.FromContextOrDiscard(ctx).V(1).Info("skipping readback for discovery-pending role",
+			"role", o.adapter.GetVaultRoleName())
+		return nil
+	}
 	hasDrift, summary := o.handler.detectRoleDrift(
 		ctx, vaultClient, o.authPath, o.adapter.GetVaultRoleName(), o.roleData,
 	)

@@ -446,6 +446,17 @@ const (
 	// Value is the timestamp when the resource was discovered
 	AnnotationDiscovered = "vault.platform.io/discovered-at"
 
+	// AnnotationDiscoveredFrom names the VaultConnection that surfaced the resource.
+	// Set by discovery auto-create alongside AnnotationDiscovered; informational only.
+	AnnotationDiscoveredFrom = "vault.platform.io/discovered-from"
+
+	// AnnotationDiscoveryPending marks an auto-created adoption CR whose spec
+	// still contains placeholder values. Operators MUST skip writes to Vault
+	// while this annotation is set to AnnotationValueTrue — otherwise the
+	// placeholder would overwrite the adopted Vault resource. Users clear the
+	// annotation after replacing placeholders with the real spec.
+	AnnotationDiscoveryPending = "vault.platform.io/discovery-pending"
+
 	// AnnotationValueTrue is the canonical value for boolean annotation flags
 	AnnotationValueTrue = "true"
 )

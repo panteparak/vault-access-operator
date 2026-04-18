@@ -23,6 +23,7 @@ import (
 	"github.com/go-logr/logr"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/features/policy/domain"
 	"github.com/panteparak/vault-access-operator/pkg/vault"
 	"github.com/panteparak/vault-access-operator/shared/controller/binding"
@@ -104,8 +105,7 @@ func (o *PolicyOps) DetectDrift(ctx context.Context, vaultClient *vault.Client) 
 // Skips the write if the discovery-pending annotation is set — this prevents
 // auto-created discovery CRs from overwriting adopted Vault policies with placeholder rules.
 func (o *PolicyOps) WriteToVault(ctx context.Context, vaultClient *vault.Client) error {
-	annotations := o.adapter.GetAnnotations()
-	if annotations["vault.platform.io/discovery-pending"] == "true" {
+	if o.adapter.GetAnnotations()[vaultv1alpha1.AnnotationDiscoveryPending] == vaultv1alpha1.AnnotationValueTrue {
 		logr.FromContextOrDiscard(ctx).Info("skipping write for discovery-pending policy",
 			"policy", o.adapter.GetVaultPolicyName())
 		return nil
@@ -114,8 +114,16 @@ func (o *PolicyOps) WriteToVault(ctx context.Context, vaultClient *vault.Client)
 }
 
 // ReadbackVerify reads back the policy from Vault and verifies content matches.
+// Skipped when the discovery-pending annotation is set — WriteToVault is also skipped
+// in that case, so the Vault state is by design unrelated to the placeholder spec and
+// a comparison would always report mismatch.
 func (o *PolicyOps) ReadbackVerify(ctx context.Context, vaultClient *vault.Client) error {
 	log := logr.FromContextOrDiscard(ctx)
+	if o.adapter.GetAnnotations()[vaultv1alpha1.AnnotationDiscoveryPending] == vaultv1alpha1.AnnotationValueTrue {
+		log.V(1).Info("skipping readback for discovery-pending policy",
+			"policy", o.adapter.GetVaultPolicyName())
+		return nil
+	}
 	readbackHCL, readErr := vaultClient.ReadPolicy(ctx, o.adapter.GetVaultPolicyName())
 	if readErr != nil {
 		log.V(1).Info("post-write readback failed (non-fatal)", "error", readErr)
