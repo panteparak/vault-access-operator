@@ -3,7 +3,12 @@ name: Docs Hotfix
 on:
   push:
     branches: [main]
-    paths: ['docs/**', 'mkdocs.yml', 'mkdocs-internal.yml']
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - 'mkdocs-internal.yml'
+      - '.github/workflows/docs.yaml'
+  workflow_dispatch:
 
 permissions: {}
 
