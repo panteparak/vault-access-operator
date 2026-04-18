@@ -257,16 +257,106 @@ func (h *Handler) calculateHash(content string) string {
 	return hex.EncodeToString(hash[:])
 }
 
-// normalizeHCL normalizes HCL for comparison by trimming whitespace.
-// This handles minor formatting differences between generated and stored HCL.
+// normalizeHCL normalizes HCL for drift comparison (IMPROVEMENTS §17).
+// Previously this only trimmed per-line whitespace, so any comment added by
+// a human in Vault (`# edited by ops on 2026-01-02`) or trailing whitespace
+// divergence from generated HCL tripped drift on every reconcile.
+//
+// Current normalization:
+//   - Strip line comments: `#...` and `//...`
+//   - Strip block comments: `/* ... */` (non-nested — sufficient for policy HCL)
+//   - Collapse runs of whitespace within a line to a single space
+//   - Drop empty lines and lines that are pure whitespace
+//
+// What this does NOT normalize (deferred to a future fix that would pull in
+// `github.com/hashicorp/hcl/v2` for a full AST walk):
+//   - Rule reordering (two semantically identical policies with `path`
+//     blocks in different order would still drift-compare unequal).
+//   - Capability-list reordering within a rule.
+//   - Quoting style (single vs double quotes — Vault emits double quotes
+//     consistently, so this is already de-facto canonical).
+//
+// Those residual false positives are manageable: spec rules come through the
+// `GeneratePolicyHCL` codepath which emits a deterministic textual form.
 func (h *Handler) normalizeHCL(hcl string) string {
+	hcl = stripBlockComments(hcl)
 	lines := strings.Split(hcl, "\n")
-	var normalized []string
+	normalized := make([]string, 0, len(lines))
 	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed != "" {
-			normalized = append(normalized, trimmed)
+		line = stripLineComment(line)
+		line = collapseWhitespace(line)
+		if line != "" {
+			normalized = append(normalized, line)
 		}
 	}
 	return strings.Join(normalized, "\n")
+}
+
+// stripBlockComments removes /* ... */ comment spans. Non-nested only —
+// Vault policy HCL doesn't nest block comments in practice.
+//
+// IMPORTANT caveat: `/*` can legitimately appear inside a quoted path glob
+// (e.g., `path "secret/*"`). This helper only strips a block when BOTH `/*`
+// and a matching `*/` are present in the input. An unmatched `/*` is left
+// alone so a path pattern like `secret/*` is not truncated. Perfect
+// quote-aware parsing would need the full HCL tokenizer; this heuristic
+// catches the user-reported pain (actual `/* ... */` comments) without the
+// false-positive on paths.
+func stripBlockComments(s string) string {
+	for {
+		start := strings.Index(s, "/*")
+		if start == -1 {
+			return s
+		}
+		end := strings.Index(s[start:], "*/")
+		if end == -1 {
+			// No closing `*/` — treat this `/*` as NOT a comment (it's
+			// almost certainly part of a path glob like `secret/*`).
+			return s
+		}
+		s = s[:start] + s[start+end+2:]
+	}
+}
+
+// stripLineComment removes an end-of-line `#...` or `//...` comment, preserving
+// the portion before the marker. Quoting is not parsed — HCL policy syntax
+// doesn't put `#` or `//` inside strings in practice for our generated paths,
+// so this is a safe heuristic.
+func stripLineComment(line string) string {
+	for i := 0; i < len(line)-1; i++ {
+		if line[i] == '#' {
+			return strings.TrimRight(line[:i], " \t")
+		}
+		if line[i] == '/' && line[i+1] == '/' {
+			return strings.TrimRight(line[:i], " \t")
+		}
+	}
+	if strings.HasSuffix(line, "#") {
+		return strings.TrimRight(line[:len(line)-1], " \t")
+	}
+	return strings.TrimSpace(line)
+}
+
+// collapseWhitespace replaces runs of spaces/tabs with a single space and
+// trims leading/trailing whitespace. Only touches horizontal whitespace;
+// caller handles newlines by splitting before calling.
+func collapseWhitespace(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	inWS := false
+	started := false
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c == ' ' || c == '\t' {
+			inWS = true
+			continue
+		}
+		if inWS && started {
+			b.WriteByte(' ')
+		}
+		b.WriteByte(c)
+		inWS = false
+		started = true
+	}
+	return b.String()
 }

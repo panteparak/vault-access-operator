@@ -491,7 +491,27 @@ Mark this as intentional in a comment, so future maintainers don't feel pressure
 
 ---
 
-## 🟡 17. `normalizeHCL` is whitespace-only, doesn't handle comments / reordering
+## ✅ 17. `normalizeHCL` strips comments + collapses whitespace — RESOLVED (partial)
+
+> **Status**: The user-reported pain ("adding `# managed by ops` in the Vault UI trips drift every reconcile") is fixed. `normalizeHCL` now:
+> - Strips line comments (`#…` and `//…`).
+> - Strips block comments (`/* … */` but only if a matching `*/` exists — otherwise treats `/*` as part of a path glob like `secret/*`).
+> - Collapses runs of whitespace within a line to a single space.
+> - Drops empty lines.
+>
+> **Explicitly NOT fixed in this pass** (deferred to a future HCL-AST-walk refactor using `github.com/hashicorp/hcl/v2`):
+> - Rule reordering (two policies with `path` blocks in a different order still compare unequal).
+> - Capability-list reordering within a rule.
+>
+> These residual false positives are manageable because the operator-generated HCL comes from a deterministic `GeneratePolicyHCL` codepath.
+>
+> **Tests**: `features/policy/controller/normalize_hcl_test.go`:
+> - `TestNormalizeHCL_StripsHumanAddedComments` — 4 sub-cases (line, slash, block, inline) all equal generated.
+> - `TestNormalizeHCL_PreservesPathGlobs` — regression test for `secret/*` path globs (the bug I introduced and caught during implementation; requires a matched `*/` before treating `/*` as a comment start).
+> - `TestNormalizeHCL_CollapsesWhitespace` — multi-space + tabs.
+> - `TestNormalizeHCL_StillDetectsSemanticDifferences` — negative test so real differences don't get normalized away.
+
+<details><summary>Original finding (kept for history)</summary>
 
 **Evidence:** [policy/controller/handler.go:235-245](../../features/policy/controller/handler.go:235):
 
@@ -512,6 +532,7 @@ func (h *Handler) normalizeHCL(hcl string) string {
 - Reordered rules (semantically equivalent) trip drift.
 
 **Fix:** Parse HCL semantically, compare canonical trees. `github.com/hashicorp/hcl/v2` already in `go.sum`. Normalize rules into a set of `(path, capabilities, params)` tuples, sort, hash.
+</details>
 
 ---
 
