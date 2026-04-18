@@ -536,13 +536,18 @@ func (h *Handler) normalizeHCL(hcl string) string {
 
 ---
 
-## 🟡 18. `Phase` string vs typed enum inconsistency in status updates
+## ❌ 18. `Phase` string vs typed enum inconsistency — DEFERRED (low value vs cost)
+
+> **Status**: Audited; not actioned. Production code already uses the `Phase*` constants consistently — the only bare string literals are in test files (~85 hits) where `"Active"` / `"Syncing"` are the explicit expected values being asserted, and using constants would make the intent less clear. Phase values are part of the public CRD API anyway (kubebuilder `+kubebuilder:validation:Enum=`), so renaming them is a breaking change regardless of whether tests use constants or literals. Keeping the current convention; revisit if a phase is ever added and tests silently reference the old name.
+
+<details><summary>Original finding (kept for history)</summary>
 
 **Evidence:** most code uses `vaultv1alpha1.PhaseSyncing` constant, but some string literal `"Syncing"` usages exist in tests and the cleanup workflow hardcodes `PhaseDeleting`.
 
 **Impact:** Minor. Refactoring risk if phase names change.
 
 **Fix:** Grep for `"Syncing"`, `"Active"`, `"Error"` string literals outside test fixtures, replace with constants.
+</details>
 
 ---
 
@@ -607,7 +612,13 @@ func resolveJWTBoundSubject(adapter RoleAdapter, jwtSpec *VaultRoleJWTSpec, serv
 
 ---
 
-## 🟢 23. `MinScanInterval` is a package var but overridable via env — weird pattern
+## ✅ 23. `MinScanInterval` package var → ReconcilerConfig field — RESOLVED
+
+> **Status**: Fixed. `ReconcilerConfig.MinScanInterval` is a new optional field. When zero, falls back to the package-level `MinScanInterval` (which itself reads `OPERATOR_MIN_SCAN_INTERVAL`). Tests construct a reconciler with a short interval via `ReconcilerConfig{MinScanInterval: time.Second}` instead of mutating the global.
+>
+> **Tests**: `min_scan_interval_test.go` covers explicit-value, zero-fallback, and negative-fallback cases, plus a guard test that pins `DefaultMinScanInterval = 5*time.Minute` against accidental changes.
+
+<details><summary>Original finding (kept for history)</summary>
 
 **Evidence:** [features/discovery/controller/controller.go:50-58](../../features/discovery/controller/controller.go:50):
 
@@ -621,6 +632,7 @@ func init() {
 A global package var mutated during init based on env. Works, but test isolation requires remembering to reset.
 
 **Fix:** Pass it as a field on `Reconciler`, configured via `ReconcilerConfig`. Tests construct a reconciler with a short interval without touching globals.
+</details>
 
 ---
 
@@ -632,7 +644,11 @@ A global package var mutated during init based on env. Works, but test isolation
 
 ---
 
-## 🟢 25. cert-manager integration only half-scaffolded
+## ✅ 25. cert-manager TODO — RESOLVED (clarifying comment)
+
+> **Status**: The TODO in `cmd/main.go` was out of sync with reality: the Helm chart (`charts/vault-access-operator`) already wires cert-manager for both webhooks and metrics when `certManager.enabled=true`. Replaced the TODO with a comment pointing readers at the Helm chart as the supported install path. The `config/` kustomize bases are retained as reference for `make deploy` and kubebuilder scaffolding conventions but are not the recommended production install.
+
+<details><summary>Original finding (kept for history)</summary>
 
 **Evidence:** [cmd/main.go:174-177](../../cmd/main.go:174):
 
@@ -643,14 +659,20 @@ A global package var mutated during init based on env. Works, but test isolation
 ```
 
 **Fix:** Either finish the wiring in kustomize bases or remove the comment. The TODO has been there since project bootstrapping — likely nobody will act on it unless surfaced.
+</details>
 
 ---
 
-## 🟢 26. `cover.out` committed to worktree (~380 KB)
+## ❌ 26. `cover.out` committed — INCORRECT FINDING
+
+> **Status**: Withdrawn after verification. `cover.out` is NOT tracked by git — the existing `.gitignore` pattern `*.out` covers it. `git ls-files cover.out` returns empty; `git status --ignored` confirms cover.out is listed under "Ignored files". The original doc audit was wrong about this one.
+
+<details><summary>Original finding (incorrect) (kept for history)</summary>
 
 **Evidence:** [cover.out](../../cover.out) present in repo root.
 
 **Fix:** Add to `.gitignore` and remove from tracking.
+</details>
 
 ---
 
@@ -721,7 +743,17 @@ Recommendation: option 2. Gives the bus at least one subscriber and delivers a u
 
 ---
 
-## 🟡 29. Structured error types `NotFoundError` / `ConnectionError` defined but unused in classifier
+## ✅ 29. Classify NotFoundError + ConnectionError distinctly — RESOLVED
+
+> **Status**: Fixed. `syncerror.Handle` now recognizes `NotFoundError` (referenced K8s resource absent) and `ConnectionError` (transport-layer Vault failures) as distinct classes. Each maps to a new condition reason:
+> - `NotFoundError` → `ReasonResourceNotFound` (distinct from `ReasonPolicyNotFound` which is specific to Vault policy refs).
+> - `ConnectionError` → `ReasonNetworkError`.
+>
+> Dashboards and alerts can now distinguish "Vault unreachable" from "a required Secret is missing" without parsing status `Message` strings.
+>
+> **Tests**: `TestHandle_NotFoundError` and `TestHandle_ConnectionError` updated to assert the new reasons (they previously pinned the old `ReasonFailed` catch-all).
+
+<details><summary>Original finding (kept for history)</summary>
 
 **Evidence:** [shared/infrastructure/errors/errors.go](../../shared/infrastructure/errors/errors.go) defines 6 error types. [shared/controller/syncerror/handler.go](../../shared/controller/syncerror/handler.go) `Handle` classifies only 4 (`ConflictError`, `ValidationError`, `DependencyError`, `TransientError`) → maps every unmatched error to generic `PhaseError / ReasonFailed`.
 
@@ -730,6 +762,7 @@ Recommendation: option 2. Gives the bus at least one subscriber and delivers a u
 - `ConnectionError` (network/TLS issues at the transport layer) would be nice to surface as a distinct condition — today it mashes together with generic `TransientError`.
 
 **Fix:** Extend the `syncerror.Handle` switch to recognize these two types and map to distinct reasons (e.g., `ReasonNotFound`, `ReasonNetworkError`).
+</details>
 
 ---
 

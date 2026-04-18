@@ -52,9 +52,22 @@ const (
 	discoveryPlaceholder = "discovery-placeholder-replace-me"
 )
 
-// MinScanInterval is the minimum allowed scan interval.
-// It can be overridden via the OPERATOR_MIN_SCAN_INTERVAL environment variable.
-var MinScanInterval = time.Minute * 5
+// DefaultMinScanInterval is the minimum scan interval used when a
+// ReconcilerConfig leaves MinScanInterval unset. Can still be overridden per
+// call via the OPERATOR_MIN_SCAN_INTERVAL env var (see
+// resolveMinScanInterval). Kept as a package-level const for tests that
+// reference "the default minimum" without constructing a full config.
+const DefaultMinScanInterval = time.Minute * 5
+
+// MinScanInterval mirrors DefaultMinScanInterval for backward compatibility
+// with test code that still references this package variable.
+// IMPROVEMENTS §23 lifted the primary configuration path into
+// ReconcilerConfig.MinScanInterval; this var is now a read-only default
+// populated at init so existing callers (and the test helper that mutated
+// it) see no change.
+//
+//nolint:gochecknoglobals // retained for backward compat during §23 transition
+var MinScanInterval = DefaultMinScanInterval
 
 func init() {
 	if v := os.Getenv("OPERATOR_MIN_SCAN_INTERVAL"); v != "" {
@@ -67,10 +80,11 @@ func init() {
 // Reconciler reconciles VaultConnection resources for discovery
 type Reconciler struct {
 	client.Client
-	Scheme      *runtime.Scheme
-	ClientCache *vault.ClientCache
-	Log         logr.Logger
-	Recorder    record.EventRecorder
+	Scheme          *runtime.Scheme
+	ClientCache     *vault.ClientCache
+	Log             logr.Logger
+	Recorder        record.EventRecorder
+	minScanInterval time.Duration
 }
 
 // ReconcilerConfig holds configuration for creating a Reconciler
@@ -80,16 +94,27 @@ type ReconcilerConfig struct {
 	ClientCache *vault.ClientCache
 	Log         logr.Logger
 	Recorder    record.EventRecorder
+
+	// MinScanInterval (IMPROVEMENTS §23) lets tests override the minimum
+	// scan interval without mutating a package-level global. Zero uses the
+	// package-level MinScanInterval value (which is itself resolved from
+	// DefaultMinScanInterval + OPERATOR_MIN_SCAN_INTERVAL env var at init).
+	MinScanInterval time.Duration
 }
 
 // NewReconciler creates a new discovery Reconciler
 func NewReconciler(cfg ReconcilerConfig) *Reconciler {
+	minInterval := cfg.MinScanInterval
+	if minInterval <= 0 {
+		minInterval = MinScanInterval
+	}
 	return &Reconciler{
-		Client:      cfg.Client,
-		Scheme:      cfg.Scheme,
-		ClientCache: cfg.ClientCache,
-		Log:         cfg.Log.WithName("discovery-controller"),
-		Recorder:    cfg.Recorder,
+		minScanInterval: minInterval,
+		Client:          cfg.Client,
+		Scheme:          cfg.Scheme,
+		ClientCache:     cfg.ClientCache,
+		Log:             cfg.Log.WithName("discovery-controller"),
+		Recorder:        cfg.Recorder,
 	}
 }
 
@@ -109,10 +134,12 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return ctrl.Result{}, nil
 	}
 
-	// Check if it's time to scan
+	// Check if it's time to scan. Floor honors the per-reconciler config
+	// (IMPROVEMENTS §23) which falls back to the package-level
+	// MinScanInterval when unset.
 	scanInterval := ParseInterval(conn.Spec.Discovery.Interval)
-	if scanInterval < MinScanInterval {
-		scanInterval = MinScanInterval
+	if scanInterval < r.minScanInterval {
+		scanInterval = r.minScanInterval
 	}
 
 	if conn.Status.DiscoveryStatus != nil && conn.Status.DiscoveryStatus.LastScanAt != nil {

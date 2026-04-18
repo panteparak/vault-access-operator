@@ -225,8 +225,10 @@ func TestHandle_NotFoundError(t *testing.T) {
 	if readyCond == nil {
 		t.Fatal("expected Ready condition")
 	}
-	if readyCond.Reason != vaultv1alpha1.ReasonFailed {
-		t.Errorf("expected reason %s, got %s", vaultv1alpha1.ReasonFailed, readyCond.Reason)
+	// IMPROVEMENTS §29: NotFoundError is now classified distinctly as
+	// ReasonResourceNotFound (was ReasonFailed catch-all).
+	if readyCond.Reason != vaultv1alpha1.ReasonResourceNotFound {
+		t.Errorf("expected reason %s, got %s", vaultv1alpha1.ReasonResourceNotFound, readyCond.Reason)
 	}
 }
 
@@ -248,8 +250,11 @@ func TestHandle_ConnectionError(t *testing.T) {
 	if readyCond == nil {
 		t.Fatal("expected Ready condition")
 	}
-	if readyCond.Reason != vaultv1alpha1.ReasonFailed {
-		t.Errorf("expected reason %s, got %s", vaultv1alpha1.ReasonFailed, readyCond.Reason)
+	// IMPROVEMENTS §29: ConnectionError is now classified distinctly as
+	// ReasonNetworkError (was ReasonFailed catch-all). Users can now alert
+	// specifically on transport-layer Vault failures.
+	if readyCond.Reason != vaultv1alpha1.ReasonNetworkError {
+		t.Errorf("expected reason %s, got %s", vaultv1alpha1.ReasonNetworkError, readyCond.Reason)
 	}
 }
 

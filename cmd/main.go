@@ -175,13 +175,16 @@ func main() {
 	}
 
 	// If the certificate is not specified, controller-runtime will automatically
-	// generate self-signed certificates for the metrics server. While convenient for development and testing,
-	// this setup is not recommended for production.
+	// generate self-signed certificates for the metrics server. While convenient
+	// for development and testing, this setup is not recommended for production.
 	//
-	// TODO(user): If you enable certManager, uncomment the following lines:
-	// - [METRICS-WITH-CERTS] at config/default/kustomization.yaml to generate and use certificates
-	// managed by cert-manager for the metrics server.
-	// - [PROMETHEUS-WITH-CERTS] at config/prometheus/kustomization.yaml for TLS certification.
+	// Production deployment: use the Helm chart at charts/vault-access-operator.
+	// It wires cert-manager via `certManager.enabled=true` and mounts the
+	// generated certs at the paths passed to --metrics-cert-path /
+	// --webhook-cert-path. The `config/` kustomize bases are retained only as
+	// a reference for `make deploy` and are not the supported install path.
+	// (IMPROVEMENTS §25 — replaced an orphan TODO that had drifted out of
+	// sync with the Helm chart.)
 	if len(metricsCertPath) > 0 {
 		setupLog.Info("Initializing metrics certificate watcher using provided certificates",
 			"metrics-cert-path", metricsCertPath, "metrics-cert-name", metricsCertName, "metrics-cert-key", metricsCertKey)

@@ -331,6 +331,18 @@ const (
 	ReasonObservedGenStale      = "ObservedGenerationStale"
 	ReasonPolicyNotInVault      = "PolicyNotInVault"
 	ReasonImmutableFieldChanged = "ImmutableFieldChanged"
+
+	// ReasonResourceNotFound is emitted when a referenced K8s resource
+	// (Secret, ServiceAccount, etc.) can't be found. Distinct from
+	// ReasonPolicyNotFound, which is specific to Vault policies.
+	// IMPROVEMENTS §29.
+	ReasonResourceNotFound = "ResourceNotFound"
+
+	// ReasonNetworkError is emitted when transport-layer errors (DNS, TLS,
+	// TCP, unreachable) prevent reaching Vault. Distinct from
+	// ReasonFailed (generic) and ReasonConnectionNotReady (dependency
+	// resolution). IMPROVEMENTS §29.
+	ReasonNetworkError = "NetworkError"
 )
 
 // ToSecretReference converts LocalSecretKeySelector to a corev1.SecretKeySelector

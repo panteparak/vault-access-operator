@@ -54,18 +54,34 @@ func Handle(
 ) error {
 	gen := target.GetGeneration()
 
-	// Determine phase and reason based on error type
+	// Determine phase and reason based on error type.
+	// IMPROVEMENTS §29: classify NotFoundError + ConnectionError with
+	// distinct reasons so operators can grep status conditions for a
+	// specific failure class without parsing Message strings.
 	var reason string
-	if infraerrors.IsConflictError(err) {
+	switch {
+	case infraerrors.IsConflictError(err):
 		target.SetPhase(vaultv1alpha1.PhaseConflict)
 		reason = vaultv1alpha1.ReasonConflict
-	} else if infraerrors.IsValidationError(err) {
+	case infraerrors.IsValidationError(err):
 		target.SetPhase(vaultv1alpha1.PhaseError)
 		reason = vaultv1alpha1.ReasonValidationFailed
-	} else if infraerrors.IsDependencyError(err) {
+	case infraerrors.IsDependencyError(err):
 		target.SetPhase(vaultv1alpha1.PhaseError)
 		reason = vaultv1alpha1.ReasonConnectionNotReady
-	} else {
+	case infraerrors.IsNotFoundError(err):
+		// Referenced K8s resource (Secret / ServiceAccount / other CR) not
+		// found. Distinct from ReasonPolicyNotFound which is specific to
+		// Vault policy references.
+		target.SetPhase(vaultv1alpha1.PhaseError)
+		reason = vaultv1alpha1.ReasonResourceNotFound
+	case infraerrors.IsConnectionError(err):
+		// Transport-layer failure reaching Vault (TLS, DNS, TCP, refused).
+		// Users often want to alert distinctly on this — it's network/infra,
+		// not policy/role-specific.
+		target.SetPhase(vaultv1alpha1.PhaseError)
+		reason = vaultv1alpha1.ReasonNetworkError
+	default:
 		target.SetPhase(vaultv1alpha1.PhaseError)
 		reason = vaultv1alpha1.ReasonFailed
 	}
