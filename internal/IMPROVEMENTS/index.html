@@ -862,10 +862,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#4-discovery-pending-annotation-inconsistency" class="md-nav__link">
+  <a href="#4-discovery-pending-annotation-inconsistency-resolved" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🔴 4. discovery-pending annotation inconsistency
+        ✅ 4. discovery-pending annotation inconsistency — RESOLVED
       
     </span>
   </a>
@@ -1527,23 +1527,38 @@
 - Add a thin adapter wrapper in <code>pkg/cleanup</code> that takes <code>*vault.ClientCache</code> directly, or
 - Change the cleanup types to depend on <code>*vault.Client</code> concretely (the abstraction isn't buying anything — there's only one implementation).</p>
 <hr />
-<h2 id="4-discovery-pending-annotation-inconsistency">🔴 4. <code>discovery-pending</code> annotation inconsistency<a class="headerlink" href="#4-discovery-pending-annotation-inconsistency" title="Permanent link">&para;</a></h2>
-<p><strong>Evidence:</strong>
-- <a href="../../features/discovery/controller/controller.go:216">features/discovery/controller/controller.go:216-217</a>: VaultPolicy auto-create <strong>adds</strong> <code>vault.platform.io/discovery-pending: "true"</code>.
-- <a href="../../features/discovery/controller/controller.go:251">features/discovery/controller/controller.go:251-270</a>: VaultRole auto-create <strong>does not</strong> add this annotation.
-- <a href="../../features/policy/controller/ops.go:107">features/policy/controller/ops.go:107-112</a>: <code>PolicyOps.WriteToVault</code> honors the annotation (skips write).
-- <code>RoleOps.WriteToVault</code> (<a href="../../features/role/controller/ops.go:130">ops.go:130</a>) has <strong>no equivalent skip logic</strong>.</p>
-<p><strong>Impact:</strong> For an auto-created VaultRole, the first reconcile writes <strong><code>serviceAccounts: []</code></strong> to the Vault role, effectively unbinding all service accounts. The user intended to adopt, but their workload just lost auth to Vault.</p>
-<p><strong>Fix (two complementary changes):</strong>
-1. Add <code>vault.platform.io/discovery-pending: "true"</code> annotation in <a href="../../features/discovery/controller/controller.go:245">controller.go createRoleCR</a>.
-2. Honor it in <code>RoleOps.WriteToVault</code>:
+<h2 id="4-discovery-pending-annotation-inconsistency-resolved">✅ 4. <code>discovery-pending</code> annotation inconsistency — RESOLVED<a class="headerlink" href="#4-discovery-pending-annotation-inconsistency-resolved" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p><strong>Status</strong>: Fixed in <code>fix(discovery): safely adopt VaultRole via discovery-pending guard</code> (branch <code>claude/sad-ritchie-c15629</code>). Addressed §14 and §30 in the same commit.</p>
+<p><strong>Resolution</strong>:
+- Added constants <code>AnnotationDiscoveryPending</code> and <code>AnnotationDiscoveredFrom</code> in <a href="../../api/v1alpha1/common_types.go">api/v1alpha1/common_types.go</a>.
+- Auto-created <code>VaultRole</code> now carries the <code>discovery-pending=true</code> annotation and placeholder <code>ServiceAccounts</code>/<code>Policies</code> (satisfies <code>MinItems=1</code> — the old <code>[]string{}</code> would have been rejected by API-server schema validation, meaning the bug was even deeper than originally reported).
+- Added skip guards in both <code>RoleOps.WriteToVault</code> <em>and</em> <code>RoleOps.ReadbackVerify</code> (mirrored to <code>PolicyOps.ReadbackVerify</code> which had the same latent TransientError loop).
+- Tests: unit tests in <code>features/{role,policy}/controller/ops_test.go</code>; integration test <code>INT-DISC-PEND01/02</code> in <code>test/integration/role/discovery_pending_test.go</code> (real Vault container); e2e test <code>TC-DISC05-ROLE-ADOPTION</code> in <code>test/e2e/tc_discovery_autocreate_test.go</code>.</p>
+</blockquote>
+<details><summary>Original finding (kept for history)</summary>
+
+
+**Evidence:**
+- [features/discovery/controller/controller.go:216-217](../../features/discovery/controller/controller.go:216): VaultPolicy auto-create **adds** `vault.platform.io/discovery-pending: "true"`.
+- [features/discovery/controller/controller.go:251-270](../../features/discovery/controller/controller.go:251): VaultRole auto-create **does not** add this annotation.
+- [features/policy/controller/ops.go:107-112](../../features/policy/controller/ops.go:107): `PolicyOps.WriteToVault` honors the annotation (skips write).
+- `RoleOps.WriteToVault` ([ops.go:130](../../features/role/controller/ops.go:130)) has **no equivalent skip logic**.
+
+**Impact:** For an auto-created VaultRole, the first reconcile writes **`serviceAccounts: []`** to the Vault role, effectively unbinding all service accounts. The user intended to adopt, but their workload just lost auth to Vault.
+
+**Fix (two complementary changes):**
+1. Add `vault.platform.io/discovery-pending: "true"` annotation in [controller.go createRoleCR](../../features/discovery/controller/controller.go:245).
+2. Honor it in `RoleOps.WriteToVault`:
    <div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">if</span><span class="w"> </span><span class="nx">o</span><span class="p">.</span><span class="nx">adapter</span><span class="p">.</span><span class="nx">GetAnnotations</span><span class="p">()[</span><span class="s">&quot;vault.platform.io/discovery-pending&quot;</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;true&quot;</span><span class="w"> </span><span class="p">{</span>
 <a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">    </span><span class="nx">logr</span><span class="p">.</span><span class="nx">FromContextOrDiscard</span><span class="p">(</span><span class="nx">ctx</span><span class="p">).</span><span class="nx">Info</span><span class="p">(</span><span class="s">&quot;skipping write for discovery-pending role&quot;</span><span class="p">,</span><span class="w"> </span><span class="o">...</span><span class="p">)</span>
 <a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="kc">nil</span>
 <a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="p">}</span>
 </code></pre></div>
-3. Document this annotation prominently in the user-facing discovery docs (<code>docs/concepts/discovery.md</code>).
-4. Consider a status condition like <code>DiscoveryPending=True</code> so <code>kubectl get vaultpolicy/vaultrole -o wide</code> shows the adoption-pending state.</p>
+3. Document this annotation prominently in the user-facing discovery docs (`docs/concepts/discovery.md`).
+4. Consider a status condition like `DiscoveryPending=True` so `kubectl get vaultpolicy/vaultrole -o wide` shows the adoption-pending state.
+</details>
+
 <hr />
 <h2 id="5-discoveredresources-growth-api-server-validation-updated-2026-04-18">🟠 5. <code>DiscoveredResources</code> growth — API-server validation (updated 2026-04-18)<a class="headerlink" href="#5-discoveredresources-growth-api-server-validation-updated-2026-04-18" title="Permanent link">&para;</a></h2>
 <p><strong>Evidence (updated):</strong> <a href="../../api/v1alpha1/vaultconnection_types.go:458">api/v1alpha1/vaultconnection_types.go:458</a> has a kubebuilder marker:
