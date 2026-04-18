@@ -703,99 +703,146 @@ func (h *Handler) authenticate(
 	vaultClient *vault.Client,
 	conn *vaultv1alpha1.VaultConnection,
 ) error {
+	// IMPROVEMENTS §6: dispatched via a strategy table so adding a new auth
+	// method is a one-line append rather than a new branch in a 100-line
+	// if/else chain. Each strategy is tested in isolation with a per-method
+	// table-driven test.
 	authCfg := conn.Spec.Auth
-
-	// Kubernetes auth - uses TokenProvider for token acquisition
-	if authCfg.Kubernetes != nil {
-		authPath := authCfg.Kubernetes.AuthPath
-		if authPath == "" {
-			authPath = defaultKubernetesAuthPath
+	for _, s := range authStrategies {
+		if s.match(&authCfg) {
+			if err := s.run(ctx, h, vaultClient, conn); err != nil {
+				return fmt.Errorf("%s auth: %w", s.name, err)
+			}
+			return nil
 		}
-
-		// Get token using TokenProvider (supports both mounted and TokenRequest API)
-		tokenInfo, err := h.getServiceAccountToken(ctx, conn)
-		if err != nil {
-			return fmt.Errorf("failed to get service account token: %w", err)
-		}
-
-		return vaultClient.AuthenticateKubernetesWithToken(ctx, authCfg.Kubernetes.Role, authPath, tokenInfo.Token)
 	}
-
-	// Token auth
-	if authCfg.Token != nil {
-		tokenValue, err := h.getSecretData(ctx, &authCfg.Token.SecretRef)
-		if err != nil {
-			return fmt.Errorf("failed to get token from secret: %w", err)
-		}
-		return vaultClient.AuthenticateToken(tokenValue)
-	}
-
-	// AppRole auth
-	if authCfg.AppRole != nil {
-		secretID, err := h.getSecretData(ctx, &authCfg.AppRole.SecretIDRef)
-		if err != nil {
-			return fmt.Errorf("failed to get secret ID from secret: %w", err)
-		}
-		mountPath := authCfg.AppRole.MountPath
-		if mountPath == "" {
-			mountPath = "approle"
-		}
-		return vaultClient.AuthenticateAppRole(ctx, authCfg.AppRole.RoleID, secretID, mountPath)
-	}
-
-	// JWT auth
-	if authCfg.JWT != nil {
-		jwt, err := h.getJWTToken(ctx, authCfg.JWT)
-		if err != nil {
-			return fmt.Errorf("failed to get JWT: %w", err)
-		}
-		authPath := authCfg.JWT.AuthPath
-		if authPath == "" {
-			authPath = "jwt"
-		}
-		return vaultClient.AuthenticateJWT(ctx, authCfg.JWT.Role, authPath, jwt)
-	}
-
-	// OIDC auth (workload identity)
-	if authCfg.OIDC != nil {
-		jwt, err := h.getOIDCToken(ctx, authCfg.OIDC)
-		if err != nil {
-			return fmt.Errorf("failed to get OIDC token: %w", err)
-		}
-		authPath := authCfg.OIDC.AuthPath
-		if authPath == "" {
-			authPath = "oidc"
-		}
-		return vaultClient.AuthenticateOIDC(ctx, authCfg.OIDC.Role, authPath, jwt)
-	}
-
-	// AWS IAM auth
-	if authCfg.AWS != nil {
-		loginData, err := h.getAWSLoginData(ctx, authCfg.AWS)
-		if err != nil {
-			return fmt.Errorf("failed to generate AWS login data: %w", err)
-		}
-		authPath := authCfg.AWS.AuthPath
-		if authPath == "" {
-			authPath = "aws"
-		}
-		return vaultClient.AuthenticateAWS(ctx, authCfg.AWS.Role, authPath, loginData)
-	}
-
-	// GCP IAM auth
-	if authCfg.GCP != nil {
-		signedJWT, err := h.getGCPSignedJWT(ctx, authCfg.GCP)
-		if err != nil {
-			return fmt.Errorf("failed to generate GCP signed JWT: %w", err)
-		}
-		authPath := authCfg.GCP.AuthPath
-		if authPath == "" {
-			authPath = "gcp"
-		}
-		return vaultClient.AuthenticateGCP(ctx, authCfg.GCP.Role, authPath, signedJWT)
-	}
-
 	return fmt.Errorf("no authentication method configured")
+}
+
+// authStrategy describes one Vault authentication method in the dispatch
+// table below. `match` identifies which AuthConfig sub-struct this strategy
+// handles; `run` performs the method-specific pre-auth work (fetch secret,
+// sign JWT, etc.) and calls the right `vaultClient.Authenticate<Method>`.
+type authStrategy struct {
+	name  string
+	match func(*vaultv1alpha1.AuthConfig) bool
+	run   func(ctx context.Context, h *Handler, vc *vault.Client, conn *vaultv1alpha1.VaultConnection) error
+}
+
+// authStrategies is the ordered auth-method dispatch table. Order matters
+// only because the operator honors the FIRST matching method — paired with
+// the webhook's "exactly one method" check (IMPROVEMENTS §8), a well-formed
+// VaultConnection spec matches exactly one entry here. Ordering is
+// informational: most-common-first reduces the average number of match
+// checks per authenticate() call.
+var authStrategies = []authStrategy{
+	{
+		name:  "kubernetes",
+		match: func(a *vaultv1alpha1.AuthConfig) bool { return a.Kubernetes != nil },
+		run: func(ctx context.Context, h *Handler, vc *vault.Client, conn *vaultv1alpha1.VaultConnection) error {
+			cfg := conn.Spec.Auth.Kubernetes
+			authPath := cfg.AuthPath
+			if authPath == "" {
+				authPath = defaultKubernetesAuthPath
+			}
+			tokenInfo, err := h.getServiceAccountToken(ctx, conn)
+			if err != nil {
+				return fmt.Errorf("failed to get service account token: %w", err)
+			}
+			return vc.AuthenticateKubernetesWithToken(ctx, cfg.Role, authPath, tokenInfo.Token)
+		},
+	},
+	{
+		name:  "token",
+		match: func(a *vaultv1alpha1.AuthConfig) bool { return a.Token != nil },
+		run: func(ctx context.Context, h *Handler, vc *vault.Client, conn *vaultv1alpha1.VaultConnection) error {
+			tokenValue, err := h.getSecretData(ctx, &conn.Spec.Auth.Token.SecretRef)
+			if err != nil {
+				return fmt.Errorf("failed to get token from secret: %w", err)
+			}
+			return vc.AuthenticateToken(tokenValue)
+		},
+	},
+	{
+		name:  "appRole",
+		match: func(a *vaultv1alpha1.AuthConfig) bool { return a.AppRole != nil },
+		run: func(ctx context.Context, h *Handler, vc *vault.Client, conn *vaultv1alpha1.VaultConnection) error {
+			cfg := conn.Spec.Auth.AppRole
+			secretID, err := h.getSecretData(ctx, &cfg.SecretIDRef)
+			if err != nil {
+				return fmt.Errorf("failed to get secret ID from secret: %w", err)
+			}
+			mountPath := cfg.MountPath
+			if mountPath == "" {
+				mountPath = "approle"
+			}
+			return vc.AuthenticateAppRole(ctx, cfg.RoleID, secretID, mountPath)
+		},
+	},
+	{
+		name:  "jwt",
+		match: func(a *vaultv1alpha1.AuthConfig) bool { return a.JWT != nil },
+		run: func(ctx context.Context, h *Handler, vc *vault.Client, conn *vaultv1alpha1.VaultConnection) error {
+			cfg := conn.Spec.Auth.JWT
+			jwt, err := h.getJWTToken(ctx, cfg)
+			if err != nil {
+				return fmt.Errorf("failed to get JWT: %w", err)
+			}
+			authPath := cfg.AuthPath
+			if authPath == "" {
+				authPath = "jwt"
+			}
+			return vc.AuthenticateJWT(ctx, cfg.Role, authPath, jwt)
+		},
+	},
+	{
+		name:  "oidc",
+		match: func(a *vaultv1alpha1.AuthConfig) bool { return a.OIDC != nil },
+		run: func(ctx context.Context, h *Handler, vc *vault.Client, conn *vaultv1alpha1.VaultConnection) error {
+			cfg := conn.Spec.Auth.OIDC
+			jwt, err := h.getOIDCToken(ctx, cfg)
+			if err != nil {
+				return fmt.Errorf("failed to get OIDC token: %w", err)
+			}
+			authPath := cfg.AuthPath
+			if authPath == "" {
+				authPath = "oidc"
+			}
+			return vc.AuthenticateOIDC(ctx, cfg.Role, authPath, jwt)
+		},
+	},
+	{
+		name:  "aws",
+		match: func(a *vaultv1alpha1.AuthConfig) bool { return a.AWS != nil },
+		run: func(ctx context.Context, h *Handler, vc *vault.Client, conn *vaultv1alpha1.VaultConnection) error {
+			cfg := conn.Spec.Auth.AWS
+			loginData, err := h.getAWSLoginData(ctx, cfg)
+			if err != nil {
+				return fmt.Errorf("failed to generate AWS login data: %w", err)
+			}
+			authPath := cfg.AuthPath
+			if authPath == "" {
+				authPath = "aws"
+			}
+			return vc.AuthenticateAWS(ctx, cfg.Role, authPath, loginData)
+		},
+	},
+	{
+		name:  "gcp",
+		match: func(a *vaultv1alpha1.AuthConfig) bool { return a.GCP != nil },
+		run: func(ctx context.Context, h *Handler, vc *vault.Client, conn *vaultv1alpha1.VaultConnection) error {
+			cfg := conn.Spec.Auth.GCP
+			signedJWT, err := h.getGCPSignedJWT(ctx, cfg)
+			if err != nil {
+				return fmt.Errorf("failed to generate GCP signed JWT: %w", err)
+			}
+			authPath := cfg.AuthPath
+			if authPath == "" {
+				authPath = "gcp"
+			}
+			return vc.AuthenticateGCP(ctx, cfg.Role, authPath, signedJWT)
+		},
+	},
 }
 
 // getServiceAccountToken gets a service account token using the configured provider.

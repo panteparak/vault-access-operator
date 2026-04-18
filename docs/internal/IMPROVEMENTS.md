@@ -230,7 +230,18 @@ Plus: emit per-discovered-resource **K8s events** (already done for the aggregat
 
 ---
 
-## 🟠 6. Auth dispatch chain vs strategy map
+## ✅ 6. Auth dispatch chain vs strategy map — RESOLVED
+
+> **Status**: Fixed. The 7-branch `if != nil` chain in `connection.Handler.authenticate` is now a table-driven dispatch: `authStrategies []authStrategy` with `{name, match, run}` tuples. Adding a 9th auth method is a one-line append instead of a new branch.
+>
+> **Tests**: `auth_strategies_test.go`:
+> - `TestAuthStrategiesCoverAllConfiguredMethods` — guard test that fails if a new `AuthConfig` field is added without a matching strategy entry (previously, the old chain had no such guard).
+> - `TestAuthStrategiesMatchersAreExclusive` — ensures the matchers don't overlap so exactly one strategy fires per well-formed config.
+>
+> Existing connection unit + integration tests exercise the end-to-end auth flow and all pass unchanged.
+
+<details><summary>Original finding (kept for history)</summary>
+
 
 **Evidence:** [features/connection/controller/handler.go:704-802](../../features/connection/controller/handler.go:704) — 100 lines of `if authCfg.X != nil` chained branches for 7 auth methods. Each branch has parallel structure: read config → get token-like input → call `vault.Client.Authenticate*`.
 
@@ -253,6 +264,7 @@ var authenticators = []struct{ name string; isConfigured func(*AuthConfig) bool;
 ```
 
 Keeps each method self-contained, testable in isolation, registration-driven.
+</details>
 
 ---
 
