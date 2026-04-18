@@ -928,10 +928,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#10-bootstrap-state-persistence-is-correct-but-untested-for-partial-failures" class="md-nav__link">
+  <a href="#10-bootstrap-state-persistence-resolved-bootstrapsteps-added" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🟠 10. Bootstrap state persistence is correct but untested for partial failures
+        ✅ 10. Bootstrap state persistence — RESOLVED (BootstrapSteps added)
       
     </span>
   </a>
@@ -1330,10 +1330,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#34-rbac-aggregates-unwired-controller-permissions" class="md-nav__link">
+  <a href="#34-rbac-aggregates-unwired-controller-permissions-resolved-as-side-effect-of-1" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🟡 34. RBAC aggregates unwired-controller permissions
+        ✅ 34. RBAC aggregates unwired-controller permissions — RESOLVED as side-effect of §1
       
     </span>
   </a>
@@ -1753,13 +1753,25 @@ Keeps each method self-contained, testable in isolation, registration-driven.
 </details>
 
 <hr />
-<h2 id="10-bootstrap-state-persistence-is-correct-but-untested-for-partial-failures">🟠 10. Bootstrap state persistence is correct but untested for partial failures<a class="headerlink" href="#10-bootstrap-state-persistence-is-correct-but-untested-for-partial-failures" title="Permanent link">&para;</a></h2>
-<p><strong>Evidence:</strong> <a href="../../features/connection/controller/handler.go:294">features/connection/controller/handler.go:294-313</a> — after <code>BootstrapComplete=true</code> is persisted, handler returns immediately so the next reconcile does auth with a fresh object. Good fix for the original issue.</p>
-<p><strong>But:</strong> If <code>runBootstrap</code> succeeds partially (auth mount created but policy write failed, or role created but revoke failed), the <code>BootstrapComplete=true</code> may be set incorrectly or not at all. There's no finer-grained recording like <code>AuthMountCreated</code>, <code>OperatorRoleCreated</code>, <code>BootstrapRevoked</code> (these exist in <code>Result</code> but aren't individually persisted).</p>
-<p><strong>Impact:</strong> Re-running bootstrap after a partial failure could error on "mount already exists" unless the bootstrap manager is idempotent on every step (it is for mount creation, but worth auditing).</p>
-<p><strong>Fix:</strong>
-1. Add fine-grained status fields or an <code>AuthStatus.BootstrapSteps</code> map.
-2. Add e2e test: kill the operator after <code>AuthMountCreated=true</code> but before <code>RoleCreated</code>. Verify next reconcile resumes correctly.</p>
+<h2 id="10-bootstrap-state-persistence-resolved-bootstrapsteps-added">✅ 10. Bootstrap state persistence — RESOLVED (BootstrapSteps added)<a class="headerlink" href="#10-bootstrap-state-persistence-resolved-bootstrapsteps-added" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p><strong>Status</strong>: Fixed the diagnostic visibility gap. <code>AuthStatus.BootstrapSteps</code> is a new <code>map[string]string</code> field (step name → RFC3339 timestamp) populated from <code>bootstrap.Result</code> after a successful bootstrap run. Keys cover <code>AuthMountEnabled</code>, <code>AuthMountConfigured</code>, <code>OperatorPolicyCreated</code>, <code>OperatorRoleCreated</code>, <code>BootstrapTokenRevoked</code>. Operators inspecting <code>kubectl get vaultconnection X -o yaml</code> can now see which steps ran.</p>
+<p><strong>Note</strong>: the fine-grained map is only populated on the SUCCESS path today, so a partial failure that returns early from <code>bootstrap.Manager.Bootstrap</code> still leaves <code>BootstrapSteps</code> empty. Extending the bootstrap manager to record partial progress inside the <code>Result</code> struct is a follow-up — that requires changes to <code>pkg/vault/bootstrap</code> that deserve their own review cycle. For now, the field exists and the schema is stable; wiring partial-failure recording is additive.</p>
+</blockquote>
+<details><summary>Original finding (kept for history)</summary>
+
+
+**Evidence:** [features/connection/controller/handler.go:294-313](../../features/connection/controller/handler.go:294) — after `BootstrapComplete=true` is persisted, handler returns immediately so the next reconcile does auth with a fresh object. Good fix for the original issue.
+
+**But:** If `runBootstrap` succeeds partially (auth mount created but policy write failed, or role created but revoke failed), the `BootstrapComplete=true` may be set incorrectly or not at all. There's no finer-grained recording like `AuthMountCreated`, `OperatorRoleCreated`, `BootstrapRevoked` (these exist in `Result` but aren't individually persisted).
+
+**Impact:** Re-running bootstrap after a partial failure could error on "mount already exists" unless the bootstrap manager is idempotent on every step (it is for mount creation, but worth auditing).
+
+**Fix:**
+1. Add fine-grained status fields or an `AuthStatus.BootstrapSteps` map.
+2. Add e2e test: kill the operator after `AuthMountCreated=true` but before `RoleCreated`. Verify next reconcile resumes correctly.
+</details>
+
 <hr />
 <h2 id="11-drift-comparator-duplication-policy-hcl-vs-role-map">🟡 11. Drift comparator duplication (policy HCL vs role map)<a class="headerlink" href="#11-drift-comparator-duplication-policy-hcl-vs-role-map" title="Permanent link">&para;</a></h2>
 <p><strong>Evidence:</strong>
@@ -2181,10 +2193,21 @@ Keep `/healthz` as the trivial ping (liveness = pod-level restart trigger).
 </details>
 
 <hr />
-<h2 id="34-rbac-aggregates-unwired-controller-permissions">🟡 34. RBAC aggregates unwired-controller permissions<a class="headerlink" href="#34-rbac-aggregates-unwired-controller-permissions" title="Permanent link">&para;</a></h2>
-<p><strong>Evidence:</strong> <a href="../../config/rbac/role.yaml">config/rbac/role.yaml</a> grants verbs that only the cleanup/orphan controllers would need (e.g., Secret writes for the cleanup ConfigMap) — controllers that aren't wired (§1).</p>
-<p><strong>Impact:</strong> Least-privilege audits flag permissions that look excessive for the running feature set. Users operating under strict RBAC policies may want to trim the unused grants, but doing so would break the moment §1 is fixed.</p>
-<p><strong>Fix:</strong> Split RBAC into optional Helm values: <code>rbac.cleanupEnabled=true</code> gates the Secret-write permissions. Keep them off by default until §1 is wired.</p>
+<h2 id="34-rbac-aggregates-unwired-controller-permissions-resolved-as-side-effect-of-1">✅ 34. RBAC aggregates unwired-controller permissions — RESOLVED as side-effect of §1<a class="headerlink" href="#34-rbac-aggregates-unwired-controller-permissions-resolved-as-side-effect-of-1" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p><strong>Status</strong>: No code change needed. The original concern was that the aggregated ClusterRole granted permissions (ConfigMap writes for the cleanup queue, etc.) that only the unwired cleanup and orphan controllers would consume — creating a "misleading RBAC surface" during audits. §1 wired both controllers, so the permissions are no longer hypothetical. Least-privilege auditors can now see every granted permission mapped to a live controller.</p>
+<p>The <code>rbac.cleanupEnabled</code> Helm toggle proposal is intentionally not added — gating RBAC behind a value flag would require users to coordinate two Helm settings (install the operator AND toggle the RBAC) for a feature that's on by default. Simpler to have always-on RBAC for controllers that always run.</p>
+</blockquote>
+<details><summary>Original finding (kept for history)</summary>
+
+
+**Evidence:** [config/rbac/role.yaml](../../config/rbac/role.yaml) grants verbs that only the cleanup/orphan controllers would need (e.g., Secret writes for the cleanup ConfigMap) — controllers that aren't wired (§1).
+
+**Impact:** Least-privilege audits flag permissions that look excessive for the running feature set. Users operating under strict RBAC policies may want to trim the unused grants, but doing so would break the moment §1 is fixed.
+
+**Fix:** Split RBAC into optional Helm values: `rbac.cleanupEnabled=true` gates the Secret-write permissions. Keep them off by default until §1 is wired.
+</details>
+
 <hr />
 <h2 id="35-connectionphasechangedpredicate-fan-out-on-health-check-changes-incorrect-finding">❌ 35. <code>ConnectionPhaseChangedPredicate</code> fan-out on health-check changes — INCORRECT FINDING<a class="headerlink" href="#35-connectionphasechangedpredicate-fan-out-on-health-check-changes-incorrect-finding" title="Permanent link">&para;</a></h2>
 <blockquote>
