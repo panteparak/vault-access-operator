@@ -350,6 +350,12 @@ func main() {
 
 	// Setup webhooks only if enabled
 	if enableWebhooks {
+		// IMPROVEMENTS §8: validate VaultConnection at apply time instead of
+		// deferring malformed-spec discovery to reconcile.
+		if err := vaultwebhook.SetupVaultConnectionWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "VaultConnection")
+			os.Exit(1)
+		}
 		if err := vaultwebhook.SetupVaultPolicyWebhookWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create webhook", "webhook", "VaultPolicy")
 			os.Exit(1)

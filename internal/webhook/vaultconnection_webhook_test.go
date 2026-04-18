@@ -1,0 +1,220 @@
+/*
+Copyright 2026.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+*/
+
+package webhook
+
+import (
+	"context"
+	"strings"
+	"testing"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
+)
+
+// TestVaultConnectionValidator_AuthExactlyOne is the centerpiece regression
+// test for IMPROVEMENTS §8. The common user mistake this catches: two auth
+// sub-structs set simultaneously (e.g., `token` + `kubernetes`). Before §8
+// the operator silently used whichever branch came first in the dispatch
+// chain and the unused branch was dead configuration.
+func TestVaultConnectionValidator_AuthExactlyOne(t *testing.T) {
+	v := &VaultConnectionValidator{}
+	ctx := context.Background()
+
+	cases := []struct {
+		name        string
+		auth        vaultv1alpha1.AuthConfig
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:        "no auth method",
+			auth:        vaultv1alpha1.AuthConfig{},
+			wantErr:     true,
+			errContains: "one auth method must be configured",
+		},
+		{
+			name:    "only kubernetes",
+			auth:    vaultv1alpha1.AuthConfig{Kubernetes: &vaultv1alpha1.KubernetesAuth{Role: "r"}},
+			wantErr: false,
+		},
+		{
+			name:    "only token",
+			auth:    vaultv1alpha1.AuthConfig{Token: &vaultv1alpha1.TokenAuth{SecretRef: vaultv1alpha1.SecretKeySelector{Name: "s", Key: "t"}}},
+			wantErr: false,
+		},
+		{
+			name: "bootstrap + kubernetes (legal transition pair)",
+			auth: vaultv1alpha1.AuthConfig{
+				Bootstrap:  &vaultv1alpha1.BootstrapAuth{SecretRef: vaultv1alpha1.SecretKeySelector{Name: "s", Key: "t"}},
+				Kubernetes: &vaultv1alpha1.KubernetesAuth{Role: "r"},
+			},
+			wantErr: false,
+		},
+		{
+			name: "token + kubernetes (two full methods)",
+			auth: vaultv1alpha1.AuthConfig{
+				Token:      &vaultv1alpha1.TokenAuth{SecretRef: vaultv1alpha1.SecretKeySelector{Name: "s", Key: "t"}},
+				Kubernetes: &vaultv1alpha1.KubernetesAuth{Role: "r"},
+			},
+			wantErr:     true,
+			errContains: "exactly one auth method",
+		},
+		{
+			name: "three methods",
+			auth: vaultv1alpha1.AuthConfig{
+				Token:      &vaultv1alpha1.TokenAuth{SecretRef: vaultv1alpha1.SecretKeySelector{Name: "s", Key: "t"}},
+				Kubernetes: &vaultv1alpha1.KubernetesAuth{Role: "r"},
+				AppRole:    &vaultv1alpha1.AppRoleAuth{RoleID: "x", SecretIDRef: vaultv1alpha1.SecretKeySelector{Name: "s", Key: "t"}},
+			},
+			wantErr:     true,
+			errContains: "3",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			conn := &vaultv1alpha1.VaultConnection{
+				ObjectMeta: metav1.ObjectMeta{Name: "c"},
+				Spec: vaultv1alpha1.VaultConnectionSpec{
+					Address: "https://vault.example.com",
+					Auth:    tc.auth,
+				},
+			}
+			_, err := v.ValidateCreate(ctx, conn)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("ValidateCreate err = %v, wantErr=%v", err, tc.wantErr)
+			}
+			if tc.wantErr && tc.errContains != "" && !strings.Contains(err.Error(), tc.errContains) {
+				t.Errorf("err %q should contain %q", err.Error(), tc.errContains)
+			}
+		})
+	}
+}
+
+// TestVaultConnectionValidator_AddressImmutable pins the update rule that
+// `spec.address` cannot change. Moving a connection to a different Vault
+// instance would orphan every policy/role it manages.
+func TestVaultConnectionValidator_AddressImmutable(t *testing.T) {
+	v := &VaultConnectionValidator{}
+	ctx := context.Background()
+
+	oldConn := &vaultv1alpha1.VaultConnection{
+		ObjectMeta: metav1.ObjectMeta{Name: "c"},
+		Spec: vaultv1alpha1.VaultConnectionSpec{
+			Address: "https://vault-a.example.com",
+			Auth:    vaultv1alpha1.AuthConfig{Kubernetes: &vaultv1alpha1.KubernetesAuth{Role: "r"}},
+		},
+	}
+	newConn := oldConn.DeepCopy()
+	newConn.Spec.Address = "https://vault-b.example.com"
+
+	_, err := v.ValidateUpdate(ctx, oldConn, newConn)
+	if err == nil {
+		t.Fatal("expected address-change to be rejected; got nil error")
+	}
+	if !strings.Contains(err.Error(), "immutable") {
+		t.Errorf("error should mention immutability: %v", err)
+	}
+}
+
+// TestVaultConnectionValidator_AppRoleRequiresRoleID catches a common
+// mistake: configuring AppRole with only SecretIDRef set.
+func TestVaultConnectionValidator_AppRoleRequiresRoleID(t *testing.T) {
+	v := &VaultConnectionValidator{}
+	conn := &vaultv1alpha1.VaultConnection{
+		ObjectMeta: metav1.ObjectMeta{Name: "c"},
+		Spec: vaultv1alpha1.VaultConnectionSpec{
+			Address: "https://vault.example.com",
+			Auth: vaultv1alpha1.AuthConfig{
+				AppRole: &vaultv1alpha1.AppRoleAuth{
+					// RoleID deliberately empty
+					SecretIDRef: vaultv1alpha1.SecretKeySelector{Name: "s", Key: "t"},
+				},
+			},
+		},
+	}
+	_, err := v.ValidateCreate(context.Background(), conn)
+	if err == nil || !strings.Contains(err.Error(), "roleId is required") {
+		t.Fatalf("want roleID-missing error, got %v", err)
+	}
+}
+
+// TestVaultConnectionValidator_OIDCRequiresAtLeastOneTokenSource ensures
+// that the combination `UseServiceAccountToken=false` + no JWTSecretRef
+// is rejected. The operator would have no way to obtain a JWT.
+func TestVaultConnectionValidator_OIDCRequiresAtLeastOneTokenSource(t *testing.T) {
+	v := &VaultConnectionValidator{}
+	useSA := false
+	conn := &vaultv1alpha1.VaultConnection{
+		ObjectMeta: metav1.ObjectMeta{Name: "c"},
+		Spec: vaultv1alpha1.VaultConnectionSpec{
+			Address: "https://vault.example.com",
+			Auth: vaultv1alpha1.AuthConfig{
+				OIDC: &vaultv1alpha1.OIDCAuth{
+					Role:                   "r",
+					UseServiceAccountToken: &useSA,
+					// JWTSecretRef deliberately nil
+				},
+			},
+		},
+	}
+	_, err := v.ValidateCreate(context.Background(), conn)
+	if err == nil || !strings.Contains(err.Error(), "useServiceAccountToken") {
+		t.Fatalf("want OIDC no-token-source error, got %v", err)
+	}
+}
+
+// TestVaultConnectionValidator_DiscoveryAutoCreateRequiresTargetNamespace
+// catches one of the most common discovery-autoCreate footguns.
+func TestVaultConnectionValidator_DiscoveryAutoCreateRequiresTargetNamespace(t *testing.T) {
+	v := &VaultConnectionValidator{}
+	conn := &vaultv1alpha1.VaultConnection{
+		ObjectMeta: metav1.ObjectMeta{Name: "c"},
+		Spec: vaultv1alpha1.VaultConnectionSpec{
+			Address: "https://vault.example.com",
+			Auth:    vaultv1alpha1.AuthConfig{Kubernetes: &vaultv1alpha1.KubernetesAuth{Role: "r"}},
+			Discovery: &vaultv1alpha1.DiscoveryConfig{
+				AutoCreateCRs: true,
+				// TargetNamespace deliberately empty
+			},
+		},
+	}
+	_, err := v.ValidateCreate(context.Background(), conn)
+	if err == nil || !strings.Contains(err.Error(), "targetNamespace is required") {
+		t.Fatalf("want targetNamespace-required error, got %v", err)
+	}
+}
+
+// TestVaultConnectionValidator_HTTPAddressEmitsWarning is a UX warning:
+// http:// is not rejected (local testing is a valid use case) but the user
+// should know they're sending credentials in the clear.
+func TestVaultConnectionValidator_HTTPAddressEmitsWarning(t *testing.T) {
+	v := &VaultConnectionValidator{}
+	conn := &vaultv1alpha1.VaultConnection{
+		ObjectMeta: metav1.ObjectMeta{Name: "c"},
+		Spec: vaultv1alpha1.VaultConnectionSpec{
+			Address: "http://vault.local:8200",
+			Auth:    vaultv1alpha1.AuthConfig{Kubernetes: &vaultv1alpha1.KubernetesAuth{Role: "r"}},
+		},
+	}
+	warnings, err := v.ValidateCreate(context.Background(), conn)
+	if err != nil {
+		t.Fatalf("http:// should be a warning, not an error; got %v", err)
+	}
+	if len(warnings) == 0 {
+		t.Fatal("expected warning about http://")
+	}
+	joined := strings.Join(warnings, " ")
+	if !strings.Contains(joined, "http://") {
+		t.Errorf("warning should mention http://: %v", warnings)
+	}
+}

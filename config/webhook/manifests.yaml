@@ -30,6 +30,26 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
+      path: /validate-vault-platform-io-v1alpha1-vaultconnection
+  failurePolicy: Fail
+  name: vvaultconnection.kb.io
+  rules:
+  - apiGroups:
+    - vault.platform.io
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - vaultconnections
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
       path: /validate-vault-platform-io-v1alpha1-vaultpolicy
   failurePolicy: Fail
   name: vvaultpolicy.kb.io

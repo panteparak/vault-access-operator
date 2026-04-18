@@ -284,7 +284,20 @@ But the operator **authenticates** to Vault via 8 methods (§6). There's an asym
 
 ---
 
-## 🟠 8. Connection webhook missing
+## ✅ 8. Connection webhook — RESOLVED
+
+> **Status**: Fixed. New `internal/webhook/vaultconnection_webhook.go` adds a `VaultConnectionValidator`. Wired into `cmd/main.go` via `SetupVaultConnectionWebhookWithManager` alongside the other four validators. Rules enforced:
+> - Exactly one auth method (except the legal `bootstrap + kubernetes` transition pair).
+> - `spec.address` is immutable on update (moving to a different Vault would orphan everything).
+> - `spec.auth.appRole.roleId` required when AppRole is selected.
+> - `spec.auth.oidc`: either `useServiceAccountToken=true` or `jwtSecretRef` set.
+> - `spec.discovery.targetNamespace` required when `autoCreateCRs=true`.
+> - `http://` address emits a warning (not rejected — valid for local testing).
+>
+> **Tests**: 10 subtests in `vaultconnection_webhook_test.go` across 6 functions. Coverage includes every rule above plus the immutability check.
+
+<details><summary>Original finding (kept for history)</summary>
+
 
 **Evidence:** [cmd/main.go:297-314](../../cmd/main.go:297) registers webhooks for `VaultPolicy`, `VaultClusterPolicy`, `VaultRole`, `VaultClusterRole` — but **not `VaultConnection`**.
 
@@ -298,6 +311,7 @@ But the operator **authenticates** to Vault via 8 methods (§6). There's an asym
 - `Discovery.Enabled=true` with `AutoCreateCRs=true` but no `TargetNamespace`
 
 **Fix:** Add `VaultConnectionValidator` under `internal/webhook/` paralleling the policy/role validators. Validation rules to cover each auth method's required fields, URL format, and discovery prereqs.
+</details>
 
 ---
 
