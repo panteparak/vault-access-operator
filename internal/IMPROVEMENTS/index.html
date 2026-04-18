@@ -1016,10 +1016,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#18-phase-string-vs-typed-enum-inconsistency-in-status-updates" class="md-nav__link">
+  <a href="#18-phase-string-vs-typed-enum-inconsistency-deferred-low-value-vs-cost" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🟡 18. Phase string vs typed enum inconsistency in status updates
+        ❌ 18. Phase string vs typed enum inconsistency — DEFERRED (low value vs cost)
       
     </span>
   </a>
@@ -1071,10 +1071,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#23-minscaninterval-is-a-package-var-but-overridable-via-env-weird-pattern" class="md-nav__link">
+  <a href="#23-minscaninterval-package-var-reconcilerconfig-field-resolved" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🟢 23. MinScanInterval is a package var but overridable via env — weird pattern
+        ✅ 23. MinScanInterval package var → ReconcilerConfig field — RESOLVED
       
     </span>
   </a>
@@ -1093,10 +1093,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#25-cert-manager-integration-only-half-scaffolded" class="md-nav__link">
+  <a href="#25-cert-manager-todo-resolved-clarifying-comment" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🟢 25. cert-manager integration only half-scaffolded
+        ✅ 25. cert-manager TODO — RESOLVED (clarifying comment)
       
     </span>
   </a>
@@ -1104,10 +1104,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#26-coverout-committed-to-worktree-380-kb" class="md-nav__link">
+  <a href="#26-coverout-committed-incorrect-finding" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🟢 26. cover.out committed to worktree (~380 KB)
+        ❌ 26. cover.out committed — INCORRECT FINDING
       
     </span>
   </a>
@@ -1275,10 +1275,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#29-structured-error-types-notfounderror-connectionerror-defined-but-unused-in-classifier" class="md-nav__link">
+  <a href="#29-classify-notfounderror-connectionerror-distinctly-resolved" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🟡 29. Structured error types NotFoundError / ConnectionError defined but unused in classifier
+        ✅ 29. Classify NotFoundError + ConnectionError distinctly — RESOLVED
       
     </span>
   </a>
@@ -1889,10 +1889,19 @@ Catches mismatches at compile time.</p>
 </details>
 
 <hr />
-<h2 id="18-phase-string-vs-typed-enum-inconsistency-in-status-updates">🟡 18. <code>Phase</code> string vs typed enum inconsistency in status updates<a class="headerlink" href="#18-phase-string-vs-typed-enum-inconsistency-in-status-updates" title="Permanent link">&para;</a></h2>
-<p><strong>Evidence:</strong> most code uses <code>vaultv1alpha1.PhaseSyncing</code> constant, but some string literal <code>"Syncing"</code> usages exist in tests and the cleanup workflow hardcodes <code>PhaseDeleting</code>.</p>
-<p><strong>Impact:</strong> Minor. Refactoring risk if phase names change.</p>
-<p><strong>Fix:</strong> Grep for <code>"Syncing"</code>, <code>"Active"</code>, <code>"Error"</code> string literals outside test fixtures, replace with constants.</p>
+<h2 id="18-phase-string-vs-typed-enum-inconsistency-deferred-low-value-vs-cost">❌ 18. <code>Phase</code> string vs typed enum inconsistency — DEFERRED (low value vs cost)<a class="headerlink" href="#18-phase-string-vs-typed-enum-inconsistency-deferred-low-value-vs-cost" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p><strong>Status</strong>: Audited; not actioned. Production code already uses the <code>Phase*</code> constants consistently — the only bare string literals are in test files (~85 hits) where <code>"Active"</code> / <code>"Syncing"</code> are the explicit expected values being asserted, and using constants would make the intent less clear. Phase values are part of the public CRD API anyway (kubebuilder <code>+kubebuilder:validation:Enum=</code>), so renaming them is a breaking change regardless of whether tests use constants or literals. Keeping the current convention; revisit if a phase is ever added and tests silently reference the old name.</p>
+</blockquote>
+<details><summary>Original finding (kept for history)</summary>
+
+**Evidence:** most code uses `vaultv1alpha1.PhaseSyncing` constant, but some string literal `"Syncing"` usages exist in tests and the cleanup workflow hardcodes `PhaseDeleting`.
+
+**Impact:** Minor. Refactoring risk if phase names change.
+
+**Fix:** Grep for `"Syncing"`, `"Active"`, `"Error"` string literals outside test fixtures, replace with constants.
+</details>
+
 <hr />
 <h2 id="19-jwt-bound_subject-derivation-is-brittle">🟡 19. JWT <code>bound_subject</code> derivation is brittle<a class="headerlink" href="#19-jwt-bound_subject-derivation-is-brittle" title="Permanent link">&para;</a></h2>
 <p><strong>Evidence:</strong> <a href="../../features/role/controller/handler.go:490">role/controller/handler.go:490-522</a>:</p>
@@ -1938,31 +1947,59 @@ Catches mismatches at compile time.</p>
 <p><strong>Evidence:</strong> Some methods take <code>log</code> explicitly (e.g., <code>runBootstrap</code>), others fetch from context. Mixing both is confusing.</p>
 <p><strong>Fix:</strong> Pick one. Recommend <code>logr.FromContextOrDiscard(ctx)</code> because <code>BaseReconciler.Reconcile</code> already enriches the context with <code>reconcileID</code>.</p>
 <hr />
-<h2 id="23-minscaninterval-is-a-package-var-but-overridable-via-env-weird-pattern">🟢 23. <code>MinScanInterval</code> is a package var but overridable via env — weird pattern<a class="headerlink" href="#23-minscaninterval-is-a-package-var-but-overridable-via-env-weird-pattern" title="Permanent link">&para;</a></h2>
-<p><strong>Evidence:</strong> <a href="../../features/discovery/controller/controller.go:50">features/discovery/controller/controller.go:50-58</a>:</p>
+<h2 id="23-minscaninterval-package-var-reconcilerconfig-field-resolved">✅ 23. <code>MinScanInterval</code> package var → ReconcilerConfig field — RESOLVED<a class="headerlink" href="#23-minscaninterval-package-var-reconcilerconfig-field-resolved" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p><strong>Status</strong>: Fixed. <code>ReconcilerConfig.MinScanInterval</code> is a new optional field. When zero, falls back to the package-level <code>MinScanInterval</code> (which itself reads <code>OPERATOR_MIN_SCAN_INTERVAL</code>). Tests construct a reconciler with a short interval via <code>ReconcilerConfig{MinScanInterval: time.Second}</code> instead of mutating the global.</p>
+<p><strong>Tests</strong>: <code>min_scan_interval_test.go</code> covers explicit-value, zero-fallback, and negative-fallback cases, plus a guard test that pins <code>DefaultMinScanInterval = 5*time.Minute</code> against accidental changes.</p>
+</blockquote>
+<details><summary>Original finding (kept for history)</summary>
+
+**Evidence:** [features/discovery/controller/controller.go:50-58](../../features/discovery/controller/controller.go:50):
+
 <div class="highlight"><pre><span></span><code><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="kd">var</span><span class="w"> </span><span class="nx">MinScanInterval</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">time</span><span class="p">.</span><span class="nx">Minute</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mi">5</span>
 <a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a><span class="kd">func</span><span class="w"> </span><span class="nx">init</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
 <a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">v</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">os</span><span class="p">.</span><span class="nx">Getenv</span><span class="p">(</span><span class="s">&quot;OPERATOR_MIN_SCAN_INTERVAL&quot;</span><span class="p">);</span><span class="w"> </span><span class="nx">v</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="o">...</span><span class="w"> </span><span class="p">}</span>
 <a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a><span class="p">}</span>
 </code></pre></div>
-<p>A global package var mutated during init based on env. Works, but test isolation requires remembering to reset.</p>
-<p><strong>Fix:</strong> Pass it as a field on <code>Reconciler</code>, configured via <code>ReconcilerConfig</code>. Tests construct a reconciler with a short interval without touching globals.</p>
+
+A global package var mutated during init based on env. Works, but test isolation requires remembering to reset.
+
+**Fix:** Pass it as a field on `Reconciler`, configured via `ReconcilerConfig`. Tests construct a reconciler with a short interval without touching globals.
+</details>
+
 <hr />
 <h2 id="24-ghost-nolintstaticcheck-comments-on-recorder-calls">🟢 24. Ghost <code>nolint:staticcheck</code> comments on recorder calls<a class="headerlink" href="#24-ghost-nolintstaticcheck-comments-on-recorder-calls" title="Permanent link">&para;</a></h2>
 <p><strong>Evidence:</strong> <a href="../../cmd/main.go:244">cmd/main.go:244, 259, 274, 288</a> — <code>mgr.GetEventRecorderFor("...")</code> flagged with <code>//nolint:staticcheck</code>. Suggests a deprecation warning being silenced.</p>
 <p><strong>Fix:</strong> Check the upstream deprecation notice — likely <code>GetEventRecorderFor</code> is deprecated in favor of <code>NewRecorder</code> or similar. Address once rather than carrying the nolint forever.</p>
 <hr />
-<h2 id="25-cert-manager-integration-only-half-scaffolded">🟢 25. cert-manager integration only half-scaffolded<a class="headerlink" href="#25-cert-manager-integration-only-half-scaffolded" title="Permanent link">&para;</a></h2>
-<p><strong>Evidence:</strong> <a href="../../cmd/main.go:174">cmd/main.go:174-177</a>:</p>
+<h2 id="25-cert-manager-todo-resolved-clarifying-comment">✅ 25. cert-manager TODO — RESOLVED (clarifying comment)<a class="headerlink" href="#25-cert-manager-todo-resolved-clarifying-comment" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p><strong>Status</strong>: The TODO in <code>cmd/main.go</code> was out of sync with reality: the Helm chart (<code>charts/vault-access-operator</code>) already wires cert-manager for both webhooks and metrics when <code>certManager.enabled=true</code>. Replaced the TODO with a comment pointing readers at the Helm chart as the supported install path. The <code>config/</code> kustomize bases are retained as reference for <code>make deploy</code> and kubebuilder scaffolding conventions but are not the recommended production install.</p>
+</blockquote>
+<details><summary>Original finding (kept for history)</summary>
+
+**Evidence:** [cmd/main.go:174-177](../../cmd/main.go:174):
+
 <div class="highlight"><pre><span></span><code><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="c1">// TODO(user): If you enable certManager, uncomment the following lines:</span>
 <a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a><span class="c1">// - [METRICS-WITH-CERTS] at config/default/kustomization.yaml</span>
 <a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a><span class="c1">// - [PROMETHEUS-WITH-CERTS] at config/prometheus/kustomization.yaml</span>
 </code></pre></div>
-<p><strong>Fix:</strong> Either finish the wiring in kustomize bases or remove the comment. The TODO has been there since project bootstrapping — likely nobody will act on it unless surfaced.</p>
+
+**Fix:** Either finish the wiring in kustomize bases or remove the comment. The TODO has been there since project bootstrapping — likely nobody will act on it unless surfaced.
+</details>
+
 <hr />
-<h2 id="26-coverout-committed-to-worktree-380-kb">🟢 26. <code>cover.out</code> committed to worktree (~380 KB)<a class="headerlink" href="#26-coverout-committed-to-worktree-380-kb" title="Permanent link">&para;</a></h2>
-<p><strong>Evidence:</strong> <a href="../../cover.out">cover.out</a> present in repo root.</p>
-<p><strong>Fix:</strong> Add to <code>.gitignore</code> and remove from tracking.</p>
+<h2 id="26-coverout-committed-incorrect-finding">❌ 26. <code>cover.out</code> committed — INCORRECT FINDING<a class="headerlink" href="#26-coverout-committed-incorrect-finding" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p><strong>Status</strong>: Withdrawn after verification. <code>cover.out</code> is NOT tracked by git — the existing <code>.gitignore</code> pattern <code>*.out</code> covers it. <code>git ls-files cover.out</code> returns empty; <code>git status --ignored</code> confirms cover.out is listed under "Ignored files". The original doc audit was wrong about this one.</p>
+</blockquote>
+<details><summary>Original finding (incorrect) (kept for history)</summary>
+
+**Evidence:** [cover.out](../../cover.out) present in repo root.
+
+**Fix:** Add to `.gitignore` and remove from tracking.
+</details>
+
 <hr />
 <h2 id="missing-features-not-disconnects-but-absent">Missing Features (not disconnects, but absent)<a class="headerlink" href="#missing-features-not-disconnects-but-absent" title="Permanent link">&para;</a></h2>
 <h3 id="a-no-per-namespace-operator-mode">A. No per-namespace operator mode<a class="headerlink" href="#a-no-per-namespace-operator-mode" title="Permanent link">&para;</a></h3>
@@ -2005,12 +2042,25 @@ Types declared but never published: <code>ConnectionHealthChanged</code>, <code>
 <p><strong>Impact:</strong> A reader copying from the table would look for the wrong annotation name.</p>
 <p><strong>Fix:</strong> Add a doc linter to CI — grep <code>docs/internal/</code> for literal <code>vault.platform.io/...</code> and diff against the constants block. Catches future drift automatically.</p>
 <hr />
-<h2 id="29-structured-error-types-notfounderror-connectionerror-defined-but-unused-in-classifier">🟡 29. Structured error types <code>NotFoundError</code> / <code>ConnectionError</code> defined but unused in classifier<a class="headerlink" href="#29-structured-error-types-notfounderror-connectionerror-defined-but-unused-in-classifier" title="Permanent link">&para;</a></h2>
-<p><strong>Evidence:</strong> <a href="../../shared/infrastructure/errors/errors.go">shared/infrastructure/errors/errors.go</a> defines 6 error types. <a href="../../shared/controller/syncerror/handler.go">shared/controller/syncerror/handler.go</a> <code>Handle</code> classifies only 4 (<code>ConflictError</code>, <code>ValidationError</code>, <code>DependencyError</code>, <code>TransientError</code>) → maps every unmatched error to generic <code>PhaseError / ReasonFailed</code>.</p>
-<p><strong>Impact:</strong>
-- <code>NotFoundError</code> scenarios (e.g., referenced Secret missing) are classified the same as a Vault 500. Users have to read the message to distinguish.
-- <code>ConnectionError</code> (network/TLS issues at the transport layer) would be nice to surface as a distinct condition — today it mashes together with generic <code>TransientError</code>.</p>
-<p><strong>Fix:</strong> Extend the <code>syncerror.Handle</code> switch to recognize these two types and map to distinct reasons (e.g., <code>ReasonNotFound</code>, <code>ReasonNetworkError</code>).</p>
+<h2 id="29-classify-notfounderror-connectionerror-distinctly-resolved">✅ 29. Classify NotFoundError + ConnectionError distinctly — RESOLVED<a class="headerlink" href="#29-classify-notfounderror-connectionerror-distinctly-resolved" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p><strong>Status</strong>: Fixed. <code>syncerror.Handle</code> now recognizes <code>NotFoundError</code> (referenced K8s resource absent) and <code>ConnectionError</code> (transport-layer Vault failures) as distinct classes. Each maps to a new condition reason:
+- <code>NotFoundError</code> → <code>ReasonResourceNotFound</code> (distinct from <code>ReasonPolicyNotFound</code> which is specific to Vault policy refs).
+- <code>ConnectionError</code> → <code>ReasonNetworkError</code>.</p>
+<p>Dashboards and alerts can now distinguish "Vault unreachable" from "a required Secret is missing" without parsing status <code>Message</code> strings.</p>
+<p><strong>Tests</strong>: <code>TestHandle_NotFoundError</code> and <code>TestHandle_ConnectionError</code> updated to assert the new reasons (they previously pinned the old <code>ReasonFailed</code> catch-all).</p>
+</blockquote>
+<details><summary>Original finding (kept for history)</summary>
+
+**Evidence:** [shared/infrastructure/errors/errors.go](../../shared/infrastructure/errors/errors.go) defines 6 error types. [shared/controller/syncerror/handler.go](../../shared/controller/syncerror/handler.go) `Handle` classifies only 4 (`ConflictError`, `ValidationError`, `DependencyError`, `TransientError`) → maps every unmatched error to generic `PhaseError / ReasonFailed`.
+
+**Impact:**
+- `NotFoundError` scenarios (e.g., referenced Secret missing) are classified the same as a Vault 500. Users have to read the message to distinguish.
+- `ConnectionError` (network/TLS issues at the transport layer) would be nice to surface as a distinct condition — today it mashes together with generic `TransientError`.
+
+**Fix:** Extend the `syncerror.Handle` switch to recognize these two types and map to distinct reasons (e.g., `ReasonNotFound`, `ReasonNetworkError`).
+</details>
+
 <hr />
 <h2 id="30-raw-string-annotations-lack-constants-generalizes-14">🟡 30. Raw-string annotations lack constants (generalizes §14)<a class="headerlink" href="#30-raw-string-annotations-lack-constants-generalizes-14" title="Permanent link">&para;</a></h2>
 <p><strong>Evidence:</strong>
