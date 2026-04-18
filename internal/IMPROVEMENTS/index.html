@@ -829,10 +829,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#1-unwired-controllers-cleanup-orphan-token-lifecycle-reviewer-rotation" class="md-nav__link">
+  <a href="#1-unwired-controllers-cleanup-orphan-resolved-token-lifecyclereviewer-deferred" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🔴 1. Unwired controllers (cleanup + orphan + token lifecycle + reviewer rotation)
+        ✅ 1. Unwired controllers — cleanup + orphan RESOLVED (token lifecycle/reviewer deferred)
       
     </span>
   </a>
@@ -840,10 +840,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#2-silent-cleanup-failures-leak-vault-resources" class="md-nav__link">
+  <a href="#2-silent-cleanup-failures-leak-vault-resources-resolved" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🔴 2. Silent cleanup failures leak Vault resources
+        ✅ 2. Silent cleanup failures leak Vault resources — RESOLVED
       
     </span>
   </a>
@@ -851,10 +851,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#3-cleanup-controller-typing-mismatch" class="md-nav__link">
+  <a href="#3-cleanup-controller-typing-mismatch-resolved" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🔴 3. Cleanup controller typing mismatch
+        ✅ 3. Cleanup controller typing mismatch — RESOLVED
       
     </span>
   </a>
@@ -1449,19 +1449,29 @@
 </tbody>
 </table>
 <hr />
-<h2 id="1-unwired-controllers-cleanup-orphan-token-lifecycle-reviewer-rotation">🔴 1. Unwired controllers (cleanup + orphan + token lifecycle + reviewer rotation)<a class="headerlink" href="#1-unwired-controllers-cleanup-orphan-token-lifecycle-reviewer-rotation" title="Permanent link">&para;</a></h2>
-<p><strong>Evidence:</strong>
-- <a href="../../pkg/cleanup/controller.go:92">pkg/cleanup/controller.go:92</a> — complete <code>Start(ctx)</code> with leader-election gate
-- <a href="../../pkg/orphan/controller.go:95">pkg/orphan/controller.go:95</a> — same
-- <a href="../../pkg/vault/token/lifecycle.go">pkg/vault/token/lifecycle.go</a> — same
-- <a href="../../pkg/vault/token/rotator.go">pkg/vault/token/rotator.go</a> — same
-- <a href="../../cmd/main.go:234">cmd/main.go:234-343</a> — <strong>none</strong> of them are registered with <code>mgr.Add(...)</code></p>
-<p><strong>Impact:</strong>
+<h2 id="1-unwired-controllers-cleanup-orphan-resolved-token-lifecyclereviewer-deferred">✅ 1. Unwired controllers — <strong>cleanup + orphan RESOLVED</strong> (token lifecycle/reviewer deferred)<a class="headerlink" href="#1-unwired-controllers-cleanup-orphan-resolved-token-lifecyclereviewer-deferred" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p><strong>Status</strong>: Partially fixed in <code>feat(cleanup): wire cleanup + orphan controllers</code> (commit pending on this branch). The cleanup and orphan controllers are now registered with the manager via <code>mgr.Add()</code> at <a href="../../cmd/main.go:297-324">cmd/main.go</a>. Both are leader-gated so only one replica drains the ConfigMap-backed retry queue.</p>
+<p><strong>Still pending</strong>: the token lifecycle controller and reviewer rotator (<a href="../../pkg/vault/token/lifecycle_controller.go">pkg/vault/token/lifecycle_controller.go</a>, <a href="../../pkg/vault/token/reviewer_controller.go">reviewer_controller.go</a>) don't yet implement <code>NeedsLeaderElection()</code> and require deeper integration with <code>connection.Config</code> so the handler can <code>Register</code>/<code>Unregister</code> them. Tracked as a follow-up in the next tier.</p>
+<p><strong>Tests</strong>: integration tests <code>INT-CLEAN01/02/03</code> in <code>test/integration/cleanup/controller_wired_test.go</code> — all 3 passing against envtest + real Vault container (9.4s).</p>
+</blockquote>
+<details><summary>Original finding (kept for history)</summary>
+
+
+**Evidence:**
+- [pkg/cleanup/controller.go:92](../../pkg/cleanup/controller.go:92) — complete `Start(ctx)` with leader-election gate
+- [pkg/orphan/controller.go:95](../../pkg/orphan/controller.go:95) — same
+- [pkg/vault/token/lifecycle.go](../../pkg/vault/token/lifecycle.go) — same
+- [pkg/vault/token/rotator.go](../../pkg/vault/token/rotator.go) — same
+- [cmd/main.go:234-343](../../cmd/main.go:234) — **none** of them are registered with `mgr.Add(...)`
+
+**Impact:**
 - Cleanup queue is never drained — failed Vault deletions leak forever.
-- Orphan resources are never detected or metered (the <code>vault_orphaned_resources</code> gauge permanently reports 0).
+- Orphan resources are never detected or metered (the `vault_orphaned_resources` gauge permanently reports 0).
 - Token lifecycle controller never proactively renews — current behavior relies on the 30s reconcile requeue, which is only correct by accident.
-- Token reviewer rotation never happens — K8s-auth will eventually break silently if the reviewer JWT expires (typically 1h after mount). <strong>This is a ticking time bomb for long-running deployments.</strong></p>
-<p><strong>Fix (concrete, minimal):</strong>
+- Token reviewer rotation never happens — K8s-auth will eventually break silently if the reviewer JWT expires (typically 1h after mount). **This is a ticking time bomb for long-running deployments.**
+
+**Fix (concrete, minimal):**
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1">// cmd/main.go, after feature setup:</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="nx">cleanupQueue</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">cleanup</span><span class="p">.</span><span class="nx">NewQueue</span><span class="p">(</span><span class="nx">mgr</span><span class="p">.</span><span class="nx">GetClient</span><span class="p">(),</span><span class="w"> </span><span class="nx">getOperatorNamespace</span><span class="p">())</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="nx">cleanupCtrl</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">cleanup</span><span class="p">.</span><span class="nx">NewController</span><span class="p">(</span><span class="nx">cleanup</span><span class="p">.</span><span class="nx">ControllerConfig</span><span class="p">{</span>
@@ -1477,36 +1487,62 @@
 <a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="w">    </span><span class="nx">Log</span><span class="p">:</span><span class="w">         </span><span class="nx">setupLog</span><span class="p">.</span><span class="nx">WithName</span><span class="p">(</span><span class="s">&quot;orphan&quot;</span><span class="p">),</span>
 <a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="p">})</span>
 <a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">mgr</span><span class="p">.</span><span class="nx">Add</span><span class="p">(</span><span class="nx">orphanCtrl</span><span class="p">);</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="o">...</span><span class="w"> </span><span class="p">}</span>
-</code></pre></div></p>
-<p>Plus register lifecycle + reviewer controllers similarly and pass them into <code>connection.Config</code> so the handler has something real to <code>Register</code> against.</p>
+</code></pre></div>
+
+Plus register lifecycle + reviewer controllers similarly and pass them into `connection.Config` so the handler has something real to `Register` against.
+</details>
+
 <hr />
-<h2 id="2-silent-cleanup-failures-leak-vault-resources">🔴 2. Silent cleanup failures leak Vault resources<a class="headerlink" href="#2-silent-cleanup-failures-leak-vault-resources" title="Permanent link">&para;</a></h2>
-<p><strong>Evidence:</strong> <a href="../../shared/controller/workflow/cleanup.go:90">shared/controller/workflow/cleanup.go:90-93</a>:</p>
+<h2 id="2-silent-cleanup-failures-leak-vault-resources-resolved">✅ 2. Silent cleanup failures leak Vault resources — RESOLVED<a class="headerlink" href="#2-silent-cleanup-failures-leak-vault-resources-resolved" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p><strong>Status</strong>: Fixed. The <code>CleanupWorkflow</code> now enqueues a retry item when Vault is unreachable or returns a non-404 error, and treats 404 as success. The cleanup.Controller (wired via §1) drains the queue.</p>
+<p><strong>Test coverage</strong>: 5 new unit tests in <code>shared/controller/workflow/cleanup_enqueue_test.go</code> cover: unreachable → enqueue, 404 → no enqueue, 500 → enqueue, nil queue backward-compat, and queue-write failure does not block finalizer removal. Plus the integration + e2e above.</p>
+<p><strong>Also fixed (latent)</strong>: <code>pkg/cleanup/queue.go</code> Enqueue had a <code>cm.Data == nil</code> panic path when a fresh ConfigMap round-tripped through the real API server. Added a defensive initialization.</p>
+</blockquote>
+<details><summary>Original finding (kept for history)</summary>
+
+
+**Evidence:** [shared/controller/workflow/cleanup.go:90-93](../../shared/controller/workflow/cleanup.go:90):
+
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nx">vaultClient</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">w</span><span class="p">.</span><span class="nx">getVaultClient</span><span class="p">(</span><span class="nx">resource</span><span class="p">.</span><span class="nx">GetConnectionRef</span><span class="p">())</span>
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span>
 <a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">    </span><span class="nx">log</span><span class="p">.</span><span class="nx">Info</span><span class="p">(</span><span class="s">&quot;failed to get Vault client during deletion, continuing with finalizer removal&quot;</span><span class="p">)</span>
 <a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="p">}</span>
 </code></pre></div>
-<p><strong>Impact:</strong> If Vault is unreachable (network partition, vault down, auth expired) at the moment a CR is deleted, the operator removes the finalizer anyway. The K8s object is gone; the Vault policy/role remains. No automatic recovery — the orphan scanner (which would detect this) is not wired (§1).</p>
-<p><strong>Additional issue:</strong> even when Vault is reachable, <a href="../../shared/controller/workflow/cleanup.go:95">cleanup.go:95-98</a> swallows <code>DeleteFromVault</code> errors:</p>
+
+**Impact:** If Vault is unreachable (network partition, vault down, auth expired) at the moment a CR is deleted, the operator removes the finalizer anyway. The K8s object is gone; the Vault policy/role remains. No automatic recovery — the orphan scanner (which would detect this) is not wired (§1).
+
+**Additional issue:** even when Vault is reachable, [cleanup.go:95-98](../../shared/controller/workflow/cleanup.go:95) swallows `DeleteFromVault` errors:
+
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">ops</span><span class="p">.</span><span class="nx">DeleteFromVault</span><span class="p">(</span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="nx">vaultClient</span><span class="p">);</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span>
 <a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">    </span><span class="nx">log</span><span class="p">.</span><span class="nx">Error</span><span class="p">(</span><span class="nx">err</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;failed to delete &quot;</span><span class="o">+</span><span class="nx">label</span><span class="o">+</span><span class="s">&quot; from Vault&quot;</span><span class="p">)</span>
 <a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="p">}</span>
 <a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="c1">// finalizer removed anyway by BaseReconciler</span>
 </code></pre></div>
-<p><strong>Fix:</strong>
+
+**Fix:**
 1. Wire the cleanup queue (§1).
-2. In <code>CleanupWorkflow.Execute</code>, on any Vault-side failure, <strong>enqueue</strong> before returning nil:
+2. In `CleanupWorkflow.Execute`, on any Vault-side failure, **enqueue** before returning nil:
    <div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">ops</span><span class="p">.</span><span class="nx">DeleteFromVault</span><span class="p">(</span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="nx">vaultClient</span><span class="p">);</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span>
 <a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">    </span><span class="nx">_</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">w</span><span class="p">.</span><span class="nx">queue</span><span class="p">.</span><span class="nx">Enqueue</span><span class="p">(</span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="nx">cleanup</span><span class="p">.</span><span class="nx">NewPolicyCleanupItem</span><span class="p">(</span><span class="o">...</span><span class="p">))</span>
 <a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">    </span><span class="nx">log</span><span class="p">.</span><span class="nx">Error</span><span class="p">(</span><span class="nx">err</span><span class="p">,</span><span class="w"> </span><span class="o">...</span><span class="p">)</span>
 <a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="p">}</span>
 </code></pre></div>
 3. Consider gating finalizer removal on successful enqueue — if even the queue write fails, keep the finalizer and let the next reconcile retry.
-4. Treat Vault 404 (resource already gone) as success, not error.</p>
+4. Treat Vault 404 (resource already gone) as success, not error.
+</details>
+
 <hr />
-<h2 id="3-cleanup-controller-typing-mismatch">🔴 3. Cleanup controller typing mismatch<a class="headerlink" href="#3-cleanup-controller-typing-mismatch" title="Permanent link">&para;</a></h2>
-<p><strong>Evidence:</strong> <a href="../../pkg/cleanup/controller.go:36">pkg/cleanup/controller.go:36-44</a>:</p>
+<h2 id="3-cleanup-controller-typing-mismatch-resolved">✅ 3. Cleanup controller typing mismatch — RESOLVED<a class="headerlink" href="#3-cleanup-controller-typing-mismatch-resolved" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p><strong>Status</strong>: Fixed. <a href="../../pkg/cleanup/adapter.go">pkg/cleanup/adapter.go</a> exposes <code>NewClientCacheAdapter</code> to bridge <code>*vault.ClientCache</code> → <code>cleanup.ClientCache</code> interface. Used by the §1 wiring in <code>cmd/main.go</code>.</p>
+<p><strong>Test</strong>: <code>pkg/cleanup/adapter_test.go</code> pins the interface satisfaction at compile time and the round-trip at runtime.</p>
+</blockquote>
+<details><summary>Original finding (kept for history)</summary>
+
+
+**Evidence:** [pkg/cleanup/controller.go:36-44](../../pkg/cleanup/controller.go:36):
+
 <div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kd">type</span><span class="w"> </span><span class="nx">VaultClient</span><span class="w"> </span><span class="kd">interface</span><span class="w"> </span><span class="p">{</span>
 <a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">    </span><span class="nx">DeletePolicy</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">,</span><span class="w"> </span><span class="nx">name</span><span class="w"> </span><span class="kt">string</span><span class="p">)</span><span class="w"> </span><span class="kt">error</span>
 <a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">    </span><span class="nx">DeleteKubernetesAuthRole</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">,</span><span class="w"> </span><span class="nx">authPath</span><span class="p">,</span><span class="w"> </span><span class="nx">roleName</span><span class="w"> </span><span class="kt">string</span><span class="p">)</span><span class="w"> </span><span class="kt">error</span>
@@ -1516,16 +1552,22 @@
 <a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">    </span><span class="nx">Get</span><span class="p">(</span><span class="nx">name</span><span class="w"> </span><span class="kt">string</span><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="nx">VaultClient</span><span class="p">,</span><span class="w"> </span><span class="kt">error</span><span class="p">)</span>
 <a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="p">}</span>
 </code></pre></div>
-<p>But the actual <a href="../../pkg/vault/client_cache.go"><code>vault.ClientCache.Get</code></a> returns <code>(*vault.Client, error)</code>. <code>*vault.Client</code> satisfies the interface structurally, but Go's type system won't auto-convert — <code>cleanup.NewController</code> <strong>cannot be called with <code>connFeature.ClientCache</code> directly</strong>. You need an adapter:</p>
+
+But the actual [`vault.ClientCache.Get`](../../pkg/vault/client_cache.go) returns `(*vault.Client, error)`. `*vault.Client` satisfies the interface structurally, but Go's type system won't auto-convert — `cleanup.NewController` **cannot be called with `connFeature.ClientCache` directly**. You need an adapter:
+
 <div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kd">type</span><span class="w"> </span><span class="nx">cacheAdapter</span><span class="w"> </span><span class="kd">struct</span><span class="p">{</span><span class="w"> </span><span class="nx">inner</span><span class="w"> </span><span class="o">*</span><span class="nx">vault</span><span class="p">.</span><span class="nx">ClientCache</span><span class="w"> </span><span class="p">}</span>
 <a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">c</span><span class="w"> </span><span class="nx">cacheAdapter</span><span class="p">)</span><span class="w"> </span><span class="nx">Get</span><span class="p">(</span><span class="nx">name</span><span class="w"> </span><span class="kt">string</span><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="nx">cleanup</span><span class="p">.</span><span class="nx">VaultClient</span><span class="p">,</span><span class="w"> </span><span class="kt">error</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
 <a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="nx">c</span><span class="p">.</span><span class="nx">inner</span><span class="p">.</span><span class="nx">Get</span><span class="p">(</span><span class="nx">name</span><span class="p">)</span>
 <a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="p">}</span>
 </code></pre></div>
-<p><strong>Impact:</strong> Wiring §1 is more fiddly than it looks. Until this is resolved (either adapter or using concrete type), nothing drives the cleanup controller.</p>
-<p><strong>Fix:</strong> Either
-- Add a thin adapter wrapper in <code>pkg/cleanup</code> that takes <code>*vault.ClientCache</code> directly, or
-- Change the cleanup types to depend on <code>*vault.Client</code> concretely (the abstraction isn't buying anything — there's only one implementation).</p>
+
+**Impact:** Wiring §1 is more fiddly than it looks. Until this is resolved (either adapter or using concrete type), nothing drives the cleanup controller.
+
+**Fix:** Either
+- Add a thin adapter wrapper in `pkg/cleanup` that takes `*vault.ClientCache` directly, or
+- Change the cleanup types to depend on `*vault.Client` concretely (the abstraction isn't buying anything — there's only one implementation).
+</details>
+
 <hr />
 <h2 id="4-discovery-pending-annotation-inconsistency-resolved">✅ 4. <code>discovery-pending</code> annotation inconsistency — RESOLVED<a class="headerlink" href="#4-discovery-pending-annotation-inconsistency-resolved" title="Permanent link">&para;</a></h2>
 <blockquote>
