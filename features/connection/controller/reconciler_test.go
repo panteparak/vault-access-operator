@@ -28,7 +28,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/pkg/vault"
@@ -63,7 +62,7 @@ func TestReconciler_Reconcile_NotFound(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = vaultv1alpha1.AddToScheme(scheme)
 
-	c := fake.NewClientBuilder().WithScheme(scheme).Build()
+	c := newClientBuilderWithConnectionRefIndex(scheme).Build()
 	recorder := record.NewFakeRecorder(10)
 	logger := logr.Discard()
 	cache := vault.NewClientCache()
@@ -116,8 +115,7 @@ func TestReconciler_Reconcile_AddsFinalizer(t *testing.T) {
 		},
 	}
 
-	c := fake.NewClientBuilder().
-		WithScheme(scheme).
+	c := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -180,8 +178,7 @@ func TestReconciler_Reconcile_EmitsEvents(t *testing.T) {
 		},
 	}
 
-	c := fake.NewClientBuilder().
-		WithScheme(scheme).
+	c := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -245,8 +242,7 @@ func TestReconciler_Reconcile_Deletion(t *testing.T) {
 		},
 	}
 
-	c := fake.NewClientBuilder().
-		WithScheme(scheme).
+	c := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -314,8 +310,7 @@ func TestReconciler_Reconcile_DeletionEmitsEvents(t *testing.T) {
 		},
 	}
 
-	c := fake.NewClientBuilder().
-		WithScheme(scheme).
+	c := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -360,7 +355,7 @@ func TestNewReconciler(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = vaultv1alpha1.AddToScheme(scheme)
 
-	c := fake.NewClientBuilder().WithScheme(scheme).Build()
+	c := newClientBuilderWithConnectionRefIndex(scheme).Build()
 	recorder := record.NewFakeRecorder(10)
 	logger := logr.Discard()
 	cache := vault.NewClientCache()
@@ -391,7 +386,7 @@ func TestNewReconciler_WithNilClientset(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = vaultv1alpha1.AddToScheme(scheme)
 
-	c := fake.NewClientBuilder().WithScheme(scheme).Build()
+	c := newClientBuilderWithConnectionRefIndex(scheme).Build()
 	recorder := record.NewFakeRecorder(10)
 	logger := logr.Discard()
 	cache := vault.NewClientCache()

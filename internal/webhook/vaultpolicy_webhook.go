@@ -89,7 +89,13 @@ func (v *VaultPolicyValidator) ValidateCreate(ctx context.Context, policy *vault
 		return nil, err
 	}
 
-	return v.validateVaultPolicy(policy)
+	warnings, err := v.validateVaultPolicy(policy)
+	if err != nil {
+		return warnings, err
+	}
+	// IMPROVEMENTS §36: warn if the referenced VaultConnection doesn't exist yet.
+	warnings = append(warnings, checkConnectionRefExists(ctx, v.client, policy.Spec.ConnectionRef)...)
+	return warnings, nil
 }
 
 // ValidateUpdate implements admission.Validator
@@ -154,7 +160,13 @@ func (v *VaultClusterPolicyValidator) ValidateCreate(ctx context.Context, policy
 		return nil, err
 	}
 
-	return v.validateVaultClusterPolicy(policy)
+	warnings, err := v.validateVaultClusterPolicy(policy)
+	if err != nil {
+		return warnings, err
+	}
+	// IMPROVEMENTS §36.
+	warnings = append(warnings, checkConnectionRefExists(ctx, v.client, policy.Spec.ConnectionRef)...)
+	return warnings, nil
 }
 
 // ValidateUpdate implements admission.Validator

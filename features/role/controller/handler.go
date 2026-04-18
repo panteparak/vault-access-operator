@@ -330,37 +330,27 @@ func (h *Handler) verifyPoliciesExistInVault(
 	adapter.SetConditions(conds)
 }
 
-// resolvePolicyNames resolves PolicyReferences to Vault policy names.
-// VaultPolicy: namespace-name format
-// VaultClusterPolicy: name only
+// resolvePolicyNames resolves PolicyReferences to Vault policy names. The
+// name-mapping switch used to live inline here, duplicating the logic in
+// binding.VaultPolicyName (IMPROVEMENTS §20). Now we validate the kind and
+// namespace inputs here, then delegate the actual mapping to the binding
+// package — single source of truth for "given a PolicyReference, what's the
+// Vault name?".
+//
+// Validation-vs-mapping split:
+//   - binding.VaultPolicyName is a pure, error-less helper. It returns the
+//     mapped name or falls back to ref.Name for unknown kinds.
+//   - The validations below (unknown kind, missing namespace on cluster role)
+//     are caller-specific policy that `binding` can't enforce without
+//     coupling itself to the role feature.
 func (h *Handler) resolvePolicyNames(_ context.Context, adapter domain.RoleAdapter) ([]string, error) {
 	policies := adapter.GetPolicies()
 	policyNames := make([]string, 0, len(policies))
 
 	for _, policyRef := range policies {
-		var policyName string
-
 		switch policyRef.Kind {
-		case "VaultPolicy":
-			// For VaultPolicy, use namespace-name format
-			namespace := policyRef.Namespace
-			if namespace == "" && adapter.IsNamespaced() {
-				// Default to the role's namespace if not specified
-				namespace = adapter.GetNamespace()
-			}
-			if namespace == "" {
-				return nil, infraerrors.NewValidationError(
-					"policies",
-					policyRef.Name,
-					"namespace required for VaultPolicy reference in cluster-scoped role",
-				)
-			}
-			policyName = namespace + "-" + policyRef.Name
-
-		case "VaultClusterPolicy":
-			// For VaultClusterPolicy, use name only
-			policyName = policyRef.Name
-
+		case binding.KindVaultPolicy, binding.KindVaultClusterPolicy:
+			// supported kinds
 		default:
 			return nil, infraerrors.NewValidationError(
 				"policies",
@@ -369,7 +359,25 @@ func (h *Handler) resolvePolicyNames(_ context.Context, adapter domain.RoleAdapt
 			)
 		}
 
-		policyNames = append(policyNames, policyName)
+		// Compute the default namespace to pass to binding.VaultPolicyName.
+		// For VaultClusterPolicy this is unused; for VaultPolicy it's the
+		// role's own namespace when ref.Namespace is empty.
+		defaultNs := ""
+		if policyRef.Kind == binding.KindVaultPolicy {
+			defaultNs = policyRef.Namespace
+			if defaultNs == "" && adapter.IsNamespaced() {
+				defaultNs = adapter.GetNamespace()
+			}
+			if defaultNs == "" {
+				return nil, infraerrors.NewValidationError(
+					"policies",
+					policyRef.Name,
+					"namespace required for VaultPolicy reference in cluster-scoped role",
+				)
+			}
+		}
+
+		policyNames = append(policyNames, binding.VaultPolicyName(policyRef, defaultNs))
 	}
 
 	return policyNames, nil

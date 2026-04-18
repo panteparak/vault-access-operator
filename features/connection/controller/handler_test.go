@@ -31,7 +31,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/pkg/vault"
@@ -153,7 +152,7 @@ func newMockVaultServer(version string, healthErr bool) *httptest.Server {
 // TestNewHandler tests that NewHandler creates a handler with all fields set.
 func TestNewHandler(t *testing.T) {
 	scheme := createScheme()
-	client := fake.NewClientBuilder().WithScheme(scheme).Build()
+	client := newClientBuilderWithConnectionRefIndex(scheme).Build()
 	cache := vault.NewClientCache()
 	bus := events.NewEventBus(logr.Discard())
 	logger := logr.Discard()
@@ -181,7 +180,7 @@ func TestNewHandler(t *testing.T) {
 // TestNewHandler_NilEventBus tests that NewHandler works with nil EventBus.
 func TestNewHandler_NilEventBus(t *testing.T) {
 	scheme := createScheme()
-	client := fake.NewClientBuilder().WithScheme(scheme).Build()
+	client := newClientBuilderWithConnectionRefIndex(scheme).Build()
 	cache := vault.NewClientCache()
 	logger := logr.Discard()
 
@@ -207,8 +206,7 @@ func TestSync_Success(t *testing.T) {
 	secret := newTokenSecret(tokenSecretOpts{})
 	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
 
-	client := fake.NewClientBuilder().
-		WithScheme(scheme).
+	client := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(secret, conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -270,8 +268,7 @@ func TestSync_AuthenticationError(t *testing.T) {
 	// Create connection without corresponding secret - authentication will fail
 	conn := newVaultConnection(vaultConnectionOpts{address: "http://localhost:8200", secretName: "nonexistent-secret"})
 
-	client := fake.NewClientBuilder().
-		WithScheme(scheme).
+	client := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -332,8 +329,7 @@ func TestSync_VaultVersionError(t *testing.T) {
 	secret := newTokenSecret(tokenSecretOpts{})
 	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
 
-	client := fake.NewClientBuilder().
-		WithScheme(scheme).
+	client := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(secret, conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -388,8 +384,7 @@ func TestSync_WithTLSConfiguration(t *testing.T) {
 		},
 	}
 
-	client := fake.NewClientBuilder().
-		WithScheme(scheme).
+	client := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(secret, conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -428,8 +423,7 @@ func TestSync_PublishesConnectionReadyEvent(t *testing.T) {
 	secret := newTokenSecret(tokenSecretOpts{})
 	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
 
-	client := fake.NewClientBuilder().
-		WithScheme(scheme).
+	client := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(secret, conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -481,8 +475,7 @@ func TestSync_NoEventBus(t *testing.T) {
 	secret := newTokenSecret(tokenSecretOpts{})
 	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
 
-	client := fake.NewClientBuilder().
-		WithScheme(scheme).
+	client := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(secret, conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -516,8 +509,7 @@ func TestSync_UpdatesPhaseToSyncing(t *testing.T) {
 	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
 	conn.Status.Phase = vaultv1alpha1.PhasePending // Start with Pending
 
-	client := fake.NewClientBuilder().
-		WithScheme(scheme).
+	client := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(secret, conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -546,8 +538,7 @@ func TestCleanup_RemovesClientFromCache(t *testing.T) {
 	scheme := createScheme()
 	conn := newVaultConnection(vaultConnectionOpts{address: "http://localhost:8200"})
 
-	client := fake.NewClientBuilder().
-		WithScheme(scheme).
+	client := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -586,8 +577,7 @@ func TestCleanup_UpdatesStatusToDeleting(t *testing.T) {
 	conn := newVaultConnection(vaultConnectionOpts{address: "http://localhost:8200"})
 	conn.Status.Phase = vaultv1alpha1.PhaseActive // Start with Active
 
-	client := fake.NewClientBuilder().
-		WithScheme(scheme).
+	client := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -616,8 +606,7 @@ func TestCleanup_PublishesConnectionDisconnectedEvent(t *testing.T) {
 	scheme := createScheme()
 	conn := newVaultConnection(vaultConnectionOpts{address: "http://localhost:8200"})
 
-	client := fake.NewClientBuilder().
-		WithScheme(scheme).
+	client := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -661,8 +650,7 @@ func TestCleanup_NoEventBus(t *testing.T) {
 	scheme := createScheme()
 	conn := newVaultConnection(vaultConnectionOpts{address: "http://localhost:8200"})
 
-	client := fake.NewClientBuilder().
-		WithScheme(scheme).
+	client := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -902,8 +890,7 @@ func TestSync_SecretKeyNotFound(t *testing.T) {
 	secret := newTokenSecret(tokenSecretOpts{key: "wrong-key"})
 	conn := newVaultConnection(vaultConnectionOpts{address: "http://localhost:8200"})
 
-	client := fake.NewClientBuilder().
-		WithScheme(scheme).
+	client := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(secret, conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -939,8 +926,7 @@ func TestSync_DefaultSecretNamespace(t *testing.T) {
 	// Create connection with empty namespace (should default to "default")
 	conn := newVaultConnection(vaultConnectionOpts{address: server.URL, secretNamespace: ""})
 
-	client := fake.NewClientBuilder().
-		WithScheme(scheme).
+	client := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(secret, conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -978,8 +964,7 @@ func TestSync_NoAuthMethodConfigured(t *testing.T) {
 		},
 	}
 
-	client := fake.NewClientBuilder().
-		WithScheme(scheme).
+	client := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -1020,8 +1005,7 @@ func TestSync_StatusMessageCleared(t *testing.T) {
 	conn.Status.Phase = vaultv1alpha1.PhaseError
 	conn.Status.Message = "Previous error message"
 
-	client := fake.NewClientBuilder().
-		WithScheme(scheme).
+	client := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(secret, conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -1050,8 +1034,7 @@ func TestCleanup_CleanupWithoutClientInCache(t *testing.T) {
 	scheme := createScheme()
 	conn := newVaultConnection(vaultConnectionOpts{address: "http://localhost:8200"})
 
-	client := fake.NewClientBuilder().
-		WithScheme(scheme).
+	client := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -1098,8 +1081,7 @@ func TestCleanup_BlockedByDependentPolicies(t *testing.T) {
 		},
 	}
 
-	k8sClient := fake.NewClientBuilder().
-		WithScheme(scheme).
+	k8sClient := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn, policy).
 		WithStatusSubresource(conn).
 		Build()
@@ -1127,8 +1109,7 @@ func TestCleanup_NoDependents(t *testing.T) {
 	conn := newVaultConnection(vaultConnectionOpts{address: "http://localhost:8200"})
 
 	// No dependent resources
-	k8sClient := fake.NewClientBuilder().
-		WithScheme(scheme).
+	k8sClient := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -1177,8 +1158,7 @@ func TestCleanup_BlockedByMixedDependents(t *testing.T) {
 		},
 	}
 
-	k8sClient := fake.NewClientBuilder().
-		WithScheme(scheme).
+	k8sClient := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn, policy, role).
 		WithStatusSubresource(conn).
 		Build()
@@ -1289,8 +1269,7 @@ func TestGetOrRenewClient_CacheHit_FreshToken(t *testing.T) {
 	scheme := createScheme()
 	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
 
-	k8sClient := fake.NewClientBuilder().
-		WithScheme(scheme).
+	k8sClient := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -1337,8 +1316,7 @@ func TestGetOrRenewClient_CacheHit_RenewalThreshold(t *testing.T) {
 	scheme := createScheme()
 	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
 
-	k8sClient := fake.NewClientBuilder().
-		WithScheme(scheme).
+	k8sClient := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -1386,8 +1364,7 @@ func TestGetOrRenewClient_CacheHit_RenewalFails_ReAuth(t *testing.T) {
 	secret := newTokenSecret(tokenSecretOpts{})
 	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
 
-	k8sClient := fake.NewClientBuilder().
-		WithScheme(scheme).
+	k8sClient := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(secret, conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -1431,8 +1408,7 @@ func TestGetOrRenewClient_CacheHit_TokenExpired_ReAuth(t *testing.T) {
 	secret := newTokenSecret(tokenSecretOpts{})
 	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
 
-	k8sClient := fake.NewClientBuilder().
-		WithScheme(scheme).
+	k8sClient := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(secret, conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -1472,8 +1448,7 @@ func TestGetOrRenewClient_CacheHit_StaticToken(t *testing.T) {
 	scheme := createScheme()
 	conn := newVaultConnection(vaultConnectionOpts{address: "http://localhost:8200"})
 
-	k8sClient := fake.NewClientBuilder().
-		WithScheme(scheme).
+	k8sClient := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -1517,8 +1492,7 @@ func TestGetOrRenewClient_CacheHit_AddressMismatch(t *testing.T) {
 	// Connection points to the mock server
 	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
 
-	k8sClient := fake.NewClientBuilder().
-		WithScheme(scheme).
+	k8sClient := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(secret, conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -1564,8 +1538,7 @@ func TestGetOrRenewClient_CacheMiss_FreshAuth(t *testing.T) {
 	secret := newTokenSecret(tokenSecretOpts{})
 	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
 
-	k8sClient := fake.NewClientBuilder().
-		WithScheme(scheme).
+	k8sClient := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(secret, conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -1603,8 +1576,7 @@ func TestGetOrRenewClient_CacheMiss_AuthError(t *testing.T) {
 		secretName: "nonexistent-secret",
 	})
 
-	k8sClient := fake.NewClientBuilder().
-		WithScheme(scheme).
+	k8sClient := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -1647,8 +1619,7 @@ func TestSync_ErrorPhaseResetToSyncing(t *testing.T) {
 	conn.Status.Phase = vaultv1alpha1.PhaseError // Start in Error phase
 	conn.Status.Message = testPreviousError
 
-	k8sClient := fake.NewClientBuilder().
-		WithScheme(scheme).
+	k8sClient := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -1687,8 +1658,7 @@ func TestSync_ActivePhaseNotResetToSyncing(t *testing.T) {
 	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
 	conn.Status.Phase = vaultv1alpha1.PhaseActive // Start in Active phase
 
-	k8sClient := fake.NewClientBuilder().
-		WithScheme(scheme).
+	k8sClient := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(secret, conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -1727,8 +1697,7 @@ func TestSync_SetsHealthyStatusOnSuccess(t *testing.T) {
 	secret := newTokenSecret(tokenSecretOpts{})
 	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
 
-	client := fake.NewClientBuilder().
-		WithScheme(scheme).
+	client := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(secret, conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -1776,8 +1745,7 @@ func TestSync_SetsUnhealthyStatusOnHealthCheckError(t *testing.T) {
 	secret := newTokenSecret(tokenSecretOpts{})
 	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
 
-	client := fake.NewClientBuilder().
-		WithScheme(scheme).
+	client := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(secret, conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -1828,8 +1796,7 @@ func TestSync_IncrementsConsecutiveFailsOnRepeatedFailures(t *testing.T) {
 	// Simulate previous failures
 	conn.Status.ConsecutiveFails = 3
 
-	client := fake.NewClientBuilder().
-		WithScheme(scheme).
+	client := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(secret, conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -1860,8 +1827,7 @@ func TestSync_ResetsConsecutiveFailsOnSuccess(t *testing.T) {
 	conn.Status.HealthCheckError = testPreviousError
 	conn.Status.Healthy = false
 
-	client := fake.NewClientBuilder().
-		WithScheme(scheme).
+	client := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(secret, conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -1906,8 +1872,7 @@ func TestSync_UpdatesLastHealthyTimeOnSuccess(t *testing.T) {
 	oldTime := metav1.NewTime(time.Now().Add(-1 * time.Hour))
 	conn.Status.LastHealthyTime = &oldTime
 
-	client := fake.NewClientBuilder().
-		WithScheme(scheme).
+	client := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(secret, conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -1998,8 +1963,7 @@ func TestHandleSyncError_SetsHealthStatus(t *testing.T) {
 	scheme := createScheme()
 	conn := newVaultConnection(vaultConnectionOpts{address: "http://localhost:8200"})
 
-	client := fake.NewClientBuilder().
-		WithScheme(scheme).
+	client := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -2121,8 +2085,7 @@ func TestGetOrRenewClient_RenewalStrategyReauth(t *testing.T) {
 		},
 	}
 
-	k8sClient := fake.NewClientBuilder().
-		WithScheme(scheme).
+	k8sClient := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -2185,8 +2148,7 @@ func TestGetOrRenewClient_RenewalStrategyRenew_Default(t *testing.T) {
 		},
 	}
 
-	k8sClient := fake.NewClientBuilder().
-		WithScheme(scheme).
+	k8sClient := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -2233,8 +2195,7 @@ func TestGetOrRenewClient_RenewalStrategyReauth_NilKubernetes(t *testing.T) {
 	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
 	// Default newVaultConnection uses Token auth, Kubernetes is nil
 
-	k8sClient := fake.NewClientBuilder().
-		WithScheme(scheme).
+	k8sClient := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -2285,8 +2246,7 @@ func TestSync_RecoveryFromErrorPhase(t *testing.T) {
 	conn.Status.HealthCheckError = "previous vault unreachable"
 	conn.Status.Healthy = false
 
-	k8sClient := fake.NewClientBuilder().
-		WithScheme(scheme).
+	k8sClient := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(secret, conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -2384,8 +2344,7 @@ func TestCleanup_RevokesVaultToken(t *testing.T) {
 	scheme := createScheme()
 	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
 
-	k8sClient := fake.NewClientBuilder().
-		WithScheme(scheme).
+	k8sClient := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -2428,8 +2387,7 @@ func TestCleanup_TokenRevocationFailure_NonFatal(t *testing.T) {
 	scheme := createScheme()
 	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
 
-	k8sClient := fake.NewClientBuilder().
-		WithScheme(scheme).
+	k8sClient := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -2506,8 +2464,7 @@ func TestCleanup_DisablesAuthMount_WhenOptedIn(t *testing.T) {
 		},
 	}
 
-	k8sClient := fake.NewClientBuilder().
-		WithScheme(scheme).
+	k8sClient := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -2579,8 +2536,7 @@ func TestCleanup_DoesNotDisableAuthMount_ByDefault(t *testing.T) {
 		},
 	}
 
-	k8sClient := fake.NewClientBuilder().
-		WithScheme(scheme).
+	k8sClient := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -2654,8 +2610,7 @@ func TestCleanup_DisableAuthFailure_NonFatal(t *testing.T) {
 		},
 	}
 
-	k8sClient := fake.NewClientBuilder().
-		WithScheme(scheme).
+	k8sClient := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -2726,8 +2681,7 @@ func TestHandleSyncError_EvictsCacheOnAuthError(t *testing.T) {
 	scheme := createScheme()
 	conn := newVaultConnection(vaultConnectionOpts{address: "http://localhost:8200"})
 
-	client := fake.NewClientBuilder().
-		WithScheme(scheme).
+	client := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -2757,8 +2711,7 @@ func TestHandleSyncError_KeepsCacheOnNonAuthError(t *testing.T) {
 	scheme := createScheme()
 	conn := newVaultConnection(vaultConnectionOpts{address: "http://localhost:8200"})
 
-	client := fake.NewClientBuilder().
-		WithScheme(scheme).
+	client := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn).
 		WithStatusSubresource(conn).
 		Build()

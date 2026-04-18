@@ -414,7 +414,14 @@ Other annotation keys use constants from `api/v1alpha1` (e.g., `AnnotationAdopt`
 
 ---
 
-## 🟡 15. `listDependents` O(N) list operations, no indexing
+## ✅ 15. `listDependents` O(N) list operations — RESOLVED
+
+> **Status**: Fixed. `connection.Reconciler.SetupWithManager` now registers a `spec.connectionRef` field indexer for all four dependent CRD kinds (VaultPolicy, VaultClusterPolicy, VaultRole, VaultClusterRole). `Handler.listDependents` queries with `client.MatchingFields{IndexFieldConnectionRef: name}` instead of listing every CR cluster-wide and filtering in Go.
+>
+> **Tests**: existing Cleanup tests migrated to a shared `newClientBuilderWithConnectionRefIndex(scheme)` helper that registers the same indexer on fake clients — they now exercise the same query path as production. No behavior regressions.
+
+<details><summary>Original finding (kept for history)</summary>
+
 
 **Evidence:** [connection/controller/handler.go:368-420](../../features/connection/controller/handler.go:368): on **every** connection delete, lists all VaultPolicies, VaultClusterPolicies, VaultRoles, VaultClusterRoles cluster-wide, then filters by `ConnectionRef == conn.Name`.
 
@@ -428,6 +435,7 @@ mgr.GetFieldIndexer().IndexField(ctx, &VaultPolicy{}, "spec.connectionRef", func
 // Then at cleanup:
 mgr.GetClient().List(ctx, &list, client.MatchingFields{"spec.connectionRef": conn.Name})
 ```
+</details>
 
 ---
 
@@ -503,7 +511,14 @@ func resolveJWTBoundSubject(adapter RoleAdapter, jwtSpec *VaultRoleJWTSpec, serv
 
 ---
 
-## 🟡 20. Duplicate `resolvePolicyNames` logic between role handler and binding package
+## ✅ 20. Duplicate `resolvePolicyNames` logic — RESOLVED
+
+> **Status**: Fixed. `role.Handler.resolvePolicyNames` now delegates the actual name mapping to `binding.VaultPolicyName` and only keeps the role-feature-specific validation (unknown kind, namespace required on cluster role). Single source of truth for "given a PolicyReference, what's the Vault policy name?".
+>
+> **Tests**: existing role handler unit tests continue to pass — they exercise the validation layer that still lives in the handler. The delegated-to mapping is covered by `shared/controller/binding` tests.
+
+<details><summary>Original finding (kept for history)</summary>
+
 
 **Evidence:**
 - [role/controller/handler.go:307-347](../../features/role/controller/handler.go:307) `resolvePolicyNames`
@@ -512,6 +527,7 @@ func resolveJWTBoundSubject(adapter RoleAdapter, jwtSpec *VaultRoleJWTSpec, serv
 **Impact:** Two sources of truth for "given a `PolicyReference`, what's the Vault name?"
 
 **Fix:** Delete the role-handler inline version, call `binding.VaultPolicyName` everywhere.
+</details>
 
 ---
 
@@ -804,13 +820,21 @@ Keep `/healthz` as the trivial ping (liveness = pod-level restart trigger).
 
 ---
 
-## 🟠 36. No `connectionRef` existence webhook check
+## ✅ 36. No `connectionRef` existence webhook check — RESOLVED
+
+> **Status**: Fixed. Added `checkConnectionRefExists` helper in `internal/webhook/connectionref_check.go`. Wired into all four policy/role validators (`ValidateCreate` for policy + cluster policy, `validateWithContext` for role + cluster role). Emits a **warning**, not an error — users applying a batch that includes both the connection and the dependent resource shouldn't be blocked by apply ordering.
+>
+> **Tests**: `connectionref_check_test.go` covers the 4 code paths (nil client, empty ref, existing, missing). `TestVaultPolicyValidator_WarnsOnMissingConnection` is the policy-side end-to-end assertion.
+
+<details><summary>Original finding (kept for history)</summary>
+
 
 **Evidence:** Webhooks validate policy/role spec shape and inter-CR naming collisions, but don't verify the referenced `VaultConnection` actually exists.
 
 **Impact:** Users can `kubectl apply` a `VaultPolicy` referencing a nonexistent `VaultConnection`. It will be accepted, then fail at the next reconcile with `DependencyError → ConnectionNotReady`. The user sees the error in status, not at apply time.
 
 **Fix:** Add a dependency check similar to `checkPolicyDependencies` ([vaultrole_webhook.go:173](../../internal/webhook/vaultrole_webhook.go:173)) but emitting a **warning** (not an error — the connection might be applied in the same kubectl command with ordering issues).
+</details>
 
 ---
 

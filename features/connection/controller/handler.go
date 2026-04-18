@@ -365,55 +365,52 @@ func (h *Handler) updateAuthStatus(conn *vaultv1alpha1.VaultConnection, vaultCli
 
 // listDependents returns a list of resources that reference this VaultConnection.
 // Each entry is formatted as "Type/namespace/name" or "Type/name" for cluster-scoped resources.
+// listDependents returns a human-readable list of every namespaced and
+// cluster-scoped policy/role that references this VaultConnection. Used by
+// Cleanup to block deletion while dependents exist.
+//
+// Implementation (IMPROVEMENTS §15): uses the spec.connectionRef field
+// indexer registered in reconciler.SetupWithManager. This replaces four
+// cluster-wide list-then-filter passes with four indexed queries that scale
+// with the number of dependents rather than with total CRs.
 func (h *Handler) listDependents(ctx context.Context, connName string) ([]string, error) {
 	var dependents []string
+	matcher := client.MatchingFields{IndexFieldConnectionRef: connName}
 
-	// Check VaultPolicies
 	var policies vaultv1alpha1.VaultPolicyList
-	if err := h.client.List(ctx, &policies); err != nil {
+	if err := h.client.List(ctx, &policies, matcher); err != nil {
 		return nil, fmt.Errorf("failed to list VaultPolicies: %w", err)
 	}
 	for i := range policies.Items {
-		if policies.Items[i].Spec.ConnectionRef == connName {
-			dependents = append(dependents, fmt.Sprintf("VaultPolicy/%s/%s",
-				policies.Items[i].Namespace, policies.Items[i].Name))
-		}
+		dependents = append(dependents, fmt.Sprintf("VaultPolicy/%s/%s",
+			policies.Items[i].Namespace, policies.Items[i].Name))
 	}
 
-	// Check VaultClusterPolicies
 	var clusterPolicies vaultv1alpha1.VaultClusterPolicyList
-	if err := h.client.List(ctx, &clusterPolicies); err != nil {
+	if err := h.client.List(ctx, &clusterPolicies, matcher); err != nil {
 		return nil, fmt.Errorf("failed to list VaultClusterPolicies: %w", err)
 	}
 	for i := range clusterPolicies.Items {
-		if clusterPolicies.Items[i].Spec.ConnectionRef == connName {
-			dependents = append(dependents, fmt.Sprintf("VaultClusterPolicy/%s",
-				clusterPolicies.Items[i].Name))
-		}
+		dependents = append(dependents, fmt.Sprintf("VaultClusterPolicy/%s",
+			clusterPolicies.Items[i].Name))
 	}
 
-	// Check VaultRoles
 	var roles vaultv1alpha1.VaultRoleList
-	if err := h.client.List(ctx, &roles); err != nil {
+	if err := h.client.List(ctx, &roles, matcher); err != nil {
 		return nil, fmt.Errorf("failed to list VaultRoles: %w", err)
 	}
 	for i := range roles.Items {
-		if roles.Items[i].Spec.ConnectionRef == connName {
-			dependents = append(dependents, fmt.Sprintf("VaultRole/%s/%s",
-				roles.Items[i].Namespace, roles.Items[i].Name))
-		}
+		dependents = append(dependents, fmt.Sprintf("VaultRole/%s/%s",
+			roles.Items[i].Namespace, roles.Items[i].Name))
 	}
 
-	// Check VaultClusterRoles
 	var clusterRoles vaultv1alpha1.VaultClusterRoleList
-	if err := h.client.List(ctx, &clusterRoles); err != nil {
+	if err := h.client.List(ctx, &clusterRoles, matcher); err != nil {
 		return nil, fmt.Errorf("failed to list VaultClusterRoles: %w", err)
 	}
 	for i := range clusterRoles.Items {
-		if clusterRoles.Items[i].Spec.ConnectionRef == connName {
-			dependents = append(dependents, fmt.Sprintf("VaultClusterRole/%s",
-				clusterRoles.Items[i].Name))
-		}
+		dependents = append(dependents, fmt.Sprintf("VaultClusterRole/%s",
+			clusterRoles.Items[i].Name))
 	}
 
 	return dependents, nil

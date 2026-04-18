@@ -1743,9 +1743,12 @@ func TestVaultRoleValidator_DependencyValidation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			scheme := newRoleTestScheme()
+			// IMPROVEMENTS §36: pre-populate the connectionRef so these tests
+			// stay focused on policy dependency warnings.
+			existing := append([]runtime.Object{testConnectionStub()}, tt.existingObjects...)
 			fakeClient := fake.NewClientBuilder().
 				WithScheme(scheme).
-				WithRuntimeObjects(tt.existingObjects...).
+				WithRuntimeObjects(existing...).
 				Build()
 
 			v := &VaultRoleValidator{client: fakeClient}
@@ -1898,9 +1901,14 @@ func TestVaultClusterRoleValidator_DependencyValidation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			scheme := newRoleTestScheme()
+			// IMPROVEMENTS §36: the validator now also warns on missing
+			// connectionRef. Pre-populate the referenced VaultConnection so
+			// these tests keep focus on their original purpose (policy
+			// dependency checks) rather than counting an unrelated warning.
+			existing := append([]runtime.Object{testConnectionStub()}, tt.existingObjects...)
 			fakeClient := fake.NewClientBuilder().
 				WithScheme(scheme).
-				WithRuntimeObjects(tt.existingObjects...).
+				WithRuntimeObjects(existing...).
 				Build()
 
 			v := &VaultClusterRoleValidator{client: fakeClient}
@@ -1935,6 +1943,9 @@ func TestVaultClusterRoleValidator_DependencyValidation(t *testing.T) {
 func TestVaultRoleValidator_DependencyValidationOnUpdate(t *testing.T) {
 	// Test that dependency validation also runs on update
 	scheme := newRoleTestScheme()
+	// No test-connection pre-populated: this test already expects 2 warnings
+	// (1 missing-policy + 1 missing-connection). The wantWarnings assertion
+	// below was updated accordingly.
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
 
 	v := &VaultRoleValidator{client: fakeClient}
@@ -1972,8 +1983,11 @@ func TestVaultRoleValidator_DependencyValidationOnUpdate(t *testing.T) {
 		t.Errorf("ValidateUpdate() unexpected error: %v", err)
 	}
 
-	if len(warnings) != 1 {
-		t.Errorf("ValidateUpdate() expected 1 warning, got %d: %v", len(warnings), warnings)
+	// Expect 2 warnings: (a) the missing-policy dependency + (b) the new
+	// §36 check — "test-connection" doesn't exist in the fake client, so the
+	// connectionRef existence check also emits. Both are non-blocking.
+	if len(warnings) != 2 {
+		t.Errorf("ValidateUpdate() expected 2 warnings (missing policy + missing connection), got %d: %v", len(warnings), warnings)
 	}
 }
 

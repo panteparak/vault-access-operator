@@ -166,6 +166,9 @@ func (v *VaultRoleValidator) validateWithContext(ctx context.Context, role *vaul
 	depWarnings := v.checkPolicyDependencies(ctx, role.Spec.Policies, role.Namespace)
 	warnings = append(warnings, depWarnings...)
 
+	// IMPROVEMENTS §36: warn if the referenced VaultConnection doesn't exist yet.
+	warnings = append(warnings, checkConnectionRefExists(ctx, v.client, role.Spec.ConnectionRef)...)
+
 	return warnings, nil
 }
 
@@ -359,6 +362,9 @@ func (v *VaultClusterRoleValidator) validateWithContext(ctx context.Context, rol
 	// Check policy dependencies (returns warnings, not errors)
 	depWarnings := v.checkPolicyDependencies(ctx, role.Spec.Policies)
 	warnings = append(warnings, depWarnings...)
+
+	// IMPROVEMENTS §36.
+	warnings = append(warnings, checkConnectionRefExists(ctx, v.client, role.Spec.ConnectionRef)...)
 
 	return warnings, nil
 }
