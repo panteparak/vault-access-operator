@@ -1253,10 +1253,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#27-event-bus-has-no-production-subscribers" class="md-nav__link">
+  <a href="#27-event-bus-subscribers-resolved-via-k8s-watch-not-the-event-bus" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🟠 27. Event bus has no production subscribers
+        ✅ 27. Event bus subscribers — RESOLVED via k8s watch (not the event bus)
       
     </span>
   </a>
@@ -2026,16 +2026,33 @@ A global package var mutated during init based on env. Works, but test isolation
 <p>All metrics are gauges or counters. No <code>reconcile_duration_seconds</code> histogram. Hard to alert on slow Vault or slow syncs.</p>
 <hr />
 <hr />
-<h2 id="27-event-bus-has-no-production-subscribers">🟠 27. Event bus has no production subscribers<a class="headerlink" href="#27-event-bus-has-no-production-subscribers" title="Permanent link">&para;</a></h2>
-<p><strong>Evidence:</strong> Grep confirms <code>events.Subscribe</code> is only called from <code>*_test.go</code> files across the entire codebase. Production publishers fire into the void.</p>
-<p>Publishers (live): <code>ConnectionReady</code>, <code>ConnectionDisconnected</code>, <code>BootstrapCompleted</code>, <code>PolicyCreated</code>, <code>PolicyDeleted</code>, <code>RoleCreated</code>, <code>RoleDeleted</code> — 7 types emitted.
-Types declared but never published: <code>ConnectionHealthChanged</code>, <code>PolicyUpdated</code>, <code>RoleUpdated</code>, <code>TokenRenewed</code>, <code>TokenRenewalFailed</code>, <code>TokenReviewerRefreshed</code> — 6 types ghost scaffolding.</p>
-<p><strong>Impact:</strong> The intended cross-feature reactivity never happens. Policy/role sync on connection recovery is handled by <code>ConnectionPhaseChangedPredicate</code> + enqueue map-funcs instead. That works but means the bus is deadweight.</p>
-<p><strong>Fix options:</strong>
-1. <strong>Delete the bus + ghost event types.</strong> Replace <code>PublishAsync</code> with direct recorder events. Simplest, but loses future extensibility.
-2. <strong>Wire one subscriber as proof-of-life.</strong> For example, when <code>PolicyCreated</code> fires, re-enqueue any <code>VaultRole</code> whose <code>status.policyBindings[].resolved=false</code> references that policy name — faster recovery than the current 30s requeue. Adds a visible benefit.
-3. <strong>Ship the bus as-is</strong>, document as scaffold, note in this file that dead publish calls are intentional.</p>
-<p>Recommendation: option 2. Gives the bus at least one subscriber and delivers a user-visible improvement.</p>
+<h2 id="27-event-bus-subscribers-resolved-via-k8s-watch-not-the-event-bus">✅ 27. Event bus subscribers — RESOLVED via k8s watch (not the event bus)<a class="headerlink" href="#27-event-bus-subscribers-resolved-via-k8s-watch-not-the-event-bus" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p><strong>Status</strong>: Fixed the user-visible problem. The role reconciler now watches VaultPolicy + VaultClusterPolicy create/update events via a controller-runtime <code>Watches(...)</code> + MapFunc that filters to roles with unresolved PolicyBindings referencing the triggering policy. Roles blocked on a not-yet-applied policy now reconcile in milliseconds of the policy appearing instead of waiting up to 30s for the next scheduled sync.</p>
+<p><strong>Why k8s watch instead of the internal event bus</strong>: the k8s API server already fires Create events for every CR, and controller-runtime dispatches them directly. Re-publishing through the internal event bus would be an extra layer with no benefit — same semantics, more code. The internal bus remains as scaffold for future cross-feature signals (e.g., external SIEM audit export, cross-cluster coordination) that don't have a natural k8s representation.</p>
+<p><strong>Tests</strong>: <code>shared/controller/watches/policy_watch_test.go</code>:
+- <code>TestRoleRequestsForPolicy</code> — enqueues only waiting roles, not resolved or unrelated ones.
+- <code>TestClusterRoleRequestsForPolicy</code> — mirror for cluster-scoped roles.
+- <code>TestPolicyCreatedOrUpdatedPredicate</code> — confirms Delete events don't enqueue (handled by next scheduled reconcile, which re-runs <code>PolicyExists</code>).</p>
+</blockquote>
+<details><summary>Original finding (kept for history)</summary>
+
+
+**Evidence:** Grep confirms `events.Subscribe` is only called from `*_test.go` files across the entire codebase. Production publishers fire into the void.
+
+Publishers (live): `ConnectionReady`, `ConnectionDisconnected`, `BootstrapCompleted`, `PolicyCreated`, `PolicyDeleted`, `RoleCreated`, `RoleDeleted` — 7 types emitted.
+Types declared but never published: `ConnectionHealthChanged`, `PolicyUpdated`, `RoleUpdated`, `TokenRenewed`, `TokenRenewalFailed`, `TokenReviewerRefreshed` — 6 types ghost scaffolding.
+
+**Impact:** The intended cross-feature reactivity never happens. Policy/role sync on connection recovery is handled by `ConnectionPhaseChangedPredicate` + enqueue map-funcs instead. That works but means the bus is deadweight.
+
+**Fix options:**
+1. **Delete the bus + ghost event types.** Replace `PublishAsync` with direct recorder events. Simplest, but loses future extensibility.
+2. **Wire one subscriber as proof-of-life.** For example, when `PolicyCreated` fires, re-enqueue any `VaultRole` whose `status.policyBindings[].resolved=false` references that policy name — faster recovery than the current 30s requeue. Adds a visible benefit.
+3. **Ship the bus as-is**, document as scaffold, note in this file that dead publish calls are intentional.
+
+Recommendation: option 2. Gives the bus at least one subscriber and delivers a user-visible improvement.
+</details>
+
 <hr />
 <h2 id="28-annotationdiscovered-value-doccode-drift-self-reported">🟡 28. <code>AnnotationDiscovered</code> value doc/code drift (self-reported)<a class="headerlink" href="#28-annotationdiscovered-value-doccode-drift-self-reported" title="Permanent link">&para;</a></h2>
 <p><strong>Evidence:</strong> <code>PROJECT_OVERVIEW.md</code> (before this update) annotations table showed <code>vault.platform.io/discovered=&lt;RFC3339&gt;</code>; actual constant at <a href="../../api/v1alpha1/common_types.go:447">common_types.go:447</a> is <code>AnnotationDiscovered = "vault.platform.io/discovered-at"</code>. Fixed inline while generating the contributor docs.</p>
