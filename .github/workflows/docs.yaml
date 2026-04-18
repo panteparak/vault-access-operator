@@ -3,7 +3,7 @@ name: Docs Hotfix
 on:
   push:
     branches: [main]
-    paths: ['docs/**', 'mkdocs.yml']
+    paths: ['docs/**', 'mkdocs.yml', 'mkdocs-internal.yml']
 
 permissions: {}
 
@@ -20,7 +20,12 @@ jobs:
         with:
           python-version: '3.x'
       - run: pip install mkdocs-material
+      # Build the main user-facing docs into site/.
       - run: mkdocs build
+      # Build the contributor mini-site into site/internal/ (separate config,
+      # not listed in the main nav). Must run AFTER `mkdocs build` because
+      # the main build cleans site/ on each invocation.
+      - run: mkdocs build -f mkdocs-internal.yml
 
       - name: Deploy to gh-pages
         env:
