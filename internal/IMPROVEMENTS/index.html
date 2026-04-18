@@ -895,10 +895,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#7-role-backend-coverage-gap" class="md-nav__link">
+  <a href="#7-role-backend-coverage-gap-partially-resolved-validation-doc-backend-impl-deferred" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🟠 7. Role backend coverage gap
+        🟠 7. Role backend coverage gap — PARTIALLY RESOLVED (validation + doc; backend impl deferred)
       
     </span>
   </a>
@@ -950,10 +950,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#12-event-bus-typing-uses-closures-instead-of-generics" class="md-nav__link">
+  <a href="#12-event-bus-typing-uses-closures-instead-of-generics-withdrawn-current-design-is-sound" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🟡 12. Event bus typing uses closures instead of generics
+        ❌ 12. Event bus typing uses closures instead of generics — WITHDRAWN (current design is sound)
       
     </span>
   </a>
@@ -972,10 +972,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#14-vaultpolicy-hcl-skip-uses-raw-annotation-string" class="md-nav__link">
+  <a href="#14-vaultpolicy-hcl-skip-uses-raw-annotation-string-resolved-via-4" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🟡 14. VaultPolicy HCL skip uses raw annotation string
+        ✅ 14. VaultPolicy HCL skip uses raw annotation string — RESOLVED (via §4)
       
     </span>
   </a>
@@ -1264,10 +1264,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#28-annotationdiscovered-value-doccode-drift-self-reported" class="md-nav__link">
+  <a href="#28-annotationdiscovered-value-doccode-drift-self-reported-resolved" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🟡 28. AnnotationDiscovered value doc/code drift (self-reported)
+        ✅ 28. AnnotationDiscovered value doc/code drift (self-reported) — RESOLVED
       
     </span>
   </a>
@@ -1286,10 +1286,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#30-raw-string-annotations-lack-constants-generalizes-14" class="md-nav__link">
+  <a href="#30-raw-string-annotations-lack-constants-generalizes-14-resolved-via-4" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🟡 30. Raw-string annotations lack constants (generalizes §14)
+        ✅ 30. Raw-string annotations lack constants (generalizes §14) — RESOLVED (via §4)
       
     </span>
   </a>
@@ -1677,8 +1677,22 @@ Keeps each method self-contained, testable in isolation, registration-driven.
 </details>
 
 <hr />
-<h2 id="7-role-backend-coverage-gap">🟠 7. Role backend coverage gap<a class="headerlink" href="#7-role-backend-coverage-gap" title="Permanent link">&para;</a></h2>
-<p><strong>Evidence:</strong> <a href="../../features/role/controller/handler.go:360">features/role/controller/handler.go:360-373</a>:</p>
+<h2 id="7-role-backend-coverage-gap-partially-resolved-validation-doc-backend-impl-deferred">🟠 7. Role backend coverage gap — PARTIALLY RESOLVED (validation + doc; backend impl deferred)<a class="headerlink" href="#7-role-backend-coverage-gap-partially-resolved-validation-doc-backend-impl-deferred" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p><strong>Status</strong>: Items 1 and 2 of the original fix plan are done. Item 3 (actual backend support for AWS/GCP/OIDC/AppRole) is genuine feature work and remains deferred as Tier 5.</p>
+<p><strong>Item 1 — user-facing doc</strong>: <a href="../api-reference.md">docs/api-reference.md</a> under the <code>VaultRole</code> section now has a prominent admonition listing the supported (<code>auth/kubernetes/*</code>, <code>auth/jwt/*</code>) and unsupported (AWS/GCP/AppRole/OIDC/LDAP) backends, with a link back to this finding for the roadmap.</p>
+<p><strong>Item 2 — admission webhook rejection</strong>: <a href="../../internal/webhook/vaultrole_webhook.go">internal/webhook/vaultrole_webhook.go</a> gained <code>validateAuthPathSupported(authPath)</code> which rejects unsupported backends at admission time for both <code>VaultRole</code> and <code>VaultClusterRole</code>. Users get immediate <code>kubectl apply</code> feedback ("spec.authPath X targets an unsupported Vault auth backend...") instead of a silent accept → status-level ValidationError after the next reconcile.</p>
+<p>Accepts both forms that appear in user-facing docs and fixtures:
+  - Full: <code>auth/kubernetes</code>, <code>auth/jwt</code>, <code>auth/kubernetes-prod</code>, <code>auth/jwt/gitlab</code>
+  - Bare: <code>kubernetes</code>, <code>jwt</code> (shorthand seen in many examples)</p>
+<p>Rejects: <code>auth/aws</code>, <code>auth/gcp</code>, <code>auth/approle</code>, <code>auth/ldap</code>, bare <code>aws</code>/<code>gcp</code>/etc.</p>
+<p><strong>Tests</strong>: <code>TestValidateAuthPathSupported</code> covers 14 cases across supported/unsupported forms + a dedicated check that the error message cites IMPROVEMENTS §7.</p>
+<p><strong>Not done — Item 3 (backend expansion)</strong>: implementing AWS/GCP/OIDC/AppRole <code>buildRoleData</code> branches requires CRD additions (e.g., <code>spec.aws.boundIamPrincipalArns</code>, <code>spec.gcp.boundServiceAccounts</code>) and per-backend drift comparison. Sized as one Tier-5 PR per backend once product prioritization signals which is highest-value. JWT is already done.</p>
+</blockquote>
+<details><summary>Original finding (kept for history)</summary>
+
+**Evidence:** [features/role/controller/handler.go:360-373](../../features/role/controller/handler.go:360):
+
 <div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="k">switch</span><span class="w"> </span><span class="nx">backend</span><span class="w"> </span><span class="p">{</span>
 <a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="k">case</span><span class="w"> </span><span class="nx">vault</span><span class="p">.</span><span class="nx">AuthBackendKubernetes</span><span class="p">:</span>
 <a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="w">    </span><span class="o">...</span>
@@ -1688,14 +1702,19 @@ Keeps each method self-contained, testable in isolation, registration-driven.
 <a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="kc">nil</span><span class="p">,</span><span class="w"> </span><span class="nx">ValidationError</span><span class="p">(</span><span class="s">&quot;unsupported auth backend: only auth/kubernetes and auth/jwt are implemented&quot;</span><span class="p">)</span>
 <a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a><span class="p">}</span>
 </code></pre></div>
-<p>But the operator <strong>authenticates</strong> to Vault via 8 methods (§6). There's an asymmetry:
+
+But the operator **authenticates** to Vault via 8 methods (§6). There's an asymmetry:
 - The operator can log in via AWS/GCP/OIDC/AppRole/Token.
-- But a <strong>VaultRole CR cannot target</strong> an AWS/GCP/OIDC/AppRole mount — only <code>auth/kubernetes/role/*</code> or <code>auth/jwt/role/*</code>.</p>
-<p><strong>Impact:</strong> Users running on EKS with IRSA who also want to define roles binding AWS IAM principals to Vault policies cannot use this operator for that binding. They can only use it to define their own pod-level roles.</p>
-<p><strong>Fix priorities:</strong>
-1. Document the restriction prominently in <code>docs/api-reference.md</code> (user-facing).
-2. Add webhook validation that rejects <code>authPath</code> not in the supported set with a clear message.
-3. Plan incremental backend support — start with AppRole roles, then JWT is already done, then cloud IAM.</p>
+- But a **VaultRole CR cannot target** an AWS/GCP/OIDC/AppRole mount — only `auth/kubernetes/role/*` or `auth/jwt/role/*`.
+
+**Impact:** Users running on EKS with IRSA who also want to define roles binding AWS IAM principals to Vault policies cannot use this operator for that binding. They can only use it to define their own pod-level roles.
+
+**Fix priorities:**
+1. Document the restriction prominently in `docs/api-reference.md` (user-facing).
+2. Add webhook validation that rejects `authPath` not in the supported set with a clear message.
+3. Plan incremental backend support — start with AppRole roles, then JWT is already done, then cloud IAM.
+</details>
+
 <hr />
 <h2 id="8-connection-webhook-resolved">✅ 8. Connection webhook — RESOLVED<a class="headerlink" href="#8-connection-webhook-resolved" title="Permanent link">&para;</a></h2>
 <blockquote>
@@ -1794,15 +1813,28 @@ Keeps each method self-contained, testable in isolation, registration-driven.
 </details>
 
 <hr />
-<h2 id="12-event-bus-typing-uses-closures-instead-of-generics">🟡 12. Event bus typing uses closures instead of generics<a class="headerlink" href="#12-event-bus-typing-uses-closures-instead-of-generics" title="Permanent link">&para;</a></h2>
-<p><strong>Evidence:</strong> <a href="../../shared/events/bus.go">shared/events/bus.go</a> — <code>Subscribe[T]</code> captures type assertion in a closure, stores <code>func(ctx, Event) error</code>, performs runtime type assertion on publish. This was idiomatic before Go 1.18.</p>
-<p><strong>Impact:</strong> Runtime overhead (negligible). Type assertion can silently swallow events that don't match (a publish of event type X to a handler subscribed for Y just doesn't fire).</p>
-<p><strong>Fix:</strong> With Go 1.22, rewrite as a generic registry:
+<h2 id="12-event-bus-typing-uses-closures-instead-of-generics-withdrawn-current-design-is-sound">❌ 12. Event bus typing uses closures instead of generics — WITHDRAWN (current design is sound)<a class="headerlink" href="#12-event-bus-typing-uses-closures-instead-of-generics-withdrawn-current-design-is-sound" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p><strong>Status</strong>: Re-examined. The original finding's "silently swallow" concern does not match the actual code behavior.</p>
+<p>The event bus dispatches by <code>event.Type()</code> (a string returned by each event type), and <code>Subscribe[T]</code> captures the type assertion at subscribe time inside a closure wrapper. A publish of event type X retrieves handlers registered for X's <code>Type()</code> string — handlers subscribed to a different type are never invoked, regardless of generics vs closures. This is correct behavior, not a bug.</p>
+<p>The closure-captured type assertion <code>event.(T)</code> in <code>Subscribe[T]</code> is always safe because the handler is only invoked for events whose <code>.Type()</code> matches T's <code>.Type()</code> — a collision would be a programmer error (two distinct event types returning the same string) that generics couldn't prevent either.</p>
+<p><strong>What generics would actually buy</strong>: compile-time guarantee that <code>Publish[T](event T)</code> is called with the right type. But our API already separates subscribe-by-type from publish-by-event-instance, and the current <code>event.Type()</code> key lookup achieves the same dispatch correctness at runtime cost measurable in nanoseconds. A rewrite would add abstraction without fixing a real bug.</p>
+<p><strong>Not done</strong> (and rationale): the generic-registry refactor is deferred indefinitely. If a future change surfaces an actual dispatch correctness issue, reopen this finding with the specific scenario.</p>
+</blockquote>
+<details><summary>Original finding (kept for history)</summary>
+
+**Evidence:** [shared/events/bus.go](../../shared/events/bus.go) — `Subscribe[T]` captures type assertion in a closure, stores `func(ctx, Event) error`, performs runtime type assertion on publish. This was idiomatic before Go 1.18.
+
+**Impact:** Runtime overhead (negligible). Type assertion can silently swallow events that don't match (a publish of event type X to a handler subscribed for Y just doesn't fire).
+
+**Fix:** With Go 1.22, rewrite as a generic registry:
 <div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="kd">type</span><span class="w"> </span><span class="nx">handlerRegistry</span><span class="p">[</span><span class="nx">T</span><span class="w"> </span><span class="nx">Event</span><span class="p">]</span><span class="w"> </span><span class="kd">struct</span><span class="w"> </span><span class="p">{</span>
 <a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="w">    </span><span class="nx">handlers</span><span class="w"> </span><span class="p">[]</span><span class="kd">func</span><span class="p">(</span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">,</span><span class="w"> </span><span class="nx">T</span><span class="p">)</span><span class="w"> </span><span class="kt">error</span>
 <a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="p">}</span>
 </code></pre></div>
-Catches mismatches at compile time.</p>
+Catches mismatches at compile time.
+</details>
+
 <hr />
 <h2 id="13-duplicated-shouldadopt-logic-resolved-shouldadopt-extracted-checkconflict-deferred">✅ 13. Duplicated <code>shouldAdopt</code> logic — RESOLVED (shouldAdopt extracted; checkConflict deferred)<a class="headerlink" href="#13-duplicated-shouldadopt-logic-resolved-shouldadopt-extracted-checkconflict-deferred" title="Permanent link">&para;</a></h2>
 <blockquote>
@@ -1837,12 +1869,23 @@ Catches mismatches at compile time.</p>
 </details>
 
 <hr />
-<h2 id="14-vaultpolicy-hcl-skip-uses-raw-annotation-string">🟡 14. <code>VaultPolicy</code> HCL skip uses raw annotation string<a class="headerlink" href="#14-vaultpolicy-hcl-skip-uses-raw-annotation-string" title="Permanent link">&para;</a></h2>
-<p><strong>Evidence:</strong> <a href="../../features/policy/controller/ops.go:108">features/policy/controller/ops.go:108</a>:</p>
+<h2 id="14-vaultpolicy-hcl-skip-uses-raw-annotation-string-resolved-via-4">✅ 14. <code>VaultPolicy</code> HCL skip uses raw annotation string — RESOLVED (via §4)<a class="headerlink" href="#14-vaultpolicy-hcl-skip-uses-raw-annotation-string-resolved-via-4" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p><strong>Status</strong>: Fixed as a side-effect of §4. The <code>AnnotationDiscoveryPending</code> constant was added to <a href="../../api/v1alpha1/common_types.go:470">api/v1alpha1/common_types.go</a> in the same commit that introduced the discovery-pending guard, and the ops.go skip-check now references the constant (see <a href="../../features/policy/controller/ops.go:116">features/policy/controller/ops.go:116</a>).</p>
+<p>Also fixes the same pattern in <code>features/role/controller/ops.go</code> (the skip guard there was added at the same time and uses the constant).</p>
+</blockquote>
+<details><summary>Original finding (kept for history)</summary>
+
+**Evidence:** [features/policy/controller/ops.go:108](../../features/policy/controller/ops.go:108):
+
 <div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="k">if</span><span class="w"> </span><span class="nx">annotations</span><span class="p">[</span><span class="s">&quot;vault.platform.io/discovery-pending&quot;</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;true&quot;</span><span class="w"> </span><span class="p">{</span>
 </code></pre></div>
-<p>Other annotation keys use constants from <code>api/v1alpha1</code> (e.g., <code>AnnotationAdopt</code>, <code>AnnotationDiscovered</code>). Only this one is a raw string.</p>
-<p><strong>Fix:</strong> Add <code>AnnotationDiscoveryPending = "vault.platform.io/discovery-pending"</code> to <a href="../../api/v1alpha1/common_types.go">common_types.go</a> and reference it here + in the discovery auto-create (§4).</p>
+
+Other annotation keys use constants from `api/v1alpha1` (e.g., `AnnotationAdopt`, `AnnotationDiscovered`). Only this one is a raw string.
+
+**Fix:** Add `AnnotationDiscoveryPending = "vault.platform.io/discovery-pending"` to [common_types.go](../../api/v1alpha1/common_types.go) and reference it here + in the discovery auto-create (§4).
+</details>
+
 <hr />
 <h2 id="15-listdependents-on-list-operations-resolved">✅ 15. <code>listDependents</code> O(N) list operations — RESOLVED<a class="headerlink" href="#15-listdependents-on-list-operations-resolved" title="Permanent link">&para;</a></h2>
 <blockquote>
@@ -2137,10 +2180,20 @@ Recommendation: option 2. Gives the bus at least one subscriber and delivers a u
 </details>
 
 <hr />
-<h2 id="28-annotationdiscovered-value-doccode-drift-self-reported">🟡 28. <code>AnnotationDiscovered</code> value doc/code drift (self-reported)<a class="headerlink" href="#28-annotationdiscovered-value-doccode-drift-self-reported" title="Permanent link">&para;</a></h2>
-<p><strong>Evidence:</strong> <code>PROJECT_OVERVIEW.md</code> (before this update) annotations table showed <code>vault.platform.io/discovered=&lt;RFC3339&gt;</code>; actual constant at <a href="../../api/v1alpha1/common_types.go:447">common_types.go:447</a> is <code>AnnotationDiscovered = "vault.platform.io/discovered-at"</code>. Fixed inline while generating the contributor docs.</p>
-<p><strong>Impact:</strong> A reader copying from the table would look for the wrong annotation name.</p>
-<p><strong>Fix:</strong> Add a doc linter to CI — grep <code>docs/internal/</code> for literal <code>vault.platform.io/...</code> and diff against the constants block. Catches future drift automatically.</p>
+<h2 id="28-annotationdiscovered-value-doccode-drift-self-reported-resolved">✅ 28. <code>AnnotationDiscovered</code> value doc/code drift (self-reported) — RESOLVED<a class="headerlink" href="#28-annotationdiscovered-value-doccode-drift-self-reported-resolved" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p><strong>Status</strong>: Fixed. Two lingering stale references in <a href="../FLOW_DISCOVERY/">FLOW_DISCOVERY.md</a> at lines 156 and 179 used the bare <code>vault.platform.io/discovered</code> (the pre-rename value). Both are now corrected to <code>vault.platform.io/discovered-at</code> matching the actual <code>AnnotationDiscovered</code> constant at <a href="../../api/v1alpha1/common_types.go:459">common_types.go:459</a>.</p>
+<p><strong>Doc linter in CI</strong> (the original fix recommendation): deferred. A simple grep-and-compare check would catch future drift but adds CI complexity; punted to a separate follow-up since the current review caught all the known instances.</p>
+</blockquote>
+<details><summary>Original finding (kept for history)</summary>
+
+**Evidence:** `PROJECT_OVERVIEW.md` (before this update) annotations table showed `vault.platform.io/discovered=<RFC3339>`; actual constant at [common_types.go:447](../../api/v1alpha1/common_types.go:447) is `AnnotationDiscovered = "vault.platform.io/discovered-at"`. Fixed inline while generating the contributor docs.
+
+**Impact:** A reader copying from the table would look for the wrong annotation name.
+
+**Fix:** Add a doc linter to CI — grep `docs/internal/` for literal `vault.platform.io/...` and diff against the constants block. Catches future drift automatically.
+</details>
+
 <hr />
 <h2 id="29-classify-notfounderror-connectionerror-distinctly-resolved">✅ 29. Classify NotFoundError + ConnectionError distinctly — RESOLVED<a class="headerlink" href="#29-classify-notfounderror-connectionerror-distinctly-resolved" title="Permanent link">&para;</a></h2>
 <blockquote>
@@ -2162,17 +2215,35 @@ Recommendation: option 2. Gives the bus at least one subscriber and delivers a u
 </details>
 
 <hr />
-<h2 id="30-raw-string-annotations-lack-constants-generalizes-14">🟡 30. Raw-string annotations lack constants (generalizes §14)<a class="headerlink" href="#30-raw-string-annotations-lack-constants-generalizes-14" title="Permanent link">&para;</a></h2>
-<p><strong>Evidence:</strong>
-- <code>vault.platform.io/discovery-pending</code> at <a href="../../features/policy/controller/ops.go:108">policy/controller/ops.go:108</a> and <a href="../../features/discovery/controller/controller.go:216">discovery/controller/controller.go:216</a> — raw strings on both sides.
-- <code>vault.platform.io/discovered-from</code> at <a href="../../features/discovery/controller/controller.go:217">discovery/controller/controller.go:217</a> — raw string.</p>
-<p>Neither has a constant in <a href="../../api/v1alpha1/common_types.go">common_types.go</a>.</p>
-<p><strong>Impact:</strong> Renaming an annotation requires grepping every call site. Typos aren't caught at compile time.</p>
-<p><strong>Fix:</strong> Add to <code>common_types.go</code>:
+<h2 id="30-raw-string-annotations-lack-constants-generalizes-14-resolved-via-4">✅ 30. Raw-string annotations lack constants (generalizes §14) — RESOLVED (via §4)<a class="headerlink" href="#30-raw-string-annotations-lack-constants-generalizes-14-resolved-via-4" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p><strong>Status</strong>: Fixed. Both annotations named in this finding (<code>vault.platform.io/discovery-pending</code> and <code>vault.platform.io/discovered-from</code>) now have typed constants in <a href="../../api/v1alpha1/common_types.go:463">common_types.go</a>:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="nx">AnnotationDiscoveryPending</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s">&quot;vault.platform.io/discovery-pending&quot;</span>
 <a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a><span class="nx">AnnotationDiscoveredFrom</span><span class="w">   </span><span class="p">=</span><span class="w"> </span><span class="s">&quot;vault.platform.io/discovered-from&quot;</span>
 </code></pre></div>
-Replace raw strings with constants.</p>
+<p>Replaced raw strings at all call sites:
+- <a href="../../features/policy/controller/ops.go:116">features/policy/controller/ops.go:116, 130</a> (WriteToVault + ReadbackVerify skip guards)
+- <a href="../../features/role/controller/ops.go:141">features/role/controller/ops.go:141, 154</a>
+- <a href="../../features/discovery/controller/controller.go:249">features/discovery/controller/controller.go:249, 292</a> (auto-create annotations)</p>
+<p>Renaming is now a rename-of-one-constant + go build, not a grep across the tree.</p>
+</blockquote>
+<details><summary>Original finding (kept for history)</summary>
+
+**Evidence:**
+- `vault.platform.io/discovery-pending` at [policy/controller/ops.go:108](../../features/policy/controller/ops.go:108) and [discovery/controller/controller.go:216](../../features/discovery/controller/controller.go:216) — raw strings on both sides.
+- `vault.platform.io/discovered-from` at [discovery/controller/controller.go:217](../../features/discovery/controller/controller.go:217) — raw string.
+
+Neither has a constant in [common_types.go](../../api/v1alpha1/common_types.go).
+
+**Impact:** Renaming an annotation requires grepping every call site. Typos aren't caught at compile time.
+
+**Fix:** Add to `common_types.go`:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="nx">AnnotationDiscoveryPending</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s">&quot;vault.platform.io/discovery-pending&quot;</span>
+<a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a><span class="nx">AnnotationDiscoveredFrom</span><span class="w">   </span><span class="p">=</span><span class="w"> </span><span class="s">&quot;vault.platform.io/discovered-from&quot;</span>
+</code></pre></div>
+Replace raw strings with constants.
+</details>
+
 <hr />
 <h2 id="31-dead-metrics-registered-but-never-emitted-resolved">✅ 31. Dead metrics — registered but never emitted — RESOLVED<a class="headerlink" href="#31-dead-metrics-registered-but-never-emitted-resolved" title="Permanent link">&para;</a></h2>
 <blockquote>
@@ -2218,10 +2289,10 @@ Replace raw strings with constants.</p>
 - K8s' default `terminationGracePeriodSeconds=30` means SIGKILL shortly follows — another 30s after that.
 
 **Fix:**
-<div class="highlight"><pre><span></span><code><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="nx">mgr</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">ctrl</span><span class="p">.</span><span class="nx">NewManager</span><span class="p">(</span><span class="nx">ctrl</span><span class="p">.</span><span class="nx">GetConfigOrDie</span><span class="p">(),</span><span class="w"> </span><span class="nx">ctrl</span><span class="p">.</span><span class="nx">Options</span><span class="p">{</span>
-<a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a><span class="w">    </span><span class="o">...</span>
-<a id="__codelineno-22-3" name="__codelineno-22-3" href="#__codelineno-22-3"></a><span class="w">    </span><span class="nx">GracefulShutdownTimeout</span><span class="p">:</span><span class="w"> </span><span class="nx">ptr</span><span class="p">.</span><span class="nx">To</span><span class="p">(</span><span class="mi">2</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="nx">time</span><span class="p">.</span><span class="nx">Minute</span><span class="p">),</span>
-<a id="__codelineno-22-4" name="__codelineno-22-4" href="#__codelineno-22-4"></a><span class="p">})</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="nx">mgr</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">ctrl</span><span class="p">.</span><span class="nx">NewManager</span><span class="p">(</span><span class="nx">ctrl</span><span class="p">.</span><span class="nx">GetConfigOrDie</span><span class="p">(),</span><span class="w"> </span><span class="nx">ctrl</span><span class="p">.</span><span class="nx">Options</span><span class="p">{</span>
+<a id="__codelineno-23-2" name="__codelineno-23-2" href="#__codelineno-23-2"></a><span class="w">    </span><span class="o">...</span>
+<a id="__codelineno-23-3" name="__codelineno-23-3" href="#__codelineno-23-3"></a><span class="w">    </span><span class="nx">GracefulShutdownTimeout</span><span class="p">:</span><span class="w"> </span><span class="nx">ptr</span><span class="p">.</span><span class="nx">To</span><span class="p">(</span><span class="mi">2</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="nx">time</span><span class="p">.</span><span class="nx">Minute</span><span class="p">),</span>
+<a id="__codelineno-23-4" name="__codelineno-23-4" href="#__codelineno-23-4"></a><span class="p">})</span>
 </code></pre></div>
 Plus: document intended drain duration in the Helm chart `terminationGracePeriodSeconds` (default is K8s' 30s, likely too short for in-flight Vault ops).
 </details>
@@ -2235,8 +2306,8 @@ Plus: document intended drain duration in the Helm chart `terminationGracePeriod
 
 
 **Evidence:** [cmd/main.go:333-340](../../cmd/main.go:333):
-<div class="highlight"><pre><span></span><code><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="nx">mgr</span><span class="p">.</span><span class="nx">AddHealthzCheck</span><span class="p">(</span><span class="s">&quot;healthz&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">healthz</span><span class="p">.</span><span class="nx">Ping</span><span class="p">)</span>
-<a id="__codelineno-23-2" name="__codelineno-23-2" href="#__codelineno-23-2"></a><span class="nx">mgr</span><span class="p">.</span><span class="nx">AddReadyzCheck</span><span class="p">(</span><span class="s">&quot;readyz&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">healthz</span><span class="p">.</span><span class="nx">Ping</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="nx">mgr</span><span class="p">.</span><span class="nx">AddHealthzCheck</span><span class="p">(</span><span class="s">&quot;healthz&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">healthz</span><span class="p">.</span><span class="nx">Ping</span><span class="p">)</span>
+<a id="__codelineno-24-2" name="__codelineno-24-2" href="#__codelineno-24-2"></a><span class="nx">mgr</span><span class="p">.</span><span class="nx">AddReadyzCheck</span><span class="p">(</span><span class="s">&quot;readyz&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">healthz</span><span class="p">.</span><span class="nx">Ping</span><span class="p">)</span>
 </code></pre></div>
 `healthz.Ping` always returns `nil`. It tells you the HTTP server is up. That's it.
 
@@ -2248,17 +2319,17 @@ Plus: document intended drain duration in the Helm chart `terminationGracePeriod
 will still answer `200 OK` to `/readyz`. Service traffic keeps routing to it.
 
 **Fix:** Add informed checks:
-<div class="highlight"><pre><span></span><code><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="nx">mgr</span><span class="p">.</span><span class="nx">AddReadyzCheck</span><span class="p">(</span><span class="s">&quot;informers-synced&quot;</span><span class="p">,</span><span class="w"> </span><span class="kd">func</span><span class="p">(</span><span class="nx">_</span><span class="w"> </span><span class="o">*</span><span class="nx">http</span><span class="p">.</span><span class="nx">Request</span><span class="p">)</span><span class="w"> </span><span class="kt">error</span><span class="w"> </span><span class="p">{</span>
-<a id="__codelineno-24-2" name="__codelineno-24-2" href="#__codelineno-24-2"></a><span class="w">    </span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="nx">cancel</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">WithTimeout</span><span class="p">(</span><span class="nx">context</span><span class="p">.</span><span class="nx">Background</span><span class="p">(),</span><span class="w"> </span><span class="mi">2</span><span class="o">*</span><span class="nx">time</span><span class="p">.</span><span class="nx">Second</span><span class="p">)</span>
-<a id="__codelineno-24-3" name="__codelineno-24-3" href="#__codelineno-24-3"></a><span class="w">    </span><span class="k">defer</span><span class="w"> </span><span class="nx">cancel</span><span class="p">()</span>
-<a id="__codelineno-24-4" name="__codelineno-24-4" href="#__codelineno-24-4"></a><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">!</span><span class="nx">mgr</span><span class="p">.</span><span class="nx">GetCache</span><span class="p">().</span><span class="nx">WaitForCacheSync</span><span class="p">(</span><span class="nx">ctx</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
-<a id="__codelineno-24-5" name="__codelineno-24-5" href="#__codelineno-24-5"></a><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="nx">errors</span><span class="p">.</span><span class="nx">New</span><span class="p">(</span><span class="s">&quot;cache not synced&quot;</span><span class="p">)</span>
-<a id="__codelineno-24-6" name="__codelineno-24-6" href="#__codelineno-24-6"></a><span class="w">    </span><span class="p">}</span>
-<a id="__codelineno-24-7" name="__codelineno-24-7" href="#__codelineno-24-7"></a><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="kc">nil</span>
-<a id="__codelineno-24-8" name="__codelineno-24-8" href="#__codelineno-24-8"></a><span class="p">})</span>
-<a id="__codelineno-24-9" name="__codelineno-24-9" href="#__codelineno-24-9"></a>
-<a id="__codelineno-24-10" name="__codelineno-24-10" href="#__codelineno-24-10"></a><span class="c1">// Optional: connection-cache has at least one entry after 2 minutes</span>
-<a id="__codelineno-24-11" name="__codelineno-24-11" href="#__codelineno-24-11"></a><span class="c1">// (skip if no VaultConnections exist, but flag if cache is empty while connections exist)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="nx">mgr</span><span class="p">.</span><span class="nx">AddReadyzCheck</span><span class="p">(</span><span class="s">&quot;informers-synced&quot;</span><span class="p">,</span><span class="w"> </span><span class="kd">func</span><span class="p">(</span><span class="nx">_</span><span class="w"> </span><span class="o">*</span><span class="nx">http</span><span class="p">.</span><span class="nx">Request</span><span class="p">)</span><span class="w"> </span><span class="kt">error</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-25-2" name="__codelineno-25-2" href="#__codelineno-25-2"></a><span class="w">    </span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="nx">cancel</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">WithTimeout</span><span class="p">(</span><span class="nx">context</span><span class="p">.</span><span class="nx">Background</span><span class="p">(),</span><span class="w"> </span><span class="mi">2</span><span class="o">*</span><span class="nx">time</span><span class="p">.</span><span class="nx">Second</span><span class="p">)</span>
+<a id="__codelineno-25-3" name="__codelineno-25-3" href="#__codelineno-25-3"></a><span class="w">    </span><span class="k">defer</span><span class="w"> </span><span class="nx">cancel</span><span class="p">()</span>
+<a id="__codelineno-25-4" name="__codelineno-25-4" href="#__codelineno-25-4"></a><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">!</span><span class="nx">mgr</span><span class="p">.</span><span class="nx">GetCache</span><span class="p">().</span><span class="nx">WaitForCacheSync</span><span class="p">(</span><span class="nx">ctx</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-25-5" name="__codelineno-25-5" href="#__codelineno-25-5"></a><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="nx">errors</span><span class="p">.</span><span class="nx">New</span><span class="p">(</span><span class="s">&quot;cache not synced&quot;</span><span class="p">)</span>
+<a id="__codelineno-25-6" name="__codelineno-25-6" href="#__codelineno-25-6"></a><span class="w">    </span><span class="p">}</span>
+<a id="__codelineno-25-7" name="__codelineno-25-7" href="#__codelineno-25-7"></a><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="kc">nil</span>
+<a id="__codelineno-25-8" name="__codelineno-25-8" href="#__codelineno-25-8"></a><span class="p">})</span>
+<a id="__codelineno-25-9" name="__codelineno-25-9" href="#__codelineno-25-9"></a>
+<a id="__codelineno-25-10" name="__codelineno-25-10" href="#__codelineno-25-10"></a><span class="c1">// Optional: connection-cache has at least one entry after 2 minutes</span>
+<a id="__codelineno-25-11" name="__codelineno-25-11" href="#__codelineno-25-11"></a><span class="c1">// (skip if no VaultConnections exist, but flag if cache is empty while connections exist)</span>
 </code></pre></div>
 Keep `/healthz` as the trivial ping (liveness = pod-level restart trigger).
 </details>
