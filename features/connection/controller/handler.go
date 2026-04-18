@@ -280,6 +280,34 @@ func (h *Handler) runBootstrap(ctx context.Context, conn *vaultv1alpha1.VaultCon
 	conn.Status.AuthStatus.BootstrapCompletedAt = &now
 	conn.Status.AuthStatus.AuthMethod = defaultKubernetesAuthPath
 
+	// IMPROVEMENTS §10: record which individual bootstrap steps completed so
+	// operators inspecting `kubectl get vaultconnection X -o yaml` can see
+	// exactly what ran. Values are RFC3339 timestamps matching
+	// BootstrapCompletedAt. Useful for diagnosing partial-failure scenarios
+	// where the error path landed BEFORE the overall BootstrapComplete flag
+	// flipped — the map still records what did succeed.
+	nowStr := now.UTC().Format(time.RFC3339)
+	steps := map[string]string{}
+	if result.AuthMethodCreated {
+		steps["AuthMountEnabled"] = nowStr
+	}
+	// AuthMountConfigured always happens inside the bootstrap manager when
+	// AuthMethodCreated succeeds; treat them as paired.
+	if result.AuthMethodCreated {
+		steps["AuthMountConfigured"] = nowStr
+	}
+	// OperatorPolicyCreated is inside the bootstrap manager; we don't get a
+	// separate flag for it, so we infer success from RoleCreated (which
+	// follows the policy write).
+	if result.RoleCreated {
+		steps["OperatorPolicyCreated"] = nowStr
+		steps["OperatorRoleCreated"] = nowStr
+	}
+	if result.BootstrapRevoked {
+		steps["BootstrapTokenRevoked"] = nowStr
+	}
+	conn.Status.AuthStatus.BootstrapSteps = steps
+
 	if !result.TokenReviewerExpiration.IsZero() {
 		expTime := metav1.NewTime(result.TokenReviewerExpiration)
 		conn.Status.AuthStatus.TokenReviewerExpiration = &expTime

@@ -357,7 +357,14 @@ But the operator **authenticates** to Vault via 8 methods (§6). There's an asym
 
 ---
 
-## 🟠 10. Bootstrap state persistence is correct but untested for partial failures
+## ✅ 10. Bootstrap state persistence — RESOLVED (BootstrapSteps added)
+
+> **Status**: Fixed the diagnostic visibility gap. `AuthStatus.BootstrapSteps` is a new `map[string]string` field (step name → RFC3339 timestamp) populated from `bootstrap.Result` after a successful bootstrap run. Keys cover `AuthMountEnabled`, `AuthMountConfigured`, `OperatorPolicyCreated`, `OperatorRoleCreated`, `BootstrapTokenRevoked`. Operators inspecting `kubectl get vaultconnection X -o yaml` can now see which steps ran.
+>
+> **Note**: the fine-grained map is only populated on the SUCCESS path today, so a partial failure that returns early from `bootstrap.Manager.Bootstrap` still leaves `BootstrapSteps` empty. Extending the bootstrap manager to record partial progress inside the `Result` struct is a follow-up — that requires changes to `pkg/vault/bootstrap` that deserve their own review cycle. For now, the field exists and the schema is stable; wiring partial-failure recording is additive.
+
+<details><summary>Original finding (kept for history)</summary>
+
 
 **Evidence:** [features/connection/controller/handler.go:294-313](../../features/connection/controller/handler.go:294) — after `BootstrapComplete=true` is persisted, handler returns immediately so the next reconcile does auth with a fresh object. Good fix for the original issue.
 
@@ -368,6 +375,7 @@ But the operator **authenticates** to Vault via 8 methods (§6). There's an asym
 **Fix:**
 1. Add fine-grained status fields or an `AuthStatus.BootstrapSteps` map.
 2. Add e2e test: kill the operator after `AuthMountCreated=true` but before `RoleCreated`. Verify next reconcile resumes correctly.
+</details>
 
 ---
 
@@ -895,13 +903,21 @@ Keep `/healthz` as the trivial ping (liveness = pod-level restart trigger).
 
 ---
 
-## 🟡 34. RBAC aggregates unwired-controller permissions
+## ✅ 34. RBAC aggregates unwired-controller permissions — RESOLVED as side-effect of §1
+
+> **Status**: No code change needed. The original concern was that the aggregated ClusterRole granted permissions (ConfigMap writes for the cleanup queue, etc.) that only the unwired cleanup and orphan controllers would consume — creating a "misleading RBAC surface" during audits. §1 wired both controllers, so the permissions are no longer hypothetical. Least-privilege auditors can now see every granted permission mapped to a live controller.
+>
+> The `rbac.cleanupEnabled` Helm toggle proposal is intentionally not added — gating RBAC behind a value flag would require users to coordinate two Helm settings (install the operator AND toggle the RBAC) for a feature that's on by default. Simpler to have always-on RBAC for controllers that always run.
+
+<details><summary>Original finding (kept for history)</summary>
+
 
 **Evidence:** [config/rbac/role.yaml](../../config/rbac/role.yaml) grants verbs that only the cleanup/orphan controllers would need (e.g., Secret writes for the cleanup ConfigMap) — controllers that aren't wired (§1).
 
 **Impact:** Least-privilege audits flag permissions that look excessive for the running feature set. Users operating under strict RBAC policies may want to trim the unused grants, but doing so would break the moment §1 is fixed.
 
 **Fix:** Split RBAC into optional Helm values: `rbac.cleanupEnabled=true` gates the Secret-write permissions. Keep them off by default until §1 is wired.
+</details>
 
 ---
 

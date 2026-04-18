@@ -544,6 +544,16 @@ type AuthStatus struct {
 	// +optional
 	BootstrapCompletedAt *metav1.Time `json:"bootstrapCompletedAt,omitempty"`
 
+	// BootstrapSteps tracks which individual bootstrap steps have completed.
+	// Used for diagnostic visibility after a partial failure — e.g., if the
+	// Vault CLI credentials allowed enabling the auth mount but not creating
+	// the operator role, the user can see exactly where it stopped.
+	// Keys: "AuthMountEnabled", "AuthMountConfigured", "OperatorPolicyCreated",
+	// "OperatorRoleCreated", "BootstrapTokenRevoked". Values are the RFC3339
+	// timestamps of step completion. IMPROVEMENTS §10.
+	// +optional
+	BootstrapSteps map[string]string `json:"bootstrapSteps,omitempty"`
+
 	// AuthMethod is the currently active authentication method
 	// +optional
 	AuthMethod string `json:"authMethod,omitempty"`

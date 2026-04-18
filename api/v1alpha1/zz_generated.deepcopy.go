@@ -117,6 +117,13 @@ func (in *AuthStatus) DeepCopyInto(out *AuthStatus) {
 		in, out := &in.BootstrapCompletedAt, &out.BootstrapCompletedAt
 		*out = (*in).DeepCopy()
 	}
+	if in.BootstrapSteps != nil {
+		in, out := &in.BootstrapSteps, &out.BootstrapSteps
+		*out = make(map[string]string, len(*in))
+		for key, val := range *in {
+			(*out)[key] = val
+		}
+	}
 	if in.TokenExpiration != nil {
 		in, out := &in.TokenExpiration, &out.TokenExpiration
 		*out = (*in).DeepCopy()

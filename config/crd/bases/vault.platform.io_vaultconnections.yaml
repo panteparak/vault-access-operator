@@ -585,6 +585,18 @@ spec:
                     description: BootstrapCompletedAt is when bootstrap was completed
                     format: date-time
                     type: string
+                  bootstrapSteps:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      BootstrapSteps tracks which individual bootstrap steps have completed.
+                      Used for diagnostic visibility after a partial failure — e.g., if the
+                      Vault CLI credentials allowed enabling the auth mount but not creating
+                      the operator role, the user can see exactly where it stopped.
+                      Keys: "AuthMountEnabled", "AuthMountConfigured", "OperatorPolicyCreated",
+                      "OperatorRoleCreated", "BootstrapTokenRevoked". Values are the RFC3339
+                      timestamps of step completion. IMPROVEMENTS §10.
+                    type: object
                   tokenAccessor:
                     description: |-
                       TokenAccessor is the Vault token accessor for the current operator token.
