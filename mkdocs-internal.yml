@@ -81,6 +81,7 @@ markdown_extensions:
 # Nested navigation for the internal site only.
 # The top nav of the main user-facing site is unaffected.
 nav:
+  - Home: index.md
   - Overview: PROJECT_OVERVIEW.md
   - Architecture: ARCHITECTURE.md
   - Flow Foundations: FLOW_OVERVIEW.md
