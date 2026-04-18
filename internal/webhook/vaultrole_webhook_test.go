@@ -2158,3 +2158,74 @@ func TestVaultRoleValidator_ValidateCreate_JWT(t *testing.T) {
 		})
 	}
 }
+
+// TestValidateAuthPathSupported pins IMPROVEMENTS §7: the webhook must
+// reject VaultRole CRs whose authPath targets a Vault auth backend the
+// role handler doesn't implement (aws/gcp/approle/ldap/etc.), while still
+// accepting all the forms that appear in our docs and fixtures:
+//   - empty (defaults to auth/kubernetes)
+//   - bare mount name: "kubernetes", "jwt"
+//   - full form: "auth/kubernetes", "auth/jwt"
+//   - submounts: "auth/kubernetes-prod", "auth/jwt/gitlab"
+func TestValidateAuthPathSupported(t *testing.T) {
+	cases := []struct {
+		name             string
+		authPath         string
+		wantErrSubstring string // empty means expect accept
+	}{
+		{name: "empty defaults to kubernetes", authPath: ""},
+		{name: "bare kubernetes (docs form)", authPath: "kubernetes"},
+		{name: "bare jwt (docs form)", authPath: "jwt"},
+		{name: "full kubernetes path", authPath: "auth/kubernetes"},
+		{name: "full jwt path", authPath: "auth/jwt"},
+		{name: "kubernetes submount", authPath: "auth/kubernetes-prod"},
+		{name: "jwt submount", authPath: "auth/jwt/gitlab"},
+		{name: "jwt path with trailing slash", authPath: "auth/jwt/"},
+		{
+			name:             "aws backend rejected",
+			authPath:         "auth/aws",
+			wantErrSubstring: "unsupported Vault auth backend",
+		},
+		{
+			name:             "gcp backend rejected",
+			authPath:         "auth/gcp",
+			wantErrSubstring: "unsupported Vault auth backend",
+		},
+		{
+			name:             "approle backend rejected",
+			authPath:         "auth/approle",
+			wantErrSubstring: "unsupported Vault auth backend",
+		},
+		{
+			name:             "ldap backend rejected",
+			authPath:         "auth/ldap",
+			wantErrSubstring: "unsupported Vault auth backend",
+		},
+		{
+			name:             "bare aws rejected",
+			authPath:         "aws",
+			wantErrSubstring: "unsupported Vault auth backend",
+		},
+		{
+			name:             "§7 roadmap reference present in rejection",
+			authPath:         "auth/approle",
+			wantErrSubstring: "IMPROVEMENTS.md §7",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := validateAuthPathSupported(tc.authPath)
+			if tc.wantErrSubstring == "" {
+				if got != "" {
+					t.Errorf("validateAuthPathSupported(%q) = %q, want accept", tc.authPath, got)
+				}
+				return
+			}
+			if !strings.Contains(got, tc.wantErrSubstring) {
+				t.Errorf("validateAuthPathSupported(%q) = %q, want error containing %q",
+					tc.authPath, got, tc.wantErrSubstring)
+			}
+		})
+	}
+}

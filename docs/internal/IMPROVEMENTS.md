@@ -268,7 +268,25 @@ Keeps each method self-contained, testable in isolation, registration-driven.
 
 ---
 
-## 🟠 7. Role backend coverage gap
+## 🟠 7. Role backend coverage gap — PARTIALLY RESOLVED (validation + doc; backend impl deferred)
+
+> **Status**: Items 1 and 2 of the original fix plan are done. Item 3 (actual backend support for AWS/GCP/OIDC/AppRole) is genuine feature work and remains deferred as Tier 5.
+>
+> **Item 1 — user-facing doc**: [docs/api-reference.md](../api-reference.md) under the `VaultRole` section now has a prominent admonition listing the supported (`auth/kubernetes/*`, `auth/jwt/*`) and unsupported (AWS/GCP/AppRole/OIDC/LDAP) backends, with a link back to this finding for the roadmap.
+>
+> **Item 2 — admission webhook rejection**: [internal/webhook/vaultrole_webhook.go](../../internal/webhook/vaultrole_webhook.go) gained `validateAuthPathSupported(authPath)` which rejects unsupported backends at admission time for both `VaultRole` and `VaultClusterRole`. Users get immediate `kubectl apply` feedback ("spec.authPath X targets an unsupported Vault auth backend...") instead of a silent accept → status-level ValidationError after the next reconcile.
+>
+> Accepts both forms that appear in user-facing docs and fixtures:
+>   - Full: `auth/kubernetes`, `auth/jwt`, `auth/kubernetes-prod`, `auth/jwt/gitlab`
+>   - Bare: `kubernetes`, `jwt` (shorthand seen in many examples)
+>
+> Rejects: `auth/aws`, `auth/gcp`, `auth/approle`, `auth/ldap`, bare `aws`/`gcp`/etc.
+>
+> **Tests**: `TestValidateAuthPathSupported` covers 14 cases across supported/unsupported forms + a dedicated check that the error message cites IMPROVEMENTS §7.
+>
+> **Not done — Item 3 (backend expansion)**: implementing AWS/GCP/OIDC/AppRole `buildRoleData` branches requires CRD additions (e.g., `spec.aws.boundIamPrincipalArns`, `spec.gcp.boundServiceAccounts`) and per-backend drift comparison. Sized as one Tier-5 PR per backend once product prioritization signals which is highest-value. JWT is already done.
+
+<details><summary>Original finding (kept for history)</summary>
 
 **Evidence:** [features/role/controller/handler.go:360-373](../../features/role/controller/handler.go:360):
 
@@ -293,6 +311,7 @@ But the operator **authenticates** to Vault via 8 methods (§6). There's an asym
 1. Document the restriction prominently in `docs/api-reference.md` (user-facing).
 2. Add webhook validation that rejects `authPath` not in the supported set with a clear message.
 3. Plan incremental backend support — start with AppRole roles, then JWT is already done, then cloud IAM.
+</details>
 
 ---
 
@@ -404,7 +423,19 @@ But the operator **authenticates** to Vault via 8 methods (§6). There's an asym
 
 ---
 
-## 🟡 12. Event bus typing uses closures instead of generics
+## ❌ 12. Event bus typing uses closures instead of generics — WITHDRAWN (current design is sound)
+
+> **Status**: Re-examined. The original finding's "silently swallow" concern does not match the actual code behavior.
+>
+> The event bus dispatches by `event.Type()` (a string returned by each event type), and `Subscribe[T]` captures the type assertion at subscribe time inside a closure wrapper. A publish of event type X retrieves handlers registered for X's `Type()` string — handlers subscribed to a different type are never invoked, regardless of generics vs closures. This is correct behavior, not a bug.
+>
+> The closure-captured type assertion `event.(T)` in `Subscribe[T]` is always safe because the handler is only invoked for events whose `.Type()` matches T's `.Type()` — a collision would be a programmer error (two distinct event types returning the same string) that generics couldn't prevent either.
+>
+> **What generics would actually buy**: compile-time guarantee that `Publish[T](event T)` is called with the right type. But our API already separates subscribe-by-type from publish-by-event-instance, and the current `event.Type()` key lookup achieves the same dispatch correctness at runtime cost measurable in nanoseconds. A rewrite would add abstraction without fixing a real bug.
+>
+> **Not done** (and rationale): the generic-registry refactor is deferred indefinitely. If a future change surfaces an actual dispatch correctness issue, reopen this finding with the specific scenario.
+
+<details><summary>Original finding (kept for history)</summary>
 
 **Evidence:** [shared/events/bus.go](../../shared/events/bus.go) — `Subscribe[T]` captures type assertion in a closure, stores `func(ctx, Event) error`, performs runtime type assertion on publish. This was idiomatic before Go 1.18.
 
@@ -417,6 +448,7 @@ type handlerRegistry[T Event] struct {
 }
 ```
 Catches mismatches at compile time.
+</details>
 
 ---
 
@@ -457,7 +489,13 @@ func Check[A any](ctx, vc, a A, checker Checker[A]) error { ... }
 
 ---
 
-## 🟡 14. `VaultPolicy` HCL skip uses raw annotation string
+## ✅ 14. `VaultPolicy` HCL skip uses raw annotation string — RESOLVED (via §4)
+
+> **Status**: Fixed as a side-effect of §4. The `AnnotationDiscoveryPending` constant was added to [api/v1alpha1/common_types.go](../../api/v1alpha1/common_types.go:470) in the same commit that introduced the discovery-pending guard, and the ops.go skip-check now references the constant (see [features/policy/controller/ops.go:116](../../features/policy/controller/ops.go:116)).
+>
+> Also fixes the same pattern in `features/role/controller/ops.go` (the skip guard there was added at the same time and uses the constant).
+
+<details><summary>Original finding (kept for history)</summary>
 
 **Evidence:** [features/policy/controller/ops.go:108](../../features/policy/controller/ops.go:108):
 
@@ -468,6 +506,7 @@ if annotations["vault.platform.io/discovery-pending"] == "true" {
 Other annotation keys use constants from `api/v1alpha1` (e.g., `AnnotationAdopt`, `AnnotationDiscovered`). Only this one is a raw string.
 
 **Fix:** Add `AnnotationDiscoveryPending = "vault.platform.io/discovery-pending"` to [common_types.go](../../api/v1alpha1/common_types.go) and reference it here + in the discovery auto-create (§4).
+</details>
 
 ---
 
@@ -814,13 +853,20 @@ Recommendation: option 2. Gives the bus at least one subscriber and delivers a u
 
 ---
 
-## 🟡 28. `AnnotationDiscovered` value doc/code drift (self-reported)
+## ✅ 28. `AnnotationDiscovered` value doc/code drift (self-reported) — RESOLVED
+
+> **Status**: Fixed. Two lingering stale references in [FLOW_DISCOVERY.md](FLOW_DISCOVERY.md) at lines 156 and 179 used the bare `vault.platform.io/discovered` (the pre-rename value). Both are now corrected to `vault.platform.io/discovered-at` matching the actual `AnnotationDiscovered` constant at [common_types.go:459](../../api/v1alpha1/common_types.go:459).
+>
+> **Doc linter in CI** (the original fix recommendation): deferred. A simple grep-and-compare check would catch future drift but adds CI complexity; punted to a separate follow-up since the current review caught all the known instances.
+
+<details><summary>Original finding (kept for history)</summary>
 
 **Evidence:** `PROJECT_OVERVIEW.md` (before this update) annotations table showed `vault.platform.io/discovered=<RFC3339>`; actual constant at [common_types.go:447](../../api/v1alpha1/common_types.go:447) is `AnnotationDiscovered = "vault.platform.io/discovered-at"`. Fixed inline while generating the contributor docs.
 
 **Impact:** A reader copying from the table would look for the wrong annotation name.
 
 **Fix:** Add a doc linter to CI — grep `docs/internal/` for literal `vault.platform.io/...` and diff against the constants block. Catches future drift automatically.
+</details>
 
 ---
 
@@ -847,7 +893,23 @@ Recommendation: option 2. Gives the bus at least one subscriber and delivers a u
 
 ---
 
-## 🟡 30. Raw-string annotations lack constants (generalizes §14)
+## ✅ 30. Raw-string annotations lack constants (generalizes §14) — RESOLVED (via §4)
+
+> **Status**: Fixed. Both annotations named in this finding (`vault.platform.io/discovery-pending` and `vault.platform.io/discovered-from`) now have typed constants in [common_types.go](../../api/v1alpha1/common_types.go:463):
+>
+> ```go
+> AnnotationDiscoveryPending = "vault.platform.io/discovery-pending"
+> AnnotationDiscoveredFrom   = "vault.platform.io/discovered-from"
+> ```
+>
+> Replaced raw strings at all call sites:
+> - [features/policy/controller/ops.go:116, 130](../../features/policy/controller/ops.go:116) (WriteToVault + ReadbackVerify skip guards)
+> - [features/role/controller/ops.go:141, 154](../../features/role/controller/ops.go:141)
+> - [features/discovery/controller/controller.go:249, 292](../../features/discovery/controller/controller.go:249) (auto-create annotations)
+>
+> Renaming is now a rename-of-one-constant + go build, not a grep across the tree.
+
+<details><summary>Original finding (kept for history)</summary>
 
 **Evidence:**
 - `vault.platform.io/discovery-pending` at [policy/controller/ops.go:108](../../features/policy/controller/ops.go:108) and [discovery/controller/controller.go:216](../../features/discovery/controller/controller.go:216) — raw strings on both sides.
@@ -863,6 +925,7 @@ AnnotationDiscoveryPending = "vault.platform.io/discovery-pending"
 AnnotationDiscoveredFrom   = "vault.platform.io/discovered-from"
 ```
 Replace raw strings with constants.
+</details>
 
 ---
 

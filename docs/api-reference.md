@@ -403,6 +403,9 @@ Manages namespace-scoped Kubernetes authentication roles in Vault.
 - **Short Name:** `vr`
 - **Vault Role Name Format:** `{namespace}-{name}`
 
+!!! warning "Supported auth backends"
+    `VaultRole` currently writes role data to **Kubernetes auth** (`auth/kubernetes/*`) and **JWT auth** (`auth/jwt/*`) mounts only. Mounts of other backends (AWS IAM, GCP IAM, AppRole, OIDC, LDAP, etc.) are rejected by the admission webhook with a clear error — even though the operator itself can still *authenticate* to Vault via those methods (see [VaultConnection](#vaultconnection)). Tracked as [IMPROVEMENTS.md §7](internal/IMPROVEMENTS.md#7-role-backend-coverage-gap).
+
 ### Example
 
 ```yaml

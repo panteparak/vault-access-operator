@@ -153,7 +153,7 @@ metadata:
   namespace: <spec.discovery.targetNamespace>
   annotations:
     vault.platform.io/adopt: "true"
-    vault.platform.io/discovered: <RFC3339>
+    vault.platform.io/discovered-at: <RFC3339>
     vault.platform.io/discovered-from: <connectionName>
     vault.platform.io/discovery-pending: "true"   # prevents placeholder write
 spec:
@@ -176,7 +176,7 @@ metadata:
   namespace: <spec.discovery.targetNamespace>
   annotations:
     vault.platform.io/adopt: "true"
-    vault.platform.io/discovered: <RFC3339>
+    vault.platform.io/discovered-at: <RFC3339>
     vault.platform.io/discovered-from: <connectionName>
 spec:
   connectionRef: <connectionName>

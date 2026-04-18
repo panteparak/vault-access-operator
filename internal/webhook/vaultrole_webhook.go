@@ -148,6 +148,17 @@ func (v *VaultRoleValidator) validate(role *vaultv1alpha1.VaultRole) (admission.
 		errs = append(errs, jwtErrs...)
 	}
 
+	// IMPROVEMENTS §7: reject authPath values that target a Vault auth
+	// backend the operator doesn't yet implement at the *role-write* level.
+	// Operators can still authenticate *themselves* via AWS/GCP/OIDC/AppRole
+	// (see VaultConnection.spec.auth), but the VaultRole CR can only write
+	// role data to `auth/kubernetes/*` or `auth/jwt/*` mounts for now.
+	// Catching this at admission time is clearer than waiting for the
+	// reconcile-time ValidationError to surface in status.
+	if authErr := validateAuthPathSupported(role.Spec.AuthPath); authErr != "" {
+		errs = append(errs, authErr)
+	}
+
 	if len(errs) > 0 {
 		return nil, fmt.Errorf("validation failed: %s", strings.Join(errs, "; "))
 	}
@@ -293,11 +304,62 @@ func (v *VaultClusterRoleValidator) validate(role *vaultv1alpha1.VaultClusterRol
 		errs = append(errs, jwtErrs...)
 	}
 
+	// IMPROVEMENTS §7: reject authPath values that target a Vault auth
+	// backend the operator doesn't yet implement at the *role-write* level.
+	// Operators can still authenticate *themselves* via AWS/GCP/OIDC/AppRole
+	// (see VaultConnection.spec.auth), but the VaultRole CR can only write
+	// role data to `auth/kubernetes/*` or `auth/jwt/*` mounts for now.
+	// Catching this at admission time is clearer than waiting for the
+	// reconcile-time ValidationError to surface in status.
+	if authErr := validateAuthPathSupported(role.Spec.AuthPath); authErr != "" {
+		errs = append(errs, authErr)
+	}
+
 	if len(errs) > 0 {
 		return nil, fmt.Errorf("validation failed: %s", strings.Join(errs, "; "))
 	}
 
 	return nil, nil
+}
+
+// validateAuthPathSupported returns a non-empty error string if the given
+// authPath does not resolve to a backend the role handler can write to.
+// Empty/default authPath is fine (it resolves to the Kubernetes default).
+//
+// Accepts both the full Vault mount form (`auth/kubernetes`, `auth/jwt`)
+// and the bare short form (`kubernetes`, `jwt`) — both appear in our
+// user-facing docs and existing CRDs. Anything else (aws, gcp, approle,
+// ldap, etc.) is rejected with a reference to the §7 coverage roadmap.
+//
+// Introduced for IMPROVEMENTS §7: previously this validation lived only at
+// reconcile time (handler.go's backend switch returned ValidationError),
+// which meant an unsupported authPath could be accepted into etcd and only
+// surface in status after reconcile. Admission-time rejection gives the
+// user immediate feedback.
+func validateAuthPathSupported(authPath string) string {
+	// Empty is the default — resolves to Kubernetes at sync time.
+	if authPath == "" {
+		return ""
+	}
+	// Accept both full (`auth/kubernetes`) and bare (`kubernetes`) forms.
+	// Strip the `auth/` prefix if present, then test against the known
+	// backend prefix set. This mirrors how AuthBackendForPath recognises
+	// submounts like `auth/kubernetes-prod`.
+	stripped := strings.TrimPrefix(authPath, "auth/")
+	stripped = strings.TrimRight(stripped, "/")
+	if stripped == "" {
+		return ""
+	}
+	seg, _, _ := strings.Cut(stripped, "/")
+	if strings.HasPrefix(seg, "kubernetes") || strings.HasPrefix(seg, "jwt") {
+		return ""
+	}
+	return fmt.Sprintf(
+		"spec.authPath %q targets an unsupported Vault auth backend "+
+			"(only auth/kubernetes/* and auth/jwt/* are implemented for role writes). "+
+			"See IMPROVEMENTS.md §7 for the backend coverage roadmap",
+		authPath,
+	)
 }
 
 // validateJWTSpec enforces constraints on the optional spec.jwt sub-object
