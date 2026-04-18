@@ -884,10 +884,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#6-auth-dispatch-chain-vs-strategy-map" class="md-nav__link">
+  <a href="#6-auth-dispatch-chain-vs-strategy-map-resolved" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🟠 6. Auth dispatch chain vs strategy map
+        ✅ 6. Auth dispatch chain vs strategy map — RESOLVED
       
     </span>
   </a>
@@ -1643,13 +1643,25 @@ Plus: emit per-discovered-resource **K8s events** (already done for the aggregat
 </details>
 
 <hr />
-<h2 id="6-auth-dispatch-chain-vs-strategy-map">🟠 6. Auth dispatch chain vs strategy map<a class="headerlink" href="#6-auth-dispatch-chain-vs-strategy-map" title="Permanent link">&para;</a></h2>
-<p><strong>Evidence:</strong> <a href="../../features/connection/controller/handler.go:704">features/connection/controller/handler.go:704-802</a> — 100 lines of <code>if authCfg.X != nil</code> chained branches for 7 auth methods. Each branch has parallel structure: read config → get token-like input → call <code>vault.Client.Authenticate*</code>.</p>
-<p><strong>Impact:</strong>
+<h2 id="6-auth-dispatch-chain-vs-strategy-map-resolved">✅ 6. Auth dispatch chain vs strategy map — RESOLVED<a class="headerlink" href="#6-auth-dispatch-chain-vs-strategy-map-resolved" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p><strong>Status</strong>: Fixed. The 7-branch <code>if != nil</code> chain in <code>connection.Handler.authenticate</code> is now a table-driven dispatch: <code>authStrategies []authStrategy</code> with <code>{name, match, run}</code> tuples. Adding a 9th auth method is a one-line append instead of a new branch.</p>
+<p><strong>Tests</strong>: <code>auth_strategies_test.go</code>:
+- <code>TestAuthStrategiesCoverAllConfiguredMethods</code> — guard test that fails if a new <code>AuthConfig</code> field is added without a matching strategy entry (previously, the old chain had no such guard).
+- <code>TestAuthStrategiesMatchersAreExclusive</code> — ensures the matchers don't overlap so exactly one strategy fires per well-formed config.</p>
+<p>Existing connection unit + integration tests exercise the end-to-end auth flow and all pass unchanged.</p>
+</blockquote>
+<details><summary>Original finding (kept for history)</summary>
+
+
+**Evidence:** [features/connection/controller/handler.go:704-802](../../features/connection/controller/handler.go:704) — 100 lines of `if authCfg.X != nil` chained branches for 7 auth methods. Each branch has parallel structure: read config → get token-like input → call `vault.Client.Authenticate*`.
+
+**Impact:**
 - Adding a 9th auth method (e.g., Azure AD, Kerberos) touches this file, the spec, and the client wrapper — no central registration point.
 - Webhooks would need equally duplicated validation.
-- Harder to test — each branch must be exercised via full handler wiring.</p>
-<p><strong>Fix:</strong>
+- Harder to test — each branch must be exercised via full handler wiring.
+
+**Fix:**
 <div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="kd">type</span><span class="w"> </span><span class="nx">authenticator</span><span class="w"> </span><span class="kd">interface</span><span class="w"> </span><span class="p">{</span>
 <a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="w">    </span><span class="nx">AuthenticateVault</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">,</span><span class="w"> </span><span class="nx">h</span><span class="w"> </span><span class="o">*</span><span class="nx">Handler</span><span class="p">,</span><span class="w"> </span><span class="nx">vc</span><span class="w"> </span><span class="o">*</span><span class="nx">vault</span><span class="p">.</span><span class="nx">Client</span><span class="p">,</span><span class="w"> </span><span class="nx">conn</span><span class="w"> </span><span class="o">*</span><span class="nx">VaultConnection</span><span class="p">)</span><span class="w"> </span><span class="kt">error</span>
 <a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="p">}</span>
@@ -1659,8 +1671,11 @@ Plus: emit per-discovered-resource **K8s events** (already done for the aggregat
 <a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a><span class="w">    </span><span class="p">{</span><span class="s">&quot;jwt&quot;</span><span class="p">,</span><span class="w"> </span><span class="kd">func</span><span class="p">(</span><span class="nx">a</span><span class="w"> </span><span class="o">*</span><span class="nx">AuthConfig</span><span class="p">)</span><span class="w"> </span><span class="kt">bool</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="nx">a</span><span class="p">.</span><span class="nx">JWT</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">},</span><span class="w"> </span><span class="nx">jwtAuth</span><span class="p">{}},</span>
 <a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a><span class="w">    </span><span class="o">...</span>
 <a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a><span class="p">}</span>
-</code></pre></div></p>
-<p>Keeps each method self-contained, testable in isolation, registration-driven.</p>
+</code></pre></div>
+
+Keeps each method self-contained, testable in isolation, registration-driven.
+</details>
+
 <hr />
 <h2 id="7-role-backend-coverage-gap">🟠 7. Role backend coverage gap<a class="headerlink" href="#7-role-backend-coverage-gap" title="Permanent link">&para;</a></h2>
 <p><strong>Evidence:</strong> <a href="../../features/role/controller/handler.go:360">features/role/controller/handler.go:360-373</a>:</p>
