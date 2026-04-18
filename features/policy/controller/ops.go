@@ -65,6 +65,10 @@ func (o *PolicyOps) VaultResourceName() string {
 	return o.adapter.GetVaultPolicyName()
 }
 
+// AuthPath returns the empty string — policies don't live under a Vault auth
+// mount. Part of the workflow.ResourceOps interface for cleanup-queue wiring.
+func (o *PolicyOps) AuthPath() string { return "" }
+
 // Validate checks namespace boundary enforcement for namespaced policies.
 func (o *PolicyOps) Validate() error {
 	if o.adapter.IsEnforceNamespaceBoundary() {

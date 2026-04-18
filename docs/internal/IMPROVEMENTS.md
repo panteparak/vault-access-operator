@@ -13,7 +13,16 @@
 
 ---
 
-## 🔴 1. Unwired controllers (cleanup + orphan + token lifecycle + reviewer rotation)
+## ✅ 1. Unwired controllers — **cleanup + orphan RESOLVED** (token lifecycle/reviewer deferred)
+
+> **Status**: Partially fixed in `feat(cleanup): wire cleanup + orphan controllers` (commit pending on this branch). The cleanup and orphan controllers are now registered with the manager via `mgr.Add()` at [cmd/main.go](../../cmd/main.go:297-324). Both are leader-gated so only one replica drains the ConfigMap-backed retry queue.
+>
+> **Still pending**: the token lifecycle controller and reviewer rotator ([pkg/vault/token/lifecycle_controller.go](../../pkg/vault/token/lifecycle_controller.go), [reviewer_controller.go](../../pkg/vault/token/reviewer_controller.go)) don't yet implement `NeedsLeaderElection()` and require deeper integration with `connection.Config` so the handler can `Register`/`Unregister` them. Tracked as a follow-up in the next tier.
+>
+> **Tests**: integration tests `INT-CLEAN01/02/03` in `test/integration/cleanup/controller_wired_test.go` — all 3 passing against envtest + real Vault container (9.4s).
+
+<details><summary>Original finding (kept for history)</summary>
+
 
 **Evidence:**
 - [pkg/cleanup/controller.go:92](../../pkg/cleanup/controller.go:92) — complete `Start(ctx)` with leader-election gate
@@ -48,10 +57,20 @@ if err := mgr.Add(orphanCtrl); err != nil { ... }
 ```
 
 Plus register lifecycle + reviewer controllers similarly and pass them into `connection.Config` so the handler has something real to `Register` against.
+</details>
 
 ---
 
-## 🔴 2. Silent cleanup failures leak Vault resources
+## ✅ 2. Silent cleanup failures leak Vault resources — RESOLVED
+
+> **Status**: Fixed. The `CleanupWorkflow` now enqueues a retry item when Vault is unreachable or returns a non-404 error, and treats 404 as success. The cleanup.Controller (wired via §1) drains the queue.
+>
+> **Test coverage**: 5 new unit tests in `shared/controller/workflow/cleanup_enqueue_test.go` cover: unreachable → enqueue, 404 → no enqueue, 500 → enqueue, nil queue backward-compat, and queue-write failure does not block finalizer removal. Plus the integration + e2e above.
+>
+> **Also fixed (latent)**: `pkg/cleanup/queue.go` Enqueue had a `cm.Data == nil` panic path when a fresh ConfigMap round-tripped through the real API server. Added a defensive initialization.
+
+<details><summary>Original finding (kept for history)</summary>
+
 
 **Evidence:** [shared/controller/workflow/cleanup.go:90-93](../../shared/controller/workflow/cleanup.go:90):
 
@@ -84,10 +103,18 @@ if err := ops.DeleteFromVault(ctx, vaultClient); err != nil {
    ```
 3. Consider gating finalizer removal on successful enqueue — if even the queue write fails, keep the finalizer and let the next reconcile retry.
 4. Treat Vault 404 (resource already gone) as success, not error.
+</details>
 
 ---
 
-## 🔴 3. Cleanup controller typing mismatch
+## ✅ 3. Cleanup controller typing mismatch — RESOLVED
+
+> **Status**: Fixed. [pkg/cleanup/adapter.go](../../pkg/cleanup/adapter.go) exposes `NewClientCacheAdapter` to bridge `*vault.ClientCache` → `cleanup.ClientCache` interface. Used by the §1 wiring in `cmd/main.go`.
+>
+> **Test**: `pkg/cleanup/adapter_test.go` pins the interface satisfaction at compile time and the round-trip at runtime.
+
+<details><summary>Original finding (kept for history)</summary>
+
 
 **Evidence:** [pkg/cleanup/controller.go:36-44](../../pkg/cleanup/controller.go:36):
 
@@ -116,6 +143,7 @@ func (c cacheAdapter) Get(name string) (cleanup.VaultClient, error) {
 **Fix:** Either
 - Add a thin adapter wrapper in `pkg/cleanup` that takes `*vault.ClientCache` directly, or
 - Change the cleanup types to depend on `*vault.Client` concretely (the abstraction isn't buying anything — there's only one implementation).
+</details>
 
 ---
 

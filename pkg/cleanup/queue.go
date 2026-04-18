@@ -136,6 +136,13 @@ func (q *Queue) Enqueue(ctx context.Context, item Item) error {
 		return fmt.Errorf("failed to serialize queue: %w", err)
 	}
 
+	// Defensive: ConfigMap.Data can be nil after a round-trip through the
+	// real API server (envtest, production k8s) even when created with an
+	// empty non-nil map. Fake clients gloss over this. Initialize here so
+	// the assignment below doesn't panic with "assignment to entry in nil map".
+	if cm.Data == nil {
+		cm.Data = map[string]string{}
+	}
 	cm.Data[QueueDataKey] = string(data)
 	if err := q.client.Update(ctx, cm); err != nil {
 		return fmt.Errorf("failed to update cleanup queue configmap: %w", err)

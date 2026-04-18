@@ -73,6 +73,17 @@ func NewHandler(
 	return h
 }
 
+// SetCleanupQueue replaces the handler's CleanupWorkflow with one that
+// persists failed Vault deletes to the retry queue (IMPROVEMENTS §2).
+// Expected to be called from cmd/main.go after NewHandler (and before
+// SetupWithManager) — passing nil restores the no-queue workflow. The
+// underlying cleanup.Controller drains the queue when a leader is elected.
+func (h *Handler) SetCleanupQueue(q workflow.CleanupQueuer) {
+	h.cleanupWorkflow = workflow.NewCleanupWorkflowWithQueue(
+		h.client, h.clientCache.Get, h.eventBus, q, h.log,
+	)
+}
+
 // SyncPolicy synchronizes a policy to Vault.
 func (h *Handler) SyncPolicy(ctx context.Context, adapter domain.PolicyAdapter) error {
 	ops := NewPolicyOps(adapter, h)

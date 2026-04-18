@@ -31,6 +31,7 @@ import (
 
 	"github.com/panteparak/vault-access-operator/features/role/controller"
 	"github.com/panteparak/vault-access-operator/pkg/vault"
+	"github.com/panteparak/vault-access-operator/shared/controller/workflow"
 	"github.com/panteparak/vault-access-operator/shared/events"
 )
 
@@ -91,6 +92,15 @@ func New(
 		eventBus:              eventBus,
 		log:                   featureLog,
 	}
+}
+
+// WithCleanupQueue enables the IMPROVEMENTS §2 retry behavior: failed Vault
+// deletes during reconcile cleanup are persisted to the given queue instead
+// of being silently dropped. Call before SetupWithManager. Returns the
+// Feature for fluent chaining.
+func (f *Feature) WithCleanupQueue(q workflow.CleanupQueuer) *Feature {
+	f.handler.SetCleanupQueue(q)
+	return f
 }
 
 // SetupWithManager registers the Role feature's controllers with the manager.

@@ -68,6 +68,11 @@ func (o *RoleOps) VaultResourceName() string {
 	return o.adapter.GetVaultRoleName()
 }
 
+// AuthPath returns the Vault auth mount that owns this role. Consumed by the
+// cleanup retry queue so a failed delete can be replayed against the correct
+// mount — see IMPROVEMENTS §2.
+func (o *RoleOps) AuthPath() string { return o.authPath }
+
 // Validate performs no pre-sync validation for roles.
 func (o *RoleOps) Validate() error {
 	return nil

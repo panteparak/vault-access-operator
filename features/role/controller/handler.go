@@ -79,6 +79,15 @@ func NewHandler(
 	return h
 }
 
+// SetCleanupQueue replaces the handler's CleanupWorkflow with one that
+// persists failed Vault deletes to the retry queue (IMPROVEMENTS §2).
+// See policy.Handler.SetCleanupQueue for rationale.
+func (h *Handler) SetCleanupQueue(q workflow.CleanupQueuer) {
+	h.cleanupWorkflow = workflow.NewCleanupWorkflowWithQueue(
+		h.client, h.clientCache.Get, h.eventBus, q, h.log,
+	)
+}
+
 // SyncRole synchronizes a role to Vault.
 func (h *Handler) SyncRole(ctx context.Context, adapter domain.RoleAdapter) error {
 	ops := NewRoleOps(adapter, h)

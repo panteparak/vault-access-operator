@@ -21,6 +21,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"strings"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -44,6 +45,8 @@ import (
 	"github.com/panteparak/vault-access-operator/features/policy"
 	"github.com/panteparak/vault-access-operator/features/role"
 	vaultwebhook "github.com/panteparak/vault-access-operator/internal/webhook"
+	"github.com/panteparak/vault-access-operator/pkg/cleanup"
+	"github.com/panteparak/vault-access-operator/pkg/orphan"
 	"github.com/panteparak/vault-access-operator/shared/events"
 	// +kubebuilder:scaffold:imports
 )
@@ -293,6 +296,46 @@ func main() {
 	}
 	setupLog.Info("Setup Discovery feature")
 
+	// Register the cleanup retry controller (IMPROVEMENTS §1). It drains items
+	// that CleanupWorkflow enqueues when a Vault delete fails at finalizer time;
+	// this prevents the silent-resource-leak bug tracked in IMPROVEMENTS §2.
+	// The controller is leader-gated (NeedsLeaderElection=true) so only one
+	// replica writes to the queue ConfigMap.
+	operatorNamespace := resolveOperatorNamespace()
+	cleanupQueue := cleanup.NewQueue(mgr.GetClient(), operatorNamespace)
+	cleanupCtrl := cleanup.NewController(cleanup.ControllerConfig{
+		Queue:       cleanupQueue,
+		ClientCache: cleanup.NewClientCacheAdapter(connFeature.ClientCache),
+		Log:         setupLog.WithName("cleanup"),
+	})
+	if err := mgr.Add(cleanupCtrl); err != nil {
+		setupLog.Error(err, "unable to register cleanup controller with manager")
+		os.Exit(1)
+	}
+	setupLog.Info("Registered cleanup controller (leader-gated)")
+
+	// Wire the queue into policy + role cleanup workflows so failed Vault
+	// deletes enqueue for retry instead of leaking (IMPROVEMENTS §2). Must run
+	// before SetupWithManager (already called above) — the handler setter
+	// only mutates the pre-configured CleanupWorkflow, not an in-flight one,
+	// and controllers haven't started yet because mgr.Start hasn't been called.
+	policyFeature.WithCleanupQueue(cleanupQueue)
+	roleFeature.WithCleanupQueue(cleanupQueue)
+
+	// Register the orphan detection controller (IMPROVEMENTS §1). It periodically
+	// scans Vault for resources carrying a managed-marker whose K8s owner is gone
+	// and emits metrics. Leader-gated for the same reasons as cleanup.
+	orphanCtrl := orphan.NewController(orphan.ControllerConfig{
+		K8sClient:   mgr.GetClient(),
+		ClientCache: connFeature.ClientCache,
+		Log:         setupLog.WithName("orphan"),
+	})
+	if err := mgr.Add(orphanCtrl); err != nil {
+		setupLog.Error(err, "unable to register orphan controller with manager")
+		os.Exit(1)
+	}
+	setupLog.Info("Registered orphan detection controller (leader-gated)")
+
 	// Setup webhooks only if enabled
 	if enableWebhooks {
 		if err := vaultwebhook.SetupVaultPolicyWebhookWithManager(mgr); err != nil {
@@ -344,4 +387,20 @@ func main() {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
+}
+
+// resolveOperatorNamespace returns the operator's own namespace. Tries the
+// OPERATOR_NAMESPACE env var first (Helm chart wires this via downward API),
+// then the in-cluster service-account namespace file, then falls back to
+// the chart's default namespace. Kept local to main.go — the same logic
+// exists in features/connection/controller/handler.go but is unexported there,
+// and duplicating six lines beats exposing internals.
+func resolveOperatorNamespace() string {
+	if ns := os.Getenv("OPERATOR_NAMESPACE"); ns != "" {
+		return ns
+	}
+	if data, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace"); err == nil {
+		return strings.TrimSpace(string(data))
+	}
+	return "vault-access-operator-system"
 }
