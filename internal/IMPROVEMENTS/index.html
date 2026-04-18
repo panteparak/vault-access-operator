@@ -1127,10 +1127,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#a-no-per-namespace-operator-mode" class="md-nav__link">
+  <a href="#a-watch-namespaces-flag-resolved" class="md-nav__link">
     <span class="md-ellipsis">
       
-        A. No per-namespace operator mode
+        ✅ A. --watch-namespaces flag — RESOLVED
       
     </span>
   </a>
@@ -1138,10 +1138,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#b-no-policybinding-reverse-index" class="md-nav__link">
+  <a href="#b-no-policybinding-reverse-index-still-missing" class="md-nav__link">
     <span class="md-ellipsis">
       
-        B. No PolicyBinding reverse-index
+        B. No PolicyBinding reverse-index (still missing)
       
     </span>
   </a>
@@ -1149,10 +1149,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#c-no-sealed-init-auto-recovery-hook" class="md-nav__link">
+  <a href="#c-no-sealed-init-auto-recovery-hook-still-missing" class="md-nav__link">
     <span class="md-ellipsis">
       
-        C. No sealed / init auto-recovery hook
+        C. No sealed / init auto-recovery hook (still missing)
       
     </span>
   </a>
@@ -1160,10 +1160,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#d-no-multi-cluster-support" class="md-nav__link">
+  <a href="#d-no-multi-cluster-support-out-of-scope" class="md-nav__link">
     <span class="md-ellipsis">
       
-        D. No multi-cluster support
+        D. No multi-cluster support (out of scope)
       
     </span>
   </a>
@@ -1171,10 +1171,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#e-no-policy-templating" class="md-nav__link">
+  <a href="#e-no-policy-templating-still-missing" class="md-nav__link">
     <span class="md-ellipsis">
       
-        E. No policy templating
+        E. No policy templating (still missing)
       
     </span>
   </a>
@@ -1182,10 +1182,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#f-no-vaultconnection-statusready-condition-hook-for-dependent-crs" class="md-nav__link">
+  <a href="#f-ready-condition-predicate-for-dependent-crs-resolved" class="md-nav__link">
     <span class="md-ellipsis">
       
-        F. No VaultConnection status.ready condition hook for dependent CRs
+        ✅ F. Ready condition predicate for dependent CRs — RESOLVED
       
     </span>
   </a>
@@ -1193,10 +1193,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#g-no-backuprestore-story-for-managed-markers" class="md-nav__link">
+  <a href="#g-no-backuprestore-story-for-managed-markers-still-missing" class="md-nav__link">
     <span class="md-ellipsis">
       
-        G. No backup/restore story for managed-markers
+        G. No backup/restore story for managed-markers (still missing)
       
     </span>
   </a>
@@ -1204,10 +1204,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#h-no-reconcile-now-trigger" class="md-nav__link">
+  <a href="#h-reconcile-now-annotation-trigger-resolved" class="md-nav__link">
     <span class="md-ellipsis">
       
-        H. No reconcile-now trigger
+        ✅ H. reconcile-now annotation trigger — RESOLVED
       
     </span>
   </a>
@@ -1215,10 +1215,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#i-no-dry-run-plan-mode" class="md-nav__link">
+  <a href="#i-no-dry-run-plan-mode-still-missing" class="md-nav__link">
     <span class="md-ellipsis">
       
-        I. No dry-run / plan mode
+        I. No dry-run / plan mode (still missing)
       
     </span>
   </a>
@@ -1226,10 +1226,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#j-no-standardized-policybinding-resolution-event" class="md-nav__link">
+  <a href="#j-policyresolved-event-resolved" class="md-nav__link">
     <span class="md-ellipsis">
       
-        J. No standardized PolicyBinding resolution event
+        ✅ J. PolicyResolved event — RESOLVED
       
     </span>
   </a>
@@ -1237,10 +1237,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#k-metrics-no-latency-histograms" class="md-nav__link">
+  <a href="#k-reconcile-duration-histogram-resolved" class="md-nav__link">
     <span class="md-ellipsis">
       
-        K. Metrics: no latency histograms
+        ✅ K. Reconcile duration histogram — RESOLVED
       
     </span>
   </a>
@@ -2128,28 +2128,33 @@ A global package var mutated during init based on env. Works, but test isolation
 
 <hr />
 <h2 id="missing-features-not-disconnects-but-absent">Missing Features (not disconnects, but absent)<a class="headerlink" href="#missing-features-not-disconnects-but-absent" title="Permanent link">&para;</a></h2>
-<h3 id="a-no-per-namespace-operator-mode">A. No per-namespace operator mode<a class="headerlink" href="#a-no-per-namespace-operator-mode" title="Permanent link">&para;</a></h3>
-<p>Current operator watches all namespaces. Large multi-tenant clusters may want <code>--namespace=X</code> filtering. <code>controller-runtime</code> supports this via <code>Cache.Options{DefaultNamespaces: ...}</code> but no flag is exposed.</p>
-<h3 id="b-no-policybinding-reverse-index">B. No PolicyBinding reverse-index<a class="headerlink" href="#b-no-policybinding-reverse-index" title="Permanent link">&para;</a></h3>
-<p><code>VaultRole.Status.PolicyBindings</code> tracks role→policy. Nothing tracks policy→role. Useful for debugging "who uses this policy?" via <code>kubectl describe vaultpolicy X</code>.</p>
-<h3 id="c-no-sealed-init-auto-recovery-hook">C. No sealed / init auto-recovery hook<a class="headerlink" href="#c-no-sealed-init-auto-recovery-hook" title="Permanent link">&para;</a></h3>
-<p>When Vault is sealed, the operator marks <code>Phase=Error</code> and backs off. After unseal, it recovers on the next reconcile (30s). No event-driven notification (Vault has a sealed-state API but the operator doesn't subscribe).</p>
-<h3 id="d-no-multi-cluster-support">D. No multi-cluster support<a class="headerlink" href="#d-no-multi-cluster-support" title="Permanent link">&para;</a></h3>
-<p>One operator = one cluster's worth of CRs. Multi-cluster setups need multiple operator deployments, each with its own set of CRs. No leader-across-clusters story.</p>
-<h3 id="e-no-policy-templating">E. No policy templating<a class="headerlink" href="#e-no-policy-templating" title="Permanent link">&para;</a></h3>
-<p>Beyond <code>{{namespace}}</code> and <code>{{name}}</code> in paths, there's no way to template capabilities or rule structures. Larger orgs often want <code>templates/</code> with references. Out of scope or future work?</p>
-<h3 id="f-no-vaultconnection-statusready-condition-hook-for-dependent-crs">F. No VaultConnection status.ready condition hook for dependent CRs<a class="headerlink" href="#f-no-vaultconnection-statusready-condition-hook-for-dependent-crs" title="Permanent link">&para;</a></h3>
-<p>Policy/role rely on <code>VaultConnection.Status.Phase == Active</code> to proceed. A more k8s-idiomatic pattern would be a <code>Ready</code> condition, with <code>conditionalReady</code> predicate for dependent CRs. The <code>ConnectionPhaseChangedPredicate</code> half-does this.</p>
-<h3 id="g-no-backuprestore-story-for-managed-markers">G. No backup/restore story for managed-markers<a class="headerlink" href="#g-no-backuprestore-story-for-managed-markers" title="Permanent link">&para;</a></h3>
-<p>If the <code>secret/data/vault-access-operator/managed/</code> KV tree is accidentally deleted, all policies/roles look unmanaged and become conflict-blocked. No "rebuild from CRs" command.</p>
-<h3 id="h-no-reconcile-now-trigger">H. No <code>reconcile-now</code> trigger<a class="headerlink" href="#h-no-reconcile-now-trigger" title="Permanent link">&para;</a></h3>
-<p>Users wanting immediate re-sync must edit the spec (to bump generation) or delete a condition. No annotation-based force trigger.</p>
-<h3 id="i-no-dry-run-plan-mode">I. No dry-run / plan mode<a class="headerlink" href="#i-no-dry-run-plan-mode" title="Permanent link">&para;</a></h3>
-<p>Especially useful for drift correction: "show me what would change if I set <code>driftMode: correct</code>". Discovery auto-create would also benefit from dry-run.</p>
-<h3 id="j-no-standardized-policybinding-resolution-event">J. No standardized PolicyBinding resolution event<a class="headerlink" href="#j-no-standardized-policybinding-resolution-event" title="Permanent link">&para;</a></h3>
-<p>When a referenced policy becomes available after previously missing, no <code>PolicyResolved</code> event. Operators inspecting events see the "not found" but not the resolution.</p>
-<h3 id="k-metrics-no-latency-histograms">K. Metrics: no latency histograms<a class="headerlink" href="#k-metrics-no-latency-histograms" title="Permanent link">&para;</a></h3>
-<p>All metrics are gauges or counters. No <code>reconcile_duration_seconds</code> histogram. Hard to alert on slow Vault or slow syncs.</p>
+<h3 id="a-watch-namespaces-flag-resolved">✅ A. <code>--watch-namespaces</code> flag — RESOLVED<a class="headerlink" href="#a-watch-namespaces-flag-resolved" title="Permanent link">&para;</a></h3>
+<p>Fixed. <code>cmd/main.go</code> exposes <code>--watch-namespaces=ns1,ns2,ns3</code> which threads through <code>ctrl.Options.Cache.DefaultNamespaces</code>. Empty value (default) retains the all-namespaces behavior. Cluster-scoped CRDs continue to be watched regardless.</p>
+<h3 id="b-no-policybinding-reverse-index-still-missing">B. No PolicyBinding reverse-index (still missing)<a class="headerlink" href="#b-no-policybinding-reverse-index-still-missing" title="Permanent link">&para;</a></h3>
+<p><code>VaultRole.Status.PolicyBindings</code> tracks role→policy. Nothing tracks policy→role. Useful for debugging "who uses this policy?" via <code>kubectl describe vaultpolicy X</code>. <strong>Not done</strong>: requires new <code>VaultPolicy.Status.UsedByRoles []string</code> field + two-way index maintenance, which is a non-trivial schema change. Deferred.</p>
+<h3 id="c-no-sealed-init-auto-recovery-hook-still-missing">C. No sealed / init auto-recovery hook (still missing)<a class="headerlink" href="#c-no-sealed-init-auto-recovery-hook-still-missing" title="Permanent link">&para;</a></h3>
+<p>When Vault is sealed, the operator marks <code>Phase=Error</code> and backs off. After unseal, it recovers on the next reconcile (30s). No event-driven notification (Vault has a sealed-state API but the operator doesn't subscribe). <strong>Deferred</strong>: requires a long-lived goroutine per connection polling <code>sys/seal-status</code> at a faster cadence than the regular reconcile, which changes the operator's background-work model. Not done.</p>
+<h3 id="d-no-multi-cluster-support-out-of-scope">D. No multi-cluster support (out of scope)<a class="headerlink" href="#d-no-multi-cluster-support-out-of-scope" title="Permanent link">&para;</a></h3>
+<p>One operator = one cluster's worth of CRs. Multi-cluster setups need multiple operator deployments, each with its own set of CRs. Explicitly out of scope for the single-operator architecture.</p>
+<h3 id="e-no-policy-templating-still-missing">E. No policy templating (still missing)<a class="headerlink" href="#e-no-policy-templating-still-missing" title="Permanent link">&para;</a></h3>
+<p>Beyond <code>{{namespace}}</code> and <code>{{name}}</code> in paths, there's no way to template capabilities or rule structures. <strong>Deferred</strong>: likely a Helm-chart-level concern (generate the VaultPolicy CR with capabilities rendered via Helm values), not an operator concern.</p>
+<h3 id="f-ready-condition-predicate-for-dependent-crs-resolved">✅ F. <code>Ready</code> condition predicate for dependent CRs — RESOLVED<a class="headerlink" href="#f-ready-condition-predicate-for-dependent-crs-resolved" title="Permanent link">&para;</a></h3>
+<p>Fixed. <code>VaultConnection.Status.Conditions[Ready]</code> already existed; added <code>shared/controller/watches/ConnectionReadyChangedPredicate</code> which fires strictly on Ready True↔False transitions (vs. the broader <code>ConnectionPhaseChangedPredicate</code> that also fires on intermediate phase hops). Dependent CRs can now wire the stricter predicate if they want to react only to usability changes. The existing <code>ConnectionPhaseChangedPredicate</code> remains the default for today's consumers — no behavior change without opt-in.</p>
+<h3 id="g-no-backuprestore-story-for-managed-markers-still-missing">G. No backup/restore story for managed-markers (still missing)<a class="headerlink" href="#g-no-backuprestore-story-for-managed-markers-still-missing" title="Permanent link">&para;</a></h3>
+<p>If the <code>secret/data/vault-access-operator/managed/</code> KV tree is accidentally deleted, all policies/roles look unmanaged and become conflict-blocked. <strong>Deferred</strong>: would be its own CLI tool (<code>vault-access-operator rebuild-markers</code>) rather than an operator feature.</p>
+<h3 id="h-reconcile-now-annotation-trigger-resolved">✅ H. <code>reconcile-now</code> annotation trigger — RESOLVED<a class="headerlink" href="#h-reconcile-now-annotation-trigger-resolved" title="Permanent link">&para;</a></h3>
+<p>Fixed. New <code>vault.platform.io/reconcile-now</code> annotation (constant at <a href="../../api/v1alpha1/common_types.go:486">common_types.go:486</a>) + <code>ReconcileNowAnnotationPredicate</code> in the watches package. Wired into Policy/ClusterPolicy/Role/ClusterRole reconcilers via <code>predicate.Or(GenerationChangedPredicate, ReconcileNowAnnotationPredicate)</code>. <code>BaseReconciler.Reconcile</code> auto-clears the annotation via <code>client.RawPatch(MergePatchType, ...)</code> after a successful sync so the predicate is one-shot; failed syncs retain the annotation so the user's intent outlives a transient error.</p>
+<p>Tests: 5 predicate tests covering add/update/clear/unrelated-change + 2 base-reconciler integration tests pinning the patch-clear (success) and no-clear (error) behaviors.</p>
+<p>Usage: <code>kubectl annotate vaultpolicy foo vault.platform.io/reconcile-now="$(date -Iseconds)" --overwrite</code>.</p>
+<h3 id="i-no-dry-run-plan-mode-still-missing">I. No dry-run / plan mode (still missing)<a class="headerlink" href="#i-no-dry-run-plan-mode-still-missing" title="Permanent link">&para;</a></h3>
+<p><strong>Deferred</strong>: would require a DriftMode variant that simulates the sync-workflow without calling Vault write endpoints, plus status field(s) to surface the computed diff. Non-trivial and best designed in conjunction with CRD schema additions, not grafted on.</p>
+<h3 id="j-policyresolved-event-resolved">✅ J. <code>PolicyResolved</code> event — RESOLVED<a class="headerlink" href="#j-policyresolved-event-resolved" title="Permanent link">&para;</a></h3>
+<p>Fixed. <code>features/role/controller/handler.go:emitPolicyResolvedEvents</code> detects the per-binding Resolved=false → Resolved=true transition between reconciles and emits a K8s event with reason <code>PolicyResolved</code>, message naming the K8sRef and Vault policy path. Steady-state reconciles don't re-emit. Fresh bindings that land already-resolved DO emit (first time the user sees the dependency satisfied). Called from <code>RoleOps.ApplyBindings</code> which is the single path where PolicyBindings are updated.</p>
+<p>Tests: <code>policy_resolved_event_test.go</code> with 5 table cases covering transition, no-change, fresh-already-resolved, nil-recorder no-op, and still-unresolved no-op.</p>
+<h3 id="k-reconcile-duration-histogram-resolved">✅ K. Reconcile duration histogram — RESOLVED<a class="headerlink" href="#k-reconcile-duration-histogram-resolved" title="Permanent link">&para;</a></h3>
+<p>Fixed. New <code>vault_access_operator_reconcile_duration_seconds</code> Prometheus histogram with labels <code>kind</code> (VaultPolicy/VaultRole/VaultConnection/VaultDiscovery/...) and <code>result</code> (success|failure). Buckets tuned for typical operator reconcile latency: 0.01s–60s, with breakpoints at 0.05/0.1/0.25/0.5/1/2.5/5/10/30s. Recorded unconditionally in <code>BaseReconciler.Reconcile</code> via deferred <code>metrics.ObserveReconcileDuration</code> so every CR kind benefits without per-feature wiring.</p>
+<p>Enables alerts like <code>histogram_quantile(0.99, rate(vault_access_operator_reconcile_duration_seconds_bucket[5m])) &gt; 10</code> for p99 regressions.</p>
+<p>Tests: <code>pkg/metrics/metrics_test.go:TestObserveReconcileDuration</code> + histogram registration pinned in <code>TestMetricsRegistered</code>.</p>
 <hr />
 <hr />
 <h2 id="27-event-bus-subscribers-resolved-via-k8s-watch-not-the-event-bus">✅ 27. Event bus subscribers — RESOLVED via k8s watch (not the event bus)<a class="headerlink" href="#27-event-bus-subscribers-resolved-via-k8s-watch-not-the-event-bus" title="Permanent link">&para;</a></h2>
