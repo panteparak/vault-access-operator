@@ -961,10 +961,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#13-duplicated-shouldadopt-checkconflict-logic" class="md-nav__link">
+  <a href="#13-duplicated-shouldadopt-logic-resolved-shouldadopt-extracted-checkconflict-deferred" class="md-nav__link">
     <span class="md-ellipsis">
       
-        🟡 13. Duplicated shouldAdopt / checkConflict logic
+        ✅ 13. Duplicated shouldAdopt logic — RESOLVED (shouldAdopt extracted; checkConflict deferred)
       
     </span>
   </a>
@@ -1778,13 +1778,24 @@ Keeps each method self-contained, testable in isolation, registration-driven.
 </code></pre></div>
 Catches mismatches at compile time.</p>
 <hr />
-<h2 id="13-duplicated-shouldadopt-checkconflict-logic">🟡 13. Duplicated <code>shouldAdopt</code> / <code>checkConflict</code> logic<a class="headerlink" href="#13-duplicated-shouldadopt-checkconflict-logic" title="Permanent link">&para;</a></h2>
-<p><strong>Evidence:</strong>
-- <a href="../../features/policy/controller/handler.go:172">policy/controller/handler.go:172-181</a> <code>shouldAdopt(PolicyAdapter) bool</code>
-- <a href="../../features/role/controller/handler.go:153">role/controller/handler.go:153-162</a> <code>shouldAdopt(RoleAdapter) bool</code> — byte-for-byte identical body
-- The <code>checkConflict</code> functions differ only in (a) which Vault lookup is used (<code>PolicyExists</code>/<code>KubernetesAuthRoleExists</code>) and (b) which managed-marker path is queried.</p>
-<p><strong>Impact:</strong> Adding a third adapted resource (e.g., a future <code>VaultKVEntry</code>) means duplicating these again.</p>
-<p><strong>Fix:</strong> Introduce a generic <code>conflict</code> helper in <code>shared/controller/conflict/</code>:</p>
+<h2 id="13-duplicated-shouldadopt-logic-resolved-shouldadopt-extracted-checkconflict-deferred">✅ 13. Duplicated <code>shouldAdopt</code> logic — RESOLVED (shouldAdopt extracted; checkConflict deferred)<a class="headerlink" href="#13-duplicated-shouldadopt-logic-resolved-shouldadopt-extracted-checkconflict-deferred" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p><strong>Status</strong>: <code>shouldAdopt</code> extracted. The policy and role handlers' <code>shouldAdopt</code> functions were byte-for-byte identical modulo the adapter type. New package <code>shared/controller/conflict</code> exposes <code>ShouldAdopt(AdoptCandidate) bool</code> with a minimal interface both adapters satisfy. Policy and role handlers now delegate.</p>
+<p><strong>Deferred</strong>: the broader <code>checkConflict</code> extraction (generic <code>Check[A any]</code> with callbacks for <code>Exists</code> / <code>GetManagedBy</code> / <code>ShouldAdopt</code>) is valuable but riskier — the three moving parts differ between policy and role in ways that resist clean abstraction. The current <code>shouldAdopt</code> extraction handles the actual duplication that was byte-for-byte; <code>checkConflict</code> stays in each handler where it's already well tested.</p>
+<p><strong>Tests</strong>: <code>shared/controller/conflict/adopt_test.go</code> pins the annotation-wins-over-policy precedence rule with 5 table cases. Existing handler tests cover the full <code>checkConflict</code> end-to-end.</p>
+</blockquote>
+<details><summary>Original finding (kept for history)</summary>
+
+
+**Evidence:**
+- [policy/controller/handler.go:172-181](../../features/policy/controller/handler.go:172) `shouldAdopt(PolicyAdapter) bool`
+- [role/controller/handler.go:153-162](../../features/role/controller/handler.go:153) `shouldAdopt(RoleAdapter) bool` — byte-for-byte identical body
+- The `checkConflict` functions differ only in (a) which Vault lookup is used (`PolicyExists`/`KubernetesAuthRoleExists`) and (b) which managed-marker path is queried.
+
+**Impact:** Adding a third adapted resource (e.g., a future `VaultKVEntry`) means duplicating these again.
+
+**Fix:** Introduce a generic `conflict` helper in `shared/controller/conflict/`:
+
 <div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="kn">package</span><span class="w"> </span><span class="nx">conflict</span>
 <a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>
 <a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a><span class="kd">type</span><span class="w"> </span><span class="nx">Checker</span><span class="p">[</span><span class="nx">A</span><span class="w"> </span><span class="kt">any</span><span class="p">]</span><span class="w"> </span><span class="kd">interface</span><span class="w"> </span><span class="p">{</span>
@@ -1797,6 +1808,8 @@ Catches mismatches at compile time.</p>
 <a id="__codelineno-14-10" name="__codelineno-14-10" href="#__codelineno-14-10"></a>
 <a id="__codelineno-14-11" name="__codelineno-14-11" href="#__codelineno-14-11"></a><span class="kd">func</span><span class="w"> </span><span class="nx">Check</span><span class="p">[</span><span class="nx">A</span><span class="w"> </span><span class="kt">any</span><span class="p">](</span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="nx">vc</span><span class="p">,</span><span class="w"> </span><span class="nx">a</span><span class="w"> </span><span class="nx">A</span><span class="p">,</span><span class="w"> </span><span class="nx">checker</span><span class="w"> </span><span class="nx">Checker</span><span class="p">[</span><span class="nx">A</span><span class="p">])</span><span class="w"> </span><span class="kt">error</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="o">...</span><span class="w"> </span><span class="p">}</span>
 </code></pre></div>
+</details>
+
 <hr />
 <h2 id="14-vaultpolicy-hcl-skip-uses-raw-annotation-string">🟡 14. <code>VaultPolicy</code> HCL skip uses raw annotation string<a class="headerlink" href="#14-vaultpolicy-hcl-skip-uses-raw-annotation-string" title="Permanent link">&para;</a></h2>
 <p><strong>Evidence:</strong> <a href="../../features/policy/controller/ops.go:108">features/policy/controller/ops.go:108</a>:</p>
