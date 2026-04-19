@@ -783,7 +783,21 @@ func (h *Handler) Cleanup(ctx context.Context, conn *vaultv1alpha1.VaultConnecti
 		}
 		if cachedClient, err := h.clientCache.Get(conn.Name); err == nil {
 			if err := cachedClient.DisableAuth(ctx, authPath); err != nil {
+				// The user opted into CleanupAuthMount=true expecting the
+				// auth mount to be disabled on connection deletion.
+				// Pre-fix this error was only logged — the K8s CR then
+				// vanished via finalizer removal while the Vault auth
+				// mount lived on, leaking. Surface via a Warning event
+				// so the audit trail shows "we tried and failed" instead
+				// of the user thinking cleanup was complete.
 				log.Error(err, "failed to disable auth mount (non-fatal)", "path", authPath)
+				if h.recorder != nil {
+					h.recorder.Eventf(conn, corev1.EventTypeWarning,
+						"DisableAuthFailed",
+						"Failed to disable Vault auth mount %q on connection deletion: %v — "+
+							"the mount may still be enabled in Vault and require manual cleanup",
+						authPath, err)
+				}
 			} else {
 				log.Info("disabled auth mount created during bootstrap", "path", authPath)
 			}

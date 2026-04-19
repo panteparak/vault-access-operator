@@ -31,6 +31,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/record"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
@@ -2534,6 +2535,101 @@ func TestCleanup_TokenRevocationFailure_NonFatal(t *testing.T) {
 	// Client should still be removed from cache
 	if cache.Has(testConnectionName) {
 		t.Error("expected client to be removed from cache after cleanup")
+	}
+}
+
+// TestCleanup_DisableAuthFailed_EmitsWarningEvent pins the fix for
+// the silent DisableAuth failure. Pre-fix, if the user opted into
+// CleanupAuthMount=true but the Vault call failed (Vault down, RBAC
+// denied), the error was only logged at Error level and the K8s CR
+// still got deleted via finalizer removal — leaving the auth mount
+// enabled in Vault indefinitely. Operators had no visible signal.
+// Now a Warning "DisableAuthFailed" event records the failure.
+func TestCleanup_DisableAuthFailed_EmitsWarningEvent(t *testing.T) {
+	calls := &cleanupCalls{}
+	server := newCleanupVaultServer(cleanupVaultServerOpts{disableAuthErr: true}, calls)
+	defer server.Close()
+
+	scheme := createScheme()
+	cleanupEnabled := true
+	conn := &vaultv1alpha1.VaultConnection{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       testConnectionName,
+			Generation: 1,
+		},
+		Spec: vaultv1alpha1.VaultConnectionSpec{
+			Address: server.URL,
+			Auth: vaultv1alpha1.AuthConfig{
+				Bootstrap: &vaultv1alpha1.BootstrapAuth{
+					SecretRef: vaultv1alpha1.SecretKeySelector{
+						Name:      "bootstrap-token",
+						Namespace: "default",
+						Key:       "token",
+					},
+					CleanupAuthMount: &cleanupEnabled,
+				},
+				Kubernetes: &vaultv1alpha1.KubernetesAuth{
+					Role:     "test-role",
+					AuthPath: "kubernetes",
+				},
+			},
+		},
+		Status: vaultv1alpha1.VaultConnectionStatus{
+			AuthStatus: &vaultv1alpha1.AuthStatus{
+				BootstrapComplete: true,
+			},
+		},
+	}
+
+	k8sClient := newClientBuilderWithConnectionRefIndex(scheme).
+		WithObjects(conn).
+		WithStatusSubresource(conn).
+		Build()
+
+	cache := vault.NewClientCache()
+	vaultClient, _ := vault.NewClient(vault.ClientConfig{Address: server.URL})
+	vaultClient.SetAuthenticated(true)
+	vaultClient.SetToken("s.operator-token")
+	cache.Set(testConnectionName, vaultClient)
+
+	// Inject a fake recorder so we can assert the event was emitted.
+	recorder := record.NewFakeRecorder(10)
+	bus := events.NewEventBus(logr.Discard())
+	handler := NewHandler(HandlerConfig{
+		Client:      k8sClient,
+		ClientCache: cache,
+		EventBus:    bus,
+		Recorder:    recorder,
+		Log:         logr.Discard(),
+	})
+
+	// Cleanup returns nil — the failure is non-fatal by design.
+	if err := handler.Cleanup(context.Background(), conn); err != nil {
+		t.Fatalf("Cleanup returned unexpected error: %v", err)
+	}
+
+	// The Vault call must have been attempted.
+	calls.mu.Lock()
+	disableAttempted := calls.disableAuthCalled
+	calls.mu.Unlock()
+	if !disableAttempted {
+		t.Fatal("DisableAuth should have been attempted")
+	}
+
+	// Drain the fake recorder and look for our warning event.
+	close(recorder.Events)
+	var foundDisableAuthFailed bool
+	for ev := range recorder.Events {
+		if strings.Contains(ev, "DisableAuthFailed") {
+			foundDisableAuthFailed = true
+			if !strings.Contains(ev, "manual cleanup") {
+				t.Errorf("event should mention manual cleanup guidance: %q", ev)
+			}
+			break
+		}
+	}
+	if !foundDisableAuthFailed {
+		t.Error("expected DisableAuthFailed warning event when Vault rejected DisableAuth")
 	}
 }
 
