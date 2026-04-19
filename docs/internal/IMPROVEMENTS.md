@@ -9,10 +9,10 @@ All original findings have been worked through. Tally as of the last commit:
 | Status | Count | Items |
 |--------|-------|-------|
 | ✅ Resolved | 34 | §§1–6, 8–11, 13–17, 19–25, 27, 29–34, 36 |
-| ✅ Resolved (missing features) | 8 | A, B, C, F, H, I, J, K |
+| ✅ Resolved (missing features) | 9 | A, B, C, F, G, H, I, J, K |
 | 🟠 Partially resolved | 1 | §7 (validation + doc shipped; backend expansion deferred) |
 | ❌ Withdrawn | 4 | §12 (design sound), §18 (low ROI), §26 (already gitignored), §35 (predicate already correct) |
-| 🕰️ Deferred with rationale | 3 | D (multi-cluster, OOS), E (policy templating), G (managed-marker backup) |
+| 🕰️ Deferred with rationale | 2 | D (multi-cluster, OOS), E (policy templating, Helm-level concern) |
 
 Each section below lists its current status inline. Items marked `✅ RESOLVED` keep the original finding in a collapsed `<details>` block for historical context and to make future drift easy to spot.
 
@@ -840,8 +840,23 @@ Beyond `{{namespace}}` and `{{name}}` in paths, there's no way to template capab
 ### ✅ F. `Ready` condition predicate for dependent CRs — RESOLVED
 Fixed. `VaultConnection.Status.Conditions[Ready]` already existed; added `shared/controller/watches/ConnectionReadyChangedPredicate` which fires strictly on Ready True↔False transitions (vs. the broader `ConnectionPhaseChangedPredicate` that also fires on intermediate phase hops). Dependent CRs can now wire the stricter predicate if they want to react only to usability changes. The existing `ConnectionPhaseChangedPredicate` remains the default for today's consumers — no behavior change without opt-in.
 
-### G. No backup/restore story for managed-markers (still missing)
-If the `secret/data/vault-access-operator/managed/` KV tree is accidentally deleted, all policies/roles look unmanaged and become conflict-blocked. **Deferred**: would be its own CLI tool (`vault-access-operator rebuild-markers`) rather than an operator feature.
+### ✅ G. Managed-marker restore — RESOLVED (annotation-driven)
+Fixed via annotation rather than CLI tool. `vault.platform.io/restore-managed-markers=true` on a VaultConnection triggers a one-shot mass re-adoption: the connection reconciler walks every dependent CR (VaultPolicy, VaultClusterPolicy, VaultRole, VaultClusterRole) using the existing `IndexFieldConnectionRef` field indexer (§15) and re-writes the managed-marker entry in Vault's KV store for each.
+
+Why annotation instead of CLI:
+- No new binary or Dockerfile target needed.
+- Operator already has the right credentials, client cache, and indexer.
+- Works through the normal reconcile loop — same delivery semantics, retry, leader-election as everything else.
+
+Annotation auto-clears after a successful pass. Partial failures (one bad write) keep the annotation set so the next reconcile retries; aggregate error message + `ManagedMarkersPartiallyRestored` k8s event surface which resources failed.
+
+Marker writes use the policy/role names directly (no rule descriptions for VaultPolicy markers — those are nice-to-have and re-populate on the next normal reconcile of each policy). This keeps the connection handler from depending on the policy feature's `buildRuleDescriptions` helper — single-direction dependency preserved.
+
+Tests: 4 cases in `restore_markers_test.go`:
+- `WritesMarkerForEveryDependent` — full coverage of all 4 CR kinds.
+- `OnlyTouchesDependentsOfThisConnection` — pin the field-indexed query.
+- `NoOpWhenNoDependents` — empty case is a non-error.
+- `PartialFailureContinuesAndReports` — one bad write doesn't halt the loop and the aggregated error names every failure.
 
 ### ✅ H. `reconcile-now` annotation trigger — RESOLVED
 Fixed. New `vault.platform.io/reconcile-now` annotation (constant at [common_types.go:486](../../api/v1alpha1/common_types.go:486)) + `ReconcileNowAnnotationPredicate` in the watches package. Wired into Policy/ClusterPolicy/Role/ClusterRole reconcilers via `predicate.Or(GenerationChangedPredicate, ReconcileNowAnnotationPredicate)`. `BaseReconciler.Reconcile` auto-clears the annotation via `client.RawPatch(MergePatchType, ...)` after a successful sync so the predicate is one-shot; failed syncs retain the annotation so the user's intent outlives a transient error.

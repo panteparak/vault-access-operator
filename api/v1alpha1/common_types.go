@@ -504,6 +504,26 @@ const (
 	// IMPROVEMENTS Missing Features §H.
 	AnnotationReconcileNow = "vault.platform.io/reconcile-now"
 
+	// AnnotationRestoreManagedMarkers, when set to AnnotationValueTrue on a
+	// VaultConnection, triggers a one-shot mass re-adoption: the connection
+	// reconciler lists every dependent CR (VaultPolicy, VaultClusterPolicy,
+	// VaultRole, VaultClusterRole) referencing this connection and re-writes
+	// the managed-marker entry in Vault's KV store for each.
+	//
+	// Use case: someone wiped `secret/data/vault-access-operator/managed/`
+	// (manual cleanup, accidental policy delete, KV mount restoration from
+	// snapshot). Without the markers, every dependent CR is conflict-blocked
+	// because the operator can't tell that it owns those Vault resources.
+	// Setting this annotation recovers the cluster in one operation instead
+	// of N annotations on N CRs.
+	//
+	// Auto-clears after a successful pass — single-shot trigger. Failures
+	// during the pass are logged with per-resource detail; the operator
+	// re-tries on the next reconcile until the user clears the annotation.
+	//
+	// IMPROVEMENTS Missing Features §G.
+	AnnotationRestoreManagedMarkers = "vault.platform.io/restore-managed-markers"
+
 	// AnnotationDryRun, when set to AnnotationValueTrue, makes the operator
 	// SKIP all Vault-side writes (WriteToVault, MarkManaged, DeleteFromVault)
 	// for the annotated resource and surface what it WOULD have written via

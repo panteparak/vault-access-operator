@@ -232,8 +232,152 @@ func (h *Handler) Sync(ctx context.Context, conn *vaultv1alpha1.VaultConnection)
 		h.eventBus.PublishAsync(ctx, events.NewConnectionReady(conn.Name, conn.Spec.Address, version))
 	}
 
+	// IMPROVEMENTS Missing Features §G: if the user requested a one-shot
+	// managed-marker restore via the `vault.platform.io/restore-managed-markers`
+	// annotation, do it now (after the connection is verified healthy and we
+	// have a working vaultClient). The restore is idempotent — re-marking an
+	// already-correctly-marked resource is a no-op write.
+	if conn.GetAnnotations()[vaultv1alpha1.AnnotationRestoreManagedMarkers] == vaultv1alpha1.AnnotationValueTrue {
+		if err := h.restoreManagedMarkers(ctx, conn, vaultClient); err != nil {
+			// Don't fail the whole sync — the connection itself is healthy.
+			// Operators see the warning in events; the annotation stays set
+			// so the next reconcile retries.
+			log.Error(err, "failed to restore managed markers (annotation kept; will retry)")
+			if h.recorder != nil {
+				h.recorder.Eventf(conn, corev1.EventTypeWarning,
+					"RestoreManagedMarkersFailed",
+					"failed to restore one or more managed markers: %v", err)
+			}
+		} else {
+			// Success — clear the trigger annotation so we don't re-do this
+			// every reconcile. Mirrors the reconcile-now (§H) clearing path.
+			if patchErr := h.clearAnnotation(ctx, conn, vaultv1alpha1.AnnotationRestoreManagedMarkers); patchErr != nil {
+				log.V(1).Info("failed to clear restore-managed-markers annotation (non-fatal)",
+					"error", patchErr.Error())
+			}
+		}
+	}
+
 	log.Info("VaultConnection synced successfully", "version", version)
 	return nil
+}
+
+// restoreManagedMarkers walks every dependent CR of this connection and
+// re-writes its managed-marker entry in Vault's KV store. Used by the
+// `vault.platform.io/restore-managed-markers` annotation (IMPROVEMENTS
+// Missing Features §G) for mass recovery after the marker tree is wiped.
+//
+// Idempotent: writing a marker that already exists with the same K8s
+// resource identifier is a no-op. Per-resource failures are accumulated
+// into a single multi-error so partial recoveries are visible.
+//
+// Note: this writes the marker WITHOUT rule descriptions (which only
+// matter for VaultPolicy). The next normal reconcile of each policy
+// re-populates the descriptions via the regular MarkPolicyManaged call
+// — keeping that logic out of the connection handler avoids cross-feature
+// coupling.
+func (h *Handler) restoreManagedMarkers(
+	ctx context.Context, conn *vaultv1alpha1.VaultConnection, vaultClient *vault.Client,
+) error {
+	log := logr.FromContextOrDiscard(ctx)
+	matcher := client.MatchingFields{IndexFieldConnectionRef: conn.Name}
+
+	var errs []string
+	restored := 0
+
+	var policies vaultv1alpha1.VaultPolicyList
+	if err := h.client.List(ctx, &policies, matcher); err != nil {
+		return fmt.Errorf("list VaultPolicies: %w", err)
+	}
+	for i := range policies.Items {
+		p := &policies.Items[i]
+		vaultName := p.Namespace + "-" + p.Name
+		k8sRef := p.Namespace + "/" + p.Name
+		if err := vaultClient.MarkPolicyManaged(ctx, vaultName, k8sRef, nil); err != nil {
+			errs = append(errs, fmt.Sprintf("VaultPolicy/%s: %v", k8sRef, err))
+			continue
+		}
+		restored++
+	}
+
+	var clusterPolicies vaultv1alpha1.VaultClusterPolicyList
+	if err := h.client.List(ctx, &clusterPolicies, matcher); err != nil {
+		return fmt.Errorf("list VaultClusterPolicies: %w", err)
+	}
+	for i := range clusterPolicies.Items {
+		p := &clusterPolicies.Items[i]
+		if err := vaultClient.MarkPolicyManaged(ctx, p.Name, p.Name, nil); err != nil {
+			errs = append(errs, fmt.Sprintf("VaultClusterPolicy/%s: %v", p.Name, err))
+			continue
+		}
+		restored++
+	}
+
+	var roles vaultv1alpha1.VaultRoleList
+	if err := h.client.List(ctx, &roles, matcher); err != nil {
+		return fmt.Errorf("list VaultRoles: %w", err)
+	}
+	for i := range roles.Items {
+		r := &roles.Items[i]
+		vaultName := r.Namespace + "-" + r.Name
+		k8sRef := r.Namespace + "/" + r.Name
+		if err := vaultClient.MarkRoleManaged(ctx, vaultName, k8sRef); err != nil {
+			errs = append(errs, fmt.Sprintf("VaultRole/%s: %v", k8sRef, err))
+			continue
+		}
+		restored++
+	}
+
+	var clusterRoles vaultv1alpha1.VaultClusterRoleList
+	if err := h.client.List(ctx, &clusterRoles, matcher); err != nil {
+		return fmt.Errorf("list VaultClusterRoles: %w", err)
+	}
+	for i := range clusterRoles.Items {
+		r := &clusterRoles.Items[i]
+		if err := vaultClient.MarkRoleManaged(ctx, r.Name, r.Name); err != nil {
+			errs = append(errs, fmt.Sprintf("VaultClusterRole/%s: %v", r.Name, err))
+			continue
+		}
+		restored++
+	}
+
+	log.Info("managed-marker restore completed",
+		"restored", restored, "failures", len(errs), "connection", conn.Name)
+
+	if h.recorder != nil {
+		if len(errs) == 0 {
+			h.recorder.Eventf(conn, corev1.EventTypeNormal,
+				"ManagedMarkersRestored",
+				"Restored %d managed markers across all dependent resources", restored)
+		} else {
+			h.recorder.Eventf(conn, corev1.EventTypeWarning,
+				"ManagedMarkersPartiallyRestored",
+				"Restored %d markers; %d failed (operator will retry while annotation is set)",
+				restored, len(errs))
+		}
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("%d marker write(s) failed: %s",
+			len(errs), strings.Join(errs, "; "))
+	}
+	return nil
+}
+
+// clearAnnotation removes the named annotation via a strategic merge
+// patch. Used after a successful one-shot trigger (e.g.
+// restore-managed-markers) to prevent re-firing on the next reconcile.
+func (h *Handler) clearAnnotation(
+	ctx context.Context, conn *vaultv1alpha1.VaultConnection, annotation string,
+) error {
+	if _, ok := conn.GetAnnotations()[annotation]; !ok {
+		return nil
+	}
+	patch := client.RawPatch(
+		types.MergePatchType,
+		[]byte(fmt.Sprintf(`{"metadata":{"annotations":{%q:null}}}`, annotation)),
+	)
+	return h.client.Patch(ctx, conn, patch)
 }
 
 // isBootstrapRequired checks if bootstrap is needed for this connection.
