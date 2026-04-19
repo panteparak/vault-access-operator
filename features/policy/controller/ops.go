@@ -95,11 +95,21 @@ func (o *PolicyOps) PrepareContent(_ context.Context, _ *vault.Client) (string, 
 // is detected the summary now includes a compact line-level diff preview
 // (IMPROVEMENTS §11) so operators seeing the PolicyDrifted condition know
 // *what* changed, not just that something changed.
+//
+// Vault read failures are non-fatal (we'd rather skip drift detection
+// than fail the reconcile during a transient Vault outage), but logged
+// at Info level so operators investigating "why are we showing as in-sync
+// when Vault is clearly broken" can find the cause without bumping
+// verbosity. Previously logged at V(1) which is suppressed by default.
 func (o *PolicyOps) DetectDrift(ctx context.Context, vaultClient *vault.Client) (bool, string) {
 	log := logr.FromContextOrDiscard(ctx)
 	currentHCL, err := vaultClient.ReadPolicy(ctx, o.adapter.GetVaultPolicyName())
 	if err != nil {
-		log.V(1).Info("failed to read policy for drift detection (non-fatal)", "error", err)
+		log.Info("skipping drift detection — Vault read failed",
+			"policy", o.adapter.GetVaultPolicyName(),
+			"error", err.Error(),
+			"hint", "drift state preserved from last successful read; will retry on next reconcile",
+		)
 		return false, ""
 	}
 	normalizedCurrent := o.handler.normalizeHCL(currentHCL)

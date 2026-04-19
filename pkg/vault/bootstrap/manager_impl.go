@@ -126,12 +126,28 @@ func (m *managerImpl) Bootstrap(
 		}
 	}
 
-	m.log.Info("bootstrap completed successfully",
-		"authMethodCreated", result.AuthMethodCreated,
-		"roleCreated", result.RoleCreated,
-		"bootstrapRevoked", result.BootstrapRevoked,
-		"k8sAuthTestPassed", result.K8sAuthTestPassed,
-	)
+	// Distinguish full success from "bootstrap structurally complete but
+	// the K8s auth test failed". Operators reading logs at default
+	// verbosity should see "with degraded status" loud and clear when
+	// something needs attention — saying "completed successfully" while
+	// the test failed misled on-call into thinking everything was green.
+	if result.K8sAuthTestPassed {
+		m.log.Info("bootstrap completed successfully",
+			"authMethodCreated", result.AuthMethodCreated,
+			"roleCreated", result.RoleCreated,
+			"bootstrapRevoked", result.BootstrapRevoked,
+			"k8sAuthTestPassed", true,
+		)
+	} else {
+		m.log.Info("bootstrap completed with degraded status — k8s auth test failed",
+			"authMethodCreated", result.AuthMethodCreated,
+			"roleCreated", result.RoleCreated,
+			"bootstrapRevoked", result.BootstrapRevoked,
+			"k8sAuthTestPassed", false,
+			"hint", "operator retries on next reconcile; "+
+				"investigate token-reviewer JWT and TokenRequest API access if persistent",
+		)
+	}
 
 	return result, nil
 }

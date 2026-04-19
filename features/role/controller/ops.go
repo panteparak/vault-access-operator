@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -119,16 +120,29 @@ func (o *RoleOps) PrepareContent(ctx context.Context, vaultClient *vault.Client)
 // resolveConnection fetches the referenced VaultConnection from the API
 // server. Returns nil if the reference is empty or the fetch fails —
 // defaulting will then fall back to cluster-default values.
+//
+// Distinguishes IsNotFound (silent — the connection genuinely doesn't
+// exist; the dependency check elsewhere will surface this) from other
+// errors (logged at V(1) so operators investigating "why am I getting
+// the default audience instead of the one I configured?" can find the
+// transient failure cause).
 func (o *RoleOps) resolveConnection(ctx context.Context) *vaultv1alpha1.VaultConnection {
 	connRef := o.adapter.GetConnectionRef()
 	if connRef == "" {
 		return nil
 	}
 	conn := &vaultv1alpha1.VaultConnection{}
-	if err := o.handler.client.Get(ctx, client.ObjectKey{Name: connRef}, conn); err != nil {
-		return nil
+	err := o.handler.client.Get(ctx, client.ObjectKey{Name: connRef}, conn)
+	if err == nil {
+		return conn
 	}
-	return conn
+	if !apierrors.IsNotFound(err) {
+		logr.FromContextOrDiscard(ctx).V(1).Info(
+			"failed to load VaultConnection for JWT defaults; using cluster-default audience",
+			"connection", connRef, "error", err.Error(),
+		)
+	}
+	return nil
 }
 
 // DetectDrift compares expected vs actual role data in Vault.

@@ -283,63 +283,74 @@ func (h *Handler) restoreManagedMarkers(
 	log := logr.FromContextOrDiscard(ctx)
 	matcher := client.MatchingFields{IndexFieldConnectionRef: conn.Name}
 
+	// Per-kind list errors are accumulated rather than aborting the whole
+	// restore — this preserves the partial work from kinds that DID list
+	// successfully (followup fix: previously a transient list failure on
+	// e.g. VaultClusterRole would discard all the policy + role marker
+	// writes already done, forcing the next reconcile to redo them).
+	// Per-write errors are also accumulated; the caller keeps the
+	// trigger annotation set so the next reconcile retries.
 	var errs []string
 	restored := 0
 
 	var policies vaultv1alpha1.VaultPolicyList
 	if err := h.client.List(ctx, &policies, matcher); err != nil {
-		return fmt.Errorf("list VaultPolicies: %w", err)
-	}
-	for i := range policies.Items {
-		p := &policies.Items[i]
-		vaultName := p.Namespace + "-" + p.Name
-		k8sRef := p.Namespace + "/" + p.Name
-		if err := vaultClient.MarkPolicyManaged(ctx, vaultName, k8sRef, nil); err != nil {
-			errs = append(errs, fmt.Sprintf("VaultPolicy/%s: %v", k8sRef, err))
-			continue
+		errs = append(errs, fmt.Sprintf("list VaultPolicies: %v", err))
+	} else {
+		for i := range policies.Items {
+			p := &policies.Items[i]
+			vaultName := p.Namespace + "-" + p.Name
+			k8sRef := p.Namespace + "/" + p.Name
+			if err := vaultClient.MarkPolicyManaged(ctx, vaultName, k8sRef, nil); err != nil {
+				errs = append(errs, fmt.Sprintf("VaultPolicy/%s: %v", k8sRef, err))
+				continue
+			}
+			restored++
 		}
-		restored++
 	}
 
 	var clusterPolicies vaultv1alpha1.VaultClusterPolicyList
 	if err := h.client.List(ctx, &clusterPolicies, matcher); err != nil {
-		return fmt.Errorf("list VaultClusterPolicies: %w", err)
-	}
-	for i := range clusterPolicies.Items {
-		p := &clusterPolicies.Items[i]
-		if err := vaultClient.MarkPolicyManaged(ctx, p.Name, p.Name, nil); err != nil {
-			errs = append(errs, fmt.Sprintf("VaultClusterPolicy/%s: %v", p.Name, err))
-			continue
+		errs = append(errs, fmt.Sprintf("list VaultClusterPolicies: %v", err))
+	} else {
+		for i := range clusterPolicies.Items {
+			p := &clusterPolicies.Items[i]
+			if err := vaultClient.MarkPolicyManaged(ctx, p.Name, p.Name, nil); err != nil {
+				errs = append(errs, fmt.Sprintf("VaultClusterPolicy/%s: %v", p.Name, err))
+				continue
+			}
+			restored++
 		}
-		restored++
 	}
 
 	var roles vaultv1alpha1.VaultRoleList
 	if err := h.client.List(ctx, &roles, matcher); err != nil {
-		return fmt.Errorf("list VaultRoles: %w", err)
-	}
-	for i := range roles.Items {
-		r := &roles.Items[i]
-		vaultName := r.Namespace + "-" + r.Name
-		k8sRef := r.Namespace + "/" + r.Name
-		if err := vaultClient.MarkRoleManaged(ctx, vaultName, k8sRef); err != nil {
-			errs = append(errs, fmt.Sprintf("VaultRole/%s: %v", k8sRef, err))
-			continue
+		errs = append(errs, fmt.Sprintf("list VaultRoles: %v", err))
+	} else {
+		for i := range roles.Items {
+			r := &roles.Items[i]
+			vaultName := r.Namespace + "-" + r.Name
+			k8sRef := r.Namespace + "/" + r.Name
+			if err := vaultClient.MarkRoleManaged(ctx, vaultName, k8sRef); err != nil {
+				errs = append(errs, fmt.Sprintf("VaultRole/%s: %v", k8sRef, err))
+				continue
+			}
+			restored++
 		}
-		restored++
 	}
 
 	var clusterRoles vaultv1alpha1.VaultClusterRoleList
 	if err := h.client.List(ctx, &clusterRoles, matcher); err != nil {
-		return fmt.Errorf("list VaultClusterRoles: %w", err)
-	}
-	for i := range clusterRoles.Items {
-		r := &clusterRoles.Items[i]
-		if err := vaultClient.MarkRoleManaged(ctx, r.Name, r.Name); err != nil {
-			errs = append(errs, fmt.Sprintf("VaultClusterRole/%s: %v", r.Name, err))
-			continue
+		errs = append(errs, fmt.Sprintf("list VaultClusterRoles: %v", err))
+	} else {
+		for i := range clusterRoles.Items {
+			r := &clusterRoles.Items[i]
+			if err := vaultClient.MarkRoleManaged(ctx, r.Name, r.Name); err != nil {
+				errs = append(errs, fmt.Sprintf("VaultClusterRole/%s: %v", r.Name, err))
+				continue
+			}
+			restored++
 		}
-		restored++
 	}
 
 	log.Info("managed-marker restore completed",
@@ -1350,10 +1361,14 @@ func (h *Handler) getGCPSignedJWT(ctx context.Context, gcpCfg *vaultv1alpha1.GCP
 	return jwt, nil
 }
 
-// wasSealedReason inspects the existing condition set for a Ready or
-// Healthy condition that was previously set with a sealed/uninitialized
-// reason. Returns true if the connection was last observed as sealed
-// — used to drive the VaultUnsealed K8s event on the unseal moment.
+// wasSealedReason inspects the existing condition set for a Ready
+// condition that was previously set with a sealed/uninitialized reason.
+// Returns true if the connection was last observed as sealed — used to
+// drive the VaultUnsealed K8s event on the unseal moment.
+//
+// (Earlier comment said "Ready or Healthy" but the implementation only
+// inspects Ready; there's no Healthy condition in this CRD, so the
+// "or Healthy" was an aspirational doc bug. Code is correct as-is.)
 //
 // We use the condition's Reason rather than a dedicated status field
 // because (a) Reason is already persisted, (b) it's the canonical way
