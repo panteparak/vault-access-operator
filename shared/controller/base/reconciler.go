@@ -24,6 +24,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -290,26 +291,37 @@ func shortID() string {
 // kindLabelForResource returns the `kind` label to use for the reconcile
 // duration histogram. We derive it from the resource factory (not a live
 // resource) so the label is available even when Reconcile errors before
-// fetching. The GVK format is "vaultrole.vault.platform.io/v1alpha1"
-// style via Go's reflection on the pointer target type name — trimmed to
-// just the kind name (e.g. "VaultRole") for a tidy label value.
+// fetching. Returns just the type name (e.g. "VaultRole"), suitable as a
+// Prometheus label value.
 //
-// Falling back to the empty string is safe: Prometheus will treat it as
-// a valid label, and grouping against the more specific IncrementRole /
-// IncrementPolicy counters still gives per-kind latency context.
+// In practice, freshly-constructed CR pointers don't have TypeMeta
+// populated (controller-runtime doesn't auto-populate it on local
+// constructions, only on Get from the API server). So
+// `GetObjectKind().GroupVersionKind().Kind` typically returns the empty
+// string here — we fall back to deriving the kind from the Go type name.
+//
+// The Go type name path uses reflect to strip the leading `*` and the
+// package qualifier, leaving just the bare type name.
+//
+// Falling back to the empty string is a safe last resort: Prometheus
+// treats it as a valid label.
 func kindLabelForResource[T client.Object](newResource func() T) string {
 	if newResource == nil {
 		return ""
 	}
 	resource := newResource()
-	// ObjectKind().GroupVersionKind().Kind returns the registered Kind
-	// when the scheme has been registered; otherwise it's empty. The
-	// manager scheme is always registered before Reconcile fires, so
-	// this is populated in production. Defensive fallback for tests
-	// that may construct BaseReconciler without a registered scheme.
 	if k := resource.GetObjectKind().GroupVersionKind().Kind; k != "" {
 		return k
 	}
-	// Fallback: Go type name via fmt.Sprintf to avoid a reflect import.
-	return fmt.Sprintf("%T", resource)
+	// Reflect on the pointer-target type to get the bare type name.
+	// reflect.TypeOf(resource) returns *vaultv1alpha1.VaultRole;
+	// .Elem() gives vaultv1alpha1.VaultRole; .Name() gives "VaultRole".
+	t := reflect.TypeOf(resource)
+	if t == nil {
+		return ""
+	}
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+	return t.Name()
 }

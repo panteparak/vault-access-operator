@@ -968,6 +968,30 @@ func TestBaseReconciler_Reconcile_ClearsReconcileNowAnnotation(t *testing.T) {
 	}
 }
 
+// TestKindLabelForResource pins the bug-fix from the §K-followup: the
+// reconcile-duration histogram's `kind` label must be a clean type name
+// like "ConfigMap" or "VaultPolicy", not "*v1alpha1.VaultPolicy" which
+// the original `fmt.Sprintf("%T")` fallback produced. Operators looking
+// at Prometheus would have seen `kind="*v1alpha1.VaultPolicy"` which is
+// ugly, breaks dashboard labels, and includes the package qualifier.
+//
+// The fix uses reflect.TypeOf().Elem().Name() to strip both the pointer
+// prefix and the package path. Tests against ConfigMap (a builtin from
+// corev1) since that's what BaseReconciler_test_helpers uses.
+func TestKindLabelForResource(t *testing.T) {
+	got := kindLabelForResource(newConfigMap)
+	if got != "ConfigMap" {
+		t.Errorf("expected clean type name 'ConfigMap', got %q", got)
+	}
+}
+
+func TestKindLabelForResource_Nil(t *testing.T) {
+	got := kindLabelForResource[*corev1.ConfigMap](nil)
+	if got != "" {
+		t.Errorf("expected empty string for nil factory, got %q", got)
+	}
+}
+
 // TestBaseReconciler_Reconcile_KeepsReconcileNowAnnotation_OnSyncError
 // pins that a failing Sync does NOT clear the annotation — the user's
 // forced-sync intent should outlive a transient failure so the next
