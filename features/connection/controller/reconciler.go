@@ -35,6 +35,7 @@ import (
 	"github.com/panteparak/vault-access-operator/pkg/vault/bootstrap"
 	"github.com/panteparak/vault-access-operator/pkg/vault/token"
 	"github.com/panteparak/vault-access-operator/shared/controller/base"
+	"github.com/panteparak/vault-access-operator/shared/controller/watches"
 	"github.com/panteparak/vault-access-operator/shared/events"
 )
 
@@ -128,13 +129,30 @@ const IndexFieldConnectionRef = "spec.connectionRef"
 // spec.connectionRef field indexer on the four dependent CRD kinds so that
 // Cleanup can query `client.MatchingFields{IndexFieldConnectionRef: name}`
 // instead of listing every resource cluster-wide and filtering in Go.
+//
+// The For predicate accepts:
+//   - Spec changes (GenerationChangedPredicate — the default).
+//   - The `vault.platform.io/reconcile-now` annotation being added or
+//     updated (IMPROVEMENTS Missing Features §H — same trigger that
+//     works on policy/role reconcilers; previously omitted from
+//     VaultConnection by oversight).
+//
+// Note: the `vault.platform.io/restore-managed-markers` annotation (§G)
+// does NOT trigger an immediate reconcile via this predicate — that
+// predicate is specific to AnnotationReconcileNow. Setting
+// restore-managed-markers takes effect on the next scheduled reconcile
+// (≤30s, the requeueOnSuccess interval). To force-trigger immediately,
+// also set `vault.platform.io/reconcile-now` on the same connection.
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if err := registerConnectionRefIndexers(context.Background(), mgr); err != nil {
 		return fmt.Errorf("register connectionRef field indexers: %w", err)
 	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&vaultv1alpha1.VaultConnection{},
-			builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+			builder.WithPredicates(predicate.Or(
+				predicate.GenerationChangedPredicate{},
+				watches.ReconcileNowAnnotationPredicate{},
+			))).
 		Named("vaultconnection").
 		Complete(r)
 }
