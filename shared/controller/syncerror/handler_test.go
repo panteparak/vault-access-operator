@@ -258,6 +258,55 @@ func TestHandle_ConnectionError(t *testing.T) {
 	}
 }
 
+// TestHandle_VaultSealedError pins IMPROVEMENTS Missing Features §C: a
+// VaultSealedError (Vault reachable but sealed) is classified with
+// ReasonVaultSealed, distinct from generic Failed and from
+// ReasonNetworkError — operators can suppress alerts since the
+// remediation is operator-external (run `vault operator unseal`).
+func TestHandle_VaultSealedError(t *testing.T) {
+	target := newMockTarget()
+	k8sClient := newFakeClient()
+	sealedErr := infraerrors.NewVaultSealedError("vault-conn", "https://vault:8200", true)
+
+	ctx := context.Background()
+	_ = k8sClient.Create(ctx, target.object.DeepCopyObject().(client.Object))
+	_ = Handle(ctx, k8sClient, logr.Discard(), target, sealedErr)
+
+	if target.phase != vaultv1alpha1.PhaseError {
+		t.Errorf("expected PhaseError, got %s", target.phase)
+	}
+	readyCond := findCondition(target.conditions, vaultv1alpha1.ConditionTypeReady)
+	if readyCond == nil {
+		t.Fatal("expected Ready condition")
+	}
+	if readyCond.Reason != vaultv1alpha1.ReasonVaultSealed {
+		t.Errorf("expected reason %s, got %s",
+			vaultv1alpha1.ReasonVaultSealed, readyCond.Reason)
+	}
+}
+
+// TestHandle_VaultNotInitializedError covers the rarer initialized=false
+// case. Same condition type, distinct reason so dashboards can show
+// "needs vault operator init" vs "needs vault operator unseal".
+func TestHandle_VaultNotInitializedError(t *testing.T) {
+	target := newMockTarget()
+	k8sClient := newFakeClient()
+	uninitErr := infraerrors.NewVaultSealedError("vault-conn", "https://vault:8200", false)
+
+	ctx := context.Background()
+	_ = k8sClient.Create(ctx, target.object.DeepCopyObject().(client.Object))
+	_ = Handle(ctx, k8sClient, logr.Discard(), target, uninitErr)
+
+	readyCond := findCondition(target.conditions, vaultv1alpha1.ConditionTypeReady)
+	if readyCond == nil {
+		t.Fatal("expected Ready condition")
+	}
+	if readyCond.Reason != vaultv1alpha1.ReasonVaultNotInitialized {
+		t.Errorf("expected reason %s, got %s",
+			vaultv1alpha1.ReasonVaultNotInitialized, readyCond.Reason)
+	}
+}
+
 func TestHandle_WrappedError(t *testing.T) {
 	// Verify that errors.As works through wrapping — a wrapped ConflictError
 	// should still be classified as a conflict.

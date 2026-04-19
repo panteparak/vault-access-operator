@@ -204,6 +204,20 @@ func (c *Client) IsHealthy(ctx context.Context) (bool, error) {
 	return health.Initialized && !health.Sealed, nil
 }
 
+// SealStatus returns Vault's seal status as separate flags so the caller
+// can distinguish "sealed" (recoverable on Vault unseal, no operator
+// action needed) from "uninitialized" (requires init flow) and from
+// transport-layer failure (Vault unreachable). Used by IMPROVEMENTS
+// Missing Features §C to drive faster requeue + a distinct condition
+// reason when Vault is in a recoverable sealed state.
+func (c *Client) SealStatus(ctx context.Context) (initialized, sealed bool, err error) {
+	health, err := c.Sys().HealthWithContext(ctx)
+	if err != nil {
+		return false, false, fmt.Errorf("vault seal-status check failed: %w", err)
+	}
+	return health.Initialized, health.Sealed, nil
+}
+
 // GetVersion returns the Vault server version
 func (c *Client) GetVersion(ctx context.Context) (string, error) {
 	health, err := c.Sys().HealthWithContext(ctx)

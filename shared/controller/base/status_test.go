@@ -26,6 +26,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	infraerrors "github.com/panteparak/vault-access-operator/shared/infrastructure/errors"
 )
 
 func TestNewStatusManager(t *testing.T) {
@@ -284,5 +286,54 @@ func TestDefaultRequeueDefaults(t *testing.T) {
 
 	if DefaultRequeueError <= 0 {
 		t.Errorf("expected DefaultRequeueError > 0, got %v", DefaultRequeueError)
+	}
+}
+
+// TestStatusManager_Error_VaultSealedShortRequeue pins IMPROVEMENTS
+// Missing Features §C: a `*VaultSealedError` shortens the requeue
+// interval to RequeueOnSealed instead of the default error interval.
+// The operator should poll Vault more aggressively while it's in a
+// recoverable state so the unseal moment is picked up within seconds.
+func TestStatusManager_Error_VaultSealedShortRequeue(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+	client := fake.NewClientBuilder().WithScheme(scheme).Build()
+	sm := NewStatusManager[*corev1.ConfigMap](client, nil)
+
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
+	}
+	sealedErr := infraerrors.NewVaultSealedError("conn", "https://vault:8200", true)
+
+	result, err := sm.Error(context.Background(), cm, sealedErr)
+	if err != sealedErr {
+		t.Errorf("expected sealedErr to be returned, got %v", err)
+	}
+	if result.RequeueAfter != RequeueOnSealed {
+		t.Errorf("expected RequeueAfter=%v for sealed error, got %v",
+			RequeueOnSealed, result.RequeueAfter)
+	}
+	if result.RequeueAfter == DefaultRequeueError {
+		t.Errorf("sealed error should NOT use default error requeue (%v); using fast retry instead",
+			DefaultRequeueError)
+	}
+}
+
+// TestStatusManager_Error_GenericErrorUsesDefaultRequeue is the negative
+// control: a non-sealed error keeps the standard error interval.
+func TestStatusManager_Error_GenericErrorUsesDefaultRequeue(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+	client := fake.NewClientBuilder().WithScheme(scheme).Build()
+	sm := NewStatusManager[*corev1.ConfigMap](client, nil)
+
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
+	}
+
+	result, _ := sm.Error(context.Background(), cm, errors.New("plain failure"))
+	if result.RequeueAfter != DefaultRequeueError {
+		t.Errorf("expected default error requeue %v for non-sealed error, got %v",
+			DefaultRequeueError, result.RequeueAfter)
 	}
 }

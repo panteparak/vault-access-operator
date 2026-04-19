@@ -732,6 +732,84 @@ func TestIsHealthy(t *testing.T) {
 	}
 }
 
+// TestSealStatus pins IMPROVEMENTS Missing Features §C: SealStatus
+// returns initialized + sealed flags separately so callers can
+// distinguish "needs init" from "needs unseal" from "transport error".
+func TestSealStatus(t *testing.T) {
+	tests := []struct {
+		name            string
+		serverResponse  func(w http.ResponseWriter, r *http.Request)
+		wantInitialized bool
+		wantSealed      bool
+		wantErr         bool
+	}{
+		{
+			name: "healthy",
+			serverResponse: func(w http.ResponseWriter, _ *http.Request) {
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"initialized": true,
+					"sealed":      false,
+				})
+			},
+			wantInitialized: true,
+			wantSealed:      false,
+		},
+		{
+			name: "sealed",
+			serverResponse: func(w http.ResponseWriter, _ *http.Request) {
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"initialized": true,
+					"sealed":      true,
+				})
+			},
+			wantInitialized: true,
+			wantSealed:      true,
+		},
+		{
+			name: "uninitialized",
+			serverResponse: func(w http.ResponseWriter, _ *http.Request) {
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"initialized": false,
+					"sealed":      true,
+				})
+			},
+			wantInitialized: false,
+			wantSealed:      true,
+		},
+		{
+			name: "server error returns wrapped err",
+			serverResponse: func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusInternalServerError)
+			},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(tt.serverResponse))
+			defer server.Close()
+			client, err := NewClient(ClientConfig{Address: server.URL})
+			if err != nil {
+				t.Fatalf("NewClient: %v", err)
+			}
+			initialized, sealed, err := client.SealStatus(context.Background())
+			if (err != nil) != tt.wantErr {
+				t.Errorf("SealStatus() err = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if tt.wantErr {
+				return
+			}
+			if initialized != tt.wantInitialized {
+				t.Errorf("initialized = %v, want %v", initialized, tt.wantInitialized)
+			}
+			if sealed != tt.wantSealed {
+				t.Errorf("sealed = %v, want %v", sealed, tt.wantSealed)
+			}
+		})
+	}
+}
+
 func TestGetVersion(t *testing.T) {
 	tests := []struct {
 		name           string

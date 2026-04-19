@@ -354,6 +354,18 @@ const (
 	// resource carries `vault.platform.io/dry-run=true`.
 	// IMPROVEMENTS Missing Features §I.
 	ReasonDryRunSkipped = "DryRunSkipped"
+
+	// ReasonVaultSealed is set on Ready=False / Healthy=False when Vault
+	// is reachable but in a sealed state. Distinct from ReasonNetworkError
+	// (transport failure) and ReasonFailed (generic). Operators see this
+	// reason when an external action (auto-unseal trigger, manual unseal)
+	// is needed to recover the connection. IMPROVEMENTS Missing Features §C.
+	ReasonVaultSealed = "VaultSealed"
+
+	// ReasonVaultNotInitialized is the analog of ReasonVaultSealed for
+	// the rarer case where Vault is reachable but `vault operator init`
+	// hasn't run yet. Same dashboard treatment, different remediation.
+	ReasonVaultNotInitialized = "VaultNotInitialized"
 )
 
 // ToSecretReference converts LocalSecretKeySelector to a corev1.SecretKeySelector

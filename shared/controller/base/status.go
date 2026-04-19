@@ -23,6 +23,8 @@ import (
 
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	infraerrors "github.com/panteparak/vault-access-operator/shared/infrastructure/errors"
 )
 
 // Default requeue durations. These can be overridden via environment variables:
@@ -32,6 +34,20 @@ var (
 	DefaultRequeueSuccess = 5 * time.Minute
 	DefaultRequeueError   = 30 * time.Second
 )
+
+// RequeueOnSealed is the override applied when a reconcile fails with a
+// `*infraerrors.VaultSealedError`. Faster than the standard error
+// interval so the operator picks up the unseal moment within seconds —
+// critical because `vault operator unseal` is typically a short
+// operator-driven recovery action, and waiting 30s after each unseal
+// step would feel sluggish in incident response.
+//
+// Tunable bound: short enough that the unseal-to-resume gap is
+// imperceptible, long enough that a sealed Vault doesn't generate
+// runaway poll traffic. 10 seconds is the sweet spot.
+//
+// IMPROVEMENTS Missing Features §C.
+const RequeueOnSealed = 10 * time.Second
 
 func init() {
 	if v := os.Getenv("OPERATOR_REQUEUE_SUCCESS_INTERVAL"); v != "" {
@@ -95,13 +111,23 @@ func (s *StatusManager[T]) Success(ctx context.Context, resource T) (ctrl.Result
 
 // Error updates the status to indicate a failed reconciliation and returns
 // a result that requeues after the error interval.
+//
+// IMPROVEMENTS Missing Features §C: a `*VaultSealedError` shortens the
+// requeue to `RequeueOnSealed` (10s) so the operator polls Vault more
+// aggressively while it's in a recoverable state, picking up the unseal
+// transition within seconds instead of waiting the full 30s error
+// interval. Returning the original error preserves the existing
+// upstream error-handling contract (controller-runtime sees it).
 func (s *StatusManager[T]) Error(ctx context.Context, resource T, reconcileErr error) (ctrl.Result, error) {
 	if s.statusUpdater != nil {
 		_ = s.statusUpdater(ctx, resource, reconcileErr)
 	}
 
-	// Return the error for the controller to handle
-	return ctrl.Result{RequeueAfter: s.requeueOnError}, reconcileErr
+	requeueAfter := s.requeueOnError
+	if infraerrors.IsVaultSealedError(reconcileErr) {
+		requeueAfter = RequeueOnSealed
+	}
+	return ctrl.Result{RequeueAfter: requeueAfter}, reconcileErr
 }
 
 // Requeue returns a result that requeues immediately without error.

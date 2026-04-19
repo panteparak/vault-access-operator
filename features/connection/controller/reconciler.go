@@ -77,6 +77,7 @@ func NewReconciler(cfg ReconcilerConfig) *Reconciler {
 		TokenProvider:    tokenProvider,
 		ClusterDiscovery: clusterDiscovery,
 		Log:              log.WithName("handler"),
+		Recorder:         cfg.Recorder,
 	})
 
 	// Create base reconciler with custom requeue times

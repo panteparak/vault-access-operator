@@ -28,6 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
@@ -39,6 +40,7 @@ import (
 	"github.com/panteparak/vault-access-operator/shared/controller/base"
 	"github.com/panteparak/vault-access-operator/shared/controller/conditions"
 	"github.com/panteparak/vault-access-operator/shared/events"
+	infraerrors "github.com/panteparak/vault-access-operator/shared/infrastructure/errors"
 )
 
 // Default auth path constant.
@@ -63,6 +65,10 @@ type Handler struct {
 	tokenProvider    token.TokenProvider
 	clusterDiscovery bootstrap.K8sClusterDiscovery
 	log              logr.Logger
+	// recorder is optional; used for k8s-native events that should appear
+	// in `kubectl describe vaultconnection X` (e.g. VaultUnsealed transition
+	// per IMPROVEMENTS Missing Features §C). nil-safe — all uses guard.
+	recorder record.EventRecorder
 }
 
 // HandlerConfig contains configuration for creating a Handler.
@@ -76,6 +82,10 @@ type HandlerConfig struct {
 	TokenProvider    token.TokenProvider
 	ClusterDiscovery bootstrap.K8sClusterDiscovery
 	Log              logr.Logger
+	// Recorder is optional. When set, the handler emits k8s events for
+	// notable transitions (currently: VaultUnsealed). When nil, the
+	// handler is silent on this channel.
+	Recorder record.EventRecorder
 }
 
 // NewHandler creates a new connection Handler.
@@ -89,6 +99,7 @@ func NewHandler(cfg HandlerConfig) *Handler {
 		tokenProvider:    cfg.TokenProvider,
 		clusterDiscovery: cfg.ClusterDiscovery,
 		log:              cfg.Log,
+		recorder:         cfg.Recorder,
 	}
 
 	// Create bootstrap manager if we have token provider
@@ -149,14 +160,48 @@ func (h *Handler) Sync(ctx context.Context, conn *vaultv1alpha1.VaultConnection)
 	now := metav1.Now()
 	conn.Status.LastHealthCheck = &now
 
+	// IMPROVEMENTS Missing Features §C: split health check into seal-status
+	// + general health so a sealed Vault returns a typed VaultSealedError
+	// (faster requeue, distinct condition reason) instead of a generic
+	// "not healthy" failure.
+	initialized, sealed, err := vaultClient.SealStatus(ctx)
+	if err != nil {
+		h.updateHealthStatus(conn, false, fmt.Sprintf("seal-status check failed: %v", err))
+		return h.handleSyncError(ctx, conn, fmt.Errorf("vault seal-status check failed: %w", err))
+	}
+	if !initialized || sealed {
+		var statusMsg string
+		if !initialized {
+			statusMsg = "vault is not initialized"
+		} else {
+			statusMsg = "vault is sealed"
+		}
+		h.updateHealthStatus(conn, false, statusMsg)
+		return h.handleSyncError(ctx, conn,
+			infraerrors.NewVaultSealedError(conn.Name, conn.Spec.Address, initialized))
+	}
+
+	// Detect a sealed→unsealed transition by inspecting the current
+	// Ready/Healthy condition's reason: if the previous reconcile set
+	// it to ReasonVaultSealed (or NotInitialized), and we just observed
+	// Vault as healthy, emit a recovery event so operators see the
+	// unseal moment in the event log.
+	if h.recorder != nil && wasSealedReason(conn.Status.Conditions) {
+		h.recorder.Event(conn, corev1.EventTypeNormal,
+			"VaultUnsealed",
+			"Vault transitioned from sealed to unsealed; resuming normal sync")
+	}
+
+	// Now perform the full health check (which includes the sealed check
+	// for backward compat — already passed at this point so it's a no-op).
 	healthy, err := vaultClient.IsHealthy(ctx)
 	if err != nil {
 		h.updateHealthStatus(conn, false, fmt.Sprintf("health check failed: %v", err))
 		return h.handleSyncError(ctx, conn, fmt.Errorf("vault health check failed: %w", err))
 	}
 	if !healthy {
-		h.updateHealthStatus(conn, false, "vault is not healthy (sealed or uninitialized)")
-		return h.handleSyncError(ctx, conn, fmt.Errorf("vault is not healthy (sealed or uninitialized)"))
+		h.updateHealthStatus(conn, false, "vault is not healthy")
+		return h.handleSyncError(ctx, conn, fmt.Errorf("vault is not healthy"))
 	}
 
 	// Update health status on success
@@ -1132,6 +1177,31 @@ func (h *Handler) getGCPSignedJWT(ctx context.Context, gcpCfg *vaultv1alpha1.GCP
 	}
 
 	return jwt, nil
+}
+
+// wasSealedReason inspects the existing condition set for a Ready or
+// Healthy condition that was previously set with a sealed/uninitialized
+// reason. Returns true if the connection was last observed as sealed
+// — used to drive the VaultUnsealed K8s event on the unseal moment.
+//
+// We use the condition's Reason rather than a dedicated status field
+// because (a) Reason is already persisted, (b) it's the canonical way
+// to express categorical state in k8s, and (c) avoids a CRD schema
+// addition for what is essentially derived data.
+//
+// IMPROVEMENTS Missing Features §C.
+func wasSealedReason(conds []vaultv1alpha1.Condition) bool {
+	for i := range conds {
+		c := &conds[i]
+		if c.Type != vaultv1alpha1.ConditionTypeReady {
+			continue
+		}
+		switch c.Reason {
+		case vaultv1alpha1.ReasonVaultSealed, vaultv1alpha1.ReasonVaultNotInitialized:
+			return true
+		}
+	}
+	return false
 }
 
 // Ensure Handler implements FeatureHandler interface.

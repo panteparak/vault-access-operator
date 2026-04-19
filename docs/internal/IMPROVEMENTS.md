@@ -9,10 +9,10 @@ All original findings have been worked through. Tally as of the last commit:
 | Status | Count | Items |
 |--------|-------|-------|
 | ✅ Resolved | 34 | §§1–6, 8–11, 13–17, 19–25, 27, 29–34, 36 |
-| ✅ Resolved (missing features) | 7 | A, B, F, H, I, J, K |
+| ✅ Resolved (missing features) | 8 | A, B, C, F, H, I, J, K |
 | 🟠 Partially resolved | 1 | §7 (validation + doc shipped; backend expansion deferred) |
 | ❌ Withdrawn | 4 | §12 (design sound), §18 (low ROI), §26 (already gitignored), §35 (predicate already correct) |
-| 🕰️ Deferred with rationale | 4 | C (sealed watch), D (multi-cluster, OOS), E (policy templating), G (managed-marker backup) |
+| 🕰️ Deferred with rationale | 3 | D (multi-cluster, OOS), E (policy templating), G (managed-marker backup) |
 
 Each section below lists its current status inline. Items marked `✅ RESOLVED` keep the original finding in a collapsed `<details>` block for historical context and to make future drift easy to spot.
 
@@ -815,8 +815,21 @@ Tests:
 - `shared/controller/watches/role_watch_test.go` — 5 MapFunc cases (defaulting, kind filter, cluster-role no-default, dedup, unknown-object).
 - `features/policy/controller/used_by_roles_test.go` — 7 handler cases including both role kinds, ignores non-referencing roles, truncation at MaxItems, namespace defaulting helper, no-op-when-unchanged.
 
-### C. No sealed / init auto-recovery hook (still missing)
-When Vault is sealed, the operator marks `Phase=Error` and backs off. After unseal, it recovers on the next reconcile (30s). No event-driven notification (Vault has a sealed-state API but the operator doesn't subscribe). **Deferred**: requires a long-lived goroutine per connection polling `sys/seal-status` at a faster cadence than the regular reconcile, which changes the operator's background-work model. Not done.
+### ✅ C. Sealed / init recovery — RESOLVED (faster requeue + typed error + event)
+Fixed via three coordinated changes — no per-connection background goroutine needed (Vault doesn't push seal events anyway; the choice was always "polling cadence", not "event vs poll"):
+
+1. **Typed error**: `infraerrors.VaultSealedError` carries `ConnectionName`, `Address`, and `Initialized`. Wrapping via `errors.As` works, so handler chains preserve the type.
+2. **Connection handler detection**: `pkg/vault.SealStatus(ctx)` returns `(initialized, sealed bool, err error)` separately. The connection handler calls it before the full health check; if sealed, returns a typed `VaultSealedError`. On the unseal transition (previous Ready reason was `ReasonVaultSealed`/`ReasonVaultNotInitialized` and the new check passes), emits a `VaultUnsealed` K8s event.
+3. **Faster requeue**: `base.StatusManager.Error` shortens the requeue to `RequeueOnSealed=10s` when the error is a `*VaultSealedError`. Standard error interval (30s) for everything else. Combined with the distinct condition reasons (`ReasonVaultSealed`, `ReasonVaultNotInitialized`), dashboards can distinguish "Vault unseal pending" from "auth misconfigured" and alerts can suppress on the former.
+
+The unseal-to-resume gap drops from ~30s (worst case) to ~10s. Each reconcile during the sealed window is cheap (one `/sys/health` request + status patch).
+
+Tests:
+- `pkg/vault/client_test.go::TestSealStatus` — 4 cases (healthy, sealed, uninitialized, server error).
+- `shared/infrastructure/errors/sealed_test.go` — 7 cases on typed error message + `IsVaultSealedError` (including wrapped error chain).
+- `shared/controller/syncerror/handler_test.go` — `TestHandle_VaultSealedError` + `TestHandle_VaultNotInitializedError` pin distinct condition reasons.
+- `shared/controller/base/status_test.go` — `TestStatusManager_Error_VaultSealedShortRequeue` + control case pin the requeue override.
+- `features/connection/controller/sealed_state_test.go::TestWasSealedReason` — 7 cases on the unseal-event-trigger helper.
 
 ### D. No multi-cluster support (out of scope)
 One operator = one cluster's worth of CRs. Multi-cluster setups need multiple operator deployments, each with its own set of CRs. Explicitly out of scope for the single-operator architecture.

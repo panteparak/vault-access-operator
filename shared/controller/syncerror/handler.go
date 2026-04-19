@@ -81,6 +81,19 @@ func Handle(
 		// not policy/role-specific.
 		target.SetPhase(vaultv1alpha1.PhaseError)
 		reason = vaultv1alpha1.ReasonNetworkError
+	case infraerrors.IsVaultSealedError(err):
+		// Vault is reachable but in a recoverable sealed/uninitialized
+		// state. IMPROVEMENTS Missing Features §C: distinct reason so
+		// alerts can suppress (no operator action needed beyond unseal)
+		// and dashboards can show "Vault is sealed, awaiting unseal" not
+		// "auth misconfigured".
+		var sealedErr *infraerrors.VaultSealedError
+		if errors.As(err, &sealedErr) && !sealedErr.Initialized {
+			reason = vaultv1alpha1.ReasonVaultNotInitialized
+		} else {
+			reason = vaultv1alpha1.ReasonVaultSealed
+		}
+		target.SetPhase(vaultv1alpha1.PhaseError)
 	default:
 		target.SetPhase(vaultv1alpha1.PhaseError)
 		reason = vaultv1alpha1.ReasonFailed
