@@ -96,7 +96,8 @@ func (r *ClusterPolicyReconciler) Reconcile(
 
 // SetupWithManager sets up the controller with the Manager. The For
 // predicate fires on generation changes OR on reconcile-now annotation
-// changes (IMPROVEMENTS Missing Features §H).
+// changes (IMPROVEMENTS Missing Features §H). Watches VaultRole and
+// VaultClusterRole so Status.UsedByRoles stays in sync (§B).
 func (r *ClusterPolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&vaultv1alpha1.VaultClusterPolicy{},
@@ -110,6 +111,18 @@ func (r *ClusterPolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				watches.ClusterPolicyRequestsForConnection(mgr.GetClient()),
 			),
 			builder.WithPredicates(watches.ConnectionPhaseChangedPredicate{}),
+		).
+		Watches(
+			&vaultv1alpha1.VaultRole{},
+			handler.EnqueueRequestsFromMapFunc(
+				watches.PoliciesReferencedByRole(kindLabelVaultClusterPolicy),
+			),
+		).
+		Watches(
+			&vaultv1alpha1.VaultClusterRole{},
+			handler.EnqueueRequestsFromMapFunc(
+				watches.PoliciesReferencedByRole(kindLabelVaultClusterPolicy),
+			),
 		).
 		Named("vaultclusterpolicy").
 		Complete(r)

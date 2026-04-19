@@ -60,6 +60,14 @@ type VaultClusterPolicyStatus struct {
 	// RulesCount is the number of rules in the policy
 	// +optional
 	RulesCount int `json:"rulesCount,omitempty"`
+
+	// UsedByRoles lists the K8s resource references of VaultRole and
+	// VaultClusterRole resources that include this cluster policy in their
+	// `spec.policies`. See VaultPolicyStatus.UsedByRoles for behavior
+	// details (IMPROVEMENTS Missing Features §B).
+	// +optional
+	// +kubebuilder:validation:MaxItems=200
+	UsedByRoles []string `json:"usedByRoles,omitempty"`
 }
 
 // +kubebuilder:object:root=true

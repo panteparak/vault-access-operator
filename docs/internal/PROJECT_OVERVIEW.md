@@ -156,6 +156,7 @@ make e2e-local-down                  # teardown
 | `vault.platform.io/discovery-pending=true` | added by discovery auto-create; tells `PolicyOps.WriteToVault` to **skip** the write until the user fills in real rules (raw string — see [IMPROVEMENTS.md §30](IMPROVEMENTS.md#30-raw-string-annotations-lack-constants-generalizes-14)) |
 | `vault.platform.io/discovered-at=<RFC3339>` | timestamp, informational; constant `AnnotationDiscovered` at [common_types.go:447](../../api/v1alpha1/common_types.go:447) |
 | `vault.platform.io/discovered-from=<connName>` | source connection for a discovered CR (raw string) |
+| `vault.platform.io/reconcile-now=<any value>` | force an immediate reconcile of the CR even when spec.generation didn't change. Cleared by the operator after a successful sync (single-shot trigger). Set via `kubectl annotate vaultpolicy foo vault.platform.io/reconcile-now="$(date -Iseconds)" --overwrite`. Constant `AnnotationReconcileNow`. |
 
 ## Document Index
 

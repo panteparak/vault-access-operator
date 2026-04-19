@@ -2,21 +2,21 @@
 
 > This is the actionable output of the documentation pass. Each finding is grouped by **Severity** (Critical / Major / Minor / Cosmetic), with evidence, impact, and a recommended fix. Item numbers are stable — the other FLOW docs link back here by `§<n>`.
 
-## Resolution Status (2026-04-18)
+## Resolution Status (2026-04-19)
 
 All original findings have been worked through. Tally as of the last commit:
 
 | Status | Count | Items |
 |--------|-------|-------|
 | ✅ Resolved | 34 | §§1–6, 8–11, 13–17, 19–25, 27, 29–34, 36 |
-| ✅ Resolved (missing features) | 5 | A, F, H, J, K |
+| ✅ Resolved (missing features) | 6 | A, B, F, H, J, K |
 | 🟠 Partially resolved | 1 | §7 (validation + doc shipped; backend expansion deferred) |
 | ❌ Withdrawn | 4 | §12 (design sound), §18 (low ROI), §26 (already gitignored), §35 (predicate already correct) |
-| 🕰️ Deferred with rationale | 6 | B (reverse-index), C (sealed watch), D (multi-cluster, OOS), E (policy templating), G (managed-marker backup), I (dry-run mode) |
+| 🕰️ Deferred with rationale | 5 | C (sealed watch), D (multi-cluster, OOS), E (policy templating), G (managed-marker backup), I (dry-run mode) |
 
 Each section below lists its current status inline. Items marked `✅ RESOLVED` keep the original finding in a collapsed `<details>` block for historical context and to make future drift easy to spot.
 
-Tests added across this effort: ~150 new unit tests, ~8 new integration tests, plus 2 new e2e tests. Zero regressions in existing suites.
+Tests added across this effort: ~170 new unit tests, ~8 new integration tests, plus 2 new e2e tests. Zero regressions in existing suites.
 
 ## Severity Legend
 
@@ -804,8 +804,16 @@ A global package var mutated during init based on env. Works, but test isolation
 ### ✅ A. `--watch-namespaces` flag — RESOLVED
 Fixed. `cmd/main.go` exposes `--watch-namespaces=ns1,ns2,ns3` which threads through `ctrl.Options.Cache.DefaultNamespaces`. Empty value (default) retains the all-namespaces behavior. Cluster-scoped CRDs continue to be watched regardless.
 
-### B. No PolicyBinding reverse-index (still missing)
-`VaultRole.Status.PolicyBindings` tracks role→policy. Nothing tracks policy→role. Useful for debugging "who uses this policy?" via `kubectl describe vaultpolicy X`. **Not done**: requires new `VaultPolicy.Status.UsedByRoles []string` field + two-way index maintenance, which is a non-trivial schema change. Deferred.
+### ✅ B. PolicyBinding reverse-index — RESOLVED
+Fixed. `VaultPolicy.Status.UsedByRoles` and `VaultClusterPolicy.Status.UsedByRoles` are new `[]string` fields populated by the policy reconciler after each successful sync. The list contains K8s resource refs like `VaultRole/<ns>/<name>` or `VaultClusterRole/<name>`, sorted lexicographically for deterministic output and capped at `MaxUsedByRolesInStatus=200` (CRD `MaxItems` matches).
+
+`shared/controller/watches/role_watch.go` adds `PoliciesReferencedByRole(kindFilter)` — a MapFunc wired into both policy reconcilers via `Watches(...)`. When a role is created, deleted, or has its `spec.policies` list mutated, every referenced policy is enqueued so its `UsedByRoles` recomputes within milliseconds of the role change.
+
+`features/policy/controller/handler.go:refreshUsedByRoles` does the post-sync write via `Status().Patch(MergeFrom)` on a freshly re-fetched object — independent of the workflow's main status update so a transient reverse-index failure doesn't fail the whole reconcile, and a no-op-when-unchanged guard avoids reconcile churn on stable membership.
+
+Tests:
+- `shared/controller/watches/role_watch_test.go` — 5 MapFunc cases (defaulting, kind filter, cluster-role no-default, dedup, unknown-object).
+- `features/policy/controller/used_by_roles_test.go` — 7 handler cases including both role kinds, ignores non-referencing roles, truncation at MaxItems, namespace defaulting helper, no-op-when-unchanged.
 
 ### C. No sealed / init auto-recovery hook (still missing)
 When Vault is sealed, the operator marks `Phase=Error` and backs off. After unseal, it recovers on the next reconcile (30s). No event-driven notification (Vault has a sealed-state API but the operator doesn't subscribe). **Deferred**: requires a long-lived goroutine per connection polling `sys/seal-status` at a faster cadence than the regular reconcile, which changes the operator's background-work model. Not done.

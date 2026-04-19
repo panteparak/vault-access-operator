@@ -289,6 +289,16 @@ spec:
               rulesCount:
                 description: RulesCount is the number of rules in the policy
                 type: integer
+              usedByRoles:
+                description: |-
+                  UsedByRoles lists the K8s resource references of VaultRole and
+                  VaultClusterRole resources that include this cluster policy in their
+                  `spec.policies`. See VaultPolicyStatus.UsedByRoles for behavior
+                  details (IMPROVEMENTS Missing Features §B).
+                items:
+                  type: string
+                maxItems: 200
+                type: array
               vaultName:
                 description: VaultName is the name of the policy in Vault
                 type: string

@@ -65,6 +65,21 @@ type VaultPolicyStatus struct {
 	// RulesCount is the number of rules in the policy
 	// +optional
 	RulesCount int `json:"rulesCount,omitempty"`
+
+	// UsedByRoles lists the K8s resource references of VaultRole and
+	// VaultClusterRole resources that include this policy in their
+	// `spec.policies`. Populated by the policy reconciler from a
+	// reverse index over role status. Useful for `kubectl describe
+	// vaultpolicy X` to answer "who uses this policy?" without a
+	// cluster-wide grep.
+	//
+	// IMPROVEMENTS Missing Features §B. The list is bounded by
+	// MaxItems to prevent etcd object size blow-up in clusters with
+	// thousands of roles referencing one shared policy — overflow is
+	// indicated by the UsedByRolesTruncated condition.
+	// +optional
+	// +kubebuilder:validation:MaxItems=200
+	UsedByRoles []string `json:"usedByRoles,omitempty"`
 }
 
 // IsEnforceNamespaceBoundary returns whether namespace boundary enforcement is enabled

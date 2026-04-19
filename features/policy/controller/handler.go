@@ -21,6 +21,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/go-logr/logr"
@@ -45,6 +46,19 @@ const (
 	kindLabelVaultPolicy        = "VaultPolicy"
 	kindLabelVaultClusterPolicy = "VaultClusterPolicy"
 )
+
+// MaxUsedByRolesInStatus caps the number of role refs surfaced in
+// `Status.UsedByRoles` (IMPROVEMENTS §B). Mirrors the schema's
+// MaxItems=200 to prevent etcd object size blow-up when one shared
+// policy is referenced by thousands of roles. Overflow is signalled via
+// the `UsedByRolesTruncated` condition.
+const MaxUsedByRolesInStatus = 200
+
+// ConditionTypeUsedByRolesTruncated marks that the policy is referenced
+// by more roles than fit in the bounded Status.UsedByRoles list.
+// Operators inspecting the policy see Status.UsedByRoles is incomplete
+// and can list roles via field indexer for the full picture.
+const ConditionTypeUsedByRolesTruncated = "UsedByRolesTruncated"
 
 // kindForMetric returns the K8s kind label used in adoption / reconcile metrics.
 // VaultPolicy adapter wraps both namespaced + cluster variants; this helper
@@ -105,10 +119,176 @@ func (h *Handler) SetCleanupQueue(q workflow.CleanupQueuer) {
 	)
 }
 
-// SyncPolicy synchronizes a policy to Vault.
+// SyncPolicy synchronizes a policy to Vault. After a successful sync,
+// recomputes the reverse policy→role index (Status.UsedByRoles) via an
+// additional status patch — this is independent of the main sync state
+// transition, so a failure here is logged but doesn't fail the whole
+// reconcile. IMPROVEMENTS Missing Features §B.
 func (h *Handler) SyncPolicy(ctx context.Context, adapter domain.PolicyAdapter) error {
 	ops := NewPolicyOps(adapter, h)
-	return h.syncWorkflow.Execute(ctx, adapter, ops)
+	if err := h.syncWorkflow.Execute(ctx, adapter, ops); err != nil {
+		return err
+	}
+	h.refreshUsedByRoles(ctx, adapter)
+	return nil
+}
+
+// refreshUsedByRoles patches Status.UsedByRoles with the current set of
+// roles that reference this policy. Independent of the sync workflow's
+// status update so it doesn't widen the workflow's transactional surface.
+// Logs and swallows errors — the next reconcile will retry.
+func (h *Handler) refreshUsedByRoles(ctx context.Context, adapter domain.PolicyAdapter) {
+	log := logr.FromContextOrDiscard(ctx)
+	refs, _ := h.computeUsedByRoles(ctx, adapter)
+
+	current := adapter.GetUsedByRoles()
+	if stringSlicesEqual(current, refs) {
+		return // No change — skip the API write to avoid useless reconcile churn.
+	}
+
+	// Re-fetch the live object to avoid a stale-resourceVersion conflict
+	// — the workflow's own Status().Update() runs immediately before this
+	// helper, so the in-memory adapter is one revision behind.
+	live := adapter.GetObject()
+	key := client.ObjectKeyFromObject(live)
+	if err := h.client.Get(ctx, key, live); err != nil {
+		log.V(1).Info("failed to re-fetch policy for usedByRoles patch (non-fatal)",
+			"error", err.Error())
+		return
+	}
+
+	original := live.DeepCopyObject().(client.Object)
+	// Re-bind the adapter to the freshly-fetched object so SetUsedByRoles
+	// writes into the right Status.
+	switch p := live.(type) {
+	case *vaultv1alpha1.VaultPolicy:
+		p.Status.UsedByRoles = refs
+	case *vaultv1alpha1.VaultClusterPolicy:
+		p.Status.UsedByRoles = refs
+	default:
+		return
+	}
+
+	if err := h.client.Status().Patch(ctx, live, client.MergeFrom(original)); err != nil {
+		log.V(1).Info("failed to patch usedByRoles (non-fatal)", "error", err.Error())
+	}
+}
+
+// stringSlicesEqual returns true if a and b have the same length and
+// the same elements in the same order. Used to skip no-op status writes.
+func stringSlicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// computeUsedByRoles walks every VaultRole and VaultClusterRole in the
+// cluster, collecting the K8s resource identifier of each one whose
+// spec.policies references this policy. Used by ApplyActiveStatus to
+// populate Status.UsedByRoles (IMPROVEMENTS Missing Features §B).
+//
+// The result is sorted (lexicographic) for determinism and capped at
+// MaxUsedByRolesInStatus. The bool return indicates whether truncation
+// occurred so the caller can set the matching condition.
+//
+// Cluster-wide list per reconcile is acceptable: VaultRole / VaultClusterRole
+// counts are bounded in practice (typically <1000 per cluster), and policy
+// reconciles are not hot-path. If this becomes a bottleneck, a field
+// indexer on `spec.policies[].name` is the next step.
+func (h *Handler) computeUsedByRoles(
+	ctx context.Context, adapter domain.PolicyAdapter,
+) (refs []string, truncated bool) {
+	policyName := adapter.GetName()
+	policyNamespace := adapter.GetNamespace()
+	wantKind := kindLabelVaultPolicy
+	if !adapter.IsNamespaced() {
+		wantKind = kindLabelVaultClusterPolicy
+	}
+
+	collected := map[string]struct{}{}
+
+	var roleList vaultv1alpha1.VaultRoleList
+	if err := h.client.List(ctx, &roleList); err != nil {
+		// Non-fatal: a transient list error just means we leave the
+		// previous Status.UsedByRoles in place. The next reconcile
+		// retries.
+		logr.FromContextOrDiscard(ctx).V(1).Info(
+			"failed to list VaultRoles for reverse index (non-fatal)",
+			"error", err.Error(),
+		)
+		return adapter.GetUsedByRoles(), false
+	}
+	for i := range roleList.Items {
+		r := &roleList.Items[i]
+		if !roleReferencesPolicy(r.Spec.Policies, r.Namespace, wantKind, policyName, policyNamespace) {
+			continue
+		}
+		collected["VaultRole/"+r.Namespace+"/"+r.Name] = struct{}{}
+	}
+
+	var crList vaultv1alpha1.VaultClusterRoleList
+	if err := h.client.List(ctx, &crList); err != nil {
+		logr.FromContextOrDiscard(ctx).V(1).Info(
+			"failed to list VaultClusterRoles for reverse index (non-fatal)",
+			"error", err.Error(),
+		)
+	} else {
+		for i := range crList.Items {
+			r := &crList.Items[i]
+			// VaultClusterRole policy refs MUST carry an explicit namespace,
+			// so the namespace-resolution logic in roleReferencesPolicy is
+			// keyed off "" (no default fallback).
+			if !roleReferencesPolicy(r.Spec.Policies, "", wantKind, policyName, policyNamespace) {
+				continue
+			}
+			collected["VaultClusterRole/"+r.Name] = struct{}{}
+		}
+	}
+
+	refs = make([]string, 0, len(collected))
+	for k := range collected {
+		refs = append(refs, k)
+	}
+	// Sort for deterministic Status output — diffing two reconciles'
+	// Status.UsedByRoles should compare equal when set membership is.
+	sort.Strings(refs)
+	if len(refs) > MaxUsedByRolesInStatus {
+		truncated = true
+		refs = refs[:MaxUsedByRolesInStatus]
+	}
+	return refs, truncated
+}
+
+// roleReferencesPolicy returns true if any entry in `refs` matches the
+// given policy. For VaultPolicy refs, an empty namespace defaults to
+// `roleNamespace` (mirrors what the role reconciler does at sync time).
+// For VaultClusterPolicy refs, namespace is always empty.
+func roleReferencesPolicy(
+	refs []vaultv1alpha1.PolicyReference,
+	roleNamespace, wantKind, policyName, policyNamespace string,
+) bool {
+	for _, ref := range refs {
+		if ref.Kind != wantKind || ref.Name != policyName {
+			continue
+		}
+		if wantKind == kindLabelVaultClusterPolicy {
+			return true
+		}
+		ns := ref.Namespace
+		if ns == "" {
+			ns = roleNamespace
+		}
+		if ns == policyNamespace {
+			return true
+		}
+	}
+	return false
 }
 
 // CleanupPolicy removes a policy from Vault.

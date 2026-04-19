@@ -94,6 +94,12 @@ func (r *PolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 // the `vault.platform.io/reconcile-now` annotation is added/updated —
 // the latter supporting IMPROVEMENTS Missing Features §H's force-reconcile
 // trigger without bumping the spec.
+//
+// Watches:
+//   - VaultConnection phase transitions (existing).
+//   - VaultRole + VaultClusterRole spec changes (IMPROVEMENTS Missing
+//     Features §B): when a role adds/removes a policy reference, the
+//     referenced policies need to recompute Status.UsedByRoles.
 func (r *PolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&vaultv1alpha1.VaultPolicy{},
@@ -107,6 +113,18 @@ func (r *PolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				watches.PolicyRequestsForConnection(mgr.GetClient()),
 			),
 			builder.WithPredicates(watches.ConnectionPhaseChangedPredicate{}),
+		).
+		Watches(
+			&vaultv1alpha1.VaultRole{},
+			handler.EnqueueRequestsFromMapFunc(
+				watches.PoliciesReferencedByRole(kindLabelVaultPolicy),
+			),
+		).
+		Watches(
+			&vaultv1alpha1.VaultClusterRole{},
+			handler.EnqueueRequestsFromMapFunc(
+				watches.PoliciesReferencedByRole(kindLabelVaultPolicy),
+			),
 		).
 		Named("vaultpolicy").
 		Complete(r)
