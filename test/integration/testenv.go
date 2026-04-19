@@ -196,11 +196,10 @@ func (te *TestEnvironment) startVault() error {
 	ctx, cancel := context.WithTimeout(te.Ctx, te.opts.startupTimeout)
 	defer cancel()
 
-	// Default options for operator testing
-	defaultOpts := []VaultContainerOption{
-		WithOperatorPolicy(),
-		WithLogLevel("info"),
-	}
+	// Default options for operator testing. Pre-allocated with the known
+	// fixed defaults (2) plus the per-test overrides.
+	defaultOpts := make([]VaultContainerOption, 0, 2+len(te.opts.vaultOpts))
+	defaultOpts = append(defaultOpts, WithOperatorPolicy(), WithLogLevel("info"))
 	allOpts := append(defaultOpts, te.opts.vaultOpts...)
 
 	container, err := NewVaultTestContainer(ctx, allOpts...)
