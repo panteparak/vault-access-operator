@@ -1358,6 +1358,10 @@ For user-facing docs (install, CRD examples, auth methods), see <a href="../inde
 <td><code>vault.platform.io/dry-run=true</code></td>
 <td>preview mode — operator skips ALL Vault writes (Write/Delete/MarkManaged) for this CR and surfaces the would-be operation via the <code>DryRun</code> status condition. Persistent (does NOT auto-clear); user removes when ready to apply. Combine with <code>DriftMode: correct</code> to preview what a correction WOULD overwrite. Constant <code>AnnotationDryRun</code> (<a href="../IMPROVEMENTS/#i-no-dry-run--plan-mode-still-missing">§I</a>).</td>
 </tr>
+<tr>
+<td><code>vault.platform.io/restore-managed-markers=true</code> <em>(VaultConnection only)</em></td>
+<td>one-shot mass re-adoption: the connection reconciler walks every dependent VaultPolicy/VaultClusterPolicy/VaultRole/VaultClusterRole and re-writes its managed-marker entry in Vault. Use after the <code>secret/data/vault-access-operator/managed/</code> KV tree is wiped (manual cleanup, snapshot restore, etc.) so dependents aren't conflict-blocked. Auto-clears on success; partial failures keep it set so the next reconcile retries. Constant <code>AnnotationRestoreManagedMarkers</code> (<a href="../IMPROVEMENTS/#g-no-backuprestore-story-for-managed-markers-still-missing">§G</a>).</td>
+</tr>
 </tbody>
 </table>
 <h2 id="document-index">Document Index<a class="headerlink" href="#document-index" title="Permanent link">&para;</a></h2>

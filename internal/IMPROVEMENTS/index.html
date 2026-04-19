@@ -1204,10 +1204,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#g-no-backuprestore-story-for-managed-markers-still-missing" class="md-nav__link">
+  <a href="#g-managed-marker-restore-resolved-annotation-driven" class="md-nav__link">
     <span class="md-ellipsis">
       
-        G. No backup/restore story for managed-markers (still missing)
+        ✅ G. Managed-marker restore — RESOLVED (annotation-driven)
       
     </span>
   </a>
@@ -1450,8 +1450,8 @@
 </tr>
 <tr>
 <td>✅ Resolved (missing features)</td>
-<td>8</td>
-<td>A, B, C, F, H, I, J, K</td>
+<td>9</td>
+<td>A, B, C, F, G, H, I, J, K</td>
 </tr>
 <tr>
 <td>🟠 Partially resolved</td>
@@ -1465,8 +1465,8 @@
 </tr>
 <tr>
 <td>🕰️ Deferred with rationale</td>
-<td>3</td>
-<td>D (multi-cluster, OOS), E (policy templating), G (managed-marker backup)</td>
+<td>2</td>
+<td>D (multi-cluster, OOS), E (policy templating, Helm-level concern)</td>
 </tr>
 </tbody>
 </table>
@@ -2208,8 +2208,19 @@ A global package var mutated during init based on env. Works, but test isolation
 <p>Beyond <code>{{namespace}}</code> and <code>{{name}}</code> in paths, there's no way to template capabilities or rule structures. <strong>Deferred</strong>: likely a Helm-chart-level concern (generate the VaultPolicy CR with capabilities rendered via Helm values), not an operator concern.</p>
 <h3 id="f-ready-condition-predicate-for-dependent-crs-resolved">✅ F. <code>Ready</code> condition predicate for dependent CRs — RESOLVED<a class="headerlink" href="#f-ready-condition-predicate-for-dependent-crs-resolved" title="Permanent link">&para;</a></h3>
 <p>Fixed. <code>VaultConnection.Status.Conditions[Ready]</code> already existed; added <code>shared/controller/watches/ConnectionReadyChangedPredicate</code> which fires strictly on Ready True↔False transitions (vs. the broader <code>ConnectionPhaseChangedPredicate</code> that also fires on intermediate phase hops). Dependent CRs can now wire the stricter predicate if they want to react only to usability changes. The existing <code>ConnectionPhaseChangedPredicate</code> remains the default for today's consumers — no behavior change without opt-in.</p>
-<h3 id="g-no-backuprestore-story-for-managed-markers-still-missing">G. No backup/restore story for managed-markers (still missing)<a class="headerlink" href="#g-no-backuprestore-story-for-managed-markers-still-missing" title="Permanent link">&para;</a></h3>
-<p>If the <code>secret/data/vault-access-operator/managed/</code> KV tree is accidentally deleted, all policies/roles look unmanaged and become conflict-blocked. <strong>Deferred</strong>: would be its own CLI tool (<code>vault-access-operator rebuild-markers</code>) rather than an operator feature.</p>
+<h3 id="g-managed-marker-restore-resolved-annotation-driven">✅ G. Managed-marker restore — RESOLVED (annotation-driven)<a class="headerlink" href="#g-managed-marker-restore-resolved-annotation-driven" title="Permanent link">&para;</a></h3>
+<p>Fixed via annotation rather than CLI tool. <code>vault.platform.io/restore-managed-markers=true</code> on a VaultConnection triggers a one-shot mass re-adoption: the connection reconciler walks every dependent CR (VaultPolicy, VaultClusterPolicy, VaultRole, VaultClusterRole) using the existing <code>IndexFieldConnectionRef</code> field indexer (§15) and re-writes the managed-marker entry in Vault's KV store for each.</p>
+<p>Why annotation instead of CLI:
+- No new binary or Dockerfile target needed.
+- Operator already has the right credentials, client cache, and indexer.
+- Works through the normal reconcile loop — same delivery semantics, retry, leader-election as everything else.</p>
+<p>Annotation auto-clears after a successful pass. Partial failures (one bad write) keep the annotation set so the next reconcile retries; aggregate error message + <code>ManagedMarkersPartiallyRestored</code> k8s event surface which resources failed.</p>
+<p>Marker writes use the policy/role names directly (no rule descriptions for VaultPolicy markers — those are nice-to-have and re-populate on the next normal reconcile of each policy). This keeps the connection handler from depending on the policy feature's <code>buildRuleDescriptions</code> helper — single-direction dependency preserved.</p>
+<p>Tests: 4 cases in <code>restore_markers_test.go</code>:
+- <code>WritesMarkerForEveryDependent</code> — full coverage of all 4 CR kinds.
+- <code>OnlyTouchesDependentsOfThisConnection</code> — pin the field-indexed query.
+- <code>NoOpWhenNoDependents</code> — empty case is a non-error.
+- <code>PartialFailureContinuesAndReports</code> — one bad write doesn't halt the loop and the aggregated error names every failure.</p>
 <h3 id="h-reconcile-now-annotation-trigger-resolved">✅ H. <code>reconcile-now</code> annotation trigger — RESOLVED<a class="headerlink" href="#h-reconcile-now-annotation-trigger-resolved" title="Permanent link">&para;</a></h3>
 <p>Fixed. New <code>vault.platform.io/reconcile-now</code> annotation (constant at <a href="../../api/v1alpha1/common_types.go:486">common_types.go:486</a>) + <code>ReconcileNowAnnotationPredicate</code> in the watches package. Wired into Policy/ClusterPolicy/Role/ClusterRole reconcilers via <code>predicate.Or(GenerationChangedPredicate, ReconcileNowAnnotationPredicate)</code>. <code>BaseReconciler.Reconcile</code> auto-clears the annotation via <code>client.RawPatch(MergePatchType, ...)</code> after a successful sync so the predicate is one-shot; failed syncs retain the annotation so the user's intent outlives a transient error.</p>
 <p>Tests: 5 predicate tests covering add/update/clear/unrelated-change + 2 base-reconciler integration tests pinning the patch-clear (success) and no-clear (error) behaviors.</p>
