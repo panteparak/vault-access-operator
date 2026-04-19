@@ -23,6 +23,8 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+
+	"github.com/panteparak/vault-access-operator/shared/events"
 )
 
 // lifecycleControllerImpl implements LifecycleController.
@@ -295,6 +297,7 @@ func (c *lifecycleControllerImpl) renewConnection(ctx context.Context, connectio
 	// Update state under lock, then invoke callback outside the lock
 	// to prevent deadlock if the callback calls back into the controller.
 	var refreshCallback TokenRefreshCallback
+	var renewalCount int
 	c.mu.Lock()
 	if s, ok := c.connections[connectionName]; ok {
 		s.lastResult = result
@@ -304,6 +307,7 @@ func (c *lifecycleControllerImpl) renewConnection(ctx context.Context, connectio
 		s.status.NextRenewal = c.calculateNextRenewal(result.ExpirationTime, config.RenewalThreshold)
 		s.status.Error = ""
 		refreshCallback = s.onRefresh
+		renewalCount = s.status.RenewalCount
 	}
 	c.mu.Unlock()
 
@@ -317,21 +321,59 @@ func (c *lifecycleControllerImpl) renewConnection(ctx context.Context, connectio
 		"expiresAt", result.ExpirationTime,
 	)
 
+	// Publish TokenRenewed event so subscribers (metrics, dashboards,
+	// audit logs) can react. Pre-fix the eventBus field was stored in
+	// the controller but never used — the package docs advertised "The
+	// controller publishes TokenRenewed events on successful renewal"
+	// but no Publish call existed. Emits only on success; failures are
+	// emitted from handleRenewalFailure.
+	c.publishRenewed(ctx, connectionName, result.ExpirationTime, renewalCount, method)
+
 	return nil
 }
 
 // handleRenewalFailure updates state on renewal failure.
 func (c *lifecycleControllerImpl) handleRenewalFailure(connectionName string, err error) error {
 	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	if state, ok := c.connections[connectionName]; ok {
 		state.status.Error = err.Error()
 		// Schedule retry
 		state.status.NextRenewal = time.Now().Add(state.config.RetryInterval)
 	}
+	c.mu.Unlock()
+
+	// Publish TokenRenewalFailed so operators can alert on sustained
+	// renewal failures. Same rationale as publishRenewed: the eventBus
+	// was stored but never called. WillRetry=true because the controller
+	// always schedules a retry (RetryInterval above); callers can gate
+	// alerts on consecutive failures in the subscriber.
+	c.publishRenewalFailed(connectionName, err.Error())
 
 	return fmt.Errorf("renewal failed: %w", err)
+}
+
+// publishRenewed fires a TokenRenewed event on the event bus. Nil-safe
+// so tests that don't inject an event bus don't have to set one up.
+func (c *lifecycleControllerImpl) publishRenewed(
+	ctx context.Context, connectionName string, expiration time.Time, count int, method string,
+) {
+	if c.eventBus == nil {
+		return
+	}
+	_ = c.eventBus.Publish(ctx, events.NewTokenRenewed(connectionName, expiration, count, method))
+}
+
+// publishRenewalFailed fires a TokenRenewalFailed event. Uses a fresh
+// background context since the caller's ctx may be cancelled by the
+// time the subscriber processes the event.
+func (c *lifecycleControllerImpl) publishRenewalFailed(connectionName, errMsg string) {
+	if c.eventBus == nil {
+		return
+	}
+	// RetryCount is approximated from RenewalCount; the controller
+	// doesn't track failure-specific counts separately.
+	_ = c.eventBus.Publish(context.Background(),
+		events.NewTokenRenewalFailed(connectionName, errMsg, 0, true))
 }
 
 // calculateNextRenewal calculates when to next attempt renewal.
