@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -743,6 +744,13 @@ func isAuthError(err error) bool {
 }
 
 // handleSyncError updates the status to error state and returns the error.
+//
+// Classifies the error to set a precise condition Reason — operators get
+// a distinct signal for transport failures (NetworkError), sealed Vault
+// (VaultSealed / VaultNotInitialized — IMPROVEMENTS Missing Features §C),
+// or generic failures (Failed). The reason field is what the wasSealedReason
+// helper inspects on the *next* reconcile to decide whether to emit the
+// VaultUnsealed recovery event, so getting it right here is load-bearing.
 func (h *Handler) handleSyncError(ctx context.Context, conn *vaultv1alpha1.VaultConnection, err error) error {
 	// If the error looks like an auth failure, evict the cached client
 	// so the next reconciliation performs a full re-auth with fresh credentials.
@@ -754,7 +762,7 @@ func (h *Handler) handleSyncError(ctx context.Context, conn *vaultv1alpha1.Vault
 	conn.Status.Phase = vaultv1alpha1.PhaseError
 	conn.Status.Message = err.Error()
 	h.setCondition(conn, vaultv1alpha1.ConditionTypeReady, metav1.ConditionFalse,
-		vaultv1alpha1.ReasonFailed, err.Error())
+		classifyConnectionError(err), err.Error())
 
 	// Update health status if not already updated (for errors before explicit health check)
 	if conn.Status.LastHealthCheck == nil {
@@ -768,6 +776,25 @@ func (h *Handler) handleSyncError(ctx context.Context, conn *vaultv1alpha1.Vault
 	}
 
 	return err
+}
+
+// classifyConnectionError maps a sync error to the matching Ready
+// condition Reason. Mirrors the logic in syncerror.Handle (used by
+// policy/role) but kept local because the connection handler doesn't
+// route through that shared classifier (see IMPROVEMENTS §16 — the
+// connection feature deliberately doesn't use SyncWorkflow).
+func classifyConnectionError(err error) string {
+	var sealedErr *infraerrors.VaultSealedError
+	if errors.As(err, &sealedErr) {
+		if !sealedErr.Initialized {
+			return vaultv1alpha1.ReasonVaultNotInitialized
+		}
+		return vaultv1alpha1.ReasonVaultSealed
+	}
+	if infraerrors.IsConnectionError(err) {
+		return vaultv1alpha1.ReasonNetworkError
+	}
+	return vaultv1alpha1.ReasonFailed
 }
 
 // buildAndAuthenticateClient creates and authenticates a Vault client.
