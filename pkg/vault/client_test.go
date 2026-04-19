@@ -3,10 +3,12 @@ package vault
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 )
@@ -1495,6 +1497,31 @@ func TestAuthBackendForPath(t *testing.T) {
 			t.Errorf("AuthBackendForPath(%q) = %q, want %q", tc.path, got, tc.want)
 		}
 	}
+}
+
+// TestClient_ConnectionName_Concurrent pins the fix for the data race
+// on Client.connectionName — earlier versions had Set/Get with no lock
+// while the renewal background loop and reconciler goroutines could
+// read/write the field concurrently. `go test -race` would flag the
+// unsynchronized access. The fix added c.mu around both methods.
+//
+// This test interleaves writes and reads on a single client; without
+// the lock, `-race` reliably reports a data race.
+func TestClient_ConnectionName_Concurrent(t *testing.T) {
+	c := &Client{}
+	var wg sync.WaitGroup
+	for i := 0; i < 50; i++ {
+		wg.Add(2)
+		go func(i int) {
+			defer wg.Done()
+			c.SetConnectionName(fmt.Sprintf("conn-%d", i))
+		}(i)
+		go func() {
+			defer wg.Done()
+			_ = c.ConnectionName()
+		}()
+	}
+	wg.Wait()
 }
 
 // TestNormalizeAuthPath pins the bug-fix where bare authPath values

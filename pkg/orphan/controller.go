@@ -21,6 +21,7 @@ import (
 	"context"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -63,6 +64,11 @@ type Controller struct {
 	stopCh      chan struct{}
 	stoppedCh   chan struct{}
 	stopOnce    sync.Once
+	// started flips to 1 on Start so Stop can short-circuit instead of
+	// blocking on stoppedCh forever when Start was never called. Atomic
+	// for happens-before correctness under -race. Mirrors the same
+	// defense in pkg/cleanup/Controller.
+	started atomic.Bool
 }
 
 // ControllerConfig contains configuration for the orphan detection controller.
@@ -95,6 +101,7 @@ func NewController(cfg ControllerConfig) *Controller {
 func (c *Controller) Start(ctx context.Context) error {
 	c.log.Info("starting orphan detection controller", "interval", c.interval)
 
+	c.started.Store(true)
 	ticker := time.NewTicker(c.interval)
 	defer ticker.Stop()
 	defer close(c.stoppedCh)
@@ -117,9 +124,15 @@ func (c *Controller) Start(ctx context.Context) error {
 }
 
 // Stop signals the controller to stop.
-// Safe to call multiple times.
+// Safe to call multiple times. Safe to call even if Start was never
+// invoked — earlier versions deadlocked on the stoppedCh receive
+// because nothing would close it.
 func (c *Controller) Stop() {
 	c.stopOnce.Do(func() { close(c.stopCh) })
+	if !c.started.Load() {
+		// Nothing ever closed stoppedCh; don't block forever.
+		return
+	}
 	<-c.stoppedCh
 }
 

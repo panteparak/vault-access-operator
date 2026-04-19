@@ -28,6 +28,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -92,6 +93,12 @@ func NewQueue(k8sClient client.Client, namespace string) *Queue {
 
 // Enqueue adds a failed cleanup item to the queue.
 // If an item with the same ID already exists, it updates the existing item.
+//
+// Wrapped in retry.RetryOnConflict so two operator pods racing during the
+// pre-leader-election window (or any other concurrent writer) don't drop
+// items. Without retry, the second writer's Update returned a 409 that
+// the caller treated as terminal — silently losing the failed-cleanup
+// retry attempt and stranding the Vault resource.
 func (q *Queue) Enqueue(ctx context.Context, item Item) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -101,104 +108,109 @@ func (q *Queue) Enqueue(ctx context.Context, item Item) error {
 		item.ID = generateItemID(item)
 	}
 
-	// Get or create the ConfigMap
-	cm, err := q.getOrCreateConfigMap(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get cleanup queue configmap: %w", err)
-	}
-
-	// Parse existing queue
-	items, err := parseQueueData(cm.Data[QueueDataKey])
-	if err != nil {
-		return fmt.Errorf("failed to parse queue data: %w", err)
-	}
-
-	// Check if item already exists
-	found := false
-	for i, existing := range items {
-		if existing.ID == item.ID {
-			// Update existing item
-			items[i].Attempts = item.Attempts
-			items[i].LastAttemptAt = item.LastAttemptAt
-			items[i].LastError = item.LastError
-			found = true
-			break
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		// Get or create the ConfigMap. Read happens inside the retry loop
+		// so we always start from the latest ResourceVersion.
+		cm, err := q.getOrCreateConfigMap(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to get cleanup queue configmap: %w", err)
 		}
-	}
 
-	if !found {
-		items = append(items, item)
-	}
+		// Parse existing queue
+		items, err := parseQueueData(cm.Data[QueueDataKey])
+		if err != nil {
+			return fmt.Errorf("failed to parse queue data: %w", err)
+		}
 
-	// Serialize and update ConfigMap
-	data, err := json.Marshal(items)
-	if err != nil {
-		return fmt.Errorf("failed to serialize queue: %w", err)
-	}
+		// Check if item already exists
+		found := false
+		for i, existing := range items {
+			if existing.ID == item.ID {
+				// Update existing item
+				items[i].Attempts = item.Attempts
+				items[i].LastAttemptAt = item.LastAttemptAt
+				items[i].LastError = item.LastError
+				found = true
+				break
+			}
+		}
 
-	// Defensive: ConfigMap.Data can be nil after a round-trip through the
-	// real API server (envtest, production k8s) even when created with an
-	// empty non-nil map. Fake clients gloss over this. Initialize here so
-	// the assignment below doesn't panic with "assignment to entry in nil map".
-	if cm.Data == nil {
-		cm.Data = map[string]string{}
-	}
-	cm.Data[QueueDataKey] = string(data)
-	if err := q.client.Update(ctx, cm); err != nil {
-		return fmt.Errorf("failed to update cleanup queue configmap: %w", err)
-	}
+		if !found {
+			items = append(items, item)
+		}
 
-	return nil
+		// Serialize and update ConfigMap
+		data, err := json.Marshal(items)
+		if err != nil {
+			return fmt.Errorf("failed to serialize queue: %w", err)
+		}
+
+		// Defensive: ConfigMap.Data can be nil after a round-trip through the
+		// real API server (envtest, production k8s) even when created with an
+		// empty non-nil map. Fake clients gloss over this. Initialize here so
+		// the assignment below doesn't panic with "assignment to entry in nil map".
+		if cm.Data == nil {
+			cm.Data = map[string]string{}
+		}
+		cm.Data[QueueDataKey] = string(data)
+		// retry.RetryOnConflict only retries when the returned error
+		// passes apierrors.IsConflict — other Update errors (RBAC, server
+		// down, etc.) bubble up immediately, which is what we want.
+		return q.client.Update(ctx, cm)
+	})
 }
 
 // Dequeue removes an item from the queue by ID.
+//
+// Wrapped in retry.RetryOnConflict for the same reason as Enqueue —
+// concurrent writers (multiple operator pods pre-leader-election, or
+// any other source) shouldn't drop dequeue operations.
 func (q *Queue) Dequeue(ctx context.Context, id string) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
-	cm, err := q.getConfigMap(ctx)
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			// Queue doesn't exist, nothing to dequeue
-			return nil
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		cm, err := q.getConfigMap(ctx)
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				// Queue doesn't exist, nothing to dequeue
+				return nil
+			}
+			return fmt.Errorf("failed to get cleanup queue configmap: %w", err)
 		}
-		return fmt.Errorf("failed to get cleanup queue configmap: %w", err)
-	}
 
-	items, err := parseQueueData(cm.Data[QueueDataKey])
-	if err != nil {
-		return fmt.Errorf("failed to parse queue data: %w", err)
-	}
-
-	// Find and remove the item
-	newItems := make([]Item, 0, len(items))
-	for _, item := range items {
-		if item.ID != id {
-			newItems = append(newItems, item)
+		items, err := parseQueueData(cm.Data[QueueDataKey])
+		if err != nil {
+			return fmt.Errorf("failed to parse queue data: %w", err)
 		}
-	}
 
-	// Serialize and update ConfigMap
-	data, err := json.Marshal(newItems)
-	if err != nil {
-		return fmt.Errorf("failed to serialize queue: %w", err)
-	}
+		// Find and remove the item
+		newItems := make([]Item, 0, len(items))
+		for _, item := range items {
+			if item.ID != id {
+				newItems = append(newItems, item)
+			}
+		}
 
-	// Defensive nil-init: Enqueue has the same guard. Real K8s API server
-	// can return a ConfigMap with Data: nil (e.g., user-created bare CM
-	// during recovery, or some clients dropping empty maps), which would
-	// panic with "assignment to entry in nil map" without this check.
-	// Fake-client tests miss it because they preserve the empty-map shape
-	// across round trips. See pkg/cleanup/queue.go's Enqueue for context.
-	if cm.Data == nil {
-		cm.Data = map[string]string{}
-	}
-	cm.Data[QueueDataKey] = string(data)
-	if err := q.client.Update(ctx, cm); err != nil {
-		return fmt.Errorf("failed to update cleanup queue configmap: %w", err)
-	}
+		// Serialize and update ConfigMap
+		data, err := json.Marshal(newItems)
+		if err != nil {
+			return fmt.Errorf("failed to serialize queue: %w", err)
+		}
 
-	return nil
+		// Defensive nil-init: Enqueue has the same guard. Real K8s API server
+		// can return a ConfigMap with Data: nil (e.g., user-created bare CM
+		// during recovery, or some clients dropping empty maps), which would
+		// panic with "assignment to entry in nil map" without this check.
+		// Fake-client tests miss it because they preserve the empty-map shape
+		// across round trips. See pkg/cleanup/queue.go's Enqueue for context.
+		if cm.Data == nil {
+			cm.Data = map[string]string{}
+		}
+		cm.Data[QueueDataKey] = string(data)
+		// retry.RetryOnConflict only retries 409s; other errors bubble up.
+		return q.client.Update(ctx, cm)
+	})
 }
 
 // List returns all items in the queue.

@@ -19,6 +19,7 @@ package cleanup
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -53,6 +54,13 @@ type Controller struct {
 	stopCh      chan struct{}
 	stoppedCh   chan struct{}
 	stopOnce    sync.Once
+	// started flips to 1 on the first Start invocation so Stop can
+	// short-circuit instead of blocking on stoppedCh forever when
+	// Start was never called (e.g., test code that constructs the
+	// controller and immediately calls Stop, or a manager that
+	// rejected the runnable). Atomic so the Start/Stop happens-before
+	// relationship is well-defined under -race.
+	started atomic.Bool
 }
 
 // ControllerConfig contains configuration for the cleanup controller.
@@ -92,6 +100,7 @@ func NewController(cfg ControllerConfig) *Controller {
 func (c *Controller) Start(ctx context.Context) error {
 	c.log.Info("starting cleanup controller", "interval", c.interval, "maxAttempts", c.maxAttempts)
 
+	c.started.Store(true)
 	ticker := time.NewTicker(c.interval)
 	defer ticker.Stop()
 	defer close(c.stoppedCh)
@@ -114,9 +123,15 @@ func (c *Controller) Start(ctx context.Context) error {
 }
 
 // Stop signals the controller to stop processing.
-// Safe to call multiple times.
+// Safe to call multiple times. Safe to call even if Start was never
+// invoked — earlier versions deadlocked on the stoppedCh receive
+// because nothing would ever close it.
 func (c *Controller) Stop() {
 	c.stopOnce.Do(func() { close(c.stopCh) })
+	if !c.started.Load() {
+		// Nothing ever closed stoppedCh; don't block forever.
+		return
+	}
 	<-c.stoppedCh
 }
 

@@ -153,13 +153,24 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 	}, nil
 }
 
-// SetConnectionName sets the connection name for this client
+// SetConnectionName sets the connection name for this client.
+//
+// Holds c.mu (write lock) — `connectionName` is documented as a
+// "mutable metadata field protected by mu" but earlier versions
+// skipped the lock here, producing a data race detectable by
+// `go test -race` when the renewal background loop reads
+// ConnectionName() while ClientCache.Set rebinds an entry.
 func (c *Client) SetConnectionName(name string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.connectionName = name
 }
 
-// ConnectionName returns the connection name for this client
+// ConnectionName returns the connection name for this client.
+// Holds c.mu (read lock) — see SetConnectionName for context.
 func (c *Client) ConnectionName() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	return c.connectionName
 }
 
