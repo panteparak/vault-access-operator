@@ -172,30 +172,51 @@ func GetOIDCToken(
 	return GetJWTFromTokenRequest(ctx, client, jwtOpts)
 }
 
-// ValidateJWTClaims performs basic validation of JWT claims.
-// This is a pre-flight check before sending to Vault.
-// Note: Full cryptographic validation is done by Vault.
+// ValidateJWTClaims performs basic pre-flight validation of JWT claims
+// before handing the token to Vault. Returns nil only when all checks
+// pass. Vault still performs the cryptographic verification — this is
+// purely an early-failure shortcut so the operator surfaces clear
+// errors instead of opaque Vault rejections.
+//
+// Fail-closed semantics: when expectedIssuer or expectedAudience is set
+// and the corresponding claim is MISSING from the token, validation
+// fails. Earlier versions of this function silently passed in those
+// cases (`if iss, ok := claims["iss"].(string); ok` — the missing-claim
+// branch was a no-op), which would have authenticated tokens with no
+// issuer claim against any expected-issuer policy.
+//
+// Currently called only from tests; reserved for future direct use by
+// the connection handler if a pre-flight check is wanted before
+// sending the JWT to Vault. The function is kept (rather than deleted)
+// so the existing tests continue to exercise the parsing helper, and
+// the fail-closed semantics are pinned for future callers.
 func ValidateJWTClaims(token string, expectedIssuer string, expectedAudience string) error {
-	// Parse JWT without verification (just to check claims format)
-	// The actual verification is done by Vault
 	claims, err := parseJWTClaims(token)
 	if err != nil {
 		return fmt.Errorf("failed to parse JWT claims: %w", err)
 	}
 
-	// Check issuer if specified
+	// Check issuer when specified — fail-closed if claim absent.
 	if expectedIssuer != "" {
-		if iss, ok := claims["iss"].(string); ok {
-			if iss != expectedIssuer {
-				return fmt.Errorf("JWT issuer mismatch: got %q, expected %q", iss, expectedIssuer)
-			}
+		iss, ok := claims["iss"].(string)
+		if !ok {
+			return fmt.Errorf(
+				"JWT missing required `iss` claim (expected %q)", expectedIssuer)
+		}
+		if iss != expectedIssuer {
+			return fmt.Errorf("JWT issuer mismatch: got %q, expected %q", iss, expectedIssuer)
 		}
 	}
 
-	// Check audience if specified
+	// Check audience when specified — fail-closed if claim absent.
 	if expectedAudience != "" {
+		raw, present := claims["aud"]
+		if !present {
+			return fmt.Errorf(
+				"JWT missing required `aud` claim (expected %q)", expectedAudience)
+		}
 		audMatch := false
-		switch aud := claims["aud"].(type) {
+		switch aud := raw.(type) {
 		case string:
 			audMatch = aud == expectedAudience
 		case []interface{}:
@@ -211,7 +232,9 @@ func ValidateJWTClaims(token string, expectedIssuer string, expectedAudience str
 		}
 	}
 
-	// Check expiration
+	// Expiration: optional but if present and past-due, reject.
+	// (Tokens without `exp` are allowed — some IdPs issue eternal tokens
+	// for service-to-service calls — so this stays opt-in.)
 	if exp, ok := claims["exp"].(float64); ok {
 		if time.Now().Unix() > int64(exp) {
 			return fmt.Errorf("JWT has expired")

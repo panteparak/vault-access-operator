@@ -520,6 +520,16 @@ func (h *Handler) runBootstrap(ctx context.Context, conn *vaultv1alpha1.VaultCon
 	if result.BootstrapRevoked {
 		steps["BootstrapTokenRevoked"] = nowStr
 	}
+	// Surface non-fatal bootstrap errors so they appear in
+	// `kubectl get vaultconnection X -o yaml` instead of being buried in
+	// pod logs. Keys end with "Failed" so they're distinguishable from
+	// timestamp-valued success steps; values are the formatted error.
+	if result.K8sAuthTestError != "" {
+		steps["K8sAuthTestFailed"] = "failed at " + nowStr + ": " + result.K8sAuthTestError
+	}
+	if result.BootstrapRevokeError != "" {
+		steps["BootstrapTokenRevokeFailed"] = "failed at " + nowStr + ": " + result.BootstrapRevokeError
+	}
 	conn.Status.AuthStatus.BootstrapSteps = steps
 
 	if !result.TokenReviewerExpiration.IsZero() {
@@ -527,11 +537,27 @@ func (h *Handler) runBootstrap(ctx context.Context, conn *vaultv1alpha1.VaultCon
 		conn.Status.AuthStatus.TokenReviewerExpiration = &expTime
 	}
 
-	log.Info("bootstrap completed successfully",
-		"authMethodCreated", result.AuthMethodCreated,
-		"roleCreated", result.RoleCreated,
-		"bootstrapRevoked", result.BootstrapRevoked,
-	)
+	// Pick log severity based on whether anything failed. Earlier this
+	// always said "successfully" even when RevokeSelf or the K8s auth
+	// test had failed — operators reading logs at default verbosity
+	// thought everything was green when in fact a long-lived bootstrap
+	// token might still be lingering or the K8s auth wiring was broken.
+	switch {
+	case result.K8sAuthTestError != "" || result.BootstrapRevokeError != "":
+		log.Info("bootstrap completed with non-fatal errors",
+			"authMethodCreated", result.AuthMethodCreated,
+			"roleCreated", result.RoleCreated,
+			"bootstrapRevoked", result.BootstrapRevoked,
+			"k8sAuthTestError", result.K8sAuthTestError,
+			"bootstrapRevokeError", result.BootstrapRevokeError,
+		)
+	default:
+		log.Info("bootstrap completed successfully",
+			"authMethodCreated", result.AuthMethodCreated,
+			"roleCreated", result.RoleCreated,
+			"bootstrapRevoked", result.BootstrapRevoked,
+		)
+	}
 
 	// Persist bootstrap status so the next reconcile sees BootstrapComplete = true
 	// and proceeds to the normal auth path instead of re-running bootstrap.

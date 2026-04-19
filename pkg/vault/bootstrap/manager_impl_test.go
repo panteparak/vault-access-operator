@@ -18,10 +18,13 @@ package bootstrap
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 
 	"github.com/go-logr/logr"
+
+	"github.com/panteparak/vault-access-operator/pkg/vault/token"
 )
 
 // mockClusterDiscovery is a test double for K8sClusterDiscovery.
@@ -219,5 +222,196 @@ func TestGetK8sConfig_AutoDiscoveryError(t *testing.T) {
 	}
 	if !discovery.called {
 		t.Error("auto-discovery should be called for partial override")
+	}
+}
+
+// fakeBootstrapClient is a minimal VaultBootstrapClient used by the
+// surfacing tests below. Each function pointer is optional; nil means
+// "succeed silently". Set authTestErr / revokeErr to inject failures.
+type fakeBootstrapClient struct {
+	authEnabled        bool
+	currentToken       string
+	authTestErr        error
+	revokeErr          error
+	revokeSelfCalled   bool
+	authTestCalled     bool
+	configWriteErr     error
+	roleWriteErr       error
+	enableAuthErr      error
+	isAuthEnabledErr   error
+	isAuthEnabledValue bool
+}
+
+func (f *fakeBootstrapClient) EnableAuth(_ context.Context, _, _ string) error {
+	f.authEnabled = true
+	return f.enableAuthErr
+}
+func (f *fakeBootstrapClient) IsAuthEnabled(_ context.Context, _ string) (bool, error) {
+	return f.isAuthEnabledValue, f.isAuthEnabledErr
+}
+func (f *fakeBootstrapClient) WriteKubernetesAuthConfig(
+	_ context.Context, _ string, _ map[string]interface{},
+) error {
+	return f.configWriteErr
+}
+func (f *fakeBootstrapClient) WriteKubernetesRole(
+	_ context.Context, _, _ string, _ map[string]interface{},
+) error {
+	return f.roleWriteErr
+}
+func (f *fakeBootstrapClient) RevokeToken(_ context.Context, _ string) error { return nil }
+func (f *fakeBootstrapClient) RevokeSelf(_ context.Context) error {
+	f.revokeSelfCalled = true
+	return f.revokeErr
+}
+func (f *fakeBootstrapClient) AuthenticateKubernetesWithToken(
+	_ context.Context, _, _, _ string,
+) error {
+	f.authTestCalled = true
+	return f.authTestErr
+}
+func (f *fakeBootstrapClient) Token() string     { return f.currentToken }
+func (f *fakeBootstrapClient) SetToken(t string) { f.currentToken = t }
+
+// fakeTokenProvider is a minimal token.TokenProvider returning a fixed JWT.
+type fakeTokenProvider struct{}
+
+func (f *fakeTokenProvider) GetToken(
+	_ context.Context, _ token.GetTokenOptions,
+) (*token.TokenInfo, error) {
+	return &token.TokenInfo{Token: "fake-jwt"}, nil
+}
+
+// newSurfacingTestManager builds a manager with the mock dependencies.
+func newSurfacingTestManager() *managerImpl {
+	return &managerImpl{
+		tokenProvider: &fakeTokenProvider{},
+		clusterDiscovery: &mockClusterDiscovery{
+			config: &KubernetesClusterConfig{
+				Host:   "https://k8s:6443",
+				CACert: "ca-cert",
+			},
+		},
+		log: logr.Discard(),
+	}
+}
+
+// TestBootstrap_RevokeError_SurfacedInResult pins the contract that a
+// RevokeSelf failure must populate Result.BootstrapRevokeError instead
+// of being silently logged-and-dropped. Without this propagation the
+// connection handler had no way to surface "bootstrap completed but
+// the long-lived bootstrap token wasn't revoked" to operators.
+func TestBootstrap_RevokeError_SurfacedInResult(t *testing.T) {
+	mgr := newSurfacingTestManager()
+	client := &fakeBootstrapClient{
+		currentToken: "bootstrap-token",
+		revokeErr:    errors.New("vault: forbidden"),
+	}
+
+	cfg := &Config{
+		BootstrapToken: "bootstrap-token",
+		AuthMethodName: "kubernetes",
+		OperatorRole:   "operator",
+		OperatorPolicy: "operator",
+		OperatorServiceAccount: token.ServiceAccountRef{
+			Name:      "operator-sa",
+			Namespace: "vault-system",
+		},
+		AutoRevoke: true,
+	}
+
+	result, err := mgr.Bootstrap(context.Background(), client, cfg)
+	if err != nil {
+		t.Fatalf("Bootstrap returned error: %v", err)
+	}
+	if !client.revokeSelfCalled {
+		t.Fatal("RevokeSelf should have been called when AutoRevoke=true")
+	}
+	if result.BootstrapRevoked {
+		t.Error("BootstrapRevoked should be false when RevokeSelf failed")
+	}
+	if result.BootstrapRevokeError == "" {
+		t.Error("BootstrapRevokeError should capture the revocation error")
+	}
+	if result.BootstrapRevokeError != "vault: forbidden" {
+		t.Errorf("BootstrapRevokeError = %q, want %q",
+			result.BootstrapRevokeError, "vault: forbidden")
+	}
+}
+
+// TestBootstrap_K8sAuthTestError_SurfacedInResult pins the same contract
+// for the K8s auth test failure path. Pre-fix, the error was logged once
+// at Error level and discarded — the connection handler had no signal
+// to set a status condition with the cause.
+func TestBootstrap_K8sAuthTestError_SurfacedInResult(t *testing.T) {
+	mgr := newSurfacingTestManager()
+	client := &fakeBootstrapClient{
+		currentToken: "bootstrap-token",
+		authTestErr:  errors.New("permission denied: invalid role"),
+	}
+
+	cfg := &Config{
+		BootstrapToken: "bootstrap-token",
+		AuthMethodName: "kubernetes",
+		OperatorRole:   "operator",
+		OperatorPolicy: "operator",
+		OperatorServiceAccount: token.ServiceAccountRef{
+			Name:      "operator-sa",
+			Namespace: "vault-system",
+		},
+		AutoRevoke: false,
+	}
+
+	result, err := mgr.Bootstrap(context.Background(), client, cfg)
+	if err != nil {
+		t.Fatalf("Bootstrap returned error: %v", err)
+	}
+	if !client.authTestCalled {
+		t.Fatal("AuthenticateKubernetesWithToken should have been called")
+	}
+	if result.K8sAuthTestPassed {
+		t.Error("K8sAuthTestPassed should be false when test errored")
+	}
+	if result.K8sAuthTestError == "" {
+		t.Error("K8sAuthTestError should capture the test failure")
+	}
+}
+
+// TestBootstrap_AllSucceeded_NoErrorsInResult is the happy-path control
+// — both error fields stay empty when nothing failed. Guards against
+// the surfacing code accidentally populating the fields on success.
+func TestBootstrap_AllSucceeded_NoErrorsInResult(t *testing.T) {
+	mgr := newSurfacingTestManager()
+	client := &fakeBootstrapClient{currentToken: "bootstrap-token"}
+
+	cfg := &Config{
+		BootstrapToken: "bootstrap-token",
+		AuthMethodName: "kubernetes",
+		OperatorRole:   "operator",
+		OperatorPolicy: "operator",
+		OperatorServiceAccount: token.ServiceAccountRef{
+			Name:      "operator-sa",
+			Namespace: "vault-system",
+		},
+		AutoRevoke: true,
+	}
+
+	result, err := mgr.Bootstrap(context.Background(), client, cfg)
+	if err != nil {
+		t.Fatalf("Bootstrap returned error: %v", err)
+	}
+	if result.BootstrapRevokeError != "" {
+		t.Errorf("BootstrapRevokeError should be empty on success, got %q",
+			result.BootstrapRevokeError)
+	}
+	if result.K8sAuthTestError != "" {
+		t.Errorf("K8sAuthTestError should be empty on success, got %q",
+			result.K8sAuthTestError)
+	}
+	if !result.BootstrapRevoked {
+		t.Error("BootstrapRevoked should be true on successful revoke")
+	}
+	if !result.K8sAuthTestPassed {
+		t.Error("K8sAuthTestPassed should be true on successful test")
 	}
 }

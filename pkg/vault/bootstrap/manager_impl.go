@@ -109,7 +109,11 @@ func (m *managerImpl) Bootstrap(
 	testPassed, err := m.testKubernetesAuth(ctx, vaultClient, config)
 	if err != nil {
 		m.log.Error(err, "kubernetes auth test failed")
-		// Don't fail bootstrap, but record the failure
+		// Capture for the connection handler to surface as a status condition.
+		// Bootstrap is non-fatal here — the operator will retry on the next
+		// reconcile — but the error must propagate so it doesn't get
+		// silently buried in pod logs.
+		result.K8sAuthTestError = err.Error()
 	}
 	result.K8sAuthTestPassed = testPassed
 
@@ -119,7 +123,10 @@ func (m *managerImpl) Bootstrap(
 	if config.AutoRevoke {
 		if err := vaultClient.RevokeSelf(ctx); err != nil {
 			m.log.Error(err, "failed to revoke bootstrap token")
-			// Don't fail bootstrap for revocation failure
+			// Capture so the connection handler can surface "bootstrap
+			// completed but token revocation failed" — without this the
+			// long-lived bootstrap token silently lingers in Vault.
+			result.BootstrapRevokeError = err.Error()
 		} else {
 			result.BootstrapRevoked = true
 			m.log.Info("revoked bootstrap token")

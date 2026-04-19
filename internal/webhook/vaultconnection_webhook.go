@@ -122,6 +122,19 @@ func validateVaultConnection(conn *vaultv1alpha1.VaultConnection) (admission.War
 			"spec.address uses http:// — credentials traverse the network unencrypted. Use https:// unless you're testing in a trusted local environment.")
 	}
 
+	// TLS verification skip is a security-sensitive choice. Surface it
+	// as a webhook warning so an operator setting it sees an explicit
+	// notice — without this, a user could silently MITM all Vault
+	// traffic by setting `tls.skipVerify: true` and the cluster would
+	// accept it without any signal.
+	if conn.Spec.TLS != nil && conn.Spec.TLS.SkipVerify {
+		warnings = append(warnings,
+			"spec.tls.skipVerify=true disables Vault TLS certificate verification — "+
+				"any network attacker on the path between the operator and Vault can "+
+				"intercept Vault tokens and secrets. Use only for local development "+
+				"or with a self-signed CA pinned via spec.tls.caSecretRef.")
+	}
+
 	if len(errs) > 0 {
 		return warnings, fmt.Errorf("VaultConnection validation failed: %s", strings.Join(errs, "; "))
 	}
