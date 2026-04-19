@@ -23,9 +23,11 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
+	"github.com/panteparak/vault-access-operator/pkg/metrics"
 	"github.com/panteparak/vault-access-operator/pkg/vault"
 	"github.com/panteparak/vault-access-operator/shared/events"
 )
@@ -382,5 +384,61 @@ func TestCleanupWorkflow_NilEventBus(t *testing.T) {
 	}
 	if !containsCall(ops.calls, "RemoveManaged") {
 		t.Error("expected RemoveManaged to still be called with nil eventBus")
+	}
+}
+
+// TestCleanupWorkflow_DeletesDriftMetricSeries pins the bug-fix where
+// the cleanup workflow's DeleteDriftDetected was using the wrong kind
+// label — `label` (lowercase "policy") instead of `ops.ResourceKind()`
+// ("VaultPolicy") — silently no-op-ing the metric series cleanup.
+//
+// The test:
+//  1. Sets a drift gauge series under the same kind label that
+//     finalizeSuccessfulSync uses (`ops.ResourceKind()`).
+//  2. Runs Execute (cleanup workflow) for the same resource.
+//  3. Asserts the series is actually gone from the registry.
+//
+// Without the fix, step 3 would fail because `DeleteLabelValues("policy", ...)`
+// would never match a series written under `("VaultPolicy", ...)`.
+func TestCleanupWorkflow_DeletesDriftMetricSeries(t *testing.T) {
+	policy := &vaultv1alpha1.VaultPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       "drifty-policy",
+			Namespace:  "default",
+			Generation: 1,
+		},
+		Spec: vaultv1alpha1.VaultPolicySpec{
+			ConnectionRef:  "test-connection",
+			DeletionPolicy: vaultv1alpha1.DeletionPolicyDelete,
+		},
+	}
+	k8sClient := newFakeK8sClient(t, policy)
+	resource := newTestResource(policy)
+
+	vc := newAuthenticatedVaultClient(t)
+	getter := func(_ string) (*vault.Client, error) { return vc, nil }
+	ops := &mockOps{} // ResourceKind() returns "VaultPolicy"
+
+	// Pre-populate the gauge under the SAME label that
+	// finalizeSuccessfulSync uses (`ops.ResourceKind()` = "VaultPolicy").
+	// The cleanup must use this exact label or the delete is a no-op.
+	metrics.DriftDetectedGauge.Reset()
+	metrics.SetDriftDetected(ops.ResourceKind(), policy.Namespace, policy.Name, true)
+
+	beforeCleanup := testutil.CollectAndCount(metrics.DriftDetectedGauge)
+	if beforeCleanup != 1 {
+		t.Fatalf("test setup wrong: expected 1 series before cleanup, got %d", beforeCleanup)
+	}
+
+	wf := NewCleanupWorkflow(k8sClient, getter, nil, logr.Discard())
+	if err := wf.Execute(context.Background(), resource, ops); err != nil {
+		t.Fatalf("cleanup failed: %v", err)
+	}
+
+	afterCleanup := testutil.CollectAndCount(metrics.DriftDetectedGauge)
+	if afterCleanup != 0 {
+		t.Errorf("expected drift series to be deleted; got %d series remaining "+
+			"(label-mismatch bug means DeleteDriftDetected was a no-op)",
+			afterCleanup)
 	}
 }

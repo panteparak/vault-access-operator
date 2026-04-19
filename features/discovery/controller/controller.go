@@ -269,6 +269,13 @@ func (r *Reconciler) createPolicyCR(
 	}
 
 	if err := r.Create(ctx, policy); err != nil {
+		// AlreadyExists is the steady-state on every scan after the first
+		// create — the placeholder CR is already there waiting for user
+		// adoption. Treating it as success keeps the per-scan log clean
+		// and prevents the spurious AutoCreateFailed warning event.
+		if apierrors.IsAlreadyExists(err) {
+			return nil
+		}
 		return fmt.Errorf("failed to create VaultPolicy: %w", err)
 	}
 
@@ -313,6 +320,12 @@ func (r *Reconciler) createRoleCR(
 	}
 
 	if err := r.Create(ctx, role); err != nil {
+		// AlreadyExists = previous scan already created this placeholder.
+		// Skip silently rather than emit a Warning AutoCreateFailed event
+		// every scan interval (typically 5min) for every previously-seen role.
+		if apierrors.IsAlreadyExists(err) {
+			return nil
+		}
 		return fmt.Errorf("failed to create VaultRole: %w", err)
 	}
 

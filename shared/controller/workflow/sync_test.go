@@ -444,6 +444,58 @@ func TestSyncWorkflow_DriftCorrect_AllowedWithAnnotation(t *testing.T) {
 	if res.GetPhase() != vaultv1alpha1.PhaseActive {
 		t.Errorf("phase = %q, want %q", res.GetPhase(), vaultv1alpha1.PhaseActive)
 	}
+
+	// Followup fix: the allow-destructive annotation must be auto-cleared
+	// after the destructive write succeeds. Without this, a one-time
+	// "I accept the risk" would become a standing permission for all
+	// future drift corrections.
+	var fresh vaultv1alpha1.VaultPolicy
+	if err := k8s.Get(context.Background(),
+		client.ObjectKey{Name: policy.Name, Namespace: policy.Namespace},
+		&fresh); err != nil {
+		t.Fatalf("failed to re-fetch policy: %v", err)
+	}
+	if _, present := fresh.Annotations[vaultv1alpha1.AnnotationAllowDestructive]; present {
+		t.Error("allow-destructive annotation should be auto-cleared after a successful drift correction")
+	}
+}
+
+// TestSyncWorkflow_DriftCorrect_DoesNotClearAnnotationWhenUnused pins
+// the negative side: a successful sync that did NOT consume the
+// allow-destructive path leaves the annotation alone (e.g. spec
+// changes in detect mode while annotation is incidentally set).
+func TestSyncWorkflow_DriftCorrect_DoesNotClearAnnotationWhenUnused(t *testing.T) {
+	t.Parallel()
+
+	policy := newTestPolicy()
+	// detect mode → never enters the destructive path even with annotation set
+	policy.Spec.DriftMode = vaultv1alpha1.DriftModeDetect
+	policy.Status.Phase = vaultv1alpha1.PhaseActive
+	policy.Status.LastAppliedHash = testOldHash
+	policy.Annotations = map[string]string{
+		vaultv1alpha1.AnnotationAllowDestructive: vaultv1alpha1.AnnotationValueTrue,
+	}
+
+	conn := newTestVaultConnection()
+	k8s := newFakeK8sClient(t, policy, conn)
+	wf := newSyncWorkflowForTest(t, k8s)
+	res := newTestResource(policy)
+	ops := &mockOps{specHash: "new-hash"}
+
+	if err := wf.Execute(context.Background(), res, ops); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var fresh vaultv1alpha1.VaultPolicy
+	if err := k8s.Get(context.Background(),
+		client.ObjectKey{Name: policy.Name, Namespace: policy.Namespace},
+		&fresh); err != nil {
+		t.Fatalf("failed to re-fetch policy: %v", err)
+	}
+	v, present := fresh.Annotations[vaultv1alpha1.AnnotationAllowDestructive]
+	if !present || v != vaultv1alpha1.AnnotationValueTrue {
+		t.Error("allow-destructive should remain when destructive correction was NOT triggered")
+	}
 }
 
 func TestSyncWorkflow_SkipIfUnchanged(t *testing.T) {

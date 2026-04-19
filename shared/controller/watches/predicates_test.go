@@ -113,6 +113,42 @@ func TestConnectionPhaseChangedPredicate_Update_NoChange(t *testing.T) {
 	}
 }
 
+// TestConnectionPhaseChangedPredicate_Update_ReadyReasonChange pins the
+// followup fix where the predicate was missing transitions on the Ready
+// condition Reason field even though Phase + Healthy stayed the same.
+//
+// Concrete scenario this guards: VaultSealed → Succeeded after a
+// `vault operator unseal`. Phase may temporarily linger at Error while
+// the Reason flips, and dependent CRs need to retry immediately rather
+// than wait for the next ~5min scheduled reconcile.
+func TestConnectionPhaseChangedPredicate_Update_ReadyReasonChange(t *testing.T) {
+	p := ConnectionPhaseChangedPredicate{}
+	oldConn := &vaultv1alpha1.VaultConnection{
+		ObjectMeta: metav1.ObjectMeta{Name: "conn"},
+		Status: vaultv1alpha1.VaultConnectionStatus{
+			Phase:   vaultv1alpha1.PhaseError,
+			Healthy: false,
+			Conditions: []vaultv1alpha1.Condition{
+				{Type: vaultv1alpha1.ConditionTypeReady, Reason: vaultv1alpha1.ReasonVaultSealed},
+			},
+		},
+	}
+	newConn := &vaultv1alpha1.VaultConnection{
+		ObjectMeta: metav1.ObjectMeta{Name: "conn"},
+		Status: vaultv1alpha1.VaultConnectionStatus{
+			Phase:   vaultv1alpha1.PhaseError, // intentionally same
+			Healthy: false,                    // intentionally same
+			Conditions: []vaultv1alpha1.Condition{
+				{Type: vaultv1alpha1.ConditionTypeReady, Reason: vaultv1alpha1.ReasonSucceeded},
+			},
+		},
+	}
+	e := event.UpdateEvent{ObjectOld: oldConn, ObjectNew: newConn}
+	if !p.Update(e) {
+		t.Error("expected trigger when Ready reason flips even with Phase/Healthy unchanged")
+	}
+}
+
 // ---------------------------------------------------------------------------
 // ConnectionReadyChangedPredicate — IMPROVEMENTS Missing Features §F.
 // ---------------------------------------------------------------------------

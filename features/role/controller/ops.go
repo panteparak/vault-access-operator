@@ -47,10 +47,13 @@ type RoleOps struct {
 
 // NewRoleOps creates a new RoleOps for a sync/cleanup operation.
 func NewRoleOps(adapter domain.RoleAdapter, handler *Handler) *RoleOps {
-	authPath := adapter.GetAuthPath()
-	if authPath == "" {
-		authPath = vault.DefaultKubernetesAuthPath
-	}
+	// Normalize once at construction so every downstream consumer
+	// (Vault SDK calls, log/metric labels, drift detection) sees the
+	// same canonical form. Bare "kubernetes" → "auth/kubernetes",
+	// empty → "auth/kubernetes". Both forms appear in user-facing CRD
+	// docs and existing fixtures, but Vault's actual mount paths are
+	// always under /v1/auth/<name>/.
+	authPath := vault.NormalizeAuthPath(adapter.GetAuthPath())
 	return &RoleOps{
 		adapter:  adapter,
 		handler:  handler,

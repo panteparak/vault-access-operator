@@ -184,6 +184,15 @@ func (q *Queue) Dequeue(ctx context.Context, id string) error {
 		return fmt.Errorf("failed to serialize queue: %w", err)
 	}
 
+	// Defensive nil-init: Enqueue has the same guard. Real K8s API server
+	// can return a ConfigMap with Data: nil (e.g., user-created bare CM
+	// during recovery, or some clients dropping empty maps), which would
+	// panic with "assignment to entry in nil map" without this check.
+	// Fake-client tests miss it because they preserve the empty-map shape
+	// across round trips. See pkg/cleanup/queue.go's Enqueue for context.
+	if cm.Data == nil {
+		cm.Data = map[string]string{}
+	}
 	cm.Data[QueueDataKey] = string(data)
 	if err := q.client.Update(ctx, cm); err != nil {
 		return fmt.Errorf("failed to update cleanup queue configmap: %w", err)

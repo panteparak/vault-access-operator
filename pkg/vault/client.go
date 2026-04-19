@@ -32,20 +32,26 @@ const (
 )
 
 // AuthBackendForPath returns the backend family for an auth mount path.
-// Matches the first path segment after the leading `auth/` so submounts like
-// `auth/kubernetes-prod` or `auth/jwt/gitlab` resolve to their parent family.
+// Matches the first path segment after a leading `auth/` (or implicit
+// `auth/` for bare names) so submounts like `auth/kubernetes-prod` or
+// `auth/jwt/gitlab` resolve to their parent family.
+//
+// Accepts both forms that appear in the user-facing CRD docs and existing
+// fixtures:
+//   - Full: `auth/kubernetes`, `auth/jwt`, `auth/kubernetes-prod`
+//   - Bare: `kubernetes`, `jwt` — treated as implicit `auth/<name>`
+//
 // Empty input resolves to Kubernetes (matching DefaultKubernetesAuthPath).
-// Returns AuthBackendUnknown for paths that don't start with `auth/`.
+// Returns AuthBackendUnknown for unrecognized backends (e.g. `auth/aws`,
+// `auth/approle`) — those need explicit role-write support added before
+// they're useful (IMPROVEMENTS §7).
 func AuthBackendForPath(authPath string) AuthBackend {
-	p := strings.TrimRight(authPath, "/")
+	p := strings.TrimRight(NormalizeAuthPath(authPath), "/")
 	if p == "" {
 		return AuthBackendKubernetes
 	}
 	const prefix = "auth/"
-	if !strings.HasPrefix(p, prefix) {
-		return AuthBackendUnknown
-	}
-	rest := p[len(prefix):]
+	rest := strings.TrimPrefix(p, prefix)
 	seg, _, _ := strings.Cut(rest, "/")
 	switch {
 	case seg == "kubernetes" || strings.HasPrefix(seg, "kubernetes"):
@@ -55,6 +61,31 @@ func AuthBackendForPath(authPath string) AuthBackend {
 	default:
 		return AuthBackendUnknown
 	}
+}
+
+// NormalizeAuthPath ensures the path has the `auth/` prefix that the
+// Vault SDK requires. Bare mount names like "kubernetes" or "jwt" are
+// promoted to "auth/kubernetes" / "auth/jwt"; full paths like
+// "auth/kubernetes" are returned unchanged. Empty input (or just "auth/"
+// after trim) returns DefaultKubernetesAuthPath.
+//
+// Centralizes the prefix-handling so every Vault SDK call (Write/Read/
+// Delete/Exists) sees a path that's actually addressable in Vault. Before
+// this helper, a bare "kubernetes" was accepted by the webhook but
+// produced a Vault path of `/v1/kubernetes/role/foo` (not the actual
+// mount at `/v1/auth/kubernetes/role/foo`), causing silent reconcile
+// failures.
+func NormalizeAuthPath(authPath string) string {
+	p := strings.TrimRight(authPath, "/")
+	// Empty input OR a bare "auth" with no mount name → default. Don't
+	// produce "auth/auth" by accidentally re-prefixing.
+	if p == "" || p == "auth" {
+		return DefaultKubernetesAuthPath
+	}
+	if strings.HasPrefix(p, "auth/") {
+		return p
+	}
+	return "auth/" + p
 }
 
 // Client wraps the Vault API client with additional metadata.
@@ -398,9 +429,7 @@ func (c *Client) ListPolicies(ctx context.Context) ([]string, error) {
 
 // ListKubernetesAuthRoles returns all role names under the Kubernetes auth mount
 func (c *Client) ListKubernetesAuthRoles(ctx context.Context, authPath string) ([]string, error) {
-	if authPath == "" {
-		authPath = DefaultKubernetesAuthPath
-	}
+	authPath = NormalizeAuthPath(authPath)
 	path := fmt.Sprintf("%s/role", authPath)
 	secret, err := c.Logical().ListWithContext(ctx, path)
 	if err != nil {
@@ -428,9 +457,7 @@ func (c *Client) ListKubernetesAuthRoles(ctx context.Context, authPath string) (
 func (c *Client) WriteKubernetesAuthRole(
 	ctx context.Context, authPath, roleName string, data map[string]interface{},
 ) error {
-	if authPath == "" {
-		authPath = DefaultKubernetesAuthPath
-	}
+	authPath = NormalizeAuthPath(authPath)
 	path := fmt.Sprintf("%s/role/%s", authPath, roleName)
 	_, err := c.Logical().WriteWithContext(ctx, path, data)
 	return err
@@ -440,9 +467,7 @@ func (c *Client) WriteKubernetesAuthRole(
 func (c *Client) ReadKubernetesAuthRole(
 	ctx context.Context, authPath, roleName string,
 ) (map[string]interface{}, error) {
-	if authPath == "" {
-		authPath = DefaultKubernetesAuthPath
-	}
+	authPath = NormalizeAuthPath(authPath)
 	path := fmt.Sprintf("%s/role/%s", authPath, roleName)
 	secret, err := c.Logical().ReadWithContext(ctx, path)
 	if err != nil {
@@ -456,9 +481,7 @@ func (c *Client) ReadKubernetesAuthRole(
 
 // DeleteKubernetesAuthRole deletes a Kubernetes auth role from Vault
 func (c *Client) DeleteKubernetesAuthRole(ctx context.Context, authPath, roleName string) error {
-	if authPath == "" {
-		authPath = DefaultKubernetesAuthPath
-	}
+	authPath = NormalizeAuthPath(authPath)
 	path := fmt.Sprintf("%s/role/%s", authPath, roleName)
 	_, err := c.Logical().DeleteWithContext(ctx, path)
 	return err

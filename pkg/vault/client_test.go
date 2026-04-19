@@ -1482,12 +1482,41 @@ func TestAuthBackendForPath(t *testing.T) {
 		{"auth/jwt-gitlab", AuthBackendJWT},
 		{"auth/jwt/gitlab", AuthBackendJWT},
 		{"auth/approle", AuthBackendUnknown},
-		{"auth/", AuthBackendUnknown},
-		{"kubernetes", AuthBackendUnknown},
+		{"auth/", AuthBackendKubernetes}, // empty after trim → default
+		// Bare names now accepted (matches user-facing CRD docs and fixtures).
+		// Previously returned Unknown which caused webhook-vs-runtime mismatch:
+		// the webhook accepted bare names but the runtime rejected them.
+		{"kubernetes", AuthBackendKubernetes},
+		{"jwt", AuthBackendJWT},
+		{"approle", AuthBackendUnknown},
 	}
 	for _, tc := range cases {
 		if got := AuthBackendForPath(tc.path); got != tc.want {
 			t.Errorf("AuthBackendForPath(%q) = %q, want %q", tc.path, got, tc.want)
+		}
+	}
+}
+
+// TestNormalizeAuthPath pins the bug-fix where bare authPath values
+// like "kubernetes" silently failed because the Vault SDK builds paths
+// like `<authPath>/role/<name>` — without `auth/` prefix that resolves
+// to a non-existent Vault endpoint.
+func TestNormalizeAuthPath(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"", DefaultKubernetesAuthPath},
+		{"kubernetes", "auth/kubernetes"},
+		{"kubernetes/", "auth/kubernetes"},
+		{"jwt", "auth/jwt"},
+		{"auth/kubernetes", "auth/kubernetes"},
+		{"auth/jwt/gitlab", "auth/jwt/gitlab"},
+		{"auth/", "auth/kubernetes"}, // trim then promote empty → default
+	}
+	for _, tc := range cases {
+		if got := NormalizeAuthPath(tc.in); got != tc.want {
+			t.Errorf("NormalizeAuthPath(%q) = %q, want %q", tc.in, got, tc.want)
 		}
 	}
 }

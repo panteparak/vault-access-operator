@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/go-logr/logr"
 )
 
 const (
@@ -229,6 +231,7 @@ func (c *Client) listManaged(ctx context.Context, basePath, resourceType string)
 		return map[string]ManagedResource{}, nil
 	}
 
+	log := logr.FromContextOrDiscard(ctx)
 	result := make(map[string]ManagedResource, len(keys))
 	for _, k := range keys {
 		name, ok := k.(string)
@@ -236,10 +239,17 @@ func (c *Client) listManaged(ctx context.Context, basePath, resourceType string)
 			continue
 		}
 
-		// Get the metadata for this resource
+		// Get the metadata for this resource. A read failure here is
+		// surfaced to the caller via a per-resource log line — without
+		// it, the orphan controller's downstream "missing entry"
+		// treatment hides the read failure as a non-orphan, masking
+		// real Vault outages. The loop continues so partial results
+		// are still returned.
 		managed, err := c.getManaged(ctx, basePath, name, resourceType)
 		if err != nil {
-			// Log but continue - we want to list what we can
+			log.V(1).Info("failed to read managed metadata; skipping entry",
+				"basePath", basePath, "name", name,
+				"resourceType", resourceType, "error", err.Error())
 			continue
 		}
 		if managed != nil {

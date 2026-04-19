@@ -21,6 +21,8 @@ package driftmode
 import (
 	"context"
 
+	"github.com/go-logr/logr"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
@@ -48,12 +50,29 @@ func Resolve(
 	if connectionRef != "" && c != nil {
 		var conn vaultv1alpha1.VaultConnection
 		key := client.ObjectKey{Name: connectionRef}
-		if err := c.Get(ctx, key, &conn); err == nil {
+		err := c.Get(ctx, key, &conn)
+		switch {
+		case err == nil:
 			if conn.Spec.Defaults != nil && conn.Spec.Defaults.DriftMode != "" {
 				return conn.Spec.Defaults.DriftMode
 			}
+		case apierrors.IsNotFound(err):
+			// Connection genuinely missing — fall through to global default.
+			// Caller will see the missing connection via the dependency
+			// check elsewhere.
+		default:
+			// Transient API-server failure (auth, throttling, network).
+			// Surfacing it at V(1) makes the cause findable when an
+			// operator notices unexpected drift behavior. We still fall
+			// through to the global default — the alternative (returning
+			// an error) would force every caller to handle it, but in
+			// practice the next reconcile will retry.
+			logr.FromContextOrDiscard(ctx).V(1).Info(
+				"failed to load VaultConnection for drift-mode resolution; falling back to global default",
+				"connection", connectionRef, "error", err.Error(),
+				"fallback", string(vaultv1alpha1.DefaultDriftMode),
+			)
 		}
-		// If connection lookup fails or no defaults, fall through to global default
 	}
 
 	// 3. Global default

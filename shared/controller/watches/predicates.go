@@ -61,7 +61,30 @@ func (ConnectionPhaseChangedPredicate) Update(e event.UpdateEvent) bool {
 		return true
 	}
 
+	// Trigger on Ready-condition Reason transitions even when Phase
+	// stays the same. A VaultSealed → Succeeded transition (after
+	// `vault operator unseal`) keeps Phase=Error briefly but the Reason
+	// flips, and dependent policies/roles need to retry immediately
+	// rather than wait for the next 5min scheduled reconcile.
+	if readyReason(oldConn.Status.Conditions) != readyReason(newConn.Status.Conditions) {
+		return true
+	}
+
 	return false
+}
+
+// readyReason returns the Reason field of the Ready condition, or "" if
+// no Ready condition is set. Used by the Update predicate to detect
+// transitions like VaultSealed → Succeeded that don't change Phase but
+// do mean dependent CRs should re-reconcile.
+func readyReason(conds []vaultv1alpha1.Condition) string {
+	for i := range conds {
+		c := &conds[i]
+		if c.Type == vaultv1alpha1.ConditionTypeReady {
+			return c.Reason
+		}
+	}
+	return ""
 }
 
 func (ConnectionPhaseChangedPredicate) Generic(e event.GenericEvent) bool {

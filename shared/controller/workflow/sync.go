@@ -24,6 +24,7 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	ktypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -64,6 +65,13 @@ type syncExecutionState struct {
 	specHash           string
 	vaultClient        *vault.Client
 	log                logr.Logger
+	// usedAllowDestructive marks that the workflow consumed the
+	// `vault.platform.io/allow-destructive` annotation in this reconcile
+	// to authorize a drift-correction write. After the sync completes
+	// successfully the annotation is auto-cleared so the user must
+	// re-arm it for any future correction. Mirrors the one-shot
+	// semantics of `vault.platform.io/reconcile-now`.
+	usedAllowDestructive bool
 }
 
 // NewSyncWorkflow creates a new SyncWorkflow.
@@ -238,6 +246,10 @@ func (w *SyncWorkflow) handleDriftModes(
 	annotations := resource.GetAnnotations()
 	if annotations[vaultv1alpha1.AnnotationAllowDestructive] == vaultv1alpha1.AnnotationValueTrue {
 		state.log.Info("correcting drift with destructive annotation", "resource", state.vaultResourceName)
+		// Mark that we consumed the annotation so finalizeSuccessfulSync
+		// can clear it after the write succeeds — one-shot semantics so
+		// the user must re-arm for any future correction.
+		state.usedAllowDestructive = true
 		return false, nil
 	}
 
@@ -348,8 +360,47 @@ func (w *SyncWorkflow) finalizeSuccessfulSync(
 		ops.PublishSyncEvent(ctx, w.eventBus)
 	}
 
+	// Auto-clear the allow-destructive annotation if it was consumed in
+	// this reconcile. One-shot semantics: the user must re-arm the
+	// annotation for any future drift correction. Without this, a single
+	// "I accept the risk" approval would become a standing permission
+	// that auto-corrects every subsequent drift event silently.
+	//
+	// Best-effort: a patch failure here is logged but doesn't fail the
+	// sync (the destructive write already succeeded). The next reconcile
+	// can re-attempt the clear.
+	if state.usedAllowDestructive {
+		if err := w.clearAllowDestructiveAnnotation(ctx, resource); err != nil {
+			state.log.V(1).Info("failed to clear allow-destructive annotation (non-fatal)",
+				"resource", state.vaultResourceName, "error", err.Error())
+		}
+	}
+
 	state.log.Info(strings.ToLower(state.label)+" synced successfully", "resource", state.vaultResourceName)
 	return nil
+}
+
+// clearAllowDestructiveAnnotation patches off the
+// `vault.platform.io/allow-destructive` annotation via a strategic merge
+// patch. No-op if the annotation isn't set. Mirrors the reconcile-now
+// auto-clear in BaseReconciler so safety annotations behave consistently
+// (one-shot, must be re-armed for each use).
+func (w *SyncWorkflow) clearAllowDestructiveAnnotation(
+	ctx context.Context, resource SyncableResource,
+) error {
+	obj := resource.GetObject()
+	if obj == nil {
+		return nil
+	}
+	if _, ok := obj.GetAnnotations()[vaultv1alpha1.AnnotationAllowDestructive]; !ok {
+		return nil
+	}
+	patch := client.RawPatch(
+		ktypes.MergePatchType,
+		[]byte(fmt.Sprintf(`{"metadata":{"annotations":{%q:null}}}`,
+			vaultv1alpha1.AnnotationAllowDestructive)),
+	)
+	return w.client.Patch(ctx, obj, patch)
 }
 
 // handleSyncError classifies the error and updates status via syncerror.Handle.

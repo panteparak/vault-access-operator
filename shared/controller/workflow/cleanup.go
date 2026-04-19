@@ -170,7 +170,14 @@ func (w *CleanupWorkflow) Execute(ctx context.Context, resource SyncableResource
 	// doesn't leak across resource deletions. Without this, a deleted
 	// drifting resource would forever show 1 in Prometheus until the
 	// operator restarts.
-	metrics.DeleteDriftDetected(label, resource.GetNamespace(), resource.GetName())
+	//
+	// CRITICAL: must match the kind label used by `SetDriftDetected` in
+	// finalizeSuccessfulSync — that uses `state.kind = ops.ResourceKind()`
+	// which returns "VaultPolicy"/"VaultRole" (full kind, mixed case). The
+	// `label` variable above is `strings.ToLower(resourceLabel(...))` →
+	// "policy"/"role" — a different label set. Using `label` here would
+	// silently fail to delete the right series, leaking metrics.
+	metrics.DeleteDriftDetected(ops.ResourceKind(), resource.GetNamespace(), resource.GetName())
 
 	log.Info(label+" cleanup completed", "resource", vaultResourceName)
 	return nil
