@@ -31,6 +31,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/pkg/vault"
@@ -551,6 +552,95 @@ func TestSync_UpdatesPhaseToSyncing(t *testing.T) {
 	// After successful sync, phase should be Active (went through Syncing)
 	if conn.Status.Phase != vaultv1alpha1.PhaseActive {
 		t.Errorf("expected phase Active, got %s", conn.Status.Phase)
+	}
+}
+
+// TestCleanup_DependentsMessageBounded pins the fix for the bug where
+// the deletion-blocked condition message enumerated every dependent
+// resource. With 1000+ dependents at ~50 bytes each, the message
+// could exceed the 4KB recommended condition message limit and, when
+// combined with other large status fields, push the per-object size
+// past etcd's 1.5MB limit and silently fail the Status update.
+// The cap is 20 dependents in the message; the full list still
+// appears in the operator log for grep-based investigation.
+func TestCleanup_DependentsMessageBounded(t *testing.T) {
+	scheme := createScheme()
+	conn := newVaultConnection(vaultConnectionOpts{address: "http://localhost:8200"})
+
+	// Build 50 dependent VaultPolicies — well over the 20-cap.
+	objs := []ctrlclient.Object{conn}
+	for i := 0; i < 50; i++ {
+		policy := &vaultv1alpha1.VaultPolicy{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      fmt.Sprintf("dep-policy-%02d", i),
+				Namespace: "default",
+			},
+			Spec: vaultv1alpha1.VaultPolicySpec{ConnectionRef: conn.Name},
+		}
+		objs = append(objs, policy)
+	}
+
+	c := newClientBuilderWithConnectionRefIndex(scheme).
+		WithObjects(objs...).
+		WithStatusSubresource(conn).
+		Build()
+	cache := vault.NewClientCache()
+	bus := events.NewEventBus(logr.Discard())
+	handler := NewHandler(HandlerConfig{Client: c, ClientCache: cache, EventBus: bus, Log: logr.Discard()})
+
+	err := handler.Cleanup(context.Background(), conn)
+	if err == nil {
+		t.Fatal("expected cleanup error (deletion blocked), got nil")
+	}
+	msg := err.Error()
+	// Must include the count up-front
+	if !strings.Contains(msg, "50 dependent resource(s)") {
+		t.Errorf("error message should report total count: %q", msg)
+	}
+	// Must include the truncation note (since 50 > 20)
+	if !strings.Contains(msg, "showing 20 of 50") {
+		t.Errorf("error message should report truncation: %q", msg)
+	}
+	// Sanity bound: message length should be small. With 20 entries
+	// at ~30 bytes each = ~600 + framing, well under 2KB.
+	if len(msg) > 2048 {
+		t.Errorf("error message length = %d, want < 2048 bytes (truncation broken)", len(msg))
+	}
+}
+
+// TestCleanup_DependentsMessageNotTruncatedBelowCap pins the negative
+// case: when there are fewer than the cap, the message lists them all
+// without the "showing X of Y" suffix.
+func TestCleanup_DependentsMessageNotTruncatedBelowCap(t *testing.T) {
+	scheme := createScheme()
+	conn := newVaultConnection(vaultConnectionOpts{address: "http://localhost:8200"})
+
+	objs := []ctrlclient.Object{conn}
+	for i := 0; i < 5; i++ {
+		policy := &vaultv1alpha1.VaultPolicy{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      fmt.Sprintf("dep-policy-%d", i),
+				Namespace: "default",
+			},
+			Spec: vaultv1alpha1.VaultPolicySpec{ConnectionRef: conn.Name},
+		}
+		objs = append(objs, policy)
+	}
+
+	c := newClientBuilderWithConnectionRefIndex(scheme).
+		WithObjects(objs...).
+		WithStatusSubresource(conn).
+		Build()
+	cache := vault.NewClientCache()
+	bus := events.NewEventBus(logr.Discard())
+	handler := NewHandler(HandlerConfig{Client: c, ClientCache: cache, EventBus: bus, Log: logr.Discard()})
+
+	err := handler.Cleanup(context.Background(), conn)
+	if err == nil {
+		t.Fatal("expected cleanup error, got nil")
+	}
+	if strings.Contains(err.Error(), "showing") {
+		t.Errorf("message should not include truncation marker for 5 deps: %q", err.Error())
 	}
 }
 

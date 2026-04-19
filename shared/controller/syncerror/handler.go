@@ -34,6 +34,28 @@ import (
 	infraerrors "github.com/panteparak/vault-access-operator/shared/infrastructure/errors"
 )
 
+// MaxConditionMessageLen caps each condition Message field. Vault SDK
+// errors that wrap a 500-response body verbatim can reach tens of KB;
+// each Status update writes 3 messages (Ready, Synced, optional
+// DependencyReady) plus Status.Message. Without this cap, a single
+// pathological error could push the per-object size past etcd's
+// 1.5MB limit and silently fail the Status().Update — leaving the
+// CR stale with no explanation. 4KB per field is the K8s convention
+// for condition messages and well under any realistic per-object
+// budget even when accumulated.
+const MaxConditionMessageLen = 4096
+
+// truncateMsg shortens long error strings while preserving the prefix
+// and a tail marker so the operator can see "this got cut off".
+func truncateMsg(s string) string {
+	if len(s) <= MaxConditionMessageLen {
+		return s
+	}
+	const tail = " …[truncated]"
+	keep := MaxConditionMessageLen - len(tail)
+	return s[:keep] + tail
+}
+
 // StatusTarget is the minimal interface for updating sync error status.
 // Both PolicyAdapter and RoleAdapter satisfy this implicitly.
 type StatusTarget interface {
@@ -106,16 +128,18 @@ func Handle(
 		reason = vaultv1alpha1.ReasonFailed
 	}
 
+	errMsg := truncateMsg(err.Error())
 	conds := target.GetConditions()
 	conds = conditions.Set(conds, gen, vaultv1alpha1.ConditionTypeReady,
-		metav1.ConditionFalse, reason, err.Error())
+		metav1.ConditionFalse, reason, errMsg)
 	conds = conditions.Set(conds, gen, vaultv1alpha1.ConditionTypeSynced,
-		metav1.ConditionFalse, vaultv1alpha1.ReasonFailed, err.Error())
+		metav1.ConditionFalse, vaultv1alpha1.ReasonFailed, errMsg)
 
 	// Set DependencyReady condition for dependency errors
 	var depErr *infraerrors.DependencyError
 	if errors.As(err, &depErr) {
-		msg := fmt.Sprintf("Blocked by %s/%s: %s", depErr.DependencyType, depErr.DependencyName, depErr.Reason)
+		msg := truncateMsg(fmt.Sprintf("Blocked by %s/%s: %s",
+			depErr.DependencyType, depErr.DependencyName, depErr.Reason))
 		conds = conditions.Set(conds, gen, vaultv1alpha1.ConditionTypeDependencyReady,
 			metav1.ConditionFalse, vaultv1alpha1.ReasonDependencyNotReady, msg)
 
@@ -127,7 +151,7 @@ func Handle(
 	}
 
 	target.SetConditions(conds)
-	target.SetMessage(err.Error())
+	target.SetMessage(errMsg)
 	// Advance the retry counter so operators can see "this has failed N
 	// times in a row" without reading logs. The workflow's success path
 	// resets to 0; here we only ever increment.

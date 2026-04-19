@@ -729,9 +729,29 @@ func (h *Handler) Cleanup(ctx context.Context, conn *vaultv1alpha1.VaultConnecti
 		return fmt.Errorf("failed to check for dependent resources: %w", err)
 	}
 	if len(dependents) > 0 {
-		msg := fmt.Sprintf("deletion blocked: %d dependent resource(s) still reference this connection: %s",
-			len(dependents), strings.Join(dependents, ", "))
-		log.Info(msg)
+		// Cap the dependents enumeration in the condition message — at
+		// ~50 bytes per "VaultPolicy/<ns>/<name>" entry, an unbounded
+		// list for a connection with 1000+ dependents produced a 50KB+
+		// condition message. Combined with other large status fields
+		// (DiscoveredResources up to 500 entries, etc.) the per-object
+		// size could push past etcd's 1.5MB limit and silently fail
+		// the Status update. The full list still appears in the log
+		// (which has its own bounds elsewhere).
+		const maxDependentsInMsg = 20
+		shortList := dependents
+		summary := ""
+		if len(dependents) > maxDependentsInMsg {
+			shortList = dependents[:maxDependentsInMsg]
+			summary = fmt.Sprintf(" (showing %d of %d; see operator logs for full list)",
+				maxDependentsInMsg, len(dependents))
+		}
+		msg := fmt.Sprintf("deletion blocked: %d dependent resource(s) still reference this connection: %s%s",
+			len(dependents), strings.Join(shortList, ", "), summary)
+
+		// Log the full list so operators can grep `kubectl logs` for
+		// the complete enumeration when the condition truncates.
+		log.Info("deletion blocked by dependents",
+			"count", len(dependents), "dependents", dependents)
 
 		// Set Deleting condition to indicate blocked state
 		conn.Status.Phase = vaultv1alpha1.PhaseDeleting

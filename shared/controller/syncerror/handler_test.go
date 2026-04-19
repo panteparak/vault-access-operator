@@ -457,6 +457,57 @@ func TestHandle_NonDependencyError_NoDependencyReadyCondition(t *testing.T) {
 	}
 }
 
+// TestHandle_TruncatesLongErrorMessage pins the fix for the bug where
+// a Vault SDK error wrapping a multi-KB response body was written
+// verbatim to 3 condition Messages and Status.Message — when combined
+// with other large status fields a single error could push the
+// per-object size past etcd's 1.5MB limit and silently fail the
+// Status update. Now any error string > MaxConditionMessageLen is
+// truncated with a "[truncated]" tail marker.
+func TestHandle_TruncatesLongErrorMessage(t *testing.T) {
+	target := newMockTarget()
+	k8sClient := newFakeClient()
+	ctx := context.Background()
+	_ = k8sClient.Create(ctx, target.object.DeepCopyObject().(client.Object))
+
+	// 10KB error message — 2.5× the cap.
+	huge := strings.Repeat("X", 10*1024)
+	_ = Handle(ctx, k8sClient, logr.Discard(), target, errors.New(huge)) //nolint:err113
+
+	if len(target.message) > MaxConditionMessageLen {
+		t.Errorf("Status.Message length = %d, want <= %d (not truncated)",
+			len(target.message), MaxConditionMessageLen)
+	}
+	if !strings.HasSuffix(target.message, "…[truncated]") {
+		t.Errorf("Status.Message should end with truncation marker, got tail: %q",
+			target.message[max(0, len(target.message)-30):])
+	}
+
+	// Each condition message is independently capped.
+	for _, c := range target.conditions {
+		if len(c.Message) > MaxConditionMessageLen {
+			t.Errorf("condition %q message length = %d, want <= %d",
+				c.Type, len(c.Message), MaxConditionMessageLen)
+		}
+	}
+}
+
+// TestHandle_ShortErrorMessage_Untouched is the negative case: small
+// errors are passed through unmodified (no spurious truncation).
+func TestHandle_ShortErrorMessage_Untouched(t *testing.T) {
+	target := newMockTarget()
+	k8sClient := newFakeClient()
+	ctx := context.Background()
+	_ = k8sClient.Create(ctx, target.object.DeepCopyObject().(client.Object))
+
+	want := "vault: 503 service unavailable"
+	_ = Handle(ctx, k8sClient, logr.Discard(), target, errors.New(want)) //nolint:err113
+	if target.message != want {
+		t.Errorf("Status.Message = %q, want %q (small messages should not be truncated)",
+			target.message, want)
+	}
+}
+
 // TestHandle_IncrementsRetryCount pins the fix for the bug where
 // Status.RetryCount was a dead field — the workflow's success path
 // reset it to 0 but no error path ever incremented it. Operators
