@@ -194,6 +194,88 @@ func TestVaultConnectionValidator_DiscoveryAutoCreateRequiresTargetNamespace(t *
 	}
 }
 
+// TestVaultConnectionValidator_InvalidDiscoveryPattern pins the fix
+// that wires scanner.ValidatePatterns into the webhook. Pre-fix, the
+// scanner's filepath.Match silently swallowed ErrBadPattern and every
+// policy/role failed to match — users saw "0 discovered resources"
+// with no explanation and no way to debug. Now malformed patterns are
+// rejected at `kubectl apply` time with a clear message pointing at
+// the bad index.
+func TestVaultConnectionValidator_InvalidDiscoveryPattern(t *testing.T) {
+	v := &VaultConnectionValidator{}
+	cases := []struct {
+		name     string
+		policies []string
+		roles    []string
+		want     string
+	}{
+		{
+			name:     "unclosed bracket in policyPatterns",
+			policies: []string{"[admin*"},
+			want:     `spec.discovery.policyPatterns[0] "[admin*" is invalid`,
+		},
+		{
+			name:  "unclosed bracket in rolePatterns",
+			roles: []string{"*", "bad["},
+			want:  `spec.discovery.rolePatterns[1] "bad[" is invalid`,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			conn := &vaultv1alpha1.VaultConnection{
+				ObjectMeta: metav1.ObjectMeta{Name: "c"},
+				Spec: vaultv1alpha1.VaultConnectionSpec{
+					Address: "https://vault:8200",
+					Auth: vaultv1alpha1.AuthConfig{
+						Token: &vaultv1alpha1.TokenAuth{
+							SecretRef: vaultv1alpha1.SecretKeySelector{
+								Name: "s", Namespace: "ns", Key: "t",
+							},
+						},
+					},
+					Discovery: &vaultv1alpha1.DiscoveryConfig{
+						PolicyPatterns: tc.policies,
+						RolePatterns:   tc.roles,
+					},
+				},
+			}
+			_, err := v.ValidateCreate(context.Background(), conn)
+			if err == nil {
+				t.Fatal("expected error for invalid pattern, got nil")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error %q should contain %q", err.Error(), tc.want)
+			}
+		})
+	}
+}
+
+// TestVaultConnectionValidator_ValidDiscoveryPatterns confirms the
+// negative case: well-formed patterns pass the new check.
+func TestVaultConnectionValidator_ValidDiscoveryPatterns(t *testing.T) {
+	v := &VaultConnectionValidator{}
+	conn := &vaultv1alpha1.VaultConnection{
+		ObjectMeta: metav1.ObjectMeta{Name: "c"},
+		Spec: vaultv1alpha1.VaultConnectionSpec{
+			Address: "https://vault:8200",
+			Auth: vaultv1alpha1.AuthConfig{
+				Token: &vaultv1alpha1.TokenAuth{
+					SecretRef: vaultv1alpha1.SecretKeySelector{
+						Name: "s", Namespace: "ns", Key: "t",
+					},
+				},
+			},
+			Discovery: &vaultv1alpha1.DiscoveryConfig{
+				PolicyPatterns: []string{"admin-*", "app-[abc]*"},
+				RolePatterns:   []string{"*"},
+			},
+		},
+	}
+	if _, err := v.ValidateCreate(context.Background(), conn); err != nil {
+		t.Errorf("valid patterns should pass, got %v", err)
+	}
+}
+
 // TestVaultConnectionValidator_SecretRefNamespaceRequired pins the
 // fix for the silent footgun where SecretRef.Namespace="" fell back to
 // "default". Because VaultConnection is cluster-scoped there's no

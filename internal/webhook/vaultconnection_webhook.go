@@ -27,6 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
+	scanner "github.com/panteparak/vault-access-operator/features/discovery/controller"
 )
 
 // vaultconnectionlog is the logger for this validator.
@@ -115,6 +116,29 @@ func validateVaultConnection(conn *vaultv1alpha1.VaultConnection) (admission.War
 
 	if conn.Spec.Discovery != nil && conn.Spec.Discovery.AutoCreateCRs && conn.Spec.Discovery.TargetNamespace == "" {
 		errs = append(errs, "spec.discovery.targetNamespace is required when autoCreateCRs=true (otherwise the operator has nowhere to put the adopted CRs)")
+	}
+
+	// Validate discovery glob patterns at admission time. Without this,
+	// a malformed pattern (e.g., `"[admin*"` — missing closing bracket)
+	// causes filepath.Match to return ErrBadPattern inside the scanner,
+	// which silently swallowed the error and returned "no match" for
+	// every resource. The user saw "0 discovered resources" with no
+	// explanation and no way to debug without attaching a logger at V(1).
+	if conn.Spec.Discovery != nil {
+		if patternErrs := scanner.ValidatePatterns(conn.Spec.Discovery.PolicyPatterns); patternErrs != nil {
+			for idx, e := range patternErrs {
+				errs = append(errs, fmt.Sprintf(
+					"spec.discovery.policyPatterns[%d] %q is invalid: %v",
+					idx, conn.Spec.Discovery.PolicyPatterns[idx], e))
+			}
+		}
+		if patternErrs := scanner.ValidatePatterns(conn.Spec.Discovery.RolePatterns); patternErrs != nil {
+			for idx, e := range patternErrs {
+				errs = append(errs, fmt.Sprintf(
+					"spec.discovery.rolePatterns[%d] %q is invalid: %v",
+					idx, conn.Spec.Discovery.RolePatterns[idx], e))
+			}
+		}
 	}
 
 	// VaultConnection is cluster-scoped. SecretRef.Namespace must be
