@@ -1120,7 +1120,7 @@
 <td>✅</td>
 <td><code>vault_drift_detected</code></td>
 <td>Gauge</td>
-<td><code>kind, namespace</code></td>
+<td><code>kind, namespace, name</code></td>
 <td><code>SetDriftDetected</code></td>
 <td><a href="../../shared/controller/workflow/sync.go:200">workflow/sync.go:200</a></td>
 </tr>
@@ -1285,8 +1285,8 @@
 </tr>
 <tr>
 <td><code>vault_drift_detected</code></td>
-<td><code>kind, namespace</code></td>
-<td>medium — deliberately <em>not</em> labeled by resource name to keep cardinality bounded</td>
+<td><code>kind, namespace, name</code></td>
+<td>medium — labeled by resource name (was kind+namespace only, but multiple resources in the same namespace overwrote each other's signal). Cleanup workflow calls <code>DeleteDriftDetected</code> to prevent series leak on resource deletion.</td>
 </tr>
 <tr>
 <td><code>vault_drift_corrected_total</code></td>
