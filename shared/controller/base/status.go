@@ -18,6 +18,8 @@ package base
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"os"
 	"time"
 
@@ -50,16 +52,37 @@ var (
 const RequeueOnSealed = 10 * time.Second
 
 func init() {
-	if v := os.Getenv("OPERATOR_REQUEUE_SUCCESS_INTERVAL"); v != "" {
-		if d, err := time.ParseDuration(v); err == nil {
-			DefaultRequeueSuccess = d
-		}
+	DefaultRequeueSuccess = parseIntervalEnv(
+		"OPERATOR_REQUEUE_SUCCESS_INTERVAL", DefaultRequeueSuccess, os.Stderr)
+	DefaultRequeueError = parseIntervalEnv(
+		"OPERATOR_REQUEUE_ERROR_INTERVAL", DefaultRequeueError, os.Stderr)
+}
+
+// parseIntervalEnv reads a duration from the given env var name. Returns
+// the fallback when the var is unset OR when parsing fails; in the
+// failure case, writes a warning to `warnOut` so operators who
+// misconfigure their env vars see the value being ignored instead of
+// filing confused "my env var isn't working" bug reports (pre-fix the
+// parse error was silently dropped).
+//
+// Extracted from init() so the warning path is testable without
+// spawning a subprocess — tests pass a bytes.Buffer and assert the
+// message content.
+func parseIntervalEnv(name string, fallback time.Duration, warnOut io.Writer) time.Duration {
+	v := os.Getenv(name)
+	if v == "" {
+		return fallback
 	}
-	if v := os.Getenv("OPERATOR_REQUEUE_ERROR_INTERVAL"); v != "" {
-		if d, err := time.ParseDuration(v); err == nil {
-			DefaultRequeueError = d
-		}
+	d, err := time.ParseDuration(v)
+	if err == nil {
+		return d
 	}
+	if warnOut != nil {
+		fmt.Fprintf(warnOut,
+			"vault-access-operator: ignoring invalid %s=%q (%v); using default %s\n",
+			name, v, err, fallback)
+	}
+	return fallback
 }
 
 // StatusUpdater is a function that updates the status of a resource.

@@ -17,8 +17,10 @@ limitations under the License.
 package base
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -335,5 +337,57 @@ func TestStatusManager_Error_GenericErrorUsesDefaultRequeue(t *testing.T) {
 	if result.RequeueAfter != DefaultRequeueError {
 		t.Errorf("expected default error requeue %v for non-sealed error, got %v",
 			DefaultRequeueError, result.RequeueAfter)
+	}
+}
+
+// TestParseIntervalEnv_Unset confirms the fallback is returned and no
+// warning written when the env var is not set (common case — operators
+// use defaults).
+func TestParseIntervalEnv_Unset(t *testing.T) {
+	t.Setenv("OPERATOR_TEST_INTERVAL_UNSET", "")
+	var buf bytes.Buffer
+	got := parseIntervalEnv("OPERATOR_TEST_INTERVAL_UNSET", 42*time.Second, &buf)
+	if got != 42*time.Second {
+		t.Errorf("got %v, want fallback 42s", got)
+	}
+	if buf.Len() != 0 {
+		t.Errorf("no warning expected for unset env, got %q", buf.String())
+	}
+}
+
+// TestParseIntervalEnv_Valid confirms a valid duration is parsed.
+func TestParseIntervalEnv_Valid(t *testing.T) {
+	t.Setenv("OPERATOR_TEST_INTERVAL_VALID", "15s")
+	var buf bytes.Buffer
+	got := parseIntervalEnv("OPERATOR_TEST_INTERVAL_VALID", 42*time.Second, &buf)
+	if got != 15*time.Second {
+		t.Errorf("got %v, want 15s", got)
+	}
+	if buf.Len() != 0 {
+		t.Errorf("no warning expected for valid env, got %q", buf.String())
+	}
+}
+
+// TestParseIntervalEnv_Invalid pins the fix: a malformed value now
+// emits a warning to the configured writer and falls back to the
+// default. Pre-fix the parse error was silently dropped, leaving
+// operators with "my OPERATOR_REQUEUE_SUCCESS_INTERVAL isn't working"
+// bug reports and no way to debug.
+func TestParseIntervalEnv_Invalid(t *testing.T) {
+	t.Setenv("OPERATOR_TEST_INTERVAL_INVALID", "not-a-duration")
+	var buf bytes.Buffer
+	got := parseIntervalEnv("OPERATOR_TEST_INTERVAL_INVALID", 42*time.Second, &buf)
+	if got != 42*time.Second {
+		t.Errorf("got %v, want fallback 42s on parse failure", got)
+	}
+	msg := buf.String()
+	if !strings.Contains(msg, "not-a-duration") {
+		t.Errorf("warning should include the bad value: %q", msg)
+	}
+	if !strings.Contains(msg, "using default") {
+		t.Errorf("warning should mention fallback: %q", msg)
+	}
+	if !strings.Contains(msg, "OPERATOR_TEST_INTERVAL_INVALID") {
+		t.Errorf("warning should include the env var name: %q", msg)
 	}
 }
