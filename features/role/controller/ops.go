@@ -28,6 +28,7 @@ import (
 	"github.com/panteparak/vault-access-operator/features/role/domain"
 	"github.com/panteparak/vault-access-operator/pkg/vault"
 	"github.com/panteparak/vault-access-operator/shared/controller/binding"
+	"github.com/panteparak/vault-access-operator/shared/controller/dryrun"
 	"github.com/panteparak/vault-access-operator/shared/events"
 	infraerrors "github.com/panteparak/vault-access-operator/shared/infrastructure/errors"
 )
@@ -140,13 +141,12 @@ func (o *RoleOps) DetectDrift(ctx context.Context, vaultClient *vault.Client) (b
 //     surfaced via the DryRun status condition.
 func (o *RoleOps) WriteToVault(ctx context.Context, vaultClient *vault.Client) error {
 	log := logr.FromContextOrDiscard(ctx)
-	anns := o.adapter.GetAnnotations()
-	if anns[vaultv1alpha1.AnnotationDiscoveryPending] == vaultv1alpha1.AnnotationValueTrue {
+	if o.adapter.GetAnnotations()[vaultv1alpha1.AnnotationDiscoveryPending] == vaultv1alpha1.AnnotationValueTrue {
 		log.Info("skipping write for discovery-pending role",
 			"role", o.adapter.GetVaultRoleName())
 		return nil
 	}
-	if anns[vaultv1alpha1.AnnotationDryRun] == vaultv1alpha1.AnnotationValueTrue {
+	if dryrun.IsActive(o.adapter) {
 		log.Info("skipping WriteKubernetesAuthRole due to dry-run annotation",
 			"role", o.adapter.GetVaultRoleName(),
 			"authPath", o.authPath,
@@ -179,7 +179,7 @@ func (o *RoleOps) ReadbackVerify(ctx context.Context, vaultClient *vault.Client)
 // MarkManaged marks the role as managed by this operator. Skipped under
 // dry-run since the managed marker is itself a Vault-side write.
 func (o *RoleOps) MarkManaged(ctx context.Context, vaultClient *vault.Client) error {
-	if isRoleDryRun(o.adapter) {
+	if dryrun.IsActive(o.adapter) {
 		logr.FromContextOrDiscard(ctx).V(1).Info(
 			"skipping role MarkManaged due to dry-run annotation",
 			"role", o.adapter.GetVaultRoleName())
@@ -192,7 +192,7 @@ func (o *RoleOps) MarkManaged(ctx context.Context, vaultClient *vault.Client) er
 // DeleteFromVault deletes the Kubernetes auth role from Vault. Skipped under
 // dry-run; status condition surfaces what would have been deleted.
 func (o *RoleOps) DeleteFromVault(ctx context.Context, vaultClient *vault.Client) error {
-	if isRoleDryRun(o.adapter) {
+	if dryrun.IsActive(o.adapter) {
 		logr.FromContextOrDiscard(ctx).Info(
 			"skipping DeleteKubernetesAuthRole due to dry-run annotation",
 			"role", o.adapter.GetVaultRoleName())
@@ -203,18 +203,10 @@ func (o *RoleOps) DeleteFromVault(ctx context.Context, vaultClient *vault.Client
 
 // RemoveManaged removes the managed marker for this role. Skipped under dry-run.
 func (o *RoleOps) RemoveManaged(ctx context.Context, vaultClient *vault.Client) error {
-	if isRoleDryRun(o.adapter) {
+	if dryrun.IsActive(o.adapter) {
 		return nil
 	}
 	return vaultClient.RemoveRoleManaged(ctx, o.adapter.GetVaultRoleName())
-}
-
-// isRoleDryRun mirrors the policy package's isDryRun guard. The two
-// packages don't share a helper today; if a third feature gains the same
-// guard, lift this into a shared package alongside `conflict.ShouldAdopt`.
-// IMPROVEMENTS Missing Features §I.
-func isRoleDryRun(adapter interface{ GetAnnotations() map[string]string }) bool {
-	return adapter.GetAnnotations()[vaultv1alpha1.AnnotationDryRun] == vaultv1alpha1.AnnotationValueTrue
 }
 
 // ApplyActiveStatus sets role-specific status fields.

@@ -32,6 +32,7 @@ import (
 	"github.com/panteparak/vault-access-operator/pkg/vault"
 	"github.com/panteparak/vault-access-operator/shared/controller/conditions"
 	"github.com/panteparak/vault-access-operator/shared/controller/driftmode"
+	"github.com/panteparak/vault-access-operator/shared/controller/dryrun"
 	"github.com/panteparak/vault-access-operator/shared/controller/syncerror"
 	"github.com/panteparak/vault-access-operator/shared/events"
 	infraerrors "github.com/panteparak/vault-access-operator/shared/infrastructure/errors"
@@ -381,10 +382,13 @@ func resourceLabel(kind string) string {
 // vault.platform.io/dry-run=true annotation. The PolicyOps and RoleOps
 // guards skip Vault writes when this is set; the workflow uses it to
 // surface ConditionTypeDryRun. IMPROVEMENTS Missing Features §I.
+//
+// Delegates to the shared dryrun package so all three call sites
+// (policy ops, role ops, sync workflow) agree on the strict-equality
+// semantics. nil resource → false (safe default).
 func isDryRunResource(resource SyncableResource) bool {
-	obj := resource.GetObject()
-	if obj == nil {
+	if resource == nil {
 		return false
 	}
-	return obj.GetAnnotations()[vaultv1alpha1.AnnotationDryRun] == vaultv1alpha1.AnnotationValueTrue
+	return dryrun.IsActive(resource.GetObject())
 }

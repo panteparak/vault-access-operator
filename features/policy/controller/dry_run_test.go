@@ -203,38 +203,6 @@ func TestPolicyOps_WriteToVault_DryRunFalsyValueWrites(t *testing.T) {
 	}
 }
 
-// TestIsDryRun covers the helper directly with a few annotation states.
-func TestIsDryRun(t *testing.T) {
-	cases := []struct {
-		name     string
-		anns     map[string]string
-		wantSkip bool
-	}{
-		{"absent", nil, false},
-		{"true", map[string]string{vaultv1alpha1.AnnotationDryRun: "true"}, true},
-		{"empty", map[string]string{vaultv1alpha1.AnnotationDryRun: ""}, false},
-		{"false", map[string]string{vaultv1alpha1.AnnotationDryRun: "false"}, false},
-		{"unrelated", map[string]string{"other": "true"}, false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			obj := struct {
-				GetAnnotations func() map[string]string
-			}{
-				GetAnnotations: func() map[string]string { return tc.anns },
-			}
-			// Wrap the closure into the interface signature.
-			fakeAdapter := annotationsAdapter{anns: tc.anns}
-			got := isDryRun(&fakeAdapter)
-			if got != tc.wantSkip {
-				t.Errorf("isDryRun(%+v) = %v, want %v", obj, got, tc.wantSkip)
-			}
-		})
-	}
-}
-
-type annotationsAdapter struct {
-	anns map[string]string
-}
-
-func (a *annotationsAdapter) GetAnnotations() map[string]string { return a.anns }
+// (TestIsDryRun moved to shared/controller/dryrun/dryrun_test.go after the
+// helper was lifted into a shared package — the per-feature integration
+// tests above still pin the per-op behavior end-to-end.)

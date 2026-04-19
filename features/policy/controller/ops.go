@@ -28,6 +28,7 @@ import (
 	"github.com/panteparak/vault-access-operator/pkg/vault"
 	"github.com/panteparak/vault-access-operator/shared/controller/binding"
 	"github.com/panteparak/vault-access-operator/shared/controller/drift"
+	"github.com/panteparak/vault-access-operator/shared/controller/dryrun"
 	"github.com/panteparak/vault-access-operator/shared/events"
 	infraerrors "github.com/panteparak/vault-access-operator/shared/infrastructure/errors"
 )
@@ -118,13 +119,12 @@ func (o *PolicyOps) DetectDrift(ctx context.Context, vaultClient *vault.Client) 
 //     IMPROVEMENTS Missing Features §I.
 func (o *PolicyOps) WriteToVault(ctx context.Context, vaultClient *vault.Client) error {
 	log := logr.FromContextOrDiscard(ctx)
-	anns := o.adapter.GetAnnotations()
-	if anns[vaultv1alpha1.AnnotationDiscoveryPending] == vaultv1alpha1.AnnotationValueTrue {
+	if o.adapter.GetAnnotations()[vaultv1alpha1.AnnotationDiscoveryPending] == vaultv1alpha1.AnnotationValueTrue {
 		log.Info("skipping write for discovery-pending policy",
 			"policy", o.adapter.GetVaultPolicyName())
 		return nil
 	}
-	if anns[vaultv1alpha1.AnnotationDryRun] == vaultv1alpha1.AnnotationValueTrue {
+	if dryrun.IsActive(o.adapter) {
 		log.Info("skipping WritePolicy due to dry-run annotation",
 			"policy", o.adapter.GetVaultPolicyName(),
 			"hclBytes", len(o.hcl),
@@ -160,7 +160,7 @@ func (o *PolicyOps) ReadbackVerify(ctx context.Context, vaultClient *vault.Clien
 // MarkManaged marks the policy as managed with rule descriptions. Skipped
 // under dry-run since it would side-effect Vault's KV store.
 func (o *PolicyOps) MarkManaged(ctx context.Context, vaultClient *vault.Client) error {
-	if isDryRun(o.adapter) {
+	if dryrun.IsActive(o.adapter) {
 		logr.FromContextOrDiscard(ctx).V(1).Info(
 			"skipping MarkManaged due to dry-run annotation",
 			"policy", o.adapter.GetVaultPolicyName())
@@ -174,7 +174,7 @@ func (o *PolicyOps) MarkManaged(ctx context.Context, vaultClient *vault.Client) 
 
 // DeleteFromVault deletes the policy from Vault. Skipped under dry-run.
 func (o *PolicyOps) DeleteFromVault(ctx context.Context, vaultClient *vault.Client) error {
-	if isDryRun(o.adapter) {
+	if dryrun.IsActive(o.adapter) {
 		logr.FromContextOrDiscard(ctx).Info(
 			"skipping DeletePolicy due to dry-run annotation",
 			"policy", o.adapter.GetVaultPolicyName())
@@ -186,17 +186,10 @@ func (o *PolicyOps) DeleteFromVault(ctx context.Context, vaultClient *vault.Clie
 // RemoveManaged removes the managed marker for this policy. Skipped under
 // dry-run since the managed marker is itself a Vault-side side effect.
 func (o *PolicyOps) RemoveManaged(ctx context.Context, vaultClient *vault.Client) error {
-	if isDryRun(o.adapter) {
+	if dryrun.IsActive(o.adapter) {
 		return nil
 	}
 	return vaultClient.RemovePolicyManaged(ctx, o.adapter.GetVaultPolicyName())
-}
-
-// isDryRun reports whether the resource carries the dry-run annotation.
-// Anything that calls Vault should consult this and skip the write.
-// IMPROVEMENTS Missing Features §I.
-func isDryRun(adapter interface{ GetAnnotations() map[string]string }) bool {
-	return adapter.GetAnnotations()[vaultv1alpha1.AnnotationDryRun] == vaultv1alpha1.AnnotationValueTrue
 }
 
 // ApplyActiveStatus sets policy-specific status fields.
