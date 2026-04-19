@@ -324,12 +324,29 @@ func (w *SyncWorkflow) finalizeSuccessfulSync(
 	resource.SetDriftDetected(false)
 	resource.SetDriftSummary("")
 	resource.SetLastDriftCheckAt(&state.now)
-	w.setCondition(resource, vaultv1alpha1.ConditionTypeReady, metav1.ConditionTrue,
-		vaultv1alpha1.ReasonSucceeded, state.label+" synced to Vault")
+	// Honor a prior PoliciesResolved=False condition before stamping
+	// Ready=True. The role handler's verifyPoliciesExistInVault sets
+	// PoliciesResolved=False/PolicyNotInVault when referenced policies
+	// don't exist in Vault. Earlier this code unconditionally set
+	// Ready=True/Succeeded AND DependencyReady=True/DependencyReady,
+	// directly contradicting the just-set PoliciesResolved=False —
+	// operators saw a "healthy" role that workloads couldn't actually
+	// use because the bound policies were missing. Now Ready and
+	// DependencyReady track the actual dependency state.
+	policiesCond := conditions.Get(resource.GetConditions(), vaultv1alpha1.ConditionTypePoliciesResolved)
+	if policiesCond != nil && policiesCond.Status == metav1.ConditionFalse {
+		w.setCondition(resource, vaultv1alpha1.ConditionTypeReady, metav1.ConditionFalse,
+			policiesCond.Reason, policiesCond.Message)
+		w.setCondition(resource, vaultv1alpha1.ConditionTypeDependencyReady, metav1.ConditionFalse,
+			policiesCond.Reason, policiesCond.Message)
+	} else {
+		w.setCondition(resource, vaultv1alpha1.ConditionTypeReady, metav1.ConditionTrue,
+			vaultv1alpha1.ReasonSucceeded, state.label+" synced to Vault")
+		w.setCondition(resource, vaultv1alpha1.ConditionTypeDependencyReady, metav1.ConditionTrue,
+			vaultv1alpha1.ReasonDependencyReady, "All dependencies ready")
+	}
 	w.setCondition(resource, vaultv1alpha1.ConditionTypeSynced, metav1.ConditionTrue,
 		vaultv1alpha1.ReasonSucceeded, state.label+" synced successfully")
-	w.setCondition(resource, vaultv1alpha1.ConditionTypeDependencyReady, metav1.ConditionTrue,
-		vaultv1alpha1.ReasonDependencyReady, "All dependencies ready")
 	w.setCondition(resource, vaultv1alpha1.ConditionTypeDrifted, metav1.ConditionFalse,
 		vaultv1alpha1.ReasonNoDrift, "No drift detected")
 

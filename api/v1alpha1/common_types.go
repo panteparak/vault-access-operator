@@ -314,6 +314,16 @@ const (
 	// skipped one or more Vault-side writes during reconcile. Message
 	// surfaces the would-be operation. IMPROVEMENTS Missing Features §I.
 	ConditionTypeDryRun = "DryRun"
+
+	// ConditionTypeBootstrapped is True on a VaultConnection once the
+	// bootstrap flow has completed and the K8s auth test has verified
+	// the operator can authenticate via the new mount. Set in the
+	// connection handler's runBootstrap. Without this, operators
+	// querying `kubectl get vc -o jsonpath='..conditions[?(@.type=="Bootstrapped")]'`
+	// got an empty result during the brief window between bootstrap
+	// committing status and the next reconcile landing the normal
+	// Ready=True — confusing CI checks that polled for readiness.
+	ConditionTypeBootstrapped = "Bootstrapped"
 )
 
 // ConditionReason constants

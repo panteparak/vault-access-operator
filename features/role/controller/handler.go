@@ -94,7 +94,7 @@ func NewHandler(
 	}
 
 	h.syncWorkflow = workflow.NewSyncWorkflow(c, resolver, bus, log, h.recorder)
-	h.cleanupWorkflow = workflow.NewCleanupWorkflow(c, cache.Get, bus, log)
+	h.cleanupWorkflow = workflow.NewCleanupWorkflow(c, cache.Get, bus, log).WithRecorder(h.recorder)
 	return h
 }
 
@@ -104,7 +104,7 @@ func NewHandler(
 func (h *Handler) SetCleanupQueue(q workflow.CleanupQueuer) {
 	h.cleanupWorkflow = workflow.NewCleanupWorkflowWithQueue(
 		h.client, h.clientCache.Get, h.eventBus, q, h.log,
-	)
+	).WithRecorder(h.recorder)
 }
 
 // SyncRole synchronizes a role to Vault.

@@ -186,6 +186,72 @@ func TestSyncWorkflow_HappyPath(t *testing.T) {
 	}
 }
 
+// TestSyncWorkflow_HappyPath_RespectsPriorPoliciesResolvedFalse pins
+// the fix for the bug where Ready=True/Succeeded was set
+// unconditionally, even when the role handler had just set
+// PoliciesResolved=False/PolicyNotInVault. Pre-fix, operators saw a
+// "healthy" role whose bound policies didn't exist in Vault, so
+// workloads using the role got no permissions while monitoring
+// reported green. The workflow now downgrades Ready and
+// DependencyReady to mirror the PoliciesResolved state.
+func TestSyncWorkflow_HappyPath_RespectsPriorPoliciesResolvedFalse(t *testing.T) {
+	t.Parallel()
+
+	policy := newTestPolicy()
+	conn := newTestVaultConnection()
+	k8s := newFakeK8sClient(t, policy, conn)
+	wf := newSyncWorkflowForTest(t, k8s)
+
+	res := newTestResource(policy)
+	// Simulate the role handler's verifyPoliciesExistInVault having set
+	// PoliciesResolved=False/PolicyNotInVault on a prior step. The shared
+	// workflow's finalize must honor this and refuse to stamp Ready=True.
+	missingMsg := "policies not found in Vault: missing-policy"
+	res.SetConditions([]vaultv1alpha1.Condition{
+		{
+			Type:    vaultv1alpha1.ConditionTypePoliciesResolved,
+			Status:  metav1.ConditionFalse,
+			Reason:  vaultv1alpha1.ReasonPolicyNotInVault,
+			Message: missingMsg,
+		},
+	})
+	ops := &mockOps{specHash: "abc123"}
+
+	err := wf.Execute(context.Background(), res, ops)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	readyCond := findCondition(res.GetConditions(), vaultv1alpha1.ConditionTypeReady)
+	if readyCond == nil {
+		t.Fatal("Ready condition not found")
+	}
+	if readyCond.Status != metav1.ConditionFalse {
+		t.Errorf("Ready.Status = %q, want False (PoliciesResolved=False blocks)",
+			readyCond.Status)
+	}
+	if readyCond.Reason != vaultv1alpha1.ReasonPolicyNotInVault {
+		t.Errorf("Ready.Reason = %q, want %q",
+			readyCond.Reason, vaultv1alpha1.ReasonPolicyNotInVault)
+	}
+
+	depCond := findCondition(res.GetConditions(), vaultv1alpha1.ConditionTypeDependencyReady)
+	if depCond == nil {
+		t.Fatal("DependencyReady condition not found")
+	}
+	if depCond.Status != metav1.ConditionFalse {
+		t.Errorf("DependencyReady.Status = %q, want False (mirrors PoliciesResolved)",
+			depCond.Status)
+	}
+
+	// Synced should still be True — the spec was synced to Vault, only the
+	// references couldn't be resolved.
+	syncedCond := findCondition(res.GetConditions(), vaultv1alpha1.ConditionTypeSynced)
+	if syncedCond == nil || syncedCond.Status != metav1.ConditionTrue {
+		t.Error("Synced should remain True even when PoliciesResolved is False")
+	}
+}
+
 func TestSyncWorkflow_ValidateError(t *testing.T) {
 	t.Parallel()
 

@@ -342,6 +342,87 @@ func TestDeleteDriftDetected_NoOpWhenAbsent(t *testing.T) {
 	}
 }
 
+// TestDeleteConnectionMetrics pins the metric-leak fix for the
+// per-connection gauges and counters. CI clusters that churn ephemeral
+// VaultConnections via GitOps used to leak 4 series per uniquely-named
+// connection (1 health gauge + 1 consecutive-fails gauge + 2
+// health-check-result counter variants). Without this delete, the
+// Prometheus registry grows linearly with PR churn until operator
+// restart.
+func TestDeleteConnectionMetrics(t *testing.T) {
+	ConnectionHealthGauge.Reset()
+	ConnectionConsecutiveFailsGauge.Reset()
+	ConnectionHealthCheckTotal.Reset()
+
+	SetConnectionHealth("doomed-conn", true)
+	SetConsecutiveFails("doomed-conn", 3)
+	IncrementHealthCheck("doomed-conn", true)
+	IncrementHealthCheck("doomed-conn", false)
+
+	// Sanity: 4 series exist
+	total := testutil.CollectAndCount(ConnectionHealthGauge) +
+		testutil.CollectAndCount(ConnectionConsecutiveFailsGauge) +
+		testutil.CollectAndCount(ConnectionHealthCheckTotal)
+	if total != 4 {
+		t.Fatalf("setup wrong: expected 4 series, got %d", total)
+	}
+
+	DeleteConnectionMetrics("doomed-conn")
+
+	total = testutil.CollectAndCount(ConnectionHealthGauge) +
+		testutil.CollectAndCount(ConnectionConsecutiveFailsGauge) +
+		testutil.CollectAndCount(ConnectionHealthCheckTotal)
+	if total != 0 {
+		t.Errorf("expected 0 series after Delete (no leak), got %d", total)
+	}
+}
+
+// TestDeleteOrphanedResourcesMetrics covers both per-resource-type
+// label variants. The orphan controller's gauge leaks if the operator
+// reconciles a deleted connection's last orphan count and never zeros
+// it — the stale "5 orphaned policies" reading shows up as a false
+// alert until restart.
+func TestDeleteOrphanedResourcesMetrics(t *testing.T) {
+	OrphanedResourcesGauge.Reset()
+	SetOrphanedResources("doomed-conn", "policy", 5)
+	SetOrphanedResources("doomed-conn", "role", 2)
+	if c := testutil.CollectAndCount(OrphanedResourcesGauge); c != 2 {
+		t.Fatalf("setup wrong: expected 2 series, got %d", c)
+	}
+
+	DeleteOrphanedResourcesMetrics("doomed-conn")
+
+	if c := testutil.CollectAndCount(OrphanedResourcesGauge); c != 0 {
+		t.Errorf("expected 0 series after Delete, got %d", c)
+	}
+}
+
+// TestDeleteDiscoveryMetrics covers all 4 series the discovery scanner
+// writes per connection (gauge × 2 resource types + counter × 2 result
+// variants). Without the cleanup, deleted connections leave behind
+// stale "12 unmanaged policies" readings that look like ongoing drift.
+func TestDeleteDiscoveryMetrics(t *testing.T) {
+	DiscoveredResourcesGauge.Reset()
+	DiscoveryScanTotal.Reset()
+	SetDiscoveredResources("doomed-conn", "policy", 12)
+	SetDiscoveredResources("doomed-conn", "role", 3)
+	IncrementDiscoveryScan("doomed-conn", true)
+	IncrementDiscoveryScan("doomed-conn", false)
+	total := testutil.CollectAndCount(DiscoveredResourcesGauge) +
+		testutil.CollectAndCount(DiscoveryScanTotal)
+	if total != 4 {
+		t.Fatalf("setup wrong: expected 4 series, got %d", total)
+	}
+
+	DeleteDiscoveryMetrics("doomed-conn")
+
+	total = testutil.CollectAndCount(DiscoveredResourcesGauge) +
+		testutil.CollectAndCount(DiscoveryScanTotal)
+	if total != 0 {
+		t.Errorf("expected 0 series after Delete, got %d", total)
+	}
+}
+
 func TestSetCleanupQueueSize(t *testing.T) {
 	tests := []struct {
 		name string

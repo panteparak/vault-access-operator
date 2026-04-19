@@ -490,8 +490,22 @@ func (h *Handler) runBootstrap(ctx context.Context, conn *vaultv1alpha1.VaultCon
 	if conn.Status.AuthStatus == nil {
 		conn.Status.AuthStatus = &vaultv1alpha1.AuthStatus{}
 	}
-	conn.Status.AuthStatus.BootstrapComplete = true
-	conn.Status.AuthStatus.BootstrapCompletedAt = &now
+	// Only flip BootstrapComplete=true when the K8s auth test actually
+	// passed. Earlier this was set unconditionally, which produced a
+	// permanently stuck connection: the bootstrap manager returns
+	// (result, nil) even on test failure (errors are captured to
+	// result.K8sAuthTestError instead). With BootstrapComplete=true,
+	// `isBootstrapRequired` returns false on every subsequent reconcile,
+	// so the (idempotent) bootstrap path is never re-attempted, the
+	// normal auth path fails for the same reason the test did, and the
+	// operator reports BootstrapComplete=true while being unable to
+	// authenticate. Gating on K8sAuthTestPassed keeps re-running
+	// bootstrap until the test passes (which is what the manager's
+	// "operator will retry on next reconcile" comment promised).
+	conn.Status.AuthStatus.BootstrapComplete = result.K8sAuthTestPassed
+	if result.K8sAuthTestPassed {
+		conn.Status.AuthStatus.BootstrapCompletedAt = &now
+	}
 	conn.Status.AuthStatus.AuthMethod = defaultKubernetesAuthPath
 
 	// IMPROVEMENTS §10: record which individual bootstrap steps completed so
@@ -558,6 +572,26 @@ func (h *Handler) runBootstrap(ctx context.Context, conn *vaultv1alpha1.VaultCon
 			"bootstrapRevoked", result.BootstrapRevoked,
 		)
 	}
+
+	// Set the Bootstrapped condition so operators querying conditions
+	// see explicit confirmation immediately instead of having to wait
+	// for the next reconcile to land Ready=True via the normal path.
+	// Status reflects the actual K8s auth test outcome — False with
+	// the captured reason when the test failed.
+	bootstrapStatus := metav1.ConditionFalse
+	bootstrapReason := vaultv1alpha1.ReasonFailed
+	bootstrapMsg := "Bootstrap completed but K8s auth test failed; will retry on next reconcile"
+	if result.K8sAuthTestError != "" {
+		bootstrapMsg = "Bootstrap completed but K8s auth test failed: " + result.K8sAuthTestError
+	}
+	if result.K8sAuthTestPassed {
+		bootstrapStatus = metav1.ConditionTrue
+		bootstrapReason = vaultv1alpha1.ReasonSucceeded
+		bootstrapMsg = "Bootstrap completed and K8s auth verified"
+	}
+	conn.Status.Conditions = conditions.Set(conn.Status.Conditions, conn.Generation,
+		vaultv1alpha1.ConditionTypeBootstrapped, bootstrapStatus,
+		bootstrapReason, bootstrapMsg)
 
 	// Persist bootstrap status so the next reconcile sees BootstrapComplete = true
 	// and proceeds to the normal auth path instead of re-running bootstrap.
@@ -761,6 +795,15 @@ func (h *Handler) Cleanup(ctx context.Context, conn *vaultv1alpha1.VaultConnecti
 	// Remove from cache
 	h.clientCache.Delete(conn.Name)
 	log.V(1).Info("removed client from cache", "connectionName", conn.Name)
+
+	// Wipe per-connection Prometheus series so the registry doesn't grow
+	// linearly with connection churn. Without this, a CI cluster that
+	// spins up ephemeral VaultConnection-per-PR resources accumulates
+	// stale series for every PR ever merged. Mirrors the existing
+	// metrics.DeleteDriftDetected pattern from the cleanup workflow.
+	metrics.DeleteConnectionMetrics(conn.Name)
+	metrics.DeleteOrphanedResourcesMetrics(conn.Name)
+	metrics.DeleteDiscoveryMetrics(conn.Name)
 
 	// Publish ConnectionDisconnected event
 	if h.eventBus != nil {

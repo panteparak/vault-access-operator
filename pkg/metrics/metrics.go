@@ -259,6 +259,24 @@ func SetConnectionHealth(connection string, healthy bool) {
 	ConnectionHealthGauge.WithLabelValues(connection).Set(val)
 }
 
+// DeleteConnectionMetrics removes all per-connection series so the
+// Prometheus registry doesn't grow forever as VaultConnection resources
+// are created and destroyed (e.g., GitOps churn, ephemeral PR
+// environments). Without this call, every unique connection name leaks
+// 4 series for the lifetime of the operator process: 1 health gauge,
+// 1 consecutive-fails gauge, and 2 health-check-result counter variants.
+//
+// Mirrors the DeleteDriftDetected pattern used by the cleanup workflow.
+// Callers should invoke this from the connection's Cleanup path AFTER
+// the cache entry is removed — once both are cleared, the connection
+// is fully forgotten.
+func DeleteConnectionMetrics(connection string) {
+	ConnectionHealthGauge.DeleteLabelValues(connection)
+	ConnectionConsecutiveFailsGauge.DeleteLabelValues(connection)
+	ConnectionHealthCheckTotal.DeleteLabelValues(connection, ResultSuccess)
+	ConnectionHealthCheckTotal.DeleteLabelValues(connection, ResultFailure)
+}
+
 // IncrementHealthCheck increments the health check counter.
 func IncrementHealthCheck(connection string, success bool) {
 	result := ResultFailure
@@ -294,6 +312,16 @@ func IncrementRoleReconcile(kind, namespace string, success bool) {
 // SetOrphanedResources sets the orphaned resource count.
 func SetOrphanedResources(connection, resourceType string, count int) {
 	OrphanedResourcesGauge.WithLabelValues(connection, resourceType).Set(float64(count))
+}
+
+// DeleteOrphanedResourcesMetrics removes per-connection orphan series
+// when a connection is removed. Without this, the orphan controller's
+// next scan no longer touches the labels but the previous values stay
+// in the registry forever — a deleted connection's "5 orphaned policies"
+// gauge would persist as a stale alert until operator restart.
+func DeleteOrphanedResourcesMetrics(connection string) {
+	OrphanedResourcesGauge.DeleteLabelValues(connection, "policy")
+	OrphanedResourcesGauge.DeleteLabelValues(connection, "role")
 }
 
 // SetDriftDetected sets the per-resource drift state. Includes name in
@@ -359,4 +387,15 @@ func IncrementDiscoveryScan(connection string, success bool) {
 		result = ResultSuccess
 	}
 	DiscoveryScanTotal.WithLabelValues(connection, result).Inc()
+}
+
+// DeleteDiscoveryMetrics removes per-connection discovery series so a
+// deleted connection's "12 unmanaged policies" reading doesn't linger
+// in the registry until restart. Wipes both the gauge for each
+// resource type and both result variants of the scan counter.
+func DeleteDiscoveryMetrics(connection string) {
+	DiscoveredResourcesGauge.DeleteLabelValues(connection, "policy")
+	DiscoveredResourcesGauge.DeleteLabelValues(connection, "role")
+	DiscoveryScanTotal.DeleteLabelValues(connection, ResultSuccess)
+	DiscoveryScanTotal.DeleteLabelValues(connection, ResultFailure)
 }

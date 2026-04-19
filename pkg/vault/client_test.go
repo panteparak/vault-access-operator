@@ -1596,6 +1596,36 @@ func TestClient_ConnectionName_Concurrent(t *testing.T) {
 	wg.Wait()
 }
 
+// TestClient_AuthenticateToken_Concurrent pins the fix for an
+// unsynchronized write to c.authenticated in AuthenticateToken.
+// Pre-fix the field was assigned directly (`c.authenticated = true`)
+// without taking c.mu, and a concurrent IsAuthenticated() reader
+// would race. Bootstrap is the practical caller — a status-update
+// goroutine and the reconciler both touch this field during the
+// bootstrap → K8s-auth transition. `go test -race` flags the issue.
+func TestClient_AuthenticateToken_Concurrent(t *testing.T) {
+	c, err := NewClient(ClientConfig{Address: "https://example.com"})
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
+	var wg sync.WaitGroup
+	for i := 0; i < 50; i++ {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			_ = c.AuthenticateToken("dummy-token")
+		}()
+		go func() {
+			defer wg.Done()
+			_ = c.IsAuthenticated()
+		}()
+	}
+	wg.Wait()
+	if !c.IsAuthenticated() {
+		t.Error("expected client to be authenticated after AuthenticateToken")
+	}
+}
+
 // TestNormalizeAuthPath pins the bug-fix where bare authPath values
 // like "kubernetes" silently failed because the Vault SDK builds paths
 // like `<authPath>/role/<name>` — without `auth/` prefix that resolves

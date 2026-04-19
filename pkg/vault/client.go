@@ -360,13 +360,19 @@ func (c *Client) AuthenticateKubernetesWithToken(ctx context.Context, role, moun
 	})
 }
 
-// AuthenticateToken authenticates using a static token
+// AuthenticateToken authenticates using a static token. Per the
+// Client contract (mu protects mutable metadata), `authenticated` must
+// be written under the lock — earlier this set it directly, which the
+// race detector flags whenever a concurrent IsAuthenticated() reads
+// the same field. Bootstrap is the practical caller: a status-update
+// goroutine and the reconciler both touch `c.authenticated` during
+// the bootstrap → K8s-auth transition window.
 func (c *Client) AuthenticateToken(token string) error {
 	if token == "" {
 		return fmt.Errorf("token cannot be empty")
 	}
 	c.SetToken(token)
-	c.authenticated = true
+	c.SetAuthenticated(true)
 	return nil
 }
 

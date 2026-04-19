@@ -59,3 +59,15 @@ func Set(
 
 	return append(conditions, condition)
 }
+
+// Get returns the condition with the given type, or nil if not present.
+// Used by code paths that need to gate on a prior condition (e.g.,
+// the sync workflow checking PoliciesResolved before declaring Ready).
+func Get(conds []vaultv1alpha1.Condition, condType string) *vaultv1alpha1.Condition {
+	for i := range conds {
+		if conds[i].Type == condType {
+			return &conds[i]
+		}
+	}
+	return nil
+}

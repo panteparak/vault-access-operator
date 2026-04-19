@@ -24,7 +24,9 @@ import (
 
 	"github.com/go-logr/logr"
 	vaultapi "github.com/hashicorp/vault/api"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
@@ -53,7 +55,21 @@ type CleanupWorkflow struct {
 	getVaultClient VaultClientGetter
 	eventBus       *events.EventBus
 	queue          CleanupQueuer // optional — nil means "don't enqueue, same as pre-§2 behavior"
+	recorder       record.EventRecorder
 	log            logr.Logger
+}
+
+// WithRecorder attaches a Kubernetes event recorder so the workflow can
+// emit a Warning event when a delete is enqueued for retry. Without
+// this, the BaseReconciler's "Successfully deleted from Vault" event
+// fires on every cleanup completion — including the case where the
+// Vault delete failed and was queued — which deceives operators into
+// thinking the resource is gone from Vault. The Warning event clarifies
+// "delete enqueued; the K8s CR is gone but the Vault resource will be
+// retried by the cleanup controller". Optional and nil-safe.
+func (w *CleanupWorkflow) WithRecorder(rec record.EventRecorder) *CleanupWorkflow {
+	w.recorder = rec
+	return w
 }
 
 // NewCleanupWorkflow creates a new CleanupWorkflow without a retry queue.
@@ -217,6 +233,19 @@ func (w *CleanupWorkflow) enqueueForRetry(
 		// eventually flag the leaked resource.
 		logr.FromContextOrDiscard(ctx).Error(err, "failed to enqueue cleanup item for retry",
 			"resource", item.VaultName)
+		return
+	}
+	// Tell the operator the K8s CR will vanish but the Vault delete is
+	// pending. Without this, BaseReconciler's "Successfully deleted from
+	// Vault" event fires next, and the audit trail shows green for a
+	// resource that's still alive in Vault until the cleanup controller
+	// drains the queue (or never, if Vault stays unreachable).
+	if w.recorder != nil {
+		w.recorder.Eventf(resource.GetObject(), corev1.EventTypeWarning,
+			"DeleteRetryEnqueued",
+			"Vault delete deferred (cause: %s); the K8s CR is being removed but the "+
+				"Vault resource %q is queued for retry by the cleanup controller",
+			cause.Error(), item.VaultName)
 	}
 }
 
