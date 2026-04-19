@@ -1350,6 +1350,10 @@ For user-facing docs (install, CRD examples, auth methods), see <a href="../inde
 <td><code>vault.platform.io/discovered-from=&lt;connName&gt;</code></td>
 <td>source connection for a discovered CR (raw string)</td>
 </tr>
+<tr>
+<td><code>vault.platform.io/reconcile-now=&lt;any value&gt;</code></td>
+<td>force an immediate reconcile of the CR even when spec.generation didn't change. Cleared by the operator after a successful sync (single-shot trigger). Set via <code>kubectl annotate vaultpolicy foo vault.platform.io/reconcile-now="$(date -Iseconds)" --overwrite</code>. Constant <code>AnnotationReconcileNow</code>.</td>
+</tr>
 </tbody>
 </table>
 <h2 id="document-index">Document Index<a class="headerlink" href="#document-index" title="Permanent link">&para;</a></h2>

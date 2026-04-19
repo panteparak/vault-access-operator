@@ -818,10 +818,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#resolution-status-2026-04-18" class="md-nav__link">
+  <a href="#resolution-status-2026-04-19" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Resolution Status (2026-04-18)
+        Resolution Status (2026-04-19)
       
     </span>
   </a>
@@ -1149,10 +1149,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#b-no-policybinding-reverse-index-still-missing" class="md-nav__link">
+  <a href="#b-policybinding-reverse-index-resolved" class="md-nav__link">
     <span class="md-ellipsis">
       
-        B. No PolicyBinding reverse-index (still missing)
+        ✅ B. PolicyBinding reverse-index — RESOLVED
       
     </span>
   </a>
@@ -1432,7 +1432,7 @@
 <blockquote>
 <p>This is the actionable output of the documentation pass. Each finding is grouped by <strong>Severity</strong> (Critical / Major / Minor / Cosmetic), with evidence, impact, and a recommended fix. Item numbers are stable — the other FLOW docs link back here by <code>§&lt;n&gt;</code>.</p>
 </blockquote>
-<h2 id="resolution-status-2026-04-18">Resolution Status (2026-04-18)<a class="headerlink" href="#resolution-status-2026-04-18" title="Permanent link">&para;</a></h2>
+<h2 id="resolution-status-2026-04-19">Resolution Status (2026-04-19)<a class="headerlink" href="#resolution-status-2026-04-19" title="Permanent link">&para;</a></h2>
 <p>All original findings have been worked through. Tally as of the last commit:</p>
 <table>
 <thead>
@@ -1450,8 +1450,8 @@
 </tr>
 <tr>
 <td>✅ Resolved (missing features)</td>
-<td>5</td>
-<td>A, F, H, J, K</td>
+<td>6</td>
+<td>A, B, F, H, J, K</td>
 </tr>
 <tr>
 <td>🟠 Partially resolved</td>
@@ -1465,13 +1465,13 @@
 </tr>
 <tr>
 <td>🕰️ Deferred with rationale</td>
-<td>6</td>
-<td>B (reverse-index), C (sealed watch), D (multi-cluster, OOS), E (policy templating), G (managed-marker backup), I (dry-run mode)</td>
+<td>5</td>
+<td>C (sealed watch), D (multi-cluster, OOS), E (policy templating), G (managed-marker backup), I (dry-run mode)</td>
 </tr>
 </tbody>
 </table>
 <p>Each section below lists its current status inline. Items marked <code>✅ RESOLVED</code> keep the original finding in a collapsed <code>&lt;details&gt;</code> block for historical context and to make future drift easy to spot.</p>
-<p>Tests added across this effort: ~150 new unit tests, ~8 new integration tests, plus 2 new e2e tests. Zero regressions in existing suites.</p>
+<p>Tests added across this effort: ~170 new unit tests, ~8 new integration tests, plus 2 new e2e tests. Zero regressions in existing suites.</p>
 <h2 id="severity-legend">Severity Legend<a class="headerlink" href="#severity-legend" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -2181,8 +2181,13 @@ A global package var mutated during init based on env. Works, but test isolation
 <h2 id="missing-features-not-disconnects-but-absent">Missing Features (not disconnects, but absent)<a class="headerlink" href="#missing-features-not-disconnects-but-absent" title="Permanent link">&para;</a></h2>
 <h3 id="a-watch-namespaces-flag-resolved">✅ A. <code>--watch-namespaces</code> flag — RESOLVED<a class="headerlink" href="#a-watch-namespaces-flag-resolved" title="Permanent link">&para;</a></h3>
 <p>Fixed. <code>cmd/main.go</code> exposes <code>--watch-namespaces=ns1,ns2,ns3</code> which threads through <code>ctrl.Options.Cache.DefaultNamespaces</code>. Empty value (default) retains the all-namespaces behavior. Cluster-scoped CRDs continue to be watched regardless.</p>
-<h3 id="b-no-policybinding-reverse-index-still-missing">B. No PolicyBinding reverse-index (still missing)<a class="headerlink" href="#b-no-policybinding-reverse-index-still-missing" title="Permanent link">&para;</a></h3>
-<p><code>VaultRole.Status.PolicyBindings</code> tracks role→policy. Nothing tracks policy→role. Useful for debugging "who uses this policy?" via <code>kubectl describe vaultpolicy X</code>. <strong>Not done</strong>: requires new <code>VaultPolicy.Status.UsedByRoles []string</code> field + two-way index maintenance, which is a non-trivial schema change. Deferred.</p>
+<h3 id="b-policybinding-reverse-index-resolved">✅ B. PolicyBinding reverse-index — RESOLVED<a class="headerlink" href="#b-policybinding-reverse-index-resolved" title="Permanent link">&para;</a></h3>
+<p>Fixed. <code>VaultPolicy.Status.UsedByRoles</code> and <code>VaultClusterPolicy.Status.UsedByRoles</code> are new <code>[]string</code> fields populated by the policy reconciler after each successful sync. The list contains K8s resource refs like <code>VaultRole/&lt;ns&gt;/&lt;name&gt;</code> or <code>VaultClusterRole/&lt;name&gt;</code>, sorted lexicographically for deterministic output and capped at <code>MaxUsedByRolesInStatus=200</code> (CRD <code>MaxItems</code> matches).</p>
+<p><code>shared/controller/watches/role_watch.go</code> adds <code>PoliciesReferencedByRole(kindFilter)</code> — a MapFunc wired into both policy reconcilers via <code>Watches(...)</code>. When a role is created, deleted, or has its <code>spec.policies</code> list mutated, every referenced policy is enqueued so its <code>UsedByRoles</code> recomputes within milliseconds of the role change.</p>
+<p><code>features/policy/controller/handler.go:refreshUsedByRoles</code> does the post-sync write via <code>Status().Patch(MergeFrom)</code> on a freshly re-fetched object — independent of the workflow's main status update so a transient reverse-index failure doesn't fail the whole reconcile, and a no-op-when-unchanged guard avoids reconcile churn on stable membership.</p>
+<p>Tests:
+- <code>shared/controller/watches/role_watch_test.go</code> — 5 MapFunc cases (defaulting, kind filter, cluster-role no-default, dedup, unknown-object).
+- <code>features/policy/controller/used_by_roles_test.go</code> — 7 handler cases including both role kinds, ignores non-referencing roles, truncation at MaxItems, namespace defaulting helper, no-op-when-unchanged.</p>
 <h3 id="c-no-sealed-init-auto-recovery-hook-still-missing">C. No sealed / init auto-recovery hook (still missing)<a class="headerlink" href="#c-no-sealed-init-auto-recovery-hook-still-missing" title="Permanent link">&para;</a></h3>
 <p>When Vault is sealed, the operator marks <code>Phase=Error</code> and backs off. After unseal, it recovers on the next reconcile (30s). No event-driven notification (Vault has a sealed-state API but the operator doesn't subscribe). <strong>Deferred</strong>: requires a long-lived goroutine per connection polling <code>sys/seal-status</code> at a faster cadence than the regular reconcile, which changes the operator's background-work model. Not done.</p>
 <h3 id="d-no-multi-cluster-support-out-of-scope">D. No multi-cluster support (out of scope)<a class="headerlink" href="#d-no-multi-cluster-support-out-of-scope" title="Permanent link">&para;</a></h3>
