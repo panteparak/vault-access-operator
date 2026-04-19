@@ -54,13 +54,31 @@ func AuthBackendForPath(authPath string) AuthBackend {
 	rest := strings.TrimPrefix(p, prefix)
 	seg, _, _ := strings.Cut(rest, "/")
 	switch {
-	case seg == "kubernetes" || strings.HasPrefix(seg, "kubernetes"):
+	case hasBackendPrefix(seg, "kubernetes"):
 		return AuthBackendKubernetes
-	case seg == "jwt" || strings.HasPrefix(seg, "jwt"):
+	case hasBackendPrefix(seg, "jwt"):
 		return AuthBackendJWT
 	default:
 		return AuthBackendUnknown
 	}
+}
+
+// hasBackendPrefix returns true if seg equals backend exactly, or starts
+// with `backend-` / `backend_` (the conventional separators for a Vault
+// multi-tenant submount like `kubernetes-prod`). Requiring an explicit
+// separator avoids false-positive matches: pre-fix, `strings.HasPrefix`
+// alone accepted `kubernetestest` as a Kubernetes mount, which would
+// then route role-writes through the Kubernetes code path against a
+// mount that isn't actually Kubernetes auth.
+func hasBackendPrefix(seg, backend string) bool {
+	if seg == backend {
+		return true
+	}
+	if len(seg) <= len(backend) || !strings.HasPrefix(seg, backend) {
+		return false
+	}
+	sep := seg[len(backend)]
+	return sep == '-' || sep == '_'
 }
 
 // NormalizeAuthPath ensures the path has the `auth/` prefix that the

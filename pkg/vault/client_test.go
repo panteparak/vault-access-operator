@@ -1563,6 +1563,16 @@ func TestAuthBackendForPath(t *testing.T) {
 		{"kubernetes", AuthBackendKubernetes},
 		{"jwt", AuthBackendJWT},
 		{"approle", AuthBackendUnknown},
+		// False-positive guards: pre-fix strings.HasPrefix("kubernetestest",
+		// "kubernetes") returned true, routing any auth mount whose name
+		// merely started with "kubernetes" through the Kubernetes backend.
+		// Now requires an explicit `-` or `_` separator after the backend
+		// name, so only conventional submount patterns like
+		// `kubernetes-prod` / `kubernetes_prod` match.
+		{"auth/kubernetestest", AuthBackendUnknown},
+		{"auth/jwttoken", AuthBackendUnknown},
+		{"auth/kubernetes_staging", AuthBackendKubernetes},
+		{"auth/jwt_prod", AuthBackendJWT},
 	}
 	for _, tc := range cases {
 		if got := AuthBackendForPath(tc.path); got != tc.want {
