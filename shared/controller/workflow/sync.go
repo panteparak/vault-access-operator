@@ -198,7 +198,7 @@ func (w *SyncWorkflow) handleDriftDetection(
 				vaultv1alpha1.ReasonNoDrift, "No drift detected")
 		}
 
-		metrics.SetDriftDetected(state.kind, resource.GetNamespace(), state.driftDetected)
+		metrics.SetDriftDetected(state.kind, resource.GetNamespace(), resource.GetName(), state.driftDetected)
 		return
 	}
 

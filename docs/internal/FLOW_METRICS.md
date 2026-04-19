@@ -61,7 +61,7 @@ Legend: **✅ emitted** from production, **⚠️ unwired** (emitted only from u
 | ❌ | `policy_reconcile_total` | Counter | `kind, namespace, result` | `IncrementPolicyReconcile` | **none** (defined at [metrics.go:232](../../pkg/metrics/metrics.go:232); never called outside tests) |
 | ❌ | `role_reconcile_total` | Counter | `kind, namespace, result` | `IncrementRoleReconcile` | **none** (defined at [metrics.go:241](../../pkg/metrics/metrics.go:241); never called outside tests) |
 | ⚠️ | `vault_orphaned_resources` | Gauge | `connection, type` | `SetOrphanedResources` | [pkg/orphan/controller.go:158, 171](../../pkg/orphan/controller.go:158) — unwired |
-| ✅ | `vault_drift_detected` | Gauge | `kind, namespace` | `SetDriftDetected` | [workflow/sync.go:200](../../shared/controller/workflow/sync.go:200) |
+| ✅ | `vault_drift_detected` | Gauge | `kind, namespace, name` | `SetDriftDetected` | [workflow/sync.go:200](../../shared/controller/workflow/sync.go:200) |
 | ⚠️ | `cleanup_queue_size` | Gauge | — | `SetCleanupQueueSize` | [pkg/cleanup/controller.go:132, 186](../../pkg/cleanup/controller.go:132) — unwired |
 | ⚠️ | `cleanup_retries_total` | Counter | `resource_type, result` | `IncrementCleanupRetry` | [pkg/cleanup/controller.go:169, 180](../../pkg/cleanup/controller.go:169) — unwired |
 | ✅ | `vault_drift_corrected_total` | Counter | `kind, namespace` | `IncrementDriftCorrected` | [workflow/sync.go:299](../../shared/controller/workflow/sync.go:299) |
@@ -136,7 +136,7 @@ The absence of these is explanatory: it tells you what *can't* be alerted on wit
 |--------|--------|------------------|
 | `connection_*` | `connection` | low — one per VaultConnection |
 | `policy_reconcile_total` / `role_reconcile_total` | `kind, namespace, result` | medium — grows with namespace count (but dead, so moot) |
-| `vault_drift_detected` | `kind, namespace` | medium — deliberately *not* labeled by resource name to keep cardinality bounded |
+| `vault_drift_detected` | `kind, namespace, name` | medium — labeled by resource name (was kind+namespace only, but multiple resources in the same namespace overwrote each other's signal). Cleanup workflow calls `DeleteDriftDetected` to prevent series leak on resource deletion. |
 | `vault_drift_corrected_total` | `kind, namespace` | same |
 | `safety_destructive_blocked_total` | `kind, namespace` | same |
 | `vault_orphaned_resources` / `discovery_unmanaged_resources` | `connection, type` | low — type ∈ {policy, role} |

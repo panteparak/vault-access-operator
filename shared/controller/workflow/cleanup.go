@@ -29,6 +29,7 @@ import (
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/pkg/cleanup"
+	"github.com/panteparak/vault-access-operator/pkg/metrics"
 	"github.com/panteparak/vault-access-operator/pkg/vault"
 	"github.com/panteparak/vault-access-operator/shared/controller/conditions"
 	"github.com/panteparak/vault-access-operator/shared/events"
@@ -164,6 +165,12 @@ func (w *CleanupWorkflow) Execute(ctx context.Context, resource SyncableResource
 	if w.eventBus != nil {
 		ops.PublishDeleteEvent(ctx, w.eventBus)
 	}
+
+	// Step 8: Clean up the per-resource drift gauge series so the metric
+	// doesn't leak across resource deletions. Without this, a deleted
+	// drifting resource would forever show 1 in Prometheus until the
+	// operator restarts.
+	metrics.DeleteDriftDetected(label, resource.GetNamespace(), resource.GetName())
 
 	log.Info(label+" cleanup completed", "resource", vaultResourceName)
 	return nil

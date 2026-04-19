@@ -353,7 +353,7 @@ All registered from `pkg/metrics/metrics.go`. Prefix: `vault_access_operator_*`.
 | `connection_consecutive_fails` | Gauge | `connection` | resets on success |
 | `policy_reconcile_total` | Counter | `kind, namespace, result` | per-reconcile outcome |
 | `role_reconcile_total` | Counter | `kind, namespace, result` | per-reconcile outcome |
-| `vault_drift_detected` | Gauge | `kind, namespace` | 1 during drift, 0 after |
+| `vault_drift_detected` | Gauge | `kind, namespace, name` | 1 during drift, 0 after; cleared on resource delete |
 | `vault_drift_corrected_total` | Counter | `kind, namespace` | increments on correct-mode writes |
 | `safety_destructive_blocked_total` | Counter | `kind, namespace` | drift-correct blocked by missing annotation |
 | `vault_orphaned_resources` | Gauge | `connection, type` | from `pkg/orphan` (⚠️ not wired) |

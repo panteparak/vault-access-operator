@@ -96,16 +96,30 @@ var (
 		[]string{"connection", "type"},
 	)
 
-	// DriftDetectedGauge tracks resources with detected drift.
-	// Uses kind+namespace only (not name) to avoid unbounded Prometheus cardinality.
+	// DriftDetectedGauge tracks per-resource drift state.
+	//
+	// Labels: kind+namespace+name. Earlier versions of this metric used
+	// kind+namespace only to bound cardinality, but that caused multiple
+	// resources in the same namespace to overwrite each other's drift
+	// signal — a healthy resource's "0" would silently mask another
+	// resource's "1". Per-resource labels are the correct granularity
+	// for the alert rule users actually want
+	// (`vault_access_operator_vault_drift_detected == 1` per resource).
+	//
+	// Cardinality risk is bounded in practice (<1000 CRs per kind in
+	// typical clusters); call DeleteLabelValues from the cleanup
+	// workflow on resource deletion to prevent series leak.
+	//
+	// User-facing docs (docs/concepts/architecture.md) already show
+	// kind+namespace+name labels — code now matches docs.
 	DriftDetectedGauge = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Namespace: "vault_access_operator",
 			Subsystem: "vault",
 			Name:      "drift_detected",
-			Help:      "Number of resources with detected drift (1=drift, 0=no drift)",
+			Help:      "Per-resource drift state (1=drift, 0=no drift)",
 		},
-		[]string{"kind", "namespace"},
+		[]string{"kind", "namespace", "name"},
 	)
 
 	// CleanupQueueSizeGauge tracks the size of the cleanup retry queue.
@@ -282,13 +296,22 @@ func SetOrphanedResources(connection, resourceType string, count int) {
 	OrphanedResourcesGauge.WithLabelValues(connection, resourceType).Set(float64(count))
 }
 
-// SetDriftDetected sets the drift detection status for a resource.
-func SetDriftDetected(kind, namespace string, detected bool) {
+// SetDriftDetected sets the per-resource drift state. Includes name in
+// the label set so multiple resources in the same namespace don't
+// overwrite each other's drift signal.
+func SetDriftDetected(kind, namespace, name string, detected bool) {
 	val := 0.0
 	if detected {
 		val = 1.0
 	}
-	DriftDetectedGauge.WithLabelValues(kind, namespace).Set(val)
+	DriftDetectedGauge.WithLabelValues(kind, namespace, name).Set(val)
+}
+
+// DeleteDriftDetected removes the per-resource series so the metric
+// doesn't leak after a CR is deleted. Called from the cleanup workflow.
+// No-op if the labels were never set.
+func DeleteDriftDetected(kind, namespace, name string) {
+	DriftDetectedGauge.DeleteLabelValues(kind, namespace, name)
 }
 
 // SetCleanupQueueSize sets the cleanup queue size.

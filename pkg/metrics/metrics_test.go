@@ -248,6 +248,7 @@ func TestSetDriftDetected(t *testing.T) {
 		name      string
 		kind      string
 		namespace string
+		resource  string
 		detected  bool
 		expected  float64
 	}{
@@ -255,6 +256,7 @@ func TestSetDriftDetected(t *testing.T) {
 			name:      "drift detected",
 			kind:      "VaultPolicy",
 			namespace: "default",
+			resource:  "policy-a",
 			detected:  true,
 			expected:  1.0,
 		},
@@ -262,6 +264,7 @@ func TestSetDriftDetected(t *testing.T) {
 			name:      "no drift",
 			kind:      "VaultPolicy",
 			namespace: "staging",
+			resource:  "policy-b",
 			detected:  false,
 			expected:  0.0,
 		},
@@ -269,15 +272,73 @@ func TestSetDriftDetected(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			SetDriftDetected(tt.kind, tt.namespace, tt.detected)
+			SetDriftDetected(tt.kind, tt.namespace, tt.resource, tt.detected)
 
-			gauge := DriftDetectedGauge.WithLabelValues(tt.kind, tt.namespace)
+			gauge := DriftDetectedGauge.WithLabelValues(tt.kind, tt.namespace, tt.resource)
 			value := testutil.ToFloat64(gauge)
 
 			if value != tt.expected {
 				t.Errorf("SetDriftDetected() = %v, want %v", value, tt.expected)
 			}
 		})
+	}
+}
+
+// TestSetDriftDetected_PerResourceLabels pins the bug-fix in the
+// metric labels: two resources in the same namespace must NOT
+// overwrite each other's drift signal. Previously the gauge used
+// (kind, namespace) only, so a second resource's "0" would silently
+// mask a first resource's "1" — the alert
+// `vault_access_operator_vault_drift_detected == 1` would miss drift.
+func TestSetDriftDetected_PerResourceLabels(t *testing.T) {
+	DriftDetectedGauge.Reset()
+
+	SetDriftDetected("VaultPolicy", "shared-ns", "drifting-policy", true)
+	SetDriftDetected("VaultPolicy", "shared-ns", "healthy-policy", false)
+
+	// Both series should exist with their own values.
+	drifting := testutil.ToFloat64(
+		DriftDetectedGauge.WithLabelValues("VaultPolicy", "shared-ns", "drifting-policy"))
+	healthy := testutil.ToFloat64(
+		DriftDetectedGauge.WithLabelValues("VaultPolicy", "shared-ns", "healthy-policy"))
+
+	if drifting != 1.0 {
+		t.Errorf("drifting policy should still report 1, got %v", drifting)
+	}
+	if healthy != 0.0 {
+		t.Errorf("healthy policy should report 0, got %v", healthy)
+	}
+}
+
+// TestDeleteDriftDetected pins the metric-leak fix: when a CR is
+// deleted, its drift series must be removed from the registry so the
+// gauge doesn't forever show the last value.
+func TestDeleteDriftDetected(t *testing.T) {
+	DriftDetectedGauge.Reset()
+	SetDriftDetected("VaultRole", "ns", "doomed-role", true)
+
+	beforeDelete := testutil.CollectAndCount(DriftDetectedGauge)
+	if beforeDelete != 1 {
+		t.Fatalf("expected 1 series before delete, got %d", beforeDelete)
+	}
+
+	DeleteDriftDetected("VaultRole", "ns", "doomed-role")
+
+	afterDelete := testutil.CollectAndCount(DriftDetectedGauge)
+	if afterDelete != 0 {
+		t.Errorf("expected 0 series after delete (no metric leak), got %d", afterDelete)
+	}
+}
+
+// TestDeleteDriftDetected_NoOpWhenAbsent pins that calling Delete on
+// a series that was never set is a safe no-op (handled by Prometheus
+// SDK semantics — DeleteLabelValues returns false silently).
+func TestDeleteDriftDetected_NoOpWhenAbsent(t *testing.T) {
+	DriftDetectedGauge.Reset()
+	// Should not panic or error.
+	DeleteDriftDetected("VaultPolicy", "ns", "never-set")
+	if c := testutil.CollectAndCount(DriftDetectedGauge); c != 0 {
+		t.Errorf("expected 0 series, got %d", c)
 	}
 }
 
