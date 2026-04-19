@@ -159,11 +159,68 @@ func (v *VaultRoleValidator) validate(role *vaultv1alpha1.VaultRole) (admission.
 		errs = append(errs, authErr)
 	}
 
+	// Reject the discovery placeholder appearing without the
+	// discovery-pending annotation. The discovery flow injects the
+	// placeholder + annotation as a pair so MinItems=1 is satisfied
+	// while the user adopts. If the user clears the annotation but
+	// leaves the placeholder, a Vault write would push the literal
+	// "discovery-placeholder-replace-me" string as a service account
+	// name, producing a Vault role bound to a non-existent SA.
+	if errStr := validateDiscoveryPlaceholderConsistency(
+		role.Annotations, role.Spec.ServiceAccounts, role.Spec.Policies,
+	); errStr != "" {
+		errs = append(errs, errStr)
+	}
+
 	if len(errs) > 0 {
 		return nil, fmt.Errorf("validation failed: %s", strings.Join(errs, "; "))
 	}
 
 	return nil, nil
+}
+
+// validateDiscoveryPlaceholderConsistency rejects a CR that contains
+// the discovery placeholder string in any spec field but does NOT have
+// the `vault.platform.io/discovery-pending=true` annotation. The pair
+// is a single transactional state — clearing the annotation means
+// "I've adopted this resource; here is the real spec." Leaving the
+// placeholder while clearing the annotation is almost always a user
+// mistake (forgot to replace placeholders) and would produce a Vault
+// resource with garbage values.
+//
+// Returns "" when valid (placeholder absent OR annotation present) or
+// when annotation is set (discovery-pending blocks the write anyway).
+//
+// Implements the followup to IMPROVEMENTS Missing Features §G via
+// the audit finding F4.
+func validateDiscoveryPlaceholderConsistency(
+	annotations map[string]string,
+	serviceAccounts []string,
+	policies []vaultv1alpha1.PolicyReference,
+) string {
+	// If discovery-pending is set, the reconciler skips Vault writes;
+	// placeholder is allowed in this transient state.
+	if annotations[vaultv1alpha1.AnnotationDiscoveryPending] == vaultv1alpha1.AnnotationValueTrue {
+		return ""
+	}
+	for _, sa := range serviceAccounts {
+		if sa == vaultv1alpha1.DiscoveryPlaceholderValue {
+			return "spec.serviceAccounts contains the discovery placeholder " +
+				"(\"" + vaultv1alpha1.DiscoveryPlaceholderValue + "\") but the " +
+				"vault.platform.io/discovery-pending annotation is not set; " +
+				"replace the placeholder with real service account names before " +
+				"clearing the annotation"
+		}
+	}
+	for _, p := range policies {
+		if p.Name == vaultv1alpha1.DiscoveryPlaceholderValue {
+			return "spec.policies contains the discovery placeholder " +
+				"(\"" + vaultv1alpha1.DiscoveryPlaceholderValue + "\") but the " +
+				"vault.platform.io/discovery-pending annotation is not set; " +
+				"replace with real policy references before clearing the annotation"
+		}
+	}
+	return ""
 }
 
 // validateWithContext performs validation including dependency checks for VaultRole
@@ -313,6 +370,18 @@ func (v *VaultClusterRoleValidator) validate(role *vaultv1alpha1.VaultClusterRol
 	// reconcile-time ValidationError to surface in status.
 	if authErr := validateAuthPathSupported(role.Spec.AuthPath); authErr != "" {
 		errs = append(errs, authErr)
+	}
+
+	// Mirror the placeholder check from VaultRole. ServiceAccountRef has
+	// a different shape so we extract just the names for the shared helper.
+	saNames := make([]string, len(role.Spec.ServiceAccounts))
+	for i, ref := range role.Spec.ServiceAccounts {
+		saNames[i] = ref.Name
+	}
+	if errStr := validateDiscoveryPlaceholderConsistency(
+		role.Annotations, saNames, role.Spec.Policies,
+	); errStr != "" {
+		errs = append(errs, errStr)
 	}
 
 	if len(errs) > 0 {

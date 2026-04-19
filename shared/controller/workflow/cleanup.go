@@ -234,12 +234,26 @@ func cleanupResourceType(kind string) cleanup.ResourceType {
 // isVaultNotFound detects a Vault 404 so we can treat "already gone" as
 // success rather than requeuing indefinitely. The Vault SDK surfaces 404s
 // as *api.ResponseError with StatusCode=404.
+//
+// Substring fallback covers a wider set of formats since SDK wrapping has
+// historically varied. Now matches "404" as a token within bracketed
+// status fragments ("status 404", "Code: 404", "404 Not Found", "[404]")
+// to be robust to wording changes — earlier the only-"status 404" check
+// missed legitimate 404s wrapped through other code paths and let them
+// retry forever.
 func isVaultNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
 	var respErr *vaultapi.ResponseError
 	if errors.As(err, &respErr) {
 		return respErr.StatusCode == 404
 	}
-	// Some operations wrap the raw error without a *ResponseError; fall back
-	// to a string check as a belt-and-braces guard.
-	return strings.Contains(strings.ToLower(err.Error()), "status 404")
+	// Substring fallback for non-typed wrappers. Match common 404
+	// formats; lower-cased so "404 Not Found"/"404 not found" match.
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "status 404") ||
+		strings.Contains(msg, "code: 404") ||
+		strings.Contains(msg, "404 not found") ||
+		strings.Contains(msg, "[404]")
 }

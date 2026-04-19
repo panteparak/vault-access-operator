@@ -20,11 +20,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
+	vaultapi "github.com/hashicorp/vault/api"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -743,10 +745,32 @@ func (h *Handler) Cleanup(ctx context.Context, conn *vaultv1alpha1.VaultConnecti
 	return nil
 }
 
-// isAuthError returns true if the error indicates a Vault authentication/authorization failure.
+// isAuthError returns true if the error indicates a Vault
+// authentication/authorization failure.
+//
+// Primary path: typed `*vaultapi.ResponseError` with a 4xx status that
+// Vault uses for auth failures (401 invalid token, 403 permission
+// denied). The Vault SDK wraps API failures in this type, so
+// `errors.As` traverses any fmt.Errorf("%w") wrap chain.
+//
+// Fallback substring match is kept for compatibility with the few code
+// paths that synthesize errors from non-SDK sources, but the typed
+// path catches the common case without depending on Vault's wording
+// (which has changed across SDK versions). Earlier versions of this
+// function were substring-only, which silently broke when the SDK
+// changed "Code: 403" formatting.
 func isAuthError(err error) bool {
 	if err == nil {
 		return false
+	}
+	var respErr *vaultapi.ResponseError
+	if errors.As(err, &respErr) {
+		// 401 = bad token; 403 = permission denied. Both indicate the
+		// cached token is no longer usable and the cache should be evicted.
+		switch respErr.StatusCode {
+		case http.StatusUnauthorized, http.StatusForbidden:
+			return true
+		}
 	}
 	msg := err.Error()
 	return strings.Contains(msg, "permission denied") ||

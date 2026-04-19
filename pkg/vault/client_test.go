@@ -1469,6 +1469,78 @@ func TestRenewSelf_Success(t *testing.T) {
 	}
 }
 
+// TestRenewSelf_RefreshesAccessor pins the bug-fix where RenewSelf
+// updated tokenTTL + tokenExpiration but NOT tokenAccessor, even
+// though Vault may issue a new accessor on renewal. AuthStatus.TokenAccessor
+// then reported the stale accessor — useless for audit-log correlation
+// between operator events and Vault audit entries.
+func TestRenewSelf_RefreshesAccessor(t *testing.T) {
+	const newAccessor = "renewed-accessor-uuid-9999"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"auth": map[string]interface{}{
+				"client_token":   "s.renewed-token",
+				"accessor":       newAccessor,
+				"lease_duration": 3600,
+			},
+		})
+	}))
+	defer server.Close()
+
+	c, err := NewClient(ClientConfig{Address: server.URL})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	c.SetToken("s.original-token")
+	// Seed an old accessor that should be replaced.
+	c.mu.Lock()
+	c.tokenAccessor = "old-accessor-uuid-0000"
+	c.mu.Unlock()
+
+	if err := c.RenewSelf(context.Background()); err != nil {
+		t.Fatalf("RenewSelf: %v", err)
+	}
+	if got := c.TokenAccessor(); got != newAccessor {
+		t.Errorf("TokenAccessor() = %q, want %q (RenewSelf must update the accessor "+
+			"so AuthStatus.TokenAccessor reflects the current Vault-side identity)",
+			got, newAccessor)
+	}
+}
+
+// TestRenewSelf_PreservesAccessorWhenEmpty pins the no-op contract:
+// if Vault returns an empty accessor on renewal (some auth methods
+// don't change it), the existing accessor is preserved rather than
+// wiped to "".
+func TestRenewSelf_PreservesAccessorWhenEmpty(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"auth": map[string]interface{}{
+				"client_token":   "s.renewed-token",
+				"lease_duration": 3600,
+				// accessor omitted (empty)
+			},
+		})
+	}))
+	defer server.Close()
+
+	c, err := NewClient(ClientConfig{Address: server.URL})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	const original = "preserved-accessor-uuid-7777"
+	c.mu.Lock()
+	c.tokenAccessor = original
+	c.mu.Unlock()
+
+	if err := c.RenewSelf(context.Background()); err != nil {
+		t.Fatalf("RenewSelf: %v", err)
+	}
+	if got := c.TokenAccessor(); got != original {
+		t.Errorf("empty accessor in renewal response should preserve existing; got %q want %q",
+			got, original)
+	}
+}
+
 func TestAuthBackendForPath(t *testing.T) {
 	cases := []struct {
 		path string

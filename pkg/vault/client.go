@@ -219,18 +219,32 @@ func (c *Client) SetTokenTTL(d time.Duration) {
 }
 
 // RenewSelf renews the current Vault token in place.
-// Updates tokenExpiration and tokenTTL with the new values from Vault.
+// Updates tokenExpiration, tokenTTL, AND tokenAccessor with the new
+// values from Vault. Vault may issue a new accessor on renewal
+// (depending on policy and whether the underlying token was rotated);
+// without this update the cached tokenAccessor stays stale and
+// AuthStatus.TokenAccessor reports the wrong value, breaking audit
+// correlation between operator-side and Vault-side audit logs.
 func (c *Client) RenewSelf(ctx context.Context) error {
 	secret, err := c.Auth().Token().RenewSelfWithContext(ctx, 0)
 	if err != nil {
 		return fmt.Errorf("token renewal failed: %w", err)
 	}
-	if secret != nil && secret.Auth != nil && secret.Auth.LeaseDuration > 0 {
+	if secret == nil || secret.Auth == nil {
+		return nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if secret.Auth.LeaseDuration > 0 {
 		ttl := time.Duration(secret.Auth.LeaseDuration) * time.Second
-		c.mu.Lock()
 		c.tokenTTL = ttl
 		c.tokenExpiration = time.Now().Add(ttl)
-		c.mu.Unlock()
+	}
+	// Vault returns the (possibly-rotated) accessor in the renewal
+	// response. Empty means "unchanged" — preserve the existing value
+	// rather than wiping a known-good accessor.
+	if secret.Auth.Accessor != "" {
+		c.tokenAccessor = secret.Auth.Accessor
 	}
 	return nil
 }
@@ -464,17 +478,23 @@ func (c *Client) ListKubernetesAuthRoles(ctx context.Context, authPath string) (
 	return roles, nil
 }
 
-// WriteKubernetesAuthRole writes a Kubernetes auth role to Vault
+// WriteKubernetesAuthRole writes a Kubernetes auth role to Vault.
+// Errors from the Vault SDK are wrapped with the operation + path so
+// log lines and status messages name the failed resource — earlier
+// versions returned the raw error which lost that context once wrapped
+// at the call site.
 func (c *Client) WriteKubernetesAuthRole(
 	ctx context.Context, authPath, roleName string, data map[string]interface{},
 ) error {
 	authPath = NormalizeAuthPath(authPath)
 	path := fmt.Sprintf("%s/role/%s", authPath, roleName)
-	_, err := c.Logical().WriteWithContext(ctx, path, data)
-	return err
+	if _, err := c.Logical().WriteWithContext(ctx, path, data); err != nil {
+		return fmt.Errorf("failed to write kubernetes auth role at %s: %w", path, err)
+	}
+	return nil
 }
 
-// ReadKubernetesAuthRole reads a Kubernetes auth role from Vault
+// ReadKubernetesAuthRole reads a Kubernetes auth role from Vault.
 func (c *Client) ReadKubernetesAuthRole(
 	ctx context.Context, authPath, roleName string,
 ) (map[string]interface{}, error) {
@@ -482,7 +502,7 @@ func (c *Client) ReadKubernetesAuthRole(
 	path := fmt.Sprintf("%s/role/%s", authPath, roleName)
 	secret, err := c.Logical().ReadWithContext(ctx, path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to read kubernetes auth role at %s: %w", path, err)
 	}
 	if secret == nil {
 		return nil, nil
@@ -490,12 +510,14 @@ func (c *Client) ReadKubernetesAuthRole(
 	return secret.Data, nil
 }
 
-// DeleteKubernetesAuthRole deletes a Kubernetes auth role from Vault
+// DeleteKubernetesAuthRole deletes a Kubernetes auth role from Vault.
 func (c *Client) DeleteKubernetesAuthRole(ctx context.Context, authPath, roleName string) error {
 	authPath = NormalizeAuthPath(authPath)
 	path := fmt.Sprintf("%s/role/%s", authPath, roleName)
-	_, err := c.Logical().DeleteWithContext(ctx, path)
-	return err
+	if _, err := c.Logical().DeleteWithContext(ctx, path); err != nil {
+		return fmt.Errorf("failed to delete kubernetes auth role at %s: %w", path, err)
+	}
+	return nil
 }
 
 // KubernetesAuthRoleExists checks if a Kubernetes auth role exists

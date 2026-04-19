@@ -543,4 +543,19 @@ const (
 
 	// AnnotationValueTrue is the canonical value for boolean annotation flags
 	AnnotationValueTrue = "true"
+
+	// DiscoveryPlaceholderValue is the sentinel string the discovery
+	// auto-create flow injects into VaultRole.Spec.ServiceAccounts and
+	// VaultRole.Spec.Policies (and their cluster equivalents) so the
+	// CR satisfies MinItems=1 schema validation while the user adopts
+	// the resource. The discovery-pending annotation tells the
+	// reconciler to skip Vault writes; the webhook ALSO refuses to
+	// remove discovery-pending while this placeholder remains, so a
+	// user can't accidentally write the placeholder to Vault by
+	// clearing the annotation in isolation.
+	//
+	// Lifted from features/discovery/controller into the API package so
+	// the role/cluster-role webhooks can reference the same string
+	// without taking a controller-package dependency.
+	DiscoveryPlaceholderValue = "discovery-placeholder-replace-me"
 )

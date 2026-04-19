@@ -2229,3 +2229,72 @@ func TestValidateAuthPathSupported(t *testing.T) {
 		})
 	}
 }
+
+// TestValidateDiscoveryPlaceholderConsistency pins the F4 fix from
+// the parallel features audit. Discovery auto-creates a CR with
+// `discovery-placeholder-replace-me` in spec.serviceAccounts/policies
+// AND a `vault.platform.io/discovery-pending=true` annotation. The
+// pair is transactional — clearing the annotation while leaving the
+// placeholder would push the literal placeholder string to Vault as
+// an SA name, producing a Vault role bound to a non-existent SA.
+func TestValidateDiscoveryPlaceholderConsistency(t *testing.T) {
+	pendingAnnotation := map[string]string{
+		vaultv1alpha1.AnnotationDiscoveryPending: vaultv1alpha1.AnnotationValueTrue,
+	}
+	cases := []struct {
+		name             string
+		annotations      map[string]string
+		serviceAccounts  []string
+		policies         []vaultv1alpha1.PolicyReference
+		wantErrSubstring string // empty means valid
+	}{
+		{
+			name:            "no placeholder, no annotation — valid (normal CR)",
+			serviceAccounts: []string{"my-app"},
+			policies:        []vaultv1alpha1.PolicyReference{{Kind: "VaultPolicy", Name: "p1"}},
+		},
+		{
+			name:            "placeholder + pending annotation — valid (discovery state)",
+			annotations:     pendingAnnotation,
+			serviceAccounts: []string{vaultv1alpha1.DiscoveryPlaceholderValue},
+			policies: []vaultv1alpha1.PolicyReference{
+				{Kind: "VaultPolicy", Name: vaultv1alpha1.DiscoveryPlaceholderValue},
+			},
+		},
+		{
+			name:             "placeholder SA without annotation — REJECTED",
+			serviceAccounts:  []string{vaultv1alpha1.DiscoveryPlaceholderValue},
+			policies:         []vaultv1alpha1.PolicyReference{{Kind: "VaultPolicy", Name: "p1"}},
+			wantErrSubstring: "discovery placeholder",
+		},
+		{
+			name:            "placeholder policy without annotation — REJECTED",
+			serviceAccounts: []string{"my-app"},
+			policies: []vaultv1alpha1.PolicyReference{
+				{Kind: "VaultPolicy", Name: vaultv1alpha1.DiscoveryPlaceholderValue},
+			},
+			wantErrSubstring: "discovery placeholder",
+		},
+		{
+			name:            "real values + pending annotation — valid (mid-adoption)",
+			annotations:     pendingAnnotation,
+			serviceAccounts: []string{"real-sa"},
+			policies:        []vaultv1alpha1.PolicyReference{{Kind: "VaultPolicy", Name: "real-policy"}},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := validateDiscoveryPlaceholderConsistency(
+				tc.annotations, tc.serviceAccounts, tc.policies)
+			if tc.wantErrSubstring == "" {
+				if got != "" {
+					t.Errorf("expected no error, got %q", got)
+				}
+				return
+			}
+			if !strings.Contains(got, tc.wantErrSubstring) {
+				t.Errorf("expected error containing %q, got %q", tc.wantErrSubstring, got)
+			}
+		})
+	}
+}

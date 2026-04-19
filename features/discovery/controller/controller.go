@@ -45,11 +45,12 @@ const (
 	// DefaultScanInterval is the default interval between discovery scans
 	DefaultScanInterval = time.Hour
 
-	// discoveryPlaceholder is the sentinel value used in auto-created VaultRole
-	// CRs to satisfy MinItems=1 schema validation. Combined with
-	// AnnotationDiscoveryPending, it ensures no write ever reaches Vault before
-	// the user replaces it with real values.
-	discoveryPlaceholder = "discovery-placeholder-replace-me"
+	// discoveryPlaceholder aliases the canonical
+	// vaultv1alpha1.DiscoveryPlaceholderValue (which is also referenced by
+	// the role/cluster-role webhooks) so the discovery feature can use a
+	// short local name. Both must stay in sync — the alias is enforced
+	// at compile time.
+	discoveryPlaceholder = vaultv1alpha1.DiscoveryPlaceholderValue
 )
 
 // DefaultMinScanInterval is the minimum scan interval used when a

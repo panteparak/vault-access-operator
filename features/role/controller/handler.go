@@ -199,7 +199,15 @@ func (h *Handler) detectRoleDrift(
 
 	currentData, err := vaultClient.ReadKubernetesAuthRole(ctx, authPath, roleName)
 	if err != nil {
-		log.V(1).Info("failed to read role for drift detection (non-fatal)", "error", err)
+		// Bump from V(1) to Info — at default verbosity an operator
+		// investigating "why is the policy reporting in-sync while
+		// Vault is clearly broken" needs to find this. Mirrors the
+		// PolicyOps.DetectDrift visibility fix.
+		log.Info("skipping role drift detection — Vault read failed",
+			"role", roleName, "authPath", authPath,
+			"error", err.Error(),
+			"hint", "drift state preserved from last successful read; will retry on next reconcile",
+		)
 		return false, ""
 	}
 	if currentData == nil {
