@@ -1160,10 +1160,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#c-no-sealed-init-auto-recovery-hook-still-missing" class="md-nav__link">
+  <a href="#c-sealed-init-recovery-resolved-faster-requeue-typed-error-event" class="md-nav__link">
     <span class="md-ellipsis">
       
-        C. No sealed / init auto-recovery hook (still missing)
+        ✅ C. Sealed / init recovery — RESOLVED (faster requeue + typed error + event)
       
     </span>
   </a>
@@ -1450,8 +1450,8 @@
 </tr>
 <tr>
 <td>✅ Resolved (missing features)</td>
-<td>7</td>
-<td>A, B, F, H, I, J, K</td>
+<td>8</td>
+<td>A, B, C, F, H, I, J, K</td>
 </tr>
 <tr>
 <td>🟠 Partially resolved</td>
@@ -1465,8 +1465,8 @@
 </tr>
 <tr>
 <td>🕰️ Deferred with rationale</td>
-<td>4</td>
-<td>C (sealed watch), D (multi-cluster, OOS), E (policy templating), G (managed-marker backup)</td>
+<td>3</td>
+<td>D (multi-cluster, OOS), E (policy templating), G (managed-marker backup)</td>
 </tr>
 </tbody>
 </table>
@@ -2188,8 +2188,20 @@ A global package var mutated during init based on env. Works, but test isolation
 <p>Tests:
 - <code>shared/controller/watches/role_watch_test.go</code> — 5 MapFunc cases (defaulting, kind filter, cluster-role no-default, dedup, unknown-object).
 - <code>features/policy/controller/used_by_roles_test.go</code> — 7 handler cases including both role kinds, ignores non-referencing roles, truncation at MaxItems, namespace defaulting helper, no-op-when-unchanged.</p>
-<h3 id="c-no-sealed-init-auto-recovery-hook-still-missing">C. No sealed / init auto-recovery hook (still missing)<a class="headerlink" href="#c-no-sealed-init-auto-recovery-hook-still-missing" title="Permanent link">&para;</a></h3>
-<p>When Vault is sealed, the operator marks <code>Phase=Error</code> and backs off. After unseal, it recovers on the next reconcile (30s). No event-driven notification (Vault has a sealed-state API but the operator doesn't subscribe). <strong>Deferred</strong>: requires a long-lived goroutine per connection polling <code>sys/seal-status</code> at a faster cadence than the regular reconcile, which changes the operator's background-work model. Not done.</p>
+<h3 id="c-sealed-init-recovery-resolved-faster-requeue-typed-error-event">✅ C. Sealed / init recovery — RESOLVED (faster requeue + typed error + event)<a class="headerlink" href="#c-sealed-init-recovery-resolved-faster-requeue-typed-error-event" title="Permanent link">&para;</a></h3>
+<p>Fixed via three coordinated changes — no per-connection background goroutine needed (Vault doesn't push seal events anyway; the choice was always "polling cadence", not "event vs poll"):</p>
+<ol>
+<li><strong>Typed error</strong>: <code>infraerrors.VaultSealedError</code> carries <code>ConnectionName</code>, <code>Address</code>, and <code>Initialized</code>. Wrapping via <code>errors.As</code> works, so handler chains preserve the type.</li>
+<li><strong>Connection handler detection</strong>: <code>pkg/vault.SealStatus(ctx)</code> returns <code>(initialized, sealed bool, err error)</code> separately. The connection handler calls it before the full health check; if sealed, returns a typed <code>VaultSealedError</code>. On the unseal transition (previous Ready reason was <code>ReasonVaultSealed</code>/<code>ReasonVaultNotInitialized</code> and the new check passes), emits a <code>VaultUnsealed</code> K8s event.</li>
+<li><strong>Faster requeue</strong>: <code>base.StatusManager.Error</code> shortens the requeue to <code>RequeueOnSealed=10s</code> when the error is a <code>*VaultSealedError</code>. Standard error interval (30s) for everything else. Combined with the distinct condition reasons (<code>ReasonVaultSealed</code>, <code>ReasonVaultNotInitialized</code>), dashboards can distinguish "Vault unseal pending" from "auth misconfigured" and alerts can suppress on the former.</li>
+</ol>
+<p>The unseal-to-resume gap drops from ~30s (worst case) to ~10s. Each reconcile during the sealed window is cheap (one <code>/sys/health</code> request + status patch).</p>
+<p>Tests:
+- <code>pkg/vault/client_test.go::TestSealStatus</code> — 4 cases (healthy, sealed, uninitialized, server error).
+- <code>shared/infrastructure/errors/sealed_test.go</code> — 7 cases on typed error message + <code>IsVaultSealedError</code> (including wrapped error chain).
+- <code>shared/controller/syncerror/handler_test.go</code> — <code>TestHandle_VaultSealedError</code> + <code>TestHandle_VaultNotInitializedError</code> pin distinct condition reasons.
+- <code>shared/controller/base/status_test.go</code> — <code>TestStatusManager_Error_VaultSealedShortRequeue</code> + control case pin the requeue override.
+- <code>features/connection/controller/sealed_state_test.go::TestWasSealedReason</code> — 7 cases on the unseal-event-trigger helper.</p>
 <h3 id="d-no-multi-cluster-support-out-of-scope">D. No multi-cluster support (out of scope)<a class="headerlink" href="#d-no-multi-cluster-support-out-of-scope" title="Permanent link">&para;</a></h3>
 <p>One operator = one cluster's worth of CRs. Multi-cluster setups need multiple operator deployments, each with its own set of CRs. Explicitly out of scope for the single-operator architecture.</p>
 <h3 id="e-no-policy-templating-still-missing">E. No policy templating (still missing)<a class="headerlink" href="#e-no-policy-templating-still-missing" title="Permanent link">&para;</a></h3>
