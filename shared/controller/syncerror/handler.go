@@ -43,6 +43,13 @@ type StatusTarget interface {
 	SetMessage(string)
 	GetConditions() []vaultv1alpha1.Condition
 	SetConditions([]vaultv1alpha1.Condition)
+	// RetryCount tracking — incremented on every error so operators see
+	// `kubectl get vp -o jsonpath='{..status.retryCount}'` advance.
+	// Earlier this was a dead field: the workflow's success path reset it
+	// to 0 but no error path ever incremented it, so the status always
+	// showed 0 even after dozens of consecutive failures.
+	GetRetryCount() int
+	SetRetryCount(count int)
 }
 
 // Handle classifies the error, sets the appropriate phase and conditions on the target,
@@ -121,6 +128,10 @@ func Handle(
 
 	target.SetConditions(conds)
 	target.SetMessage(err.Error())
+	// Advance the retry counter so operators can see "this has failed N
+	// times in a row" without reading logs. The workflow's success path
+	// resets to 0; here we only ever increment.
+	target.SetRetryCount(target.GetRetryCount() + 1)
 
 	if updateErr := k8sClient.Status().Update(ctx, target.GetObject()); updateErr != nil {
 		log.Error(updateErr, "failed to update error status")

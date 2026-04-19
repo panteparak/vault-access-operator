@@ -1270,20 +1270,35 @@ var (
 )
 
 // getSecretData retrieves data from a Kubernetes Secret.
+//
+// VaultConnection is cluster-scoped, so SecretRef.Namespace MUST be
+// explicit. Earlier this silently fell back to "default", which:
+//
+//   - masked typos / unintentional empty values (the user thought their
+//     namespace was being used);
+//   - created a footgun where a malicious tenant could plant a secret in
+//     `default` matching another tenant's SecretRef.Name and have the
+//     operator read it (the operator's RBAC reads cluster-wide).
+//
+// The webhook should also reject empty namespace at admission, but this
+// runtime check fails closed for any CR that was created before the
+// webhook was deployed (or with the webhook bypassed via failurePolicy).
 func (h *Handler) getSecretData(ctx context.Context, ref *vaultv1alpha1.SecretKeySelector) (string, error) {
-	secret := &corev1.Secret{}
-	namespace := ref.Namespace
-	if namespace == "" {
-		namespace = "default"
+	if ref.Namespace == "" {
+		return "", fmt.Errorf(
+			"secretRef.namespace is required for cluster-scoped VaultConnection "+
+				"(no implicit namespace fallback) — secret name=%q",
+			ref.Name)
 	}
 
-	if err := h.client.Get(ctx, types.NamespacedName{Name: ref.Name, Namespace: namespace}, secret); err != nil {
-		return "", fmt.Errorf("failed to get secret %s/%s: %w", namespace, ref.Name, err)
+	secret := &corev1.Secret{}
+	if err := h.client.Get(ctx, types.NamespacedName{Name: ref.Name, Namespace: ref.Namespace}, secret); err != nil {
+		return "", fmt.Errorf("failed to get secret %s/%s: %w", ref.Namespace, ref.Name, err)
 	}
 
 	data, ok := secret.Data[ref.Key]
 	if !ok {
-		return "", fmt.Errorf("key %q not found in secret %s/%s", ref.Key, namespace, ref.Name)
+		return "", fmt.Errorf("key %q not found in secret %s/%s", ref.Key, ref.Namespace, ref.Name)
 	}
 
 	return string(data), nil

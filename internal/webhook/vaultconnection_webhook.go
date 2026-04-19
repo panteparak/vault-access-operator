@@ -117,6 +117,20 @@ func validateVaultConnection(conn *vaultv1alpha1.VaultConnection) (admission.War
 		errs = append(errs, "spec.discovery.targetNamespace is required when autoCreateCRs=true (otherwise the operator has nowhere to put the adopted CRs)")
 	}
 
+	// VaultConnection is cluster-scoped. SecretRef.Namespace must be
+	// explicit because there's no implicit namespace to fall back to.
+	// The runtime handler also rejects empty namespaces (defense-in-depth)
+	// but flagging at admission gives the user immediate feedback instead
+	// of "secret not found in default" hours later when the operator tries
+	// to read it.
+	for _, secretRef := range collectSecretRefs(&conn.Spec) {
+		if secretRef.ref.Name != "" && secretRef.ref.Namespace == "" {
+			errs = append(errs, fmt.Sprintf(
+				"%s.namespace is required (VaultConnection is cluster-scoped — no implicit namespace fallback)",
+				secretRef.path))
+		}
+	}
+
 	if strings.HasPrefix(conn.Spec.Address, "http://") {
 		warnings = append(warnings,
 			"spec.address uses http:// — credentials traverse the network unencrypted. Use https:// unless you're testing in a trusted local environment.")
@@ -139,6 +153,56 @@ func validateVaultConnection(conn *vaultv1alpha1.VaultConnection) (admission.War
 		return warnings, fmt.Errorf("VaultConnection validation failed: %s", strings.Join(errs, "; "))
 	}
 	return warnings, nil
+}
+
+// secretRefWithPath pairs a SecretKeySelector with its dotted path in
+// the spec for human-readable error messages.
+type secretRefWithPath struct {
+	path string
+	ref  *vaultv1alpha1.SecretKeySelector
+}
+
+// collectSecretRefs returns every SecretKeySelector referenced from the
+// spec along with its path. New auth backends with secret refs must
+// be added here so the namespace check covers them.
+func collectSecretRefs(spec *vaultv1alpha1.VaultConnectionSpec) []secretRefWithPath {
+	var refs []secretRefWithPath
+	if spec.Auth.Bootstrap != nil {
+		refs = append(refs, secretRefWithPath{
+			"spec.auth.bootstrap.secretRef", &spec.Auth.Bootstrap.SecretRef,
+		})
+	}
+	if spec.Auth.Token != nil {
+		refs = append(refs, secretRefWithPath{
+			"spec.auth.token.secretRef", &spec.Auth.Token.SecretRef,
+		})
+	}
+	if spec.Auth.AppRole != nil {
+		refs = append(refs, secretRefWithPath{
+			"spec.auth.appRole.secretIdRef", &spec.Auth.AppRole.SecretIDRef,
+		})
+	}
+	if spec.Auth.JWT != nil && spec.Auth.JWT.JWTSecretRef != nil {
+		refs = append(refs, secretRefWithPath{
+			"spec.auth.jwt.jwtSecretRef", spec.Auth.JWT.JWTSecretRef,
+		})
+	}
+	if spec.Auth.OIDC != nil && spec.Auth.OIDC.JWTSecretRef != nil {
+		refs = append(refs, secretRefWithPath{
+			"spec.auth.oidc.jwtSecretRef", spec.Auth.OIDC.JWTSecretRef,
+		})
+	}
+	if spec.Auth.GCP != nil && spec.Auth.GCP.CredentialsSecretRef != nil {
+		refs = append(refs, secretRefWithPath{
+			"spec.auth.gcp.credentialsSecretRef", spec.Auth.GCP.CredentialsSecretRef,
+		})
+	}
+	if spec.TLS != nil && spec.TLS.CASecretRef != nil {
+		refs = append(refs, secretRefWithPath{
+			"spec.tls.caSecretRef", spec.TLS.CASecretRef,
+		})
+	}
+	return refs
 }
 
 // validateAuthExactlyOne returns a non-empty error message if the AuthConfig

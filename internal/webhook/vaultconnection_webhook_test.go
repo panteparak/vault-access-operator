@@ -48,13 +48,13 @@ func TestVaultConnectionValidator_AuthExactlyOne(t *testing.T) {
 		},
 		{
 			name:    "only token",
-			auth:    vaultv1alpha1.AuthConfig{Token: &vaultv1alpha1.TokenAuth{SecretRef: vaultv1alpha1.SecretKeySelector{Name: "s", Key: "t"}}},
+			auth:    vaultv1alpha1.AuthConfig{Token: &vaultv1alpha1.TokenAuth{SecretRef: vaultv1alpha1.SecretKeySelector{Name: "s", Namespace: "ns", Key: "t"}}},
 			wantErr: false,
 		},
 		{
 			name: "bootstrap + kubernetes (legal transition pair)",
 			auth: vaultv1alpha1.AuthConfig{
-				Bootstrap:  &vaultv1alpha1.BootstrapAuth{SecretRef: vaultv1alpha1.SecretKeySelector{Name: "s", Key: "t"}},
+				Bootstrap:  &vaultv1alpha1.BootstrapAuth{SecretRef: vaultv1alpha1.SecretKeySelector{Name: "s", Namespace: "ns", Key: "t"}},
 				Kubernetes: &vaultv1alpha1.KubernetesAuth{Role: "r"},
 			},
 			wantErr: false,
@@ -62,7 +62,7 @@ func TestVaultConnectionValidator_AuthExactlyOne(t *testing.T) {
 		{
 			name: "token + kubernetes (two full methods)",
 			auth: vaultv1alpha1.AuthConfig{
-				Token:      &vaultv1alpha1.TokenAuth{SecretRef: vaultv1alpha1.SecretKeySelector{Name: "s", Key: "t"}},
+				Token:      &vaultv1alpha1.TokenAuth{SecretRef: vaultv1alpha1.SecretKeySelector{Name: "s", Namespace: "ns", Key: "t"}},
 				Kubernetes: &vaultv1alpha1.KubernetesAuth{Role: "r"},
 			},
 			wantErr:     true,
@@ -71,9 +71,9 @@ func TestVaultConnectionValidator_AuthExactlyOne(t *testing.T) {
 		{
 			name: "three methods",
 			auth: vaultv1alpha1.AuthConfig{
-				Token:      &vaultv1alpha1.TokenAuth{SecretRef: vaultv1alpha1.SecretKeySelector{Name: "s", Key: "t"}},
+				Token:      &vaultv1alpha1.TokenAuth{SecretRef: vaultv1alpha1.SecretKeySelector{Name: "s", Namespace: "ns", Key: "t"}},
 				Kubernetes: &vaultv1alpha1.KubernetesAuth{Role: "r"},
-				AppRole:    &vaultv1alpha1.AppRoleAuth{RoleID: "x", SecretIDRef: vaultv1alpha1.SecretKeySelector{Name: "s", Key: "t"}},
+				AppRole:    &vaultv1alpha1.AppRoleAuth{RoleID: "x", SecretIDRef: vaultv1alpha1.SecretKeySelector{Name: "s", Namespace: "ns", Key: "t"}},
 			},
 			wantErr:     true,
 			errContains: "3",
@@ -137,7 +137,7 @@ func TestVaultConnectionValidator_AppRoleRequiresRoleID(t *testing.T) {
 			Auth: vaultv1alpha1.AuthConfig{
 				AppRole: &vaultv1alpha1.AppRoleAuth{
 					// RoleID deliberately empty
-					SecretIDRef: vaultv1alpha1.SecretKeySelector{Name: "s", Key: "t"},
+					SecretIDRef: vaultv1alpha1.SecretKeySelector{Name: "s", Namespace: "ns", Key: "t"},
 				},
 			},
 		},
@@ -191,6 +191,83 @@ func TestVaultConnectionValidator_DiscoveryAutoCreateRequiresTargetNamespace(t *
 	_, err := v.ValidateCreate(context.Background(), conn)
 	if err == nil || !strings.Contains(err.Error(), "targetNamespace is required") {
 		t.Fatalf("want targetNamespace-required error, got %v", err)
+	}
+}
+
+// TestVaultConnectionValidator_SecretRefNamespaceRequired pins the
+// fix for the silent footgun where SecretRef.Namespace="" fell back to
+// "default". Because VaultConnection is cluster-scoped there's no
+// implicit namespace; the previous behavior could pick up an unrelated
+// secret in the "default" namespace, including one planted by another
+// tenant. The webhook now rejects empty namespaces at admission so the
+// user sees the failure immediately instead of "secret not found in
+// default" hours later.
+func TestVaultConnectionValidator_SecretRefNamespaceRequired(t *testing.T) {
+	v := &VaultConnectionValidator{}
+	cases := []struct {
+		name string
+		auth vaultv1alpha1.AuthConfig
+		want string
+	}{
+		{
+			name: "bootstrap secret missing namespace",
+			auth: vaultv1alpha1.AuthConfig{
+				Bootstrap: &vaultv1alpha1.BootstrapAuth{
+					SecretRef: vaultv1alpha1.SecretKeySelector{Name: "boot", Key: "token"},
+				},
+				Kubernetes: &vaultv1alpha1.KubernetesAuth{Role: "r"},
+			},
+			want: "spec.auth.bootstrap.secretRef.namespace is required",
+		},
+		{
+			name: "token secret missing namespace",
+			auth: vaultv1alpha1.AuthConfig{
+				Token: &vaultv1alpha1.TokenAuth{
+					SecretRef: vaultv1alpha1.SecretKeySelector{Name: "tok", Key: "v"},
+				},
+			},
+			want: "spec.auth.token.secretRef.namespace is required",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			conn := &vaultv1alpha1.VaultConnection{
+				ObjectMeta: metav1.ObjectMeta{Name: "c"},
+				Spec: vaultv1alpha1.VaultConnectionSpec{
+					Address: "https://vault:8200",
+					Auth:    tc.auth,
+				},
+			}
+			_, err := v.ValidateCreate(context.Background(), conn)
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error %q should contain %q", err.Error(), tc.want)
+			}
+		})
+	}
+}
+
+// TestVaultConnectionValidator_SecretRefNamespacePresent confirms a
+// fully-specified namespace passes (no false-positive on the new check).
+func TestVaultConnectionValidator_SecretRefNamespacePresent(t *testing.T) {
+	v := &VaultConnectionValidator{}
+	conn := &vaultv1alpha1.VaultConnection{
+		ObjectMeta: metav1.ObjectMeta{Name: "c"},
+		Spec: vaultv1alpha1.VaultConnectionSpec{
+			Address: "https://vault:8200",
+			Auth: vaultv1alpha1.AuthConfig{
+				Token: &vaultv1alpha1.TokenAuth{
+					SecretRef: vaultv1alpha1.SecretKeySelector{
+						Name: "tok", Namespace: "vault-system", Key: "v",
+					},
+				},
+			},
+		},
+	}
+	if _, err := v.ValidateCreate(context.Background(), conn); err != nil {
+		t.Errorf("explicit namespace should pass, got %v", err)
 	}
 }
 

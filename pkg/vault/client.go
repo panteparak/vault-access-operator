@@ -114,13 +114,27 @@ type TLSConfig struct {
 	SkipVerify bool
 }
 
-// NewClient creates a new Vault client with the given configuration
+// DefaultRequestTimeout caps each Vault HTTP request so a hung Vault
+// (e.g., a load balancer that accepts TCP but drops the request) can't
+// stall a reconcile for the SDK's default 60s × MaxRetries=2 (= up to
+// 180s of blocked-reconcile time per Vault call). Operators run on
+// 30s-default reconcile periods; a 180s hang means the whole work
+// queue backs up. 30s is long enough for healthy Vaults to respond
+// even on slow networks, short enough for the controller to report
+// a transient error and retry.
+const DefaultRequestTimeout = 30 * time.Second
+
+// NewClient creates a new Vault client with the given configuration.
+// If cfg.Timeout is zero the SDK default (60s) is overridden with
+// DefaultRequestTimeout to bound reconcile-blocking.
 func NewClient(cfg ClientConfig) (*Client, error) {
 	config := api.DefaultConfig()
 	config.Address = cfg.Address
 
 	if cfg.Timeout > 0 {
 		config.Timeout = cfg.Timeout
+	} else {
+		config.Timeout = DefaultRequestTimeout
 	}
 
 	if cfg.TLSConfig != nil {

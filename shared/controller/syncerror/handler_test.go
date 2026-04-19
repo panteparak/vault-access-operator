@@ -40,6 +40,7 @@ type mockTarget struct {
 	phase      vaultv1alpha1.Phase
 	message    string
 	conditions []vaultv1alpha1.Condition
+	retryCount int
 }
 
 func (m *mockTarget) GetObject() client.Object                  { return m.object }
@@ -48,6 +49,8 @@ func (m *mockTarget) SetPhase(p vaultv1alpha1.Phase)            { m.phase = p }
 func (m *mockTarget) SetMessage(msg string)                     { m.message = msg }
 func (m *mockTarget) GetConditions() []vaultv1alpha1.Condition  { return m.conditions }
 func (m *mockTarget) SetConditions(c []vaultv1alpha1.Condition) { m.conditions = c }
+func (m *mockTarget) GetRetryCount() int                        { return m.retryCount }
+func (m *mockTarget) SetRetryCount(n int)                       { m.retryCount = n }
 
 func newTestScheme() *runtime.Scheme {
 	s := runtime.NewScheme()
@@ -451,6 +454,46 @@ func TestHandle_NonDependencyError_NoDependencyReadyCondition(t *testing.T) {
 	if depCond != nil {
 		t.Errorf("expected no DependencyReady condition for non-dependency error, "+
 			"but found one with reason %s", depCond.Reason)
+	}
+}
+
+// TestHandle_IncrementsRetryCount pins the fix for the bug where
+// Status.RetryCount was a dead field — the workflow's success path
+// reset it to 0 but no error path ever incremented it. Operators
+// reading `kubectl get vp -o jsonpath='{..status.retryCount}'` always
+// saw 0, even after dozens of consecutive failures.
+func TestHandle_IncrementsRetryCount(t *testing.T) {
+	target := newMockTarget()
+	target.retryCount = 4
+	k8sClient := newFakeClient()
+	ctx := context.Background()
+	_ = k8sClient.Create(ctx, target.object.DeepCopyObject().(client.Object))
+
+	_ = Handle(ctx, k8sClient, logr.Discard(), target, errors.New("transient")) //nolint:err113
+	if target.retryCount != 5 {
+		t.Errorf("retryCount = %d, want 5 (4 + 1)", target.retryCount)
+	}
+
+	_ = Handle(ctx, k8sClient, logr.Discard(), target, errors.New("transient")) //nolint:err113
+	if target.retryCount != 6 {
+		t.Errorf("retryCount after second error = %d, want 6", target.retryCount)
+	}
+}
+
+// TestHandle_RetryCountStartsFromZero covers the first-error path:
+// a fresh CR has RetryCount=0 and the first error must take it to 1.
+func TestHandle_RetryCountStartsFromZero(t *testing.T) {
+	target := newMockTarget()
+	if target.retryCount != 0 {
+		t.Fatalf("setup: expected fresh target.retryCount=0, got %d", target.retryCount)
+	}
+	k8sClient := newFakeClient()
+	ctx := context.Background()
+	_ = k8sClient.Create(ctx, target.object.DeepCopyObject().(client.Object))
+
+	_ = Handle(ctx, k8sClient, logr.Discard(), target, errors.New("first failure")) //nolint:err113
+	if target.retryCount != 1 {
+		t.Errorf("first error: retryCount = %d, want 1", target.retryCount)
 	}
 }
 

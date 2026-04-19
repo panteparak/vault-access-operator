@@ -196,6 +196,27 @@ func TestNewHandler_NilEventBus(t *testing.T) {
 	}
 }
 
+// TestGetSecretData_RejectsEmptyNamespace pins the fix for the silent
+// "default" namespace fallback. Pre-fix, an empty SecretRef.Namespace
+// fell back to "default" — a user with cluster-edit access could plant
+// a secret in "default" and have the operator read it (the operator's
+// RBAC reads cluster-wide). Now empty namespace returns a clear error
+// at runtime as a defense-in-depth check (the webhook also rejects).
+func TestGetSecretData_RejectsEmptyNamespace(t *testing.T) {
+	scheme := createScheme()
+	c := newClientBuilderWithConnectionRefIndex(scheme).Build()
+	h := &Handler{client: c, log: logr.Discard()}
+
+	ref := &vaultv1alpha1.SecretKeySelector{Name: "boot", Key: "token"} // Namespace unset
+	_, err := h.getSecretData(context.Background(), ref)
+	if err == nil {
+		t.Fatal("expected error for empty namespace, got nil")
+	}
+	if !strings.Contains(err.Error(), "namespace is required") {
+		t.Errorf("error = %q, want it to contain 'namespace is required'", err.Error())
+	}
+}
+
 // TestSync_Success tests successful sync updates status to Active and stores client in cache.
 func TestSync_Success(t *testing.T) {
 	// Create mock Vault server

@@ -1596,6 +1596,41 @@ func TestClient_ConnectionName_Concurrent(t *testing.T) {
 	wg.Wait()
 }
 
+// TestNewClient_AppliesDefaultTimeout pins the fix for the bug where
+// vault.NewClient inherited the SDK's 60s default Timeout (combined
+// with MaxRetries=2 → up to 180s of blocked-reconcile time per Vault
+// call). Operators on 30s reconcile periods would have their work
+// queue back up while a single hung Vault call drained the worker.
+// The fix overrides the SDK default to DefaultRequestTimeout (30s)
+// when ClientConfig.Timeout is zero.
+func TestNewClient_AppliesDefaultTimeout(t *testing.T) {
+	c, err := NewClient(ClientConfig{Address: "https://example.com"})
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
+	got := c.Client.CloneConfig().Timeout
+	if got != DefaultRequestTimeout {
+		t.Errorf("Timeout = %v, want %v (SDK default 60s should be overridden)",
+			got, DefaultRequestTimeout)
+	}
+}
+
+// TestNewClient_HonorsExplicitTimeout pins that an explicit non-zero
+// Timeout overrides DefaultRequestTimeout. Without this guard, a
+// future refactor could accidentally always-apply the 30s default and
+// silently break callers that need a longer timeout.
+func TestNewClient_HonorsExplicitTimeout(t *testing.T) {
+	want := 90 * time.Second
+	c, err := NewClient(ClientConfig{Address: "https://example.com", Timeout: want})
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
+	got := c.Client.CloneConfig().Timeout
+	if got != want {
+		t.Errorf("Timeout = %v, want %v (explicit value should win)", got, want)
+	}
+}
+
 // TestClient_AuthenticateToken_Concurrent pins the fix for an
 // unsynchronized write to c.authenticated in AuthenticateToken.
 // Pre-fix the field was assigned directly (`c.authenticated = true`)
