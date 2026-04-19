@@ -38,6 +38,7 @@ import (
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/pkg/vault"
+	"github.com/panteparak/vault-access-operator/shared/controller/base"
 	"github.com/panteparak/vault-access-operator/shared/controller/conditions"
 )
 
@@ -71,11 +72,12 @@ const DefaultMinScanInterval = time.Minute * 5
 var MinScanInterval = DefaultMinScanInterval
 
 func init() {
-	if v := os.Getenv("OPERATOR_MIN_SCAN_INTERVAL"); v != "" {
-		if d, err := time.ParseDuration(v); err == nil {
-			MinScanInterval = d
-		}
-	}
+	// Use the shared helper so a misconfigured OPERATOR_MIN_SCAN_INTERVAL
+	// produces a stderr warning at startup instead of silently falling
+	// back to the default — matching the behavior of the REQUEUE_*
+	// env vars.
+	MinScanInterval = base.ParseIntervalEnv(
+		"OPERATOR_MIN_SCAN_INTERVAL", DefaultMinScanInterval, os.Stderr)
 }
 
 // Reconciler reconciles VaultConnection resources for discovery

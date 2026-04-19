@@ -346,7 +346,7 @@ func TestStatusManager_Error_GenericErrorUsesDefaultRequeue(t *testing.T) {
 func TestParseIntervalEnv_Unset(t *testing.T) {
 	t.Setenv("OPERATOR_TEST_INTERVAL_UNSET", "")
 	var buf bytes.Buffer
-	got := parseIntervalEnv("OPERATOR_TEST_INTERVAL_UNSET", 42*time.Second, &buf)
+	got := ParseIntervalEnv("OPERATOR_TEST_INTERVAL_UNSET", 42*time.Second, &buf)
 	if got != 42*time.Second {
 		t.Errorf("got %v, want fallback 42s", got)
 	}
@@ -359,7 +359,7 @@ func TestParseIntervalEnv_Unset(t *testing.T) {
 func TestParseIntervalEnv_Valid(t *testing.T) {
 	t.Setenv("OPERATOR_TEST_INTERVAL_VALID", "15s")
 	var buf bytes.Buffer
-	got := parseIntervalEnv("OPERATOR_TEST_INTERVAL_VALID", 42*time.Second, &buf)
+	got := ParseIntervalEnv("OPERATOR_TEST_INTERVAL_VALID", 42*time.Second, &buf)
 	if got != 15*time.Second {
 		t.Errorf("got %v, want 15s", got)
 	}
@@ -376,7 +376,7 @@ func TestParseIntervalEnv_Valid(t *testing.T) {
 func TestParseIntervalEnv_Invalid(t *testing.T) {
 	t.Setenv("OPERATOR_TEST_INTERVAL_INVALID", "not-a-duration")
 	var buf bytes.Buffer
-	got := parseIntervalEnv("OPERATOR_TEST_INTERVAL_INVALID", 42*time.Second, &buf)
+	got := ParseIntervalEnv("OPERATOR_TEST_INTERVAL_INVALID", 42*time.Second, &buf)
 	if got != 42*time.Second {
 		t.Errorf("got %v, want fallback 42s on parse failure", got)
 	}

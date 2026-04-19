@@ -52,23 +52,23 @@ var (
 const RequeueOnSealed = 10 * time.Second
 
 func init() {
-	DefaultRequeueSuccess = parseIntervalEnv(
+	DefaultRequeueSuccess = ParseIntervalEnv(
 		"OPERATOR_REQUEUE_SUCCESS_INTERVAL", DefaultRequeueSuccess, os.Stderr)
-	DefaultRequeueError = parseIntervalEnv(
+	DefaultRequeueError = ParseIntervalEnv(
 		"OPERATOR_REQUEUE_ERROR_INTERVAL", DefaultRequeueError, os.Stderr)
 }
 
-// parseIntervalEnv reads a duration from the given env var name. Returns
+// ParseIntervalEnv reads a duration from the given env var name. Returns
 // the fallback when the var is unset OR when parsing fails; in the
 // failure case, writes a warning to `warnOut` so operators who
 // misconfigure their env vars see the value being ignored instead of
 // filing confused "my env var isn't working" bug reports (pre-fix the
 // parse error was silently dropped).
 //
-// Extracted from init() so the warning path is testable without
-// spawning a subprocess — tests pass a bytes.Buffer and assert the
-// message content.
-func parseIntervalEnv(name string, fallback time.Duration, warnOut io.Writer) time.Duration {
+// Exported so other packages with interval env vars (e.g. discovery's
+// OPERATOR_MIN_SCAN_INTERVAL) can share the same warn-on-parse-failure
+// behavior instead of each re-implementing the silent-ignore pattern.
+func ParseIntervalEnv(name string, fallback time.Duration, warnOut io.Writer) time.Duration {
 	v := os.Getenv(name)
 	if v == "" {
 		return fallback
