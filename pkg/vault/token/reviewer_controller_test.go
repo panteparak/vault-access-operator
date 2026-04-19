@@ -19,6 +19,7 @@ package token
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -58,13 +59,27 @@ func (m *mockVaultAuthConfigUpdater) UpdateKubernetesAuthConfig(
 
 type mockReviewerEventPublisher struct {
 	publishFunc func(ctx context.Context, event interface{}) error
+	mu          sync.Mutex
+	events      []interface{}
 }
 
 func (m *mockReviewerEventPublisher) Publish(ctx context.Context, event interface{}) error {
+	m.mu.Lock()
+	m.events = append(m.events, event)
+	m.mu.Unlock()
 	if m.publishFunc != nil {
 		return m.publishFunc(ctx, event)
 	}
 	return nil
+}
+
+// snapshotEvents returns a copy of the events observed so far.
+func (m *mockReviewerEventPublisher) snapshotEvents() []interface{} {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]interface{}, len(m.events))
+	copy(out, m.events)
+	return out
 }
 
 // --- Helpers ---
@@ -264,6 +279,59 @@ func TestReviewerController_Refresh_Success(t *testing.T) {
 	}
 	if !status.ExpirationTime.Equal(expiration) {
 		t.Errorf("status.ExpirationTime = %v, want %v", status.ExpirationTime, expiration)
+	}
+}
+
+// TestReviewerController_PublishesRefreshedEvent pins the fix for the
+// dead eventBus field. Pre-fix the field was stored but never used —
+// subscribers to TokenReviewerRefreshed never heard from the refresh
+// path despite the package docs advertising the event.
+func TestReviewerController_PublishesRefreshedEvent(t *testing.T) {
+	provider := &mockReviewerTokenProvider{
+		getTokenFunc: func(_ context.Context, _ GetTokenOptions) (*TokenInfo, error) {
+			return &TokenInfo{
+				Token:          "jwt",
+				ExpirationTime: time.Now().Add(24 * time.Hour),
+			}, nil
+		},
+	}
+	pub := &mockReviewerEventPublisher{}
+	ctrl := NewTokenReviewerController(provider, pub, logr.Discard()).(*reviewerControllerImpl)
+	if err := ctrl.Register(testConnName, testReviewerConfig()); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	vaultClient := &mockVaultAuthConfigUpdater{
+		updateFunc: func(_ context.Context, _, _ string) error { return nil },
+	}
+	ctrl.SetVaultClient(testConnName, vaultClient)
+
+	if err := ctrl.Refresh(context.Background(), testConnName); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+	events := pub.snapshotEvents()
+	if len(events) != 1 {
+		t.Fatalf("expected 1 refresh event, got %d", len(events))
+	}
+}
+
+// TestReviewerController_NilEventPublisher_NoPanic confirms the
+// refresh path is safe with a nil event bus (matches the pattern
+// exercised by LifecycleController).
+func TestReviewerController_NilEventPublisher_NoPanic(t *testing.T) {
+	provider := &mockReviewerTokenProvider{
+		getTokenFunc: func(_ context.Context, _ GetTokenOptions) (*TokenInfo, error) {
+			return &TokenInfo{Token: "jwt", ExpirationTime: time.Now().Add(time.Hour)}, nil
+		},
+	}
+	ctrl := NewTokenReviewerController(provider, nil, logr.Discard()).(*reviewerControllerImpl)
+	if err := ctrl.Register(testConnName, testReviewerConfig()); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	ctrl.SetVaultClient(testConnName, &mockVaultAuthConfigUpdater{
+		updateFunc: func(_ context.Context, _, _ string) error { return nil },
+	})
+	if err := ctrl.Refresh(context.Background(), testConnName); err != nil {
+		t.Fatalf("Refresh: %v", err)
 	}
 }
 

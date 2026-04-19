@@ -23,6 +23,8 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+
+	"github.com/panteparak/vault-access-operator/shared/events"
 )
 
 // reviewerControllerImpl implements TokenReviewerController.
@@ -171,11 +173,12 @@ func (c *reviewerControllerImpl) Refresh(ctx context.Context, connectionName str
 	}
 
 	// Update status
+	nextRefresh := time.Now().Add(config.RefreshInterval)
 	c.mu.Lock()
 	if s, ok := c.connections[connectionName]; ok {
 		s.status.LastRefresh = time.Now()
 		s.status.ExpirationTime = tokenInfo.ExpirationTime
-		s.status.NextRefresh = time.Now().Add(config.RefreshInterval)
+		s.status.NextRefresh = nextRefresh
 		s.status.Error = ""
 	}
 	c.mu.Unlock()
@@ -183,10 +186,27 @@ func (c *reviewerControllerImpl) Refresh(ctx context.Context, connectionName str
 	c.log.Info("refreshed token_reviewer_jwt",
 		"connection", connectionName,
 		"expiresAt", tokenInfo.ExpirationTime,
-		"nextRefresh", time.Now().Add(config.RefreshInterval),
+		"nextRefresh", nextRefresh,
 	)
 
+	// Emit TokenReviewerRefreshed event so subscribers (metrics,
+	// audit logs) can track the refresh cadence. Pre-fix the eventBus
+	// field was stored but never used, matching the same dead-code
+	// pattern as LifecycleController.
+	c.publishRefreshed(ctx, connectionName, nextRefresh, tokenInfo.ExpirationTime)
+
 	return nil
+}
+
+// publishRefreshed fires a TokenReviewerRefreshed event. Nil-safe.
+func (c *reviewerControllerImpl) publishRefreshed(
+	ctx context.Context, connectionName string, nextRefresh, expiration time.Time,
+) {
+	if c.eventBus == nil {
+		return
+	}
+	_ = c.eventBus.Publish(ctx,
+		events.NewTokenReviewerRefreshed(connectionName, nextRefresh, expiration))
 }
 
 // GetStatus returns the current token reviewer status.
