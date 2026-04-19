@@ -83,6 +83,16 @@ func (v *VaultRoleValidator) ValidateCreate(ctx context.Context, role *vaultv1al
 		return nil, err
 	}
 
+	// Check for naming collision with OTHER VaultRoles. The `namespace-name`
+	// join is ambiguous: "ns1/foo-bar" and "ns1-foo/bar" both compute to
+	// "ns1-foo-bar". Without this check, the second CR to be created would
+	// hit a runtime Phase=Conflict instead of a clear admission error, and
+	// with the adopt annotation both CRs would race on the same Vault
+	// resource (overwriting each other on every reconcile).
+	if err := v.checkVaultRoleCollision(ctx, vaultRoleName, role.Namespace, role.Name); err != nil {
+		return nil, err
+	}
+
 	return v.validateWithContext(ctx, role)
 }
 
@@ -597,6 +607,41 @@ func (v *VaultRoleValidator) checkRoleNameCollision(ctx context.Context, vaultRo
 	}
 
 	// No collision
+	return nil
+}
+
+// checkVaultRoleCollision checks if any OTHER VaultRole in the cluster
+// computes to the same Vault role name. The `namespace-name` join is
+// ambiguous (see the collision example in ValidateCreate). Skipped on
+// update since the vaultName is derived from immutable fields — a
+// collision would have been caught at create.
+//
+// Compares namespace+name as a tuple to distinguish "this is me being
+// updated/recreated" (same namespace+name) from "there's another CR
+// that collides" (different namespace+name with same computed name).
+func (v *VaultRoleValidator) checkVaultRoleCollision(
+	ctx context.Context, vaultRoleName, namespace, name string,
+) error {
+	if v.client == nil {
+		return nil
+	}
+	roleList := &vaultv1alpha1.VaultRoleList{}
+	if err := v.client.List(ctx, roleList); err != nil {
+		return fmt.Errorf("failed to list VaultRoles for collision check: %w", err)
+	}
+	for _, r := range roleList.Items {
+		// Skip the CR being created/updated itself.
+		if r.Namespace == namespace && r.Name == name {
+			continue
+		}
+		existingVaultName := fmt.Sprintf("%s-%s", r.Namespace, r.Name)
+		if existingVaultName == vaultRoleName {
+			return fmt.Errorf(
+				"naming collision: VaultRole %s/%s already maps to Vault role name %q — "+
+					"rename this CR (or the existing one) so `<namespace>-<name>` is unique",
+				r.Namespace, r.Name, vaultRoleName)
+		}
+	}
 	return nil
 }
 

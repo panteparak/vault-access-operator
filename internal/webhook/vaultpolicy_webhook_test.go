@@ -1738,6 +1738,70 @@ func TestVaultClusterPolicyValidator_CollisionDetection(t *testing.T) {
 	}
 }
 
+// TestVaultPolicyValidator_VaultPolicyCollision pins the fix for the
+// gap where two VaultPolicies with ambiguous namespace+name
+// concatenations could silently map to the same Vault policy.
+func TestVaultPolicyValidator_VaultPolicyCollision(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = vaultv1alpha1.AddToScheme(scheme)
+
+	existing := &vaultv1alpha1.VaultPolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "foo", Namespace: "my-app"},
+		Spec: vaultv1alpha1.VaultPolicySpec{
+			ConnectionRef: "conn",
+			Rules: []vaultv1alpha1.PolicyRule{
+				{Path: "secret/*", Capabilities: []vaultv1alpha1.Capability{"read"}},
+			},
+		},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing).Build()
+	v := &VaultPolicyValidator{client: c}
+
+	newPolicy := &vaultv1alpha1.VaultPolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "app-foo", Namespace: "my"},
+		Spec: vaultv1alpha1.VaultPolicySpec{
+			ConnectionRef: "conn",
+			Rules: []vaultv1alpha1.PolicyRule{
+				{Path: "secret/*", Capabilities: []vaultv1alpha1.Capability{"read"}},
+			},
+		},
+	}
+	_, err := v.ValidateCreate(context.Background(), newPolicy)
+	if err == nil {
+		t.Fatal("expected collision error, got nil")
+	}
+	if !strings.Contains(err.Error(), "my-app/foo") {
+		t.Errorf("error should name the conflicting existing CR: %v", err)
+	}
+	if !strings.Contains(err.Error(), "my-app-foo") {
+		t.Errorf("error should include the conflicting Vault name: %v", err)
+	}
+}
+
+// TestVaultPolicyValidator_VaultPolicyNoSelfCollision confirms that
+// updating the same CR doesn't trigger a false positive.
+func TestVaultPolicyValidator_VaultPolicyNoSelfCollision(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = vaultv1alpha1.AddToScheme(scheme)
+
+	policy := &vaultv1alpha1.VaultPolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "foo", Namespace: "my-app"},
+		Spec: vaultv1alpha1.VaultPolicySpec{
+			ConnectionRef: "conn",
+			Rules: []vaultv1alpha1.PolicyRule{
+				{Path: "secret/*", Capabilities: []vaultv1alpha1.Capability{"read"}},
+			},
+		},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(policy).Build()
+	v := &VaultPolicyValidator{client: c}
+
+	_, err := v.ValidateCreate(context.Background(), policy)
+	if err != nil {
+		t.Errorf("self should not collide with self, got %v", err)
+	}
+}
+
 func TestVaultPolicyValidator_CollisionWithNilClient(t *testing.T) {
 	enforceFalse := false
 	// Test that validation still works when client is nil (skip collision check)

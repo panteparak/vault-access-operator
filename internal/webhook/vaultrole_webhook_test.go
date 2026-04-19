@@ -1486,6 +1486,81 @@ func TestVaultClusterRoleValidator_CollisionDetection(t *testing.T) {
 	}
 }
 
+// TestVaultRoleValidator_VaultRoleCollision pins the fix for the gap
+// where two VaultRoles with ambiguous namespace+name concatenations
+// could silently map to the same Vault role. Pre-fix the second CR
+// hit runtime Phase=Conflict (confusing for the user — spec is valid,
+// just another CR claims the same name); now the webhook rejects at
+// `kubectl apply` time with a clear message pointing at the conflicting
+// existing CR.
+func TestVaultRoleValidator_VaultRoleCollision(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = vaultv1alpha1.AddToScheme(scheme)
+
+	// Existing role: namespace="my-app", name="foo" → vaultName="my-app-foo"
+	existing := &vaultv1alpha1.VaultRole{
+		ObjectMeta: metav1.ObjectMeta{Name: "foo", Namespace: "my-app"},
+		Spec: vaultv1alpha1.VaultRoleSpec{
+			ConnectionRef:   "conn",
+			ServiceAccounts: []string{"sa"},
+			Policies: []vaultv1alpha1.PolicyReference{
+				{Kind: "VaultPolicy", Name: "p"},
+			},
+		},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing).Build()
+	v := &VaultRoleValidator{client: c}
+
+	// New role: namespace="my", name="app-foo" → vaultName="my-app-foo" (collision!)
+	newRole := &vaultv1alpha1.VaultRole{
+		ObjectMeta: metav1.ObjectMeta{Name: "app-foo", Namespace: "my"},
+		Spec: vaultv1alpha1.VaultRoleSpec{
+			ConnectionRef:   "conn",
+			ServiceAccounts: []string{"sa"},
+			Policies: []vaultv1alpha1.PolicyReference{
+				{Kind: "VaultPolicy", Name: "p"},
+			},
+		},
+	}
+	_, err := v.ValidateCreate(context.Background(), newRole)
+	if err == nil {
+		t.Fatal("expected collision error, got nil")
+	}
+	if !strings.Contains(err.Error(), "my-app/foo") {
+		t.Errorf("error should name the conflicting existing CR: %v", err)
+	}
+	if !strings.Contains(err.Error(), "my-app-foo") {
+		t.Errorf("error should include the conflicting Vault name: %v", err)
+	}
+}
+
+// TestVaultRoleValidator_VaultRoleNoSelfCollision confirms that
+// updating (or re-validating) the same CR doesn't trigger a false
+// positive — the collision check skips the CR being validated itself.
+func TestVaultRoleValidator_VaultRoleNoSelfCollision(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = vaultv1alpha1.AddToScheme(scheme)
+
+	role := &vaultv1alpha1.VaultRole{
+		ObjectMeta: metav1.ObjectMeta{Name: "foo", Namespace: "my-app"},
+		Spec: vaultv1alpha1.VaultRoleSpec{
+			ConnectionRef:   "conn",
+			ServiceAccounts: []string{"sa"},
+			Policies: []vaultv1alpha1.PolicyReference{
+				{Kind: "VaultPolicy", Name: "p"},
+			},
+		},
+	}
+	// The same role exists in the fake client — simulating re-validation.
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(role).Build()
+	v := &VaultRoleValidator{client: c}
+
+	_, err := v.ValidateCreate(context.Background(), role)
+	if err != nil {
+		t.Errorf("self should not collide with self, got %v", err)
+	}
+}
+
 func TestVaultRoleValidator_CollisionWithNilClient(t *testing.T) {
 	// Test that validation still works when client is nil (skip collision check)
 	v := &VaultRoleValidator{client: nil}

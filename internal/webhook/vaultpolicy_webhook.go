@@ -89,6 +89,15 @@ func (v *VaultPolicyValidator) ValidateCreate(ctx context.Context, policy *vault
 		return nil, err
 	}
 
+	// Check for naming collision with OTHER VaultPolicies. The
+	// `namespace-name` join is ambiguous: "ns1/foo-bar" and "ns1-foo/bar"
+	// both compute to "ns1-foo-bar". Without this admission check, the
+	// second CR would hit a runtime Phase=Conflict, or with the adopt
+	// annotation both CRs would race on the same Vault policy.
+	if err := v.checkVaultPolicyCollision(ctx, vaultPolicyName, policy.Namespace, policy.Name); err != nil {
+		return nil, err
+	}
+
 	warnings, err := v.validateVaultPolicy(policy)
 	if err != nil {
 		return warnings, err
@@ -377,6 +386,35 @@ func (v *VaultPolicyValidator) checkPolicyNameCollision(ctx context.Context, vau
 	}
 
 	// No collision
+	return nil
+}
+
+// checkVaultPolicyCollision checks if any OTHER VaultPolicy in the cluster
+// computes to the same Vault policy name. The `namespace-name` join is
+// ambiguous (see the collision example in ValidateCreate). Skipped on
+// update since the vaultName is derived from immutable fields.
+func (v *VaultPolicyValidator) checkVaultPolicyCollision(
+	ctx context.Context, vaultPolicyName, namespace, name string,
+) error {
+	if v.client == nil {
+		return nil
+	}
+	policyList := &vaultv1alpha1.VaultPolicyList{}
+	if err := v.client.List(ctx, policyList); err != nil {
+		return fmt.Errorf("failed to list VaultPolicies for collision check: %w", err)
+	}
+	for _, p := range policyList.Items {
+		if p.Namespace == namespace && p.Name == name {
+			continue
+		}
+		existingVaultName := fmt.Sprintf("%s-%s", p.Namespace, p.Name)
+		if existingVaultName == vaultPolicyName {
+			return fmt.Errorf(
+				"naming collision: VaultPolicy %s/%s already maps to Vault policy name %q — "+
+					"rename this CR (or the existing one) so `<namespace>-<name>` is unique",
+				p.Namespace, p.Name, vaultPolicyName)
+		}
+	}
 	return nil
 }
 
