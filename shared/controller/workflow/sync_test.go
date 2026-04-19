@@ -19,6 +19,7 @@ package workflow
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/go-logr/logr"
@@ -514,5 +515,70 @@ func TestSyncWorkflow_DriftIgnoreMode(t *testing.T) {
 	// WriteToVault should be called (hash differs, so not skipped)
 	if !containsCall(ops.calls, "WriteToVault") {
 		t.Error("expected WriteToVault to be called when hash differs")
+	}
+}
+
+// TestSyncWorkflow_DryRunCondition_True pins IMPROVEMENTS Missing
+// Features §I: when the resource carries vault.platform.io/dry-run=true,
+// the workflow's finalizeSuccessfulSync sets the DryRun condition to
+// True with reason DryRunSkipped. The ops layer is responsible for
+// actually skipping Vault writes (mockOps doesn't model that here).
+func TestSyncWorkflow_DryRunCondition_True(t *testing.T) {
+	t.Parallel()
+
+	policy := newTestPolicy()
+	policy.Annotations = map[string]string{
+		vaultv1alpha1.AnnotationDryRun: vaultv1alpha1.AnnotationValueTrue,
+	}
+	conn := newTestVaultConnection()
+	k8s := newFakeK8sClient(t, policy, conn)
+	wf := newSyncWorkflowForTest(t, k8s)
+
+	res := newTestResource(policy)
+	ops := &mockOps{specHash: "abc"}
+
+	if err := wf.Execute(context.Background(), res, ops); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	dryRunCond := findCondition(res.GetConditions(), vaultv1alpha1.ConditionTypeDryRun)
+	if dryRunCond == nil {
+		t.Fatal("DryRun condition not found")
+	}
+	if dryRunCond.Status != metav1.ConditionTrue {
+		t.Errorf("DryRun status = %q, want True", dryRunCond.Status)
+	}
+	if dryRunCond.Reason != vaultv1alpha1.ReasonDryRunSkipped {
+		t.Errorf("DryRun reason = %q, want %q",
+			dryRunCond.Reason, vaultv1alpha1.ReasonDryRunSkipped)
+	}
+	if !strings.Contains(dryRunCond.Message, "vault.platform.io/dry-run") {
+		t.Errorf("DryRun message should mention the annotation; got %q", dryRunCond.Message)
+	}
+}
+
+// TestSyncWorkflow_DryRunCondition_False covers the negative case: a
+// resource WITHOUT the dry-run annotation gets DryRun=False.
+func TestSyncWorkflow_DryRunCondition_False(t *testing.T) {
+	t.Parallel()
+
+	policy := newTestPolicy() // no annotations
+	conn := newTestVaultConnection()
+	k8s := newFakeK8sClient(t, policy, conn)
+	wf := newSyncWorkflowForTest(t, k8s)
+
+	res := newTestResource(policy)
+	ops := &mockOps{specHash: "abc"}
+
+	if err := wf.Execute(context.Background(), res, ops); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	dryRunCond := findCondition(res.GetConditions(), vaultv1alpha1.ConditionTypeDryRun)
+	if dryRunCond == nil {
+		t.Fatal("DryRun condition should still be set (=False) for non-dry-run resources")
+	}
+	if dryRunCond.Status != metav1.ConditionFalse {
+		t.Errorf("DryRun status = %q, want False", dryRunCond.Status)
 	}
 }

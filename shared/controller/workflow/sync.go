@@ -320,6 +320,20 @@ func (w *SyncWorkflow) finalizeSuccessfulSync(
 	w.setCondition(resource, vaultv1alpha1.ConditionTypeDrifted, metav1.ConditionFalse,
 		vaultv1alpha1.ReasonNoDrift, "No drift detected")
 
+	// IMPROVEMENTS Missing Features §I: surface dry-run state. The ops
+	// layer skipped Vault writes if the resource carries the dry-run
+	// annotation; reflect that intent in conditions so dashboards and
+	// `kubectl describe` make it obvious the policy/role isn't actually
+	// pushed to Vault.
+	if isDryRunResource(resource) {
+		w.setCondition(resource, vaultv1alpha1.ConditionTypeDryRun, metav1.ConditionTrue,
+			vaultv1alpha1.ReasonDryRunSkipped,
+			"Vault writes skipped (vault.platform.io/dry-run=true) — remove the annotation to apply")
+	} else {
+		w.setCondition(resource, vaultv1alpha1.ConditionTypeDryRun, metav1.ConditionFalse,
+			vaultv1alpha1.ReasonSucceeded, "")
+	}
+
 	if err := w.client.Status().Update(ctx, resource.GetObject()); err != nil {
 		return fmt.Errorf("failed to update status to Active: %w", err)
 	}
@@ -361,4 +375,16 @@ func resourceLabel(kind string) string {
 	s := strings.TrimPrefix(kind, "Vault")
 	s = strings.TrimPrefix(s, "Cluster")
 	return s
+}
+
+// isDryRunResource reports whether the resource carries the
+// vault.platform.io/dry-run=true annotation. The PolicyOps and RoleOps
+// guards skip Vault writes when this is set; the workflow uses it to
+// surface ConditionTypeDryRun. IMPROVEMENTS Missing Features §I.
+func isDryRunResource(resource SyncableResource) bool {
+	obj := resource.GetObject()
+	if obj == nil {
+		return false
+	}
+	return obj.GetAnnotations()[vaultv1alpha1.AnnotationDryRun] == vaultv1alpha1.AnnotationValueTrue
 }

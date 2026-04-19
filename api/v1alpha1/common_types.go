@@ -309,6 +309,11 @@ const (
 	ConditionTypeDependencyReady  = "DependencyReady"
 	ConditionTypeDrifted          = "Drifted"
 	ConditionTypeDeleting         = "Deleting"
+	// ConditionTypeDryRun is True when the resource carries the
+	// `vault.platform.io/dry-run=true` annotation and the operator
+	// skipped one or more Vault-side writes during reconcile. Message
+	// surfaces the would-be operation. IMPROVEMENTS Missing Features §I.
+	ConditionTypeDryRun = "DryRun"
 )
 
 // ConditionReason constants
@@ -343,6 +348,12 @@ const (
 	// ReasonFailed (generic) and ReasonConnectionNotReady (dependency
 	// resolution). IMPROVEMENTS §29.
 	ReasonNetworkError = "NetworkError"
+
+	// ReasonDryRunSkipped is the condition reason for ConditionTypeDryRun
+	// when the operator would have written/deleted but skipped because the
+	// resource carries `vault.platform.io/dry-run=true`.
+	// IMPROVEMENTS Missing Features §I.
+	ReasonDryRunSkipped = "DryRunSkipped"
 )
 
 // ToSecretReference converts LocalSecretKeySelector to a corev1.SecretKeySelector
@@ -480,6 +491,23 @@ const (
 	//
 	// IMPROVEMENTS Missing Features §H.
 	AnnotationReconcileNow = "vault.platform.io/reconcile-now"
+
+	// AnnotationDryRun, when set to AnnotationValueTrue, makes the operator
+	// SKIP all Vault-side writes (WriteToVault, MarkManaged, DeleteFromVault)
+	// for the annotated resource and surface what it WOULD have written via
+	// the `DryRun` status condition.
+	//
+	// Use case: preview a policy/role change ("what HCL would the operator
+	// push?") or preview a delete ("what would happen if I removed this CR?")
+	// without committing the change to Vault. Drift detection still runs so
+	// the user can compare expected vs. actual.
+	//
+	// Persistent — does NOT auto-clear. Users remove the annotation when
+	// ready to apply for real. Combine with `DriftMode: correct` to preview
+	// what a drift-correction WOULD overwrite without overwriting it.
+	//
+	// IMPROVEMENTS Missing Features §I.
+	AnnotationDryRun = "vault.platform.io/dry-run"
 
 	// AnnotationValueTrue is the canonical value for boolean annotation flags
 	AnnotationValueTrue = "true"

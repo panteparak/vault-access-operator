@@ -9,10 +9,10 @@ All original findings have been worked through. Tally as of the last commit:
 | Status | Count | Items |
 |--------|-------|-------|
 | ✅ Resolved | 34 | §§1–6, 8–11, 13–17, 19–25, 27, 29–34, 36 |
-| ✅ Resolved (missing features) | 6 | A, B, F, H, J, K |
+| ✅ Resolved (missing features) | 7 | A, B, F, H, I, J, K |
 | 🟠 Partially resolved | 1 | §7 (validation + doc shipped; backend expansion deferred) |
 | ❌ Withdrawn | 4 | §12 (design sound), §18 (low ROI), §26 (already gitignored), §35 (predicate already correct) |
-| 🕰️ Deferred with rationale | 5 | C (sealed watch), D (multi-cluster, OOS), E (policy templating), G (managed-marker backup), I (dry-run mode) |
+| 🕰️ Deferred with rationale | 4 | C (sealed watch), D (multi-cluster, OOS), E (policy templating), G (managed-marker backup) |
 
 Each section below lists its current status inline. Items marked `✅ RESOLVED` keep the original finding in a collapsed `<details>` block for historical context and to make future drift easy to spot.
 
@@ -837,8 +837,17 @@ Tests: 5 predicate tests covering add/update/clear/unrelated-change + 2 base-rec
 
 Usage: `kubectl annotate vaultpolicy foo vault.platform.io/reconcile-now="$(date -Iseconds)" --overwrite`.
 
-### I. No dry-run / plan mode (still missing)
-**Deferred**: would require a DriftMode variant that simulates the sync-workflow without calling Vault write endpoints, plus status field(s) to surface the computed diff. Non-trivial and best designed in conjunction with CRD schema additions, not grafted on.
+### ✅ I. Dry-run / plan mode — RESOLVED
+Fixed via annotation rather than DriftMode enum value. `vault.platform.io/dry-run=true` makes the operator SKIP all Vault writes (`WriteToVault`, `MarkManaged`, `DeleteFromVault`, `RemoveManaged`) for the annotated CR. The `ConditionTypeDryRun` status condition surfaces the suppressed operation so dashboards / `kubectl describe` make it obvious the policy/role isn't actually pushed to Vault.
+
+Persistent (does NOT auto-clear, unlike `reconcile-now`) — users remove the annotation when ready to apply. Combines with `DriftMode: correct` to preview what a correction WOULD overwrite without overwriting it.
+
+Why annotation instead of DriftMode value:
+- DriftMode is per-resource policy ("how should drift be handled forever").
+- Dry-run is per-deployment-attempt ("just for this apply, show me what would happen").
+- Annotation is the natural fit for the latter.
+
+Tests: 7 PolicyOps cases (write/delete/markManaged skip + positive controls + falsy-value strict equality + helper unit), 3 RoleOps cases (write/delete skip + positive control), 2 SyncWorkflow cases (DryRun condition True/False).
 
 ### ✅ J. `PolicyResolved` event — RESOLVED
 Fixed. `features/role/controller/handler.go:emitPolicyResolvedEvents` detects the per-binding Resolved=false → Resolved=true transition between reconciles and emits a K8s event with reason `PolicyResolved`, message naming the K8sRef and Vault policy path. Steady-state reconciles don't re-emit. Fresh bindings that land already-resolved DO emit (first time the user sees the dependency satisfied). Called from `RoleOps.ApplyBindings` which is the single path where PolicyBindings are updated.

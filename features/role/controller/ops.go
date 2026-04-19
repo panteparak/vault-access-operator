@@ -132,15 +132,25 @@ func (o *RoleOps) DetectDrift(ctx context.Context, vaultClient *vault.Client) (b
 	return o.handler.detectRoleDrift(ctx, vaultClient, o.authPath, o.adapter.GetVaultRoleName(), o.roleData)
 }
 
-// WriteToVault creates/updates the Kubernetes auth role in Vault.
-// Skips the write if the discovery-pending annotation is set — this prevents
-// auto-created discovery CRs from overwriting the adopted Vault role with placeholder
-// service accounts and policies (which would unbind every real workload on first sync).
-// Mirrors the guard in PolicyOps.WriteToVault.
+// WriteToVault creates/updates the Kubernetes auth role in Vault. Skipped under:
+//   - `AnnotationDiscoveryPending=true` — prevents auto-created discovery
+//     CRs from overwriting the adopted Vault role with placeholder values.
+//   - `AnnotationDryRun=true` — preview mode (IMPROVEMENTS Missing
+//     Features §I). The would-be role data is in `o.roleData` and is
+//     surfaced via the DryRun status condition.
 func (o *RoleOps) WriteToVault(ctx context.Context, vaultClient *vault.Client) error {
-	if o.adapter.GetAnnotations()[vaultv1alpha1.AnnotationDiscoveryPending] == vaultv1alpha1.AnnotationValueTrue {
-		logr.FromContextOrDiscard(ctx).Info("skipping write for discovery-pending role",
+	log := logr.FromContextOrDiscard(ctx)
+	anns := o.adapter.GetAnnotations()
+	if anns[vaultv1alpha1.AnnotationDiscoveryPending] == vaultv1alpha1.AnnotationValueTrue {
+		log.Info("skipping write for discovery-pending role",
 			"role", o.adapter.GetVaultRoleName())
+		return nil
+	}
+	if anns[vaultv1alpha1.AnnotationDryRun] == vaultv1alpha1.AnnotationValueTrue {
+		log.Info("skipping WriteKubernetesAuthRole due to dry-run annotation",
+			"role", o.adapter.GetVaultRoleName(),
+			"authPath", o.authPath,
+		)
 		return nil
 	}
 	return vaultClient.WriteKubernetesAuthRole(ctx, o.authPath, o.adapter.GetVaultRoleName(), o.roleData)
@@ -166,20 +176,45 @@ func (o *RoleOps) ReadbackVerify(ctx context.Context, vaultClient *vault.Client)
 	return nil
 }
 
-// MarkManaged marks the role as managed by this operator.
+// MarkManaged marks the role as managed by this operator. Skipped under
+// dry-run since the managed marker is itself a Vault-side write.
 func (o *RoleOps) MarkManaged(ctx context.Context, vaultClient *vault.Client) error {
+	if isRoleDryRun(o.adapter) {
+		logr.FromContextOrDiscard(ctx).V(1).Info(
+			"skipping role MarkManaged due to dry-run annotation",
+			"role", o.adapter.GetVaultRoleName())
+		return nil
+	}
 	k8sResource := o.adapter.GetK8sResourceIdentifier()
 	return vaultClient.MarkRoleManaged(ctx, o.adapter.GetVaultRoleName(), k8sResource)
 }
 
-// DeleteFromVault deletes the Kubernetes auth role from Vault.
+// DeleteFromVault deletes the Kubernetes auth role from Vault. Skipped under
+// dry-run; status condition surfaces what would have been deleted.
 func (o *RoleOps) DeleteFromVault(ctx context.Context, vaultClient *vault.Client) error {
+	if isRoleDryRun(o.adapter) {
+		logr.FromContextOrDiscard(ctx).Info(
+			"skipping DeleteKubernetesAuthRole due to dry-run annotation",
+			"role", o.adapter.GetVaultRoleName())
+		return nil
+	}
 	return vaultClient.DeleteKubernetesAuthRole(ctx, o.authPath, o.adapter.GetVaultRoleName())
 }
 
-// RemoveManaged removes the managed marker for this role.
+// RemoveManaged removes the managed marker for this role. Skipped under dry-run.
 func (o *RoleOps) RemoveManaged(ctx context.Context, vaultClient *vault.Client) error {
+	if isRoleDryRun(o.adapter) {
+		return nil
+	}
 	return vaultClient.RemoveRoleManaged(ctx, o.adapter.GetVaultRoleName())
+}
+
+// isRoleDryRun mirrors the policy package's isDryRun guard. The two
+// packages don't share a helper today; if a third feature gains the same
+// guard, lift this into a shared package alongside `conflict.ShouldAdopt`.
+// IMPROVEMENTS Missing Features §I.
+func isRoleDryRun(adapter interface{ GetAnnotations() map[string]string }) bool {
+	return adapter.GetAnnotations()[vaultv1alpha1.AnnotationDryRun] == vaultv1alpha1.AnnotationValueTrue
 }
 
 // ApplyActiveStatus sets role-specific status fields.

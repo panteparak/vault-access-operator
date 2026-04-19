@@ -157,6 +157,7 @@ make e2e-local-down                  # teardown
 | `vault.platform.io/discovered-at=<RFC3339>` | timestamp, informational; constant `AnnotationDiscovered` at [common_types.go:447](../../api/v1alpha1/common_types.go:447) |
 | `vault.platform.io/discovered-from=<connName>` | source connection for a discovered CR (raw string) |
 | `vault.platform.io/reconcile-now=<any value>` | force an immediate reconcile of the CR even when spec.generation didn't change. Cleared by the operator after a successful sync (single-shot trigger). Set via `kubectl annotate vaultpolicy foo vault.platform.io/reconcile-now="$(date -Iseconds)" --overwrite`. Constant `AnnotationReconcileNow`. |
+| `vault.platform.io/dry-run=true` | preview mode — operator skips ALL Vault writes (Write/Delete/MarkManaged) for this CR and surfaces the would-be operation via the `DryRun` status condition. Persistent (does NOT auto-clear); user removes when ready to apply. Combine with `DriftMode: correct` to preview what a correction WOULD overwrite. Constant `AnnotationDryRun` ([§I](IMPROVEMENTS.md#i-no-dry-run--plan-mode-still-missing)). |
 
 ## Document Index
 
