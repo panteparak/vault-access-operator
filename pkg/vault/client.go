@@ -619,8 +619,29 @@ func (c *Client) RevokeToken(ctx context.Context, token string) error {
 	return c.Auth().Token().RevokeTreeWithContext(ctx, token)
 }
 
-// RevokeSelf revokes the current token.
-// This is typically called after bootstrap to revoke the bootstrap token.
+// RevokeSelf revokes the current token AND clears the client's local
+// auth state so subsequent calls fail fast (unauthenticated) instead of
+// making Vault requests that would return 403.
+//
+// Before this state-clear, a caller that reused the client after
+// RevokeSelf would see opaque `permission denied` errors — the client
+// thought it was authenticated, Vault disagreed. Tests would pass (the
+// bootstrap → K8s-auth flow authenticates again right after), but any
+// future code path that reused the client would be confused. Clearing
+// local state means `IsAuthenticated() == false` and `Token() == ""`
+// immediately after RevokeSelf returns — matching reality on Vault's
+// side.
+//
+// Returns the Vault error from RevokeSelfWithContext so callers can
+// still distinguish "revoke succeeded" from "revoke failed but we
+// still cleared local state". Local state is cleared unconditionally
+// on the assumption that a failed RevokeSelf is terminal — if Vault
+// couldn't revoke the token, we're not going to use it again from
+// this client anyway.
 func (c *Client) RevokeSelf(ctx context.Context) error {
-	return c.Auth().Token().RevokeSelfWithContext(ctx, "")
+	err := c.Auth().Token().RevokeSelfWithContext(ctx, "")
+	// Clear local state regardless of server-side outcome.
+	c.SetToken("")
+	c.SetAuthenticated(false)
+	return err
 }

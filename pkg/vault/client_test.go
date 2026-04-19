@@ -1596,6 +1596,76 @@ func TestClient_ConnectionName_Concurrent(t *testing.T) {
 	wg.Wait()
 }
 
+// TestRevokeSelf_ClearsLocalState pins the fix for the latent bug
+// where RevokeSelf left `authenticated=true` and the token in place.
+// After RevokeSelf, subsequent calls on the same client must fail
+// fast (unauthenticated) instead of making Vault calls that would
+// return opaque "permission denied" errors. Matches the reality on
+// Vault's side — token is gone, client state mirrors.
+func TestRevokeSelf_ClearsLocalState(t *testing.T) {
+	// Use a test server that accepts the revoke request.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/auth/token/revoke-self" {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	c, err := NewClient(ClientConfig{Address: server.URL})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	c.SetToken("s.bootstrap-token")
+	c.SetAuthenticated(true)
+	if !c.IsAuthenticated() {
+		t.Fatal("precondition: client should be authenticated")
+	}
+
+	if err := c.RevokeSelf(context.Background()); err != nil {
+		t.Fatalf("RevokeSelf: %v", err)
+	}
+	if c.IsAuthenticated() {
+		t.Error("authenticated should be false after RevokeSelf")
+	}
+	if c.Token() != "" {
+		t.Errorf("token should be cleared after RevokeSelf, got %q", c.Token())
+	}
+}
+
+// TestRevokeSelf_ClearsStateEvenOnError pins the contract that local
+// state is cleared even when the Vault-side revoke call fails. If
+// Vault was unreachable, the token is "lost" from the client's view —
+// the operator can't reuse it anyway, so we shouldn't claim to be
+// authenticated.
+func TestRevokeSelf_ClearsStateEvenOnError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		// Always return 500 — simulates Vault being unreachable / broken.
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"errors":["vault internal error"]}`))
+	}))
+	defer server.Close()
+
+	c, err := NewClient(ClientConfig{Address: server.URL})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	c.SetToken("s.token")
+	c.SetAuthenticated(true)
+
+	err = c.RevokeSelf(context.Background())
+	if err == nil {
+		t.Error("expected revoke error, got nil")
+	}
+	if c.IsAuthenticated() {
+		t.Error("authenticated should be false even on revoke error (client can't reuse this token)")
+	}
+	if c.Token() != "" {
+		t.Errorf("token should be cleared, got %q", c.Token())
+	}
+}
+
 // TestNewClient_AppliesDefaultTimeout pins the fix for the bug where
 // vault.NewClient inherited the SDK's 60s default Timeout (combined
 // with MaxRetries=2 → up to 180s of blocked-reconcile time per Vault
