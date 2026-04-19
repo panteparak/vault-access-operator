@@ -1226,10 +1226,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#i-no-dry-run-plan-mode-still-missing" class="md-nav__link">
+  <a href="#i-dry-run-plan-mode-resolved" class="md-nav__link">
     <span class="md-ellipsis">
       
-        I. No dry-run / plan mode (still missing)
+        ✅ I. Dry-run / plan mode — RESOLVED
       
     </span>
   </a>
@@ -1450,8 +1450,8 @@
 </tr>
 <tr>
 <td>✅ Resolved (missing features)</td>
-<td>6</td>
-<td>A, B, F, H, J, K</td>
+<td>7</td>
+<td>A, B, F, H, I, J, K</td>
 </tr>
 <tr>
 <td>🟠 Partially resolved</td>
@@ -1465,8 +1465,8 @@
 </tr>
 <tr>
 <td>🕰️ Deferred with rationale</td>
-<td>5</td>
-<td>C (sealed watch), D (multi-cluster, OOS), E (policy templating), G (managed-marker backup), I (dry-run mode)</td>
+<td>4</td>
+<td>C (sealed watch), D (multi-cluster, OOS), E (policy templating), G (managed-marker backup)</td>
 </tr>
 </tbody>
 </table>
@@ -2202,8 +2202,14 @@ A global package var mutated during init based on env. Works, but test isolation
 <p>Fixed. New <code>vault.platform.io/reconcile-now</code> annotation (constant at <a href="../../api/v1alpha1/common_types.go:486">common_types.go:486</a>) + <code>ReconcileNowAnnotationPredicate</code> in the watches package. Wired into Policy/ClusterPolicy/Role/ClusterRole reconcilers via <code>predicate.Or(GenerationChangedPredicate, ReconcileNowAnnotationPredicate)</code>. <code>BaseReconciler.Reconcile</code> auto-clears the annotation via <code>client.RawPatch(MergePatchType, ...)</code> after a successful sync so the predicate is one-shot; failed syncs retain the annotation so the user's intent outlives a transient error.</p>
 <p>Tests: 5 predicate tests covering add/update/clear/unrelated-change + 2 base-reconciler integration tests pinning the patch-clear (success) and no-clear (error) behaviors.</p>
 <p>Usage: <code>kubectl annotate vaultpolicy foo vault.platform.io/reconcile-now="$(date -Iseconds)" --overwrite</code>.</p>
-<h3 id="i-no-dry-run-plan-mode-still-missing">I. No dry-run / plan mode (still missing)<a class="headerlink" href="#i-no-dry-run-plan-mode-still-missing" title="Permanent link">&para;</a></h3>
-<p><strong>Deferred</strong>: would require a DriftMode variant that simulates the sync-workflow without calling Vault write endpoints, plus status field(s) to surface the computed diff. Non-trivial and best designed in conjunction with CRD schema additions, not grafted on.</p>
+<h3 id="i-dry-run-plan-mode-resolved">✅ I. Dry-run / plan mode — RESOLVED<a class="headerlink" href="#i-dry-run-plan-mode-resolved" title="Permanent link">&para;</a></h3>
+<p>Fixed via annotation rather than DriftMode enum value. <code>vault.platform.io/dry-run=true</code> makes the operator SKIP all Vault writes (<code>WriteToVault</code>, <code>MarkManaged</code>, <code>DeleteFromVault</code>, <code>RemoveManaged</code>) for the annotated CR. The <code>ConditionTypeDryRun</code> status condition surfaces the suppressed operation so dashboards / <code>kubectl describe</code> make it obvious the policy/role isn't actually pushed to Vault.</p>
+<p>Persistent (does NOT auto-clear, unlike <code>reconcile-now</code>) — users remove the annotation when ready to apply. Combines with <code>DriftMode: correct</code> to preview what a correction WOULD overwrite without overwriting it.</p>
+<p>Why annotation instead of DriftMode value:
+- DriftMode is per-resource policy ("how should drift be handled forever").
+- Dry-run is per-deployment-attempt ("just for this apply, show me what would happen").
+- Annotation is the natural fit for the latter.</p>
+<p>Tests: 7 PolicyOps cases (write/delete/markManaged skip + positive controls + falsy-value strict equality + helper unit), 3 RoleOps cases (write/delete skip + positive control), 2 SyncWorkflow cases (DryRun condition True/False).</p>
 <h3 id="j-policyresolved-event-resolved">✅ J. <code>PolicyResolved</code> event — RESOLVED<a class="headerlink" href="#j-policyresolved-event-resolved" title="Permanent link">&para;</a></h3>
 <p>Fixed. <code>features/role/controller/handler.go:emitPolicyResolvedEvents</code> detects the per-binding Resolved=false → Resolved=true transition between reconciles and emits a K8s event with reason <code>PolicyResolved</code>, message naming the K8sRef and Vault policy path. Steady-state reconciles don't re-emit. Fresh bindings that land already-resolved DO emit (first time the user sees the dependency satisfied). Called from <code>RoleOps.ApplyBindings</code> which is the single path where PolicyBindings are updated.</p>
 <p>Tests: <code>policy_resolved_event_test.go</code> with 5 table cases covering transition, no-change, fresh-already-resolved, nil-recorder no-op, and still-unresolved no-op.</p>
