@@ -34,6 +34,14 @@ type ManagedResource struct {
 }
 
 // markManaged is the shared implementation for MarkPolicyManaged / MarkRoleManaged.
+//
+// Description-preservation semantics: if `descriptions == nil` and a marker
+// already exists, the existing RuleDescriptions are preserved (caller is
+// signalling "I don't know — keep what's there"). Pass an explicit empty
+// map (`map[string]string{}`) to clear descriptions deliberately. This
+// matters for the §G restore-managed-markers flow which doesn't have
+// access to the rules→descriptions mapping but shouldn't wipe valid
+// descriptions written by a previous normal reconcile.
 func (c *Client) markManaged(
 	ctx context.Context, basePath, resourceName, k8sResource, resourceType string,
 	descriptions map[string]string,
@@ -48,10 +56,15 @@ func (c *Client) markManaged(
 		RuleDescriptions: descriptions,
 	}
 
-	// Check if already managed to preserve ManagedAt
+	// Check if already managed to preserve ManagedAt + descriptions
 	existing, _ := c.getManaged(ctx, basePath, resourceName, resourceType)
 	if existing != nil {
 		metadata.ManagedAt = existing.ManagedAt
+		// Only preserve descriptions on nil (caller doesn't know).
+		// Explicit empty-map means "clear", which we honor.
+		if descriptions == nil {
+			metadata.RuleDescriptions = existing.RuleDescriptions
+		}
 	}
 
 	data, err := json.Marshal(metadata)

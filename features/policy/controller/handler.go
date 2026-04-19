@@ -416,7 +416,11 @@ func (h *Handler) generatePolicyHCL(rules []vaultv1alpha1.PolicyRule, namespace,
 	return vault.GeneratePolicyHCL(vaultRules, namespace, name)
 }
 
-// buildRuleDescriptions builds a map of resolved path -> description for rules that have descriptions.
+// buildRuleDescriptions builds a map of resolved path -> description for
+// rules that have descriptions. Returns an explicit empty map (not nil) when
+// no rules have descriptions — markManaged distinguishes nil ("preserve
+// existing") from empty-map ("clear"), and the policy reconciler always
+// wants to clear-and-rewrite to match the current spec.
 func (h *Handler) buildRuleDescriptions(rules []vaultv1alpha1.PolicyRule, namespace, name string) map[string]string {
 	descs := make(map[string]string)
 	for _, rule := range rules {
@@ -424,9 +428,6 @@ func (h *Handler) buildRuleDescriptions(rules []vaultv1alpha1.PolicyRule, namesp
 			resolvedPath := vault.SubstituteVariables(rule.Path, namespace, name)
 			descs[resolvedPath] = rule.Description
 		}
-	}
-	if len(descs) == 0 {
-		return nil
 	}
 	return descs
 }

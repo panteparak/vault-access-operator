@@ -606,7 +606,10 @@ func TestBuildRuleDescriptions(t *testing.T) {
 		}
 	})
 
-	t.Run("rules without descriptions return nil", func(t *testing.T) {
+	t.Run("rules without descriptions return empty map", func(t *testing.T) {
+		// Was previously nil; now returns explicit empty map so markManaged
+		// distinguishes "no descriptions" (clear existing) from "I don't
+		// know" (preserve existing). See markManaged docstring.
 		rules := []vaultv1alpha1.PolicyRule{
 			{
 				Path:         "secret/data/app/*",
@@ -615,8 +618,11 @@ func TestBuildRuleDescriptions(t *testing.T) {
 		}
 
 		descs := handler.buildRuleDescriptions(rules, "ns", "name")
-		if descs != nil {
-			t.Errorf("expected nil descriptions, got %v", descs)
+		if descs == nil {
+			t.Error("expected empty (non-nil) map; nil now means 'preserve' for markManaged")
+		}
+		if len(descs) != 0 {
+			t.Errorf("expected empty map, got %v", descs)
 		}
 	})
 
