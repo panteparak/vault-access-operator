@@ -1,0 +1,1570 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Contributor-facing documentation for vault-access-operator internals.">
+      
+      
+      
+        <link rel="canonical" href="https://panteparak.github.io/vault-access-operator/internal/FLOW_LIFECYCLE/">
+      
+      
+        <link rel="prev" href="../FLOW_OVERVIEW/">
+      
+      
+        <link rel="next" href="../FLOW_CONNECTION/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Manager Lifecycle - Vault Access Operator — Internal Docs</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#flow-manager-lifecycle-startup-leader-election-shutdown" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Vault Access Operator — Internal Docs" class="md-header__button md-logo" aria-label="Vault Access Operator — Internal Docs" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Vault Access Operator — Internal Docs
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Manager Lifecycle
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/panteparak/vault-access-operator" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    panteparak/vault-access-operator
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Vault Access Operator — Internal Docs" class="md-nav__button md-logo" aria-label="Vault Access Operator — Internal Docs" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Vault Access Operator — Internal Docs
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/panteparak/vault-access-operator" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    panteparak/vault-access-operator
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../PROJECT_OVERVIEW/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ARCHITECTURE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_OVERVIEW/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Flow Foundations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Flows
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Flows
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Manager Lifecycle
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Manager Lifecycle
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Summary
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#startup-order" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Startup Order
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#feature-registration-what-setupwithmanager-does" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feature Registration — what SetupWithManager does
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-mgrstartctx-does" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What mgr.Start(ctx) does
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="What mgr.Start(ctx) does">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#leader-election-behaviour" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Leader election behaviour
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#health-probes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Health Probes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#shutdown-flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Shutdown Flow
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Shutdown Flow">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#default-drain-behavior" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Default drain behavior
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#k8s-pod-termination-grace-period" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        K8s pod termination grace period
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pre-flight-failure-modes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pre-flight Failure Modes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration-precedence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration Precedence
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#concurrency-topology" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Concurrency Topology
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#startup-time-race-features-see-partial-state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Startup-time Race: features see partial state
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#files-read-written" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Files Read / Written
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cross-references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cross-References
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_CONNECTION/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Connection
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_POLICY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_ROLE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Role
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_DISCOVERY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Discovery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_DELETION/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deletion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_AUTH/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Authentication
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_WEBHOOK/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Admission Webhooks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_EVENTS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Event Bus
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_METRICS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../INSTRUCTIONS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Instructions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../IMPROVEMENTS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Improvements & Gaps
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/panteparak/vault-access-operator/edit/main/docs/internal/FLOW_LIFECYCLE.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="flow-manager-lifecycle-startup-leader-election-shutdown">FLOW: Manager Lifecycle (Startup, Leader Election, Shutdown)<a class="headerlink" href="#flow-manager-lifecycle-startup-leader-election-shutdown" title="Permanent link">&para;</a></h1>
+<h2 id="summary">Summary<a class="headerlink" href="#summary" title="Permanent link">&para;</a></h2>
+<p>The operator binary is driven entirely by <code>controller-runtime</code>'s <code>Manager</code>: a single process that hosts controllers, webhooks, metrics, health probes, and leader election, sharing one informer cache and one K8s client. <a href="../../cmd/main.go">cmd/main.go</a> parses flags, constructs the manager, wires four features, optionally enables webhooks, and calls <code>mgr.Start(ctx)</code>. Everything the operator does at runtime happens inside that one blocking call.</p>
+<p>This doc walks through the lifecycle phases: <strong>parse → construct → wire features → add aux components → start → run → drain → exit</strong>. It also calls out the aspects where the operator relies entirely on controller-runtime defaults with no explicit configuration (graceful shutdown timeout, health probe depth, leader lease tuning).</p>
+<h2 id="startup-order">Startup Order<a class="headerlink" href="#startup-order" title="Permanent link">&para;</a></h2>
+<pre class="mermaid"><code>sequenceDiagram
+    participant Main as main()
+    participant Flags as flag package
+    participant Log as ctrl.Log (zap)
+    participant CW as CertWatcher (metrics + webhook)
+    participant WS as webhook.Server
+    participant MS as metrics.Server
+    participant Mgr as ctrl.Manager
+    participant Bus as events.EventBus
+    participant Clientset as kubernetes.Clientset
+    participant CF as ConnectionFeature
+    participant PF as PolicyFeature
+    participant RF as RoleFeature
+    participant DF as DiscoveryFeature
+    participant V as 4 WebhookValidators
+    participant HP as HealthProbes
+    participant Sig as SignalHandler
+    participant Ctx as ctx
+
+    Main-&gt;&gt;Flags: Parse --metrics-*, --webhook-*, --enable-webhooks, --leader-elect
+    Main-&gt;&gt;Log: ctrl.SetLogger(zap)
+    alt enableWebhooks
+        Main-&gt;&gt;CW: certwatcher.New(webhook-cert)
+        Main-&gt;&gt;WS: webhook.NewServer(TLSOpts)
+    else
+        Note over WS: webhookServer = nil
+    end
+    alt metricsCertPath set
+        Main-&gt;&gt;CW: certwatcher.New(metrics-cert)
+    end
+    Main-&gt;&gt;MS: metricsServerOptions{addr, secureServing, tlsOpts, filterProvider}
+    Main-&gt;&gt;Mgr: ctrl.NewManager(config, Options{Scheme, Metrics, WebhookServer, HealthProbe, LeaderElection})
+    Main-&gt;&gt;Bus: events.NewEventBus(log)
+    Main-&gt;&gt;Clientset: kubernetes.NewForConfig(restConfig)
+    Note over Clientset: used for TokenRequest API&lt;br/&gt;in k8s/jwt/oidc auth flows
+    Main-&gt;&gt;CF: connection.New(Config{EventBus, K8sClient, K8sClientset, ...})
+    Note over CF: constructs Reconciler + ClientCache
+    Main-&gt;&gt;Mgr: connFeature.SetupWithManager → register VaultConnection controller
+    Main-&gt;&gt;PF: policy.New(bus, connFeature.ClientCache, ...)
+    Main-&gt;&gt;Mgr: register VaultPolicy + VaultClusterPolicy controllers
+    Main-&gt;&gt;RF: role.New(bus, connFeature.ClientCache, ...)
+    Main-&gt;&gt;Mgr: register VaultRole + VaultClusterRole controllers
+    Main-&gt;&gt;DF: discovery.New(Config{ClientCache, ...})
+    Main-&gt;&gt;Mgr: register discovery (shares VaultConnection watch)
+    alt enableWebhooks
+        Main-&gt;&gt;V: SetupWebhookWithManager × 4 validators
+    end
+    alt metricsCertWatcher != nil
+        Main-&gt;&gt;Mgr: mgr.Add(metricsCertWatcher)
+    end
+    alt webhookCertWatcher != nil
+        Main-&gt;&gt;Mgr: mgr.Add(webhookCertWatcher)
+    end
+    Main-&gt;&gt;Mgr: AddHealthzCheck("healthz", Ping)
+    Main-&gt;&gt;Mgr: AddReadyzCheck("readyz", Ping)
+    Main-&gt;&gt;Sig: ctrl.SetupSignalHandler() → ctx with SIGTERM/SIGINT handler
+    Main-&gt;&gt;Mgr: Start(ctx) — BLOCKS</code></pre>
+<p>Key lines in <a href="../../cmd/main.go">cmd/main.go</a>:
+- Flag parse: 64-97
+- Manager construction: 197-215
+- EventBus: 222
+- Clientset: 226-232
+- Connection feature: 238-250
+- Policy feature: 253-265
+- Role feature: 268-280
+- Discovery feature: 283-294
+- Webhooks: 297-314
+- Cert watchers added: 317-331
+- Health probes: 333-340
+- Start: 343</p>
+<p><strong>Dependency order is not accidental.</strong> The Connection feature constructs <code>ClientCache</code> and hands it to Policy/Role/Discovery features. If their construction order were reversed, they'd get a nil cache. The code relies on sequential <code>:=</code> declarations to enforce this; it's not checked at compile time.</p>
+<h2 id="feature-registration-what-setupwithmanager-does">Feature Registration — what <code>SetupWithManager</code> does<a class="headerlink" href="#feature-registration-what-setupwithmanager-does" title="Permanent link">&para;</a></h2>
+<p>Each feature's <code>SetupWithManager(mgr)</code> call internally:
+1. Calls <code>ctrl.NewControllerManagedBy(mgr).For(&amp;CRD{}).Complete(r)</code> for every CRD it owns.
+2. Adds Watches for dependency CRDs with a MapFunc + Predicate (e.g., policy watches VaultConnection).
+3. Registers field indexes (for future list-by-field queries) — currently none.
+4. Does NOT start anything. All controllers are started by <code>mgr.Start</code>.</p>
+<p>Total controllers registered today: 6.
+- 1 × VaultConnection (connection feature)
+- 2 × VaultPolicy, VaultClusterPolicy (policy feature)
+- 2 × VaultRole, VaultClusterRole (role feature)
+- 1 × VaultConnection (discovery feature — second watch on same kind)</p>
+<p>The <strong>two controllers on VaultConnection</strong> is the source of the status-write contention mitigated in <a href="../../features/discovery/controller/controller.go:286">features/discovery/controller/controller.go:286</a> via <code>retry.RetryOnConflict</code>. See <a href="../IMPROVEMENTS/#9-dual-reconcilers-on-vaultconnection--status-race">IMPROVEMENTS.md §9</a>.</p>
+<h2 id="what-mgrstartctx-does">What <code>mgr.Start(ctx)</code> does<a class="headerlink" href="#what-mgrstartctx-does" title="Permanent link">&para;</a></h2>
+<p><code>mgr.Start</code> is a blocking call that returns only when the context is canceled (typically by the signal handler) or a fatal error occurs. Internally it:</p>
+<ol>
+<li><strong>Leader election</strong> (if enabled): acquires a Lease via the K8s coordination API. <code>LeaderElectionID = "2bf9394e.platform.io"</code> (<a href="../../cmd/main.go:203">main.go:203</a>).</li>
+<li><strong>Starts the metrics server</strong> on <code>--metrics-bind-address</code>.</li>
+<li><strong>Starts the webhook server</strong> if set (separate HTTPS port, default <code>:9443</code>).</li>
+<li><strong>Starts the health/ready probe server</strong> on <code>--health-probe-bind-address</code>.</li>
+<li><strong>Starts informers</strong> for every watched CRD. First informer sync blocks the controller from processing queued events.</li>
+<li><strong>Starts all controllers</strong> (one goroutine per controller, each pulling from a rate-limited queue). Default <code>MaxConcurrentReconciles = 1</code> per controller — reconciles run serially per CRD kind.</li>
+<li><strong>Starts each <code>Runnable</code> added via <code>mgr.Add()</code></strong>. For this operator, that's the two cert watchers.</li>
+</ol>
+<h3 id="leader-election-behaviour">Leader election behaviour<a class="headerlink" href="#leader-election-behaviour" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Default</th>
+<th>Effect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--leader-elect</code></td>
+<td><code>false</code></td>
+<td>Multiple replicas can all run reconcilers in parallel → bad</td>
+</tr>
+<tr>
+<td>(set to true)</td>
+<td>—</td>
+<td>Only the leader runs reconcilers + <code>Runnable</code>s that return <code>NeedsLeaderElection()=true</code></td>
+</tr>
+<tr>
+<td><code>LeaderElectionReleaseOnCancel</code></td>
+<td><code>false</code> (commented out)</td>
+<td>On shutdown, lease expires passively (15s default). A hot takeover would need this to <code>true</code>.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>All controllers today run on the leader</strong> (default for controller-runtime). <code>Runnable</code>s currently added (two cert watchers) don't implement <code>NeedsLeaderElection</code> — they run on every replica, which is correct because cert reload is per-pod.</p>
+<p><strong>Planned leader-gated components</strong> — <code>pkg/cleanup.Controller</code> and <code>pkg/orphan.Controller</code> both implement <code>NeedsLeaderElection() bool { return true }</code> but are <strong>never passed to <code>mgr.Add</code></strong>. See <a href="../IMPROVEMENTS/#1-unwired-controllers">IMPROVEMENTS.md §1</a>.</p>
+<pre class="mermaid"><code>flowchart LR
+    Replicas["3 replicas start"] --&gt; Lease{Try acquire Lease&lt;br/&gt;vault-access-operator-system/2bf9394e.platform.io}
+    Lease --&gt;|winner| Leader["Leader:&lt;br/&gt;- runs all 6 controllers&lt;br/&gt;- runs 2 cert watchers&lt;br/&gt;- runs leader-gated Runnables&lt;br/&gt;  (none wired today)"]
+    Lease --&gt;|loser| Follower["Follower:&lt;br/&gt;- runs cert watchers (not leader-gated)&lt;br/&gt;- waits for lease"]
+    Leader --&gt;|SIGTERM| Drain["Drain reconciles"]
+    Drain --&gt; Release["Lease expires (15s default)"]
+    Release --&gt; Follower
+    Follower --&gt;|new lease| Leader</code></pre>
+<h2 id="health-probes">Health Probes<a class="headerlink" href="#health-probes" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1">// cmd/main.go:333</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="nx">mgr</span><span class="p">.</span><span class="nx">AddHealthzCheck</span><span class="p">(</span><span class="s">&quot;healthz&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">healthz</span><span class="p">.</span><span class="nx">Ping</span><span class="p">)</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="nx">mgr</span><span class="p">.</span><span class="nx">AddReadyzCheck</span><span class="p">(</span><span class="s">&quot;readyz&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">healthz</span><span class="p">.</span><span class="nx">Ping</span><span class="p">)</span>
+</code></pre></div>
+<p><code>healthz.Ping</code> is the trivial check: it always returns <code>nil</code> as long as the HTTP handler is reachable. <strong>It does not check:</strong>
+- Whether informers have synced.
+- Whether Vault is reachable.
+- Whether the event bus is stuck.
+- Whether the <code>ClientCache</code> is populated.</p>
+<p>This is explicitly called out as a gap — see <a href="../IMPROVEMENTS/#33-health-probes-are-trivial-pings">IMPROVEMENTS.md §33</a>.</p>
+<p>Probe endpoints:
+- <code>:8081/healthz</code> — liveness (pod-restart trigger)
+- <code>:8081/readyz</code> — readiness (service-routing gate)</p>
+<p>If you need meaningful health, add a custom <code>healthz.Checker</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nx">mgr</span><span class="p">.</span><span class="nx">AddReadyzCheck</span><span class="p">(</span><span class="s">&quot;informers&quot;</span><span class="p">,</span><span class="w"> </span><span class="kd">func</span><span class="p">(</span><span class="nx">_</span><span class="w"> </span><span class="o">*</span><span class="nx">http</span><span class="p">.</span><span class="nx">Request</span><span class="p">)</span><span class="w"> </span><span class="kt">error</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">!</span><span class="nx">mgr</span><span class="p">.</span><span class="nx">GetCache</span><span class="p">().</span><span class="nx">WaitForCacheSync</span><span class="p">(</span><span class="nx">r</span><span class="p">.</span><span class="nx">Context</span><span class="p">())</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="nx">errors</span><span class="p">.</span><span class="nx">New</span><span class="p">(</span><span class="s">&quot;cache not synced&quot;</span><span class="p">)</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">    </span><span class="p">}</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="kc">nil</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="p">})</span>
+</code></pre></div>
+<h2 id="shutdown-flow">Shutdown Flow<a class="headerlink" href="#shutdown-flow" title="Permanent link">&para;</a></h2>
+<pre class="mermaid"><code>sequenceDiagram
+    participant OS as Operating System
+    participant Sig as SignalHandler
+    participant Ctx as ctx.Done()
+    participant Mgr as Manager
+    participant Ctrl as Controllers
+    participant Web as WebhookServer
+    participant Met as MetricsServer
+    participant CW as CertWatchers
+
+    OS-&gt;&gt;Sig: SIGTERM (pod termination)
+    Sig-&gt;&gt;Ctx: cancel()
+    Ctx-&gt;&gt;Mgr: ctx.Done() signaled
+    Mgr-&gt;&gt;Ctrl: cancel each controller's context
+    par controllers drain
+        Ctrl-&gt;&gt;Ctrl: finish in-flight Reconcile&lt;br/&gt;(no cancellation inside handler)
+    and servers drain
+        Mgr-&gt;&gt;Web: server.Shutdown (grace)
+        Mgr-&gt;&gt;Met: server.Shutdown
+    and watchers stop
+        Mgr-&gt;&gt;CW: cert watcher ctx.Done
+    end
+    Mgr--&gt;&gt;Sig: Start() returns nil
+    Sig--&gt;&gt;OS: process exits 0</code></pre>
+<h3 id="default-drain-behavior">Default drain behavior<a class="headerlink" href="#default-drain-behavior" title="Permanent link">&para;</a></h3>
+<p>Controller-runtime's default is:
+- <strong>Pre-Start</strong>: <code>RunnableGroup.Start(ctx)</code> — all starts happen within <code>Start</code>.
+- <strong>During Shutdown</strong>: each controller's queue stops accepting new items, current in-flight reconcile(s) finish to completion (not canceled mid-function; the context passed to Reconcile is the <strong>reconcile-scoped</strong> context, not the shutdown context, in current controller-runtime).
+- <strong>No explicit timeout</strong> — there is no <code>manager.Options.GracefulShutdownTimeout</code> set in this codebase. Controller-runtime's default is <code>30s</code> — if a reconcile exceeds that, the manager forcibly returns.</p>
+<p><strong>This is a latent bug surface</strong>: a long-running Vault operation (bootstrap under a slow STS endpoint, say) could still be in-flight when SIGTERM arrives. With no explicit timeout, the default 30s may or may not be enough. See <a href="../IMPROVEMENTS/#32-undocumented-shutdown-drain-timeout">IMPROVEMENTS.md §32</a>.</p>
+<h3 id="k8s-pod-termination-grace-period">K8s pod termination grace period<a class="headerlink" href="#k8s-pod-termination-grace-period" title="Permanent link">&para;</a></h3>
+<p>K8s gives pods <code>terminationGracePeriodSeconds</code> (default 30s) between SIGTERM and SIGKILL. If:
+- operator drain &gt; <code>terminationGracePeriodSeconds</code> → K8s sends SIGKILL, losing in-flight state.
+- In-flight Reconcile doesn't respect its scoped context → could block indefinitely until SIGKILL.</p>
+<p>Helm chart default <code>terminationGracePeriodSeconds</code>: not explicitly set in <a href="../../charts/vault-access-operator/templates/deployment.yaml">deployment.yaml</a>. Falls back to K8s default 30s.</p>
+<h2 id="pre-flight-failure-modes">Pre-flight Failure Modes<a class="headerlink" href="#pre-flight-failure-modes" title="Permanent link">&para;</a></h2>
+<p>Every <code>os.Exit(1)</code> path in <code>main.go</code> represents a non-recoverable startup failure:</p>
+<table>
+<thead>
+<tr>
+<th>Line</th>
+<th>Failure</th>
+<th>Typical cause</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="../../cmd/main.go:134">134</a></td>
+<td>webhook cert watcher init</td>
+<td>bad path; file perms</td>
+</tr>
+<tr>
+<td><a href="../../cmd/main.go:189">189</a></td>
+<td>metrics cert watcher init</td>
+<td>same</td>
+</tr>
+<tr>
+<td><a href="../../cmd/main.go:218">218</a></td>
+<td><code>ctrl.NewManager</code></td>
+<td>invalid REST config; scheme registration failed</td>
+</tr>
+<tr>
+<td><a href="../../cmd/main.go:230">230</a></td>
+<td><code>kubernetes.NewForConfig</code></td>
+<td>can't build clientset from config</td>
+</tr>
+<tr>
+<td><a href="../../cmd/main.go:248">248</a></td>
+<td>connection feature setup</td>
+<td>controller already registered; cache init failure</td>
+</tr>
+<tr>
+<td><a href="../../cmd/main.go:263">263</a></td>
+<td>policy feature setup</td>
+<td>same class</td>
+</tr>
+<tr>
+<td><a href="../../cmd/main.go:278">278</a></td>
+<td>role feature setup</td>
+<td>same class</td>
+</tr>
+<tr>
+<td><a href="../../cmd/main.go:292">292</a></td>
+<td>discovery feature setup</td>
+<td>same class</td>
+</tr>
+<tr>
+<td><a href="../../cmd/main.go:300">300, 304, 308, 312</a></td>
+<td>webhook setup</td>
+<td>webhook server not initialized; type mismatch</td>
+</tr>
+<tr>
+<td><a href="../../cmd/main.go:321">321, 329</a></td>
+<td><code>mgr.Add</code> cert watcher</td>
+<td>should never fail after init succeeds</td>
+</tr>
+<tr>
+<td><a href="../../cmd/main.go:335">335, 339</a></td>
+<td>health probe registration</td>
+<td>manager state issue</td>
+</tr>
+<tr>
+<td><a href="../../cmd/main.go:344">344</a></td>
+<td><code>mgr.Start</code> return error</td>
+<td>any runtime failure during controller execution</td>
+</tr>
+</tbody>
+</table>
+<p>All of these use <code>setupLog.Error(err, "...")</code> + <code>os.Exit(1)</code>, so failures are logged with reason before the process dies. CrashLoopBackOff is the normal recovery for transient K8s-API issues at startup.</p>
+<h2 id="configuration-precedence">Configuration Precedence<a class="headerlink" href="#configuration-precedence" title="Permanent link">&para;</a></h2>
+<p>Config sources, in the order they take effect (later overrides earlier):</p>
+<pre class="mermaid"><code>flowchart TD
+    Defaults["Kubebuilder defaults&lt;br/&gt;(+kubebuilder:default= on fields)&lt;br/&gt;e.g. authPath='kubernetes'"] --&gt; EnvVars["Env vars&lt;br/&gt;(OPERATOR_REQUEUE_SUCCESS_INTERVAL,&lt;br/&gt;OPERATOR_MIN_SCAN_INTERVAL,&lt;br/&gt;OPERATOR_SERVICE_ACCOUNT,&lt;br/&gt;OPERATOR_NAMESPACE)"]
+    EnvVars --&gt; Flags["CLI flags&lt;br/&gt;(--metrics-*, --leader-elect,&lt;br/&gt;--enable-webhooks, ...)"]
+    Flags --&gt; Spec["CR spec&lt;br/&gt;(e.g. VaultPolicy.spec.driftMode)"]
+    Spec --&gt; Annotations["Annotations&lt;br/&gt;(vault.platform.io/adopt,&lt;br/&gt;allow-destructive)"]</code></pre>
+<table>
+<thead>
+<tr>
+<th>Axis</th>
+<th>Defaults</th>
+<th>Env</th>
+<th>Flag</th>
+<th>Spec</th>
+<th>Annotation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Metrics address</td>
+<td><code>0</code> (disabled)</td>
+<td>—</td>
+<td><code>--metrics-bind-address</code></td>
+<td>—</td>
+<td>—</td>
+</tr>
+<tr>
+<td>Health probe</td>
+<td><code>:8081</code></td>
+<td>—</td>
+<td><code>--health-probe-bind-address</code></td>
+<td>—</td>
+<td>—</td>
+</tr>
+<tr>
+<td>Webhooks</td>
+<td>off</td>
+<td>—</td>
+<td><code>--enable-webhooks</code></td>
+<td>—</td>
+<td>—</td>
+</tr>
+<tr>
+<td>Leader election</td>
+<td>off</td>
+<td>—</td>
+<td><code>--leader-elect</code></td>
+<td>—</td>
+<td>—</td>
+</tr>
+<tr>
+<td>Requeue success</td>
+<td><code>30s</code></td>
+<td><code>OPERATOR_REQUEUE_SUCCESS_INTERVAL</code></td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+</tr>
+<tr>
+<td>Requeue error</td>
+<td><code>30s</code></td>
+<td><code>OPERATOR_REQUEUE_ERROR_INTERVAL</code></td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+</tr>
+<tr>
+<td>Discovery min interval</td>
+<td><code>5m</code></td>
+<td><code>OPERATOR_MIN_SCAN_INTERVAL</code></td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+</tr>
+<tr>
+<td>Operator SA</td>
+<td><code>vault-access-operator-controller-manager</code></td>
+<td><code>OPERATOR_SERVICE_ACCOUNT</code></td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+</tr>
+<tr>
+<td>Drift mode</td>
+<td><code>detect</code></td>
+<td>—</td>
+<td>—</td>
+<td><code>VaultConnection.spec.defaults.driftMode</code> OR <code>CRD.spec.driftMode</code></td>
+<td>—</td>
+</tr>
+<tr>
+<td>Adoption</td>
+<td>Fail</td>
+<td>—</td>
+<td>—</td>
+<td><code>ConflictPolicy</code></td>
+<td><code>vault.platform.io/adopt=true</code> (overrides spec)</td>
+</tr>
+</tbody>
+</table>
+<h2 id="concurrency-topology">Concurrency Topology<a class="headerlink" href="#concurrency-topology" title="Permanent link">&para;</a></h2>
+<pre class="mermaid"><code>graph TB
+    subgraph Process["Single operator process"]
+        Mgr["Manager goroutine"]
+        Metrics["Metrics HTTPS goroutine"]
+        Webhook["Webhook HTTPS goroutine"]
+        Probe["Probe HTTPS goroutine"]
+        LE["Leader-election goroutine"]
+
+        subgraph Informers["Shared informer cache (one per CRD)"]
+            IC["VaultConnection informer"]
+            IP["VaultPolicy informer"]
+            ICP["VaultClusterPolicy informer"]
+            IR["VaultRole informer"]
+            ICR["VaultClusterRole informer"]
+        end
+
+        subgraph Controllers["One goroutine per controller"]
+            CtrC["VaultConnection reconciler"]
+            CtrP["VaultPolicy reconciler"]
+            CtrCP["VaultClusterPolicy reconciler"]
+            CtrR["VaultRole reconciler"]
+            CtrCR["VaultClusterRole reconciler"]
+            CtrD["Discovery reconciler (on VaultConnection)"]
+        end
+
+        subgraph Async["Async goroutines (spawned on demand)"]
+            PubAsync["events.PublishAsync goroutines"]
+        end
+
+        CW1["Webhook certwatcher goroutine"]
+        CW2["Metrics certwatcher goroutine"]
+    end
+
+    Mgr --&gt; Informers
+    Informers --&gt; Controllers
+    Controllers -.-&gt; PubAsync</code></pre>
+<p>Shared state:
+- <strong>Informer cache</strong> — read by all controllers via <code>mgr.GetClient()</code> / <code>.Get</code> / <code>.List</code>
+- <strong>ClientCache</strong> (<code>*vault.ClientCache</code>) — written by connection feature, read by policy/role/discovery features (guarded by internal mutex)
+- <strong>Event bus handlers map</strong> — guarded by <code>sync.RWMutex</code>; no production subscribers</p>
+<h2 id="startup-time-race-features-see-partial-state">Startup-time Race: features see partial state<a class="headerlink" href="#startup-time-race-features-see-partial-state" title="Permanent link">&para;</a></h2>
+<p>Because features are constructed sequentially in main:
+- Policy feature's <code>New</code> call receives a <code>ClientCache</code> that has <strong>not yet started populating</strong> (no connections have reconciled).
+- The first few reconciles of policy/role CRDs find <code>ClientCache.Get(connRef)</code> returns a cache miss → <code>vaultclient.Resolve</code> returns <code>DependencyError</code> → status goes <code>Phase=Error</code>, condition <code>ConnectionNotReady</code>.
+- <code>ConnectionPhaseChangedPredicate</code> re-enqueues dependent policies/roles when the connection flips to Active — so within ~1 minute of first startup, dependents catch up.</p>
+<p>This is correct-by-eventual-consistency but surfaces as noisy logs on cold start. Not a bug; worth noting for contributors debugging "why does my policy sync 30s later".</p>
+<h2 id="files-read-written">Files Read / Written<a class="headerlink" href="#files-read-written" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Op</th>
+<th>When</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Kubeconfig (<code>~/.kube/config</code> or in-cluster)</td>
+<td>R</td>
+<td><code>ctrl.GetConfigOrDie</code></td>
+</tr>
+<tr>
+<td>TLS certs (<code>webhook-cert-path</code>, <code>metrics-cert-path</code>)</td>
+<td>R, hot-reload</td>
+<td><code>certwatcher.CertWatcher</code></td>
+</tr>
+<tr>
+<td>ServiceAccount token (<code>/var/run/secrets/...</code>)</td>
+<td>R</td>
+<td>in-cluster config</td>
+</tr>
+<tr>
+<td>Leader election Lease</td>
+<td>R+W</td>
+<td>every <code>LeaseDuration</code> (default 15s) if leader-elect on</td>
+</tr>
+</tbody>
+</table>
+<h2 id="cross-references">Cross-References<a class="headerlink" href="#cross-references" title="Permanent link">&para;</a></h2>
+<ul>
+<li><a href="../ARCHITECTURE/">ARCHITECTURE.md</a> — static structure + runtime wiring diagram</li>
+<li><a href="../FLOW_OVERVIEW/">FLOW_OVERVIEW.md</a> — pre-flight universal diagram</li>
+<li><a href="../FLOW_WEBHOOK/">FLOW_WEBHOOK.md</a> — webhook server startup details</li>
+<li><a href="../FLOW_METRICS/">FLOW_METRICS.md</a> — metrics server startup</li>
+<li><a href="../IMPROVEMENTS/#1-unwired-controllers">IMPROVEMENTS.md §1</a>, <a href="../IMPROVEMENTS/#32-undocumented-shutdown-drain-timeout">§32</a>, <a href="../IMPROVEMENTS/#33-health-probes-are-trivial-pings">§33</a>, <a href="../IMPROVEMENTS/#34-rbac-aggregates-unwired-controller-needs">§34</a></li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2024-2026 Vault Access Operator Contributors
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/panteparak/vault-access-operator" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.instant", "navigation.top", "navigation.sections", "navigation.expand", "navigation.indexes", "search.highlight", "content.code.copy", "content.action.edit", "toc.integrate"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
