@@ -32,6 +32,10 @@ import (
 var _ = Describe("Conflict Policy Tests", Ordered, Label("module"), func() {
 	ctx := context.Background()
 
+	BeforeAll(func() {
+		RefreshSharedVaultToken(ctx)
+	})
+
 	Context("TC-CF: Policy Conflict Resolution", func() {
 		It("TC-CF01-ADOPT: Adopt existing unmanaged policy", func() {
 			adoptPolicyName := "tc-cf01-adopt"

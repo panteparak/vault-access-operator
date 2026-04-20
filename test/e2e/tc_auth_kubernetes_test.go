@@ -39,6 +39,14 @@ var _ = Describe("Authentication Tests", Ordered, Label("auth"), func() {
 	ctx := context.Background()
 
 	BeforeAll(func() {
+		// Refresh the shared VaultConnection's token before creating any
+		// policies. Tests that run before this suite (e.g., Token Lifecycle
+		// with root-token bootstrap, or any test that creates+deletes its
+		// own VaultConnection) can invalidate the cached shared token on
+		// finalizer cleanup — subsequent policy writes then fail with
+		// "permission denied" because the cached client is stale.
+		RefreshSharedVaultToken(ctx)
+
 		By("creating test service account for auth tests")
 		_ = utils.CreateServiceAccount(
 			ctx, testNamespace, authSAName,

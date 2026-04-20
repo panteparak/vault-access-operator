@@ -37,6 +37,10 @@ var _ = Describe("VaultPolicy Tests", Ordered, Label("module"), func() {
 
 	ctx := context.Background()
 
+	BeforeAll(func() {
+		RefreshSharedVaultToken(ctx)
+	})
+
 	AfterAll(func() {
 		By("cleaning up VaultPolicy test resources")
 		_ = utils.DeleteVaultPolicyCR(ctx, policyName, testNamespace)

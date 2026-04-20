@@ -32,6 +32,10 @@ import (
 var _ = Describe("Adoption Tests", Ordered, Label("adoption"), func() {
 	ctx := context.Background()
 
+	BeforeAll(func() {
+		RefreshSharedVaultToken(ctx)
+	})
+
 	Context("TC-ADOPT: Annotation-Based Adoption", func() {
 		It("TC-ADOPT01-POLICY: Adopt existing policy via annotation", func() {
 			policyName := "tc-adopt01-policy"

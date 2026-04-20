@@ -92,6 +92,13 @@ Create the name for the metrics auth role
 {{- end }}
 
 {{/*
+Create the name for the cleanup-queue role (owns the vault-cleanup-queue ConfigMap in the operator namespace)
+*/}}
+{{- define "vault-access-operator.cleanupQueueRoleName" -}}
+{{- printf "%s-cleanup-queue" (include "vault-access-operator.fullname" .) }}
+{{- end }}
+
+{{/*
 Create the name for the webhook service
 */}}
 {{- define "vault-access-operator.webhookServiceName" -}}

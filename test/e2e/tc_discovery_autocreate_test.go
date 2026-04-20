@@ -105,8 +105,13 @@ var _ = Describe("Discovery Auto-Create Tests", Ordered, Label("discovery", "aut
 						},
 					},
 					Discovery: &vaultv1alpha1.DiscoveryConfig{
-						Enabled:               true,
-						Interval:              "30s",
+						Enabled:  true,
+						Interval: "30s",
+						// Scope discovery to this test's own namespace — unscoped
+						// PolicyPatterns would auto-create CRs for every
+						// suite-wide policy (e.g., the operator policy), which
+						// would then block connection cleanup with dependent CRs.
+						PolicyPatterns:        []string{"tc-disc05-*"},
 						RolePatterns:          []string{"tc-disc05-*"},
 						ExcludeSystemPolicies: &boolTrue,
 						AutoCreateCRs:         true,
@@ -175,12 +180,30 @@ var _ = Describe("Discovery Auto-Create Tests", Ordered, Label("discovery", "aut
 				g.Expect(r.Status.Phase).To(Equal(vaultv1alpha1.PhaseActive))
 			}, 2*time.Minute, 5*time.Second).Should(Succeed())
 
+			By("removing the real Vault role before the CR so discovery can't re-adopt it")
+			// The auto-created VaultRole CR references autoCreateConnectionName
+			// and blocks connection deletion. Deleting the CR alone is not
+			// enough: the connection still has discovery enabled with a 30s
+			// interval, so the next scan finds `tc-disc05-real-role` in Vault
+			// (written raw by this test at line 89) and auto-creates the CR
+			// again — racing the test's Eventually. Removing the Vault-side
+			// role first makes the role genuinely disappear on the next scan
+			// and lets both the CR and the connection drain cleanly.
+			Expect(vaultClient.DeleteAuthRole(ctx, "kubernetes", realRoleName)).To(Succeed())
+
+			By("deleting the auto-created VaultRole CR to unblock connection deletion")
+			_ = utils.DeleteVaultRoleCR(ctx, realRoleName, targetNamespace)
+			Eventually(func(g Gomega) {
+				_, err := utils.GetVaultRole(ctx, realRoleName, targetNamespace)
+				g.Expect(err).To(HaveOccurred())
+			}, 90*time.Second, 2*time.Second).Should(Succeed())
+
 			By("cleaning up auto-create connection for subsequent tests")
 			_ = utils.DeleteVaultConnectionCR(ctx, autoCreateConnectionName)
 			Eventually(func(g Gomega) {
 				_, err := utils.GetVaultConnection(ctx, autoCreateConnectionName, "")
 				g.Expect(err).To(HaveOccurred())
-			}, 30*time.Second, 2*time.Second).Should(Succeed())
+			}, 60*time.Second, 2*time.Second).Should(Succeed())
 		})
 	})
 })
