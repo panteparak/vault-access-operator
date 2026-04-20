@@ -31,6 +31,7 @@ import (
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes"
@@ -38,6 +39,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
@@ -52,6 +54,7 @@ import (
 	vaultwebhook "github.com/panteparak/vault-access-operator/internal/webhook"
 	"github.com/panteparak/vault-access-operator/pkg/cleanup"
 	"github.com/panteparak/vault-access-operator/pkg/orphan"
+	"github.com/panteparak/vault-access-operator/shared/controller/base"
 	"github.com/panteparak/vault-access-operator/shared/events"
 	// +kubebuilder:scaffold:imports
 )
@@ -239,6 +242,22 @@ func main() {
 			"namespaces", cacheOpts.DefaultNamespaces)
 	}
 
+	// Scope the ConfigMap informer to the operator's own namespace. The only
+	// ConfigMap the operator touches is `vault-cleanup-queue` in its own ns
+	// (see pkg/cleanup/queue.go). Without this override, controller-runtime
+	// starts a cluster-wide ConfigMap list-watch, which fails with a
+	// forbidden error (RBAC only grants ConfigMap perms on the operator ns)
+	// and blocks the informer cache from ever syncing — the manager then
+	// fails healthz and no reconciles run.
+	operatorNamespace := resolveOperatorNamespace()
+	cacheOpts.ByObject = map[client.Object]cache.ByObject{
+		&corev1.ConfigMap{}: {
+			Namespaces: map[string]cache.Config{
+				operatorNamespace: {},
+			},
+		},
+	}
+
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                  scheme,
 		Metrics:                 metricsServerOptions,
@@ -352,11 +371,19 @@ func main() {
 	// this prevents the silent-resource-leak bug tracked in IMPROVEMENTS §2.
 	// The controller is leader-gated (NeedsLeaderElection=true) so only one
 	// replica writes to the queue ConfigMap.
-	operatorNamespace := resolveOperatorNamespace()
+	// operatorNamespace is resolved earlier (before NewManager) so cacheOpts
+	// can scope the ConfigMap informer to this namespace.
 	cleanupQueue := cleanup.NewQueue(mgr.GetClient(), operatorNamespace)
+	// OPERATOR_CLEANUP_RETRY_INTERVAL lets operators (and e2e tests) shorten
+	// the 5-minute default retry cadence when that's too slow. Tests with
+	// 10-minute drain assertions need the controller to tick at least twice
+	// inside that window to give queued items a chance to succeed.
+	cleanupRetryInterval := base.ParseIntervalEnv(
+		"OPERATOR_CLEANUP_RETRY_INTERVAL", cleanup.DefaultRetryInterval, os.Stderr)
 	cleanupCtrl := cleanup.NewController(cleanup.ControllerConfig{
 		Queue:       cleanupQueue,
 		ClientCache: cleanup.NewClientCacheAdapter(connFeature.ClientCache),
+		Interval:    cleanupRetryInterval,
 		Log:         setupLog.WithName("cleanup"),
 	})
 	if err := mgr.Add(cleanupCtrl); err != nil {

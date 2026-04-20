@@ -36,6 +36,8 @@ var _ = Describe("Rejection Tests", Ordered, Label("rejection"), func() {
 	var sharedPolicyName, sharedSAName string
 
 	BeforeAll(func() {
+		RefreshSharedVaultToken(ctx)
+
 		By("creating shared resources for rejection tests")
 		sharedPolicyName = uniqueName("tc-rej-policy")
 		sharedSAName = uniqueName("tc-rej-sa")

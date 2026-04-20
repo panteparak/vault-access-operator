@@ -110,13 +110,30 @@ var _ = Describe("Cleanup Queue Tests", Ordered, Label("cleanup"), func() {
 				g.Expect(p.Status.Phase).To(Equal(vaultv1alpha1.PhaseActive))
 			}, 90*time.Second, 5*time.Second).Should(Succeed())
 
-			By("pointing the connection at a bogus token to simulate Vault unreachability")
-			// Overwriting the token secret with garbage breaks the cached client:
-			// subsequent reconciles re-auth, fail, and the connection flips to
-			// Error. The cleanup path will then get an un-authenticated client
-			// and must enqueue rather than silently drop the delete.
-			Expect(utils.CreateSecret(ctx, testNamespace, cleanupTokenSecret,
-				map[string][]byte{"token": []byte("invalid-garbage-token")})).To(Succeed())
+			By("pointing the connection at an unreachable Vault address to simulate outage")
+			// Simulating outage via address swap exercises the real recovery
+			// path: the connection reconciler detects Vault unreachability,
+			// marks the connection Error, evicts the cached client (see
+			// handler.go:895-897). The cleanup workflow then can't get a
+			// client and enqueues. Swapping the address back lets the
+			// reconciler re-auth with the valid token from the Secret and
+			// lets the cleanup controller drain using the fresh client.
+			//
+			// An earlier attempt overwrote the token Secret: the operator
+			// caches *vault.Client in memory and doesn't watch Secrets, so
+			// the cached token outlives the Secret update until TTL-based
+			// renewal — which for a 1h token is far outside the test budget.
+			const unreachableAddr = "http://vault-unreachable-tc-clean01.invalid:8200"
+			Expect(utils.UpdateVaultConnectionCR(ctx, cleanupConnectionName, func(c *vaultv1alpha1.VaultConnection) {
+				c.Spec.Address = unreachableAddr
+			})).To(Succeed())
+
+			By("waiting for the connection to flip to Error (cache evicted)")
+			Eventually(func(g Gomega) {
+				c, err := utils.GetVaultConnection(ctx, cleanupConnectionName, "")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(c.Status.Phase).To(Equal(vaultv1alpha1.PhaseError))
+			}, 2*time.Minute, 5*time.Second).Should(Succeed())
 
 			By("deleting the VaultPolicy while the operator cannot reach Vault")
 			Expect(utils.DeleteVaultPolicyCR(ctx, policyName, testNamespace)).To(Succeed())
@@ -135,8 +152,15 @@ var _ = Describe("Cleanup Queue Tests", Ordered, Label("cleanup"), func() {
 					"queue should contain the deleted policy's name")
 			}, 2*time.Minute, 5*time.Second).Should(Succeed())
 
-			By("restoring the real token so the cleanup controller can drain the queue")
-			refreshCleanupToken()
+			By("restoring the real Vault address so the connection re-auths and cleanup can drain")
+			Expect(utils.UpdateVaultConnectionCR(ctx, cleanupConnectionName, func(c *vaultv1alpha1.VaultConnection) {
+				c.Spec.Address = vaultK8sAddr
+			})).To(Succeed())
+			Eventually(func(g Gomega) {
+				c, err := utils.GetVaultConnection(ctx, cleanupConnectionName, "")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(c.Status.Phase).To(Equal(vaultv1alpha1.PhaseActive))
+			}, 2*time.Minute, 5*time.Second).Should(Succeed())
 
 			By("verifying the cleanup controller drains the queue within a retry cycle (§1 wiring)")
 			Eventually(func(g Gomega) {
@@ -146,7 +170,7 @@ var _ = Describe("Cleanup Queue Tests", Ordered, Label("cleanup"), func() {
 				queueData := cm.Data[cleanup.QueueDataKey]
 				g.Expect(queueData).NotTo(ContainSubstring(policyName),
 					"queue did not drain — cleanup controller not running or blocked (§1 regression)")
-			}, 10*time.Minute, 15*time.Second).Should(Succeed())
+			}, 5*time.Minute, 10*time.Second).Should(Succeed())
 
 			By("verifying the Vault policy is actually deleted from Vault")
 			vaultClient, err := utils.GetTestVaultClient()

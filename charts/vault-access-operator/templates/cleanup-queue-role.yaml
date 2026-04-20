@@ -1,0 +1,41 @@
+---
+# Cleanup Queue Role — grants the operator access to the vault-cleanup-queue
+# ConfigMap in its own namespace. The cleanup controller (pkg/cleanup) uses
+# this ConfigMap as a persistent retry queue for failed Vault deletions.
+# Namespaced (not cluster-scoped) because only this one ConfigMap is touched.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "vault-access-operator.cleanupQueueRoleName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "vault-access-operator.labels" . | nindent 4 }}
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "vault-access-operator.cleanupQueueRoleName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "vault-access-operator.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "vault-access-operator.cleanupQueueRoleName" . }}
+subjects:
+- kind: ServiceAccount
+  name: {{ include "vault-access-operator.serviceAccountName" . }}
+  namespace: {{ .Release.Namespace }}
