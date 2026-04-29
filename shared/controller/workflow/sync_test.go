@@ -26,7 +26,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
-	"github.com/panteparak/vault-access-operator/pkg/vault"
 	"github.com/panteparak/vault-access-operator/shared/events"
 )
 
@@ -73,7 +72,7 @@ func newTestPolicy() *vaultv1alpha1.VaultPolicy {
 func newTestResolver(t *testing.T) VaultClientResolver {
 	t.Helper()
 	vc := newTestVaultClient(t)
-	return func(_ context.Context, connRef, _ string) (*vault.Client, error) {
+	return func(_ context.Context, connRef, _ string) (VaultOpsClient, error) {
 		if connRef == "test-connection" {
 			return vc, nil
 		}

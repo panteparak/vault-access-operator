@@ -286,7 +286,7 @@ func TestPolicyReference_ValidKinds(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			isValid := validKinds[tt.ref.Kind]
+			isValid := validKinds[string(tt.ref.Kind)]
 			if isValid != tt.valid {
 				t.Errorf("kind validation mismatch for %q: got %v, want %v", tt.ref.Kind, isValid, tt.valid)
 			}

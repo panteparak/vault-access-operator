@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -31,9 +32,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
+	"github.com/panteparak/vault-access-operator/features/connection/controller/authprovider"
 	"github.com/panteparak/vault-access-operator/pkg/metrics"
 	"github.com/panteparak/vault-access-operator/pkg/vault"
-	"github.com/panteparak/vault-access-operator/pkg/vault/auth"
 	"github.com/panteparak/vault-access-operator/pkg/vault/bootstrap"
 	"github.com/panteparak/vault-access-operator/pkg/vault/token"
 	"github.com/panteparak/vault-access-operator/shared/controller/base"
@@ -60,7 +61,7 @@ type Handler struct {
 	lifecycleCtrl    token.LifecycleController
 	reviewerCtrl     token.TokenReviewerController
 	bootstrapMgr     bootstrap.Manager
-	tokenProvider    token.TokenProvider
+	authRegistry     *authprovider.Registry
 	clusterDiscovery bootstrap.K8sClusterDiscovery
 	log              logr.Logger
 }
@@ -86,7 +87,6 @@ func NewHandler(cfg HandlerConfig) *Handler {
 		eventBus:         cfg.EventBus,
 		lifecycleCtrl:    cfg.LifecycleCtrl,
 		reviewerCtrl:     cfg.ReviewerCtrl,
-		tokenProvider:    cfg.TokenProvider,
 		clusterDiscovery: cfg.ClusterDiscovery,
 		log:              cfg.Log,
 	}
@@ -96,62 +96,59 @@ func NewHandler(cfg HandlerConfig) *Handler {
 		h.bootstrapMgr = bootstrap.NewManager(cfg.TokenProvider, cfg.ClusterDiscovery, cfg.Log)
 	}
 
+	// Build auth provider registry. Ordering here is the semantic contract:
+	// the first provider whose Applies(authCfg) returns true wins when
+	// multiple auth methods are configured on a single VaultConnection.
+	secrets := handlerSecretReader{h: h}
+	h.authRegistry = authprovider.NewRegistry(
+		authprovider.NewKubernetesProvider(cfg.TokenProvider),
+		authprovider.NewTokenProvider(secrets),
+		authprovider.NewAppRoleProvider(secrets),
+		authprovider.NewJWTProvider(secrets, cfg.TokenProvider),
+		authprovider.NewOIDCProvider(secrets, cfg.TokenProvider),
+		authprovider.NewAWSProvider(nil),
+		authprovider.NewGCPProvider(secrets, nil),
+	)
+
 	return h
 }
 
+// handlerSecretReader adapts Handler.getSecretData to the
+// authprovider.SecretReader interface so providers depend on a narrow
+// interface instead of the full Handler struct.
+type handlerSecretReader struct{ h *Handler }
+
+func (a handlerSecretReader) GetSecretData(
+	ctx context.Context, ref *vaultv1alpha1.SecretKeySelector,
+) (string, error) {
+	return a.h.getSecretData(ctx, ref)
+}
+
 // Sync synchronizes the VaultConnection with Vault.
-// It handles three phases: bootstrap → transition → production.
+// It coordinates four phases: ensure-syncing → bootstrap → auth+health → finalize.
+// Each phase is an independent method; this function is pure orchestration.
 func (h *Handler) Sync(ctx context.Context, conn *vaultv1alpha1.VaultConnection) error {
 	log := logr.FromContextOrDiscard(ctx)
 
-	// Set phase to Syncing if not already
-	if conn.Status.Phase != vaultv1alpha1.PhaseSyncing && conn.Status.Phase != vaultv1alpha1.PhaseActive {
-		conn.Status.Phase = vaultv1alpha1.PhaseSyncing
-		if err := h.client.Status().Update(ctx, conn); err != nil {
-			return fmt.Errorf("failed to update status to Syncing: %w", err)
-		}
+	if err := h.ensurePhaseSyncing(ctx, conn); err != nil {
+		return err
 	}
 
-	// Phase 1: Bootstrap if needed
 	if h.isBootstrapRequired(conn) {
 		log.Info("bootstrap required, running setup")
 		return h.runBootstrap(ctx, conn)
 	}
 
-	// Phase 2: Normal auth — try cached client with renewal, fall back to fresh auth
-	vaultClient, renewed, err := h.getOrRenewClient(ctx, conn)
+	vaultClient, renewed, err := h.syncClientLifecycle(ctx, conn)
 	if err != nil {
 		return h.handleSyncError(ctx, conn, err)
 	}
 
-	// Store client in cache
-	h.clientCache.Set(conn.Name, vaultClient)
-	log.V(1).Info("stored client in cache", "connectionName", conn.Name)
-
-	// Get Vault version
-	version, err := vaultClient.GetVersion(ctx)
+	version, now, err := h.runHealthCheck(ctx, conn, vaultClient)
 	if err != nil {
-		return h.handleSyncError(ctx, conn, fmt.Errorf("failed to get Vault version: %w", err))
+		return err
 	}
 
-	// Explicit health validation — ensure Vault is initialized and unsealed
-	now := metav1.Now()
-	conn.Status.LastHealthCheck = &now
-
-	healthy, err := vaultClient.IsHealthy(ctx)
-	if err != nil {
-		h.updateHealthStatus(conn, false, fmt.Sprintf("health check failed: %v", err))
-		return h.handleSyncError(ctx, conn, fmt.Errorf("vault health check failed: %w", err))
-	}
-	if !healthy {
-		h.updateHealthStatus(conn, false, "vault is not healthy (sealed or uninitialized)")
-		return h.handleSyncError(ctx, conn, fmt.Errorf("vault is not healthy (sealed or uninitialized)"))
-	}
-
-	// Update health status on success
-	h.updateHealthStatus(conn, true, "")
-
-	// Update AuthStatus for Kubernetes auth
 	if conn.Spec.Auth.Kubernetes != nil {
 		h.updateAuthStatus(conn, vaultClient)
 		if renewed {
@@ -159,7 +156,79 @@ func (h *Handler) Sync(ctx context.Context, conn *vaultv1alpha1.VaultConnection)
 		}
 	}
 
-	// Update status to Active
+	return h.finalizeActiveStatus(ctx, conn, version, now)
+}
+
+// ensurePhaseSyncing sets the connection phase to Syncing unless it is
+// already in Syncing or Active. Active connections that are re-reconciling
+// skip this to avoid unnecessary status churn.
+func (h *Handler) ensurePhaseSyncing(
+	ctx context.Context, conn *vaultv1alpha1.VaultConnection,
+) error {
+	if conn.Status.Phase == vaultv1alpha1.PhaseSyncing || conn.Status.Phase == vaultv1alpha1.PhaseActive {
+		return nil
+	}
+	conn.Status.Phase = vaultv1alpha1.PhaseSyncing
+	if err := h.client.Status().Update(ctx, conn); err != nil {
+		return fmt.Errorf("failed to update status to Syncing: %w", err)
+	}
+	return nil
+}
+
+// syncClientLifecycle resolves an authenticated Vault client (from cache,
+// via renewal, or a fresh re-auth) and stores it in the cache.
+// Returns the client and whether a renewal or re-auth happened.
+func (h *Handler) syncClientLifecycle(
+	ctx context.Context, conn *vaultv1alpha1.VaultConnection,
+) (*vault.Client, bool, error) {
+	log := logr.FromContextOrDiscard(ctx)
+
+	vaultClient, renewed, err := h.getOrRenewClient(ctx, conn)
+	if err != nil {
+		return nil, false, err
+	}
+
+	h.clientCache.Set(conn.Name, vaultClient)
+	log.V(1).Info("stored client in cache", "connectionName", conn.Name)
+	return vaultClient, renewed, nil
+}
+
+// runHealthCheck pulls Vault version and verifies Vault is initialized and
+// unsealed. Returns version and the health-check timestamp on success.
+// Failures drive updateHealthStatus and exit via handleSyncError.
+func (h *Handler) runHealthCheck(
+	ctx context.Context, conn *vaultv1alpha1.VaultConnection, vaultClient *vault.Client,
+) (string, metav1.Time, error) {
+	version, err := vaultClient.GetVersion(ctx)
+	if err != nil {
+		return "", metav1.Time{}, h.handleSyncError(ctx, conn,
+			fmt.Errorf("failed to get Vault version: %w", err))
+	}
+
+	now := metav1.Now()
+	conn.Status.LastHealthCheck = &now
+
+	healthy, err := vaultClient.IsHealthy(ctx)
+	if err != nil {
+		h.updateHealthStatus(conn, false, fmt.Sprintf("health check failed: %v", err))
+		return "", now, h.handleSyncError(ctx, conn,
+			fmt.Errorf("vault health check failed: %w", err))
+	}
+	if !healthy {
+		h.updateHealthStatus(conn, false, "vault is not healthy (sealed or uninitialized)")
+		return "", now, h.handleSyncError(ctx, conn,
+			fmt.Errorf("vault is not healthy (sealed or uninitialized)"))
+	}
+
+	h.updateHealthStatus(conn, true, "")
+	return version, now, nil
+}
+
+// finalizeActiveStatus writes the Active phase, sets Ready condition,
+// persists the status, and emits the ConnectionReady event.
+func (h *Handler) finalizeActiveStatus(
+	ctx context.Context, conn *vaultv1alpha1.VaultConnection, version string, now metav1.Time,
+) error {
 	conn.Status.Phase = vaultv1alpha1.PhaseActive
 	conn.Status.VaultVersion = version
 	conn.Status.LastHeartbeat = &now
@@ -171,12 +240,11 @@ func (h *Handler) Sync(ctx context.Context, conn *vaultv1alpha1.VaultConnection)
 		return fmt.Errorf("failed to update status: %w", err)
 	}
 
-	// Publish ConnectionReady event
 	if h.eventBus != nil {
 		h.eventBus.PublishAsync(ctx, events.NewConnectionReady(conn.Name, conn.Spec.Address, version))
 	}
 
-	log.Info("VaultConnection synced successfully", "version", version)
+	logr.FromContextOrDiscard(ctx).Info("VaultConnection synced successfully", "version", version)
 	return nil
 }
 
@@ -196,103 +264,36 @@ func (h *Handler) isBootstrapRequired(conn *vaultv1alpha1.VaultConnection) bool 
 	return true
 }
 
-// runBootstrap executes the bootstrap process.
+// runBootstrap executes the bootstrap process: build a token-authenticated
+// client, run the bootstrap manager, and persist the resulting status.
 func (h *Handler) runBootstrap(ctx context.Context, conn *vaultv1alpha1.VaultConnection) error {
-	log := logr.FromContextOrDiscard(ctx)
-
 	if h.bootstrapMgr == nil {
 		return fmt.Errorf("bootstrap manager not configured")
 	}
-
-	// Get bootstrap token from secret.
-	// SECURITY: bootstrapToken must not appear in error messages or status fields.
-	bootstrapToken, err := h.getSecretData(ctx, &conn.Spec.Auth.Bootstrap.SecretRef)
-	if err != nil {
-		return h.handleSyncError(ctx, conn, fmt.Errorf("failed to get bootstrap token: %w", err))
-	}
-
-	// Build Vault client with bootstrap token
-	vaultClient, err := h.buildVaultClient(ctx, conn)
-	if err != nil {
-		return h.handleSyncError(ctx, conn, fmt.Errorf("failed to create vault client: %w", err))
-	}
-
-	// Authenticate with bootstrap token
-	if err := vaultClient.AuthenticateToken(bootstrapToken); err != nil {
-		return h.handleSyncError(ctx, conn, fmt.Errorf("failed to authenticate with bootstrap token: %w", err))
-	}
-
-	// Prepare bootstrap config
-	k8sAuth := conn.Spec.Auth.Kubernetes
-	if k8sAuth == nil {
+	if conn.Spec.Auth.Kubernetes == nil {
 		return h.handleSyncError(ctx, conn, fmt.Errorf("kubernetes auth config required for bootstrap"))
 	}
 
-	authPath := k8sAuth.AuthPath
-	if authPath == "" {
-		authPath = defaultKubernetesAuthPath
+	vaultClient, err := h.bootstrapAuthenticatedClient(ctx, conn)
+	if err != nil {
+		return err
 	}
 
-	autoRevoke := true
-	if conn.Spec.Auth.Bootstrap.AutoRevoke != nil {
-		autoRevoke = *conn.Spec.Auth.Bootstrap.AutoRevoke
-	}
+	bootstrapConfig := buildBootstrapConfig(conn)
 
-	saName := getOperatorServiceAccountName()
-	saNamespace := getOperatorNamespace()
-
-	bootstrapConfig := &bootstrap.Config{
-		AuthMethodName: authPath,
-		OperatorRole:   k8sAuth.Role,
-		OperatorServiceAccount: token.ServiceAccountRef{
-			Name:      saName,
-			Namespace: saNamespace,
-		},
-		TokenReviewerServiceAccount: &token.ServiceAccountRef{
-			Name:      saName,
-			Namespace: saNamespace,
-		},
-		TokenReviewerDuration: token.DefaultReviewerDuration,
-		AutoRevoke:            autoRevoke,
-		OperatorPolicy:        "vault-access-operator",
-	}
-
-	// If KubernetesHost is set, pass it as override to prevent auto-discovery
-	// from using in-cluster address that external Vault can't reach.
-	if k8sAuth.KubernetesHost != "" {
-		bootstrapConfig.KubernetesConfig = &bootstrap.KubernetesClusterConfig{
-			Host: k8sAuth.KubernetesHost,
-		}
-	}
-
-	// Run bootstrap
 	result, err := h.bootstrapMgr.Bootstrap(ctx, vaultClient, bootstrapConfig)
 	if err != nil {
 		return h.handleSyncError(ctx, conn, fmt.Errorf("bootstrap failed: %w", err))
 	}
 
-	// Update status with bootstrap result
-	now := metav1.Now()
-	if conn.Status.AuthStatus == nil {
-		conn.Status.AuthStatus = &vaultv1alpha1.AuthStatus{}
-	}
-	conn.Status.AuthStatus.BootstrapComplete = true
-	conn.Status.AuthStatus.BootstrapCompletedAt = &now
-	conn.Status.AuthStatus.AuthMethod = defaultKubernetesAuthPath
-
-	if !result.TokenReviewerExpiration.IsZero() {
-		expTime := metav1.NewTime(result.TokenReviewerExpiration)
-		conn.Status.AuthStatus.TokenReviewerExpiration = &expTime
-	}
-
-	log.Info("bootstrap completed successfully",
+	logr.FromContextOrDiscard(ctx).Info("bootstrap completed successfully",
 		"authMethodCreated", result.AuthMethodCreated,
 		"roleCreated", result.RoleCreated,
 		"bootstrapRevoked", result.BootstrapRevoked,
 	)
 
-	// Persist bootstrap status so the next reconcile sees BootstrapComplete = true
-	// and proceeds to the normal auth path instead of re-running bootstrap.
+	applyBootstrapStatus(conn, result)
+
 	if err := h.client.Status().Update(ctx, conn); err != nil {
 		return fmt.Errorf("failed to persist bootstrap status: %w", err)
 	}
@@ -313,8 +314,89 @@ func (h *Handler) runBootstrap(ctx context.Context, conn *vaultv1alpha1.VaultCon
 	return nil
 }
 
-// buildVaultClient creates an unauthenticated Vault client.
-func (h *Handler) buildVaultClient(ctx context.Context, conn *vaultv1alpha1.VaultConnection) (*vault.Client, error) {
+// bootstrapAuthenticatedClient creates a fresh Vault client and
+// authenticates it with the bootstrap token from the user-provided secret.
+// SECURITY: bootstrapToken must not appear in error messages or status fields.
+func (h *Handler) bootstrapAuthenticatedClient(
+	ctx context.Context, conn *vaultv1alpha1.VaultConnection,
+) (*vault.Client, error) {
+	bootstrapToken, err := h.getSecretData(ctx, &conn.Spec.Auth.Bootstrap.SecretRef)
+	if err != nil {
+		return nil, h.handleSyncError(ctx, conn, fmt.Errorf("failed to get bootstrap token: %w", err))
+	}
+
+	vaultClient, err := h.newUnauthenticatedVaultClient(ctx, conn)
+	if err != nil {
+		return nil, h.handleSyncError(ctx, conn, fmt.Errorf("failed to create vault client: %w", err))
+	}
+
+	if err := vaultClient.AuthenticateToken(bootstrapToken); err != nil {
+		return nil, h.handleSyncError(ctx, conn,
+			fmt.Errorf("failed to authenticate with bootstrap token: %w", err))
+	}
+	return vaultClient, nil
+}
+
+// buildBootstrapConfig translates the user-facing CRD spec into the
+// bootstrap manager's Config. Caller must ensure conn.Spec.Auth.Kubernetes
+// is non-nil — runBootstrap guards that precondition.
+func buildBootstrapConfig(conn *vaultv1alpha1.VaultConnection) *bootstrap.Config {
+	k8sAuth := conn.Spec.Auth.Kubernetes
+	authPath := k8sAuth.AuthPath
+	if authPath == "" {
+		authPath = defaultKubernetesAuthPath
+	}
+
+	autoRevoke := true
+	if conn.Spec.Auth.Bootstrap.AutoRevoke != nil {
+		autoRevoke = *conn.Spec.Auth.Bootstrap.AutoRevoke
+	}
+
+	saRef := token.ServiceAccountRef{
+		Name:      getOperatorServiceAccountName(),
+		Namespace: getOperatorNamespace(),
+	}
+	cfg := &bootstrap.Config{
+		AuthMethodName:              authPath,
+		OperatorRole:                k8sAuth.Role,
+		OperatorServiceAccount:      saRef,
+		TokenReviewerServiceAccount: &saRef,
+		TokenReviewerDuration:       token.DefaultReviewerDuration,
+		AutoRevoke:                  autoRevoke,
+		OperatorPolicy:              "vault-access-operator",
+	}
+
+	// Pass KubernetesHost as override to prevent auto-discovery from using
+	// the in-cluster address when external Vault can't reach the K8s API.
+	if k8sAuth.KubernetesHost != "" {
+		cfg.KubernetesConfig = &bootstrap.KubernetesClusterConfig{Host: k8sAuth.KubernetesHost}
+	}
+	return cfg
+}
+
+// applyBootstrapStatus updates the in-memory connection status from the
+// bootstrap result. The caller is responsible for persisting via Status().Update().
+func applyBootstrapStatus(conn *vaultv1alpha1.VaultConnection, result *bootstrap.Result) {
+	now := metav1.Now()
+	if conn.Status.AuthStatus == nil {
+		conn.Status.AuthStatus = &vaultv1alpha1.AuthStatus{}
+	}
+	conn.Status.AuthStatus.BootstrapComplete = true
+	conn.Status.AuthStatus.BootstrapCompletedAt = &now
+	conn.Status.AuthStatus.AuthMethod = defaultKubernetesAuthPath
+	if !result.TokenReviewerExpiration.IsZero() {
+		expTime := metav1.NewTime(result.TokenReviewerExpiration)
+		conn.Status.AuthStatus.TokenReviewerExpiration = &expTime
+	}
+}
+
+// newUnauthenticatedVaultClient constructs a Vault client from the
+// connection spec (address + optional TLS). No authentication is attempted.
+// Both the bootstrap path and the re-auth path share this construction to
+// keep TLS secret resolution in a single place.
+func (h *Handler) newUnauthenticatedVaultClient(
+	ctx context.Context, conn *vaultv1alpha1.VaultConnection,
+) (*vault.Client, error) {
 	var tlsConfig *vault.TLSConfig
 	if conn.Spec.TLS != nil {
 		tlsConfig = &vault.TLSConfig{
@@ -363,147 +445,260 @@ func (h *Handler) updateAuthStatus(conn *vaultv1alpha1.VaultConnection, vaultCli
 	}
 }
 
-// listDependents returns a list of resources that reference this VaultConnection.
-// Each entry is formatted as "Type/namespace/name" or "Type/name" for cluster-scoped resources.
+// dependentLister fetches one CRD type's resources and reports back those
+// whose ConnectionRef matches the given connection name, formatted for
+// display. The registry of listers (see dependentListers) drives the
+// open-for-extension Cleanup dependency check: new CRD types attach here.
+type dependentLister func(ctx context.Context, c client.Client, connName string) ([]string, error)
+
+// dependentListers returns the registered CRD-type listers. Order here
+// affects the order of entries in the user-visible "deletion blocked"
+// message, so it follows the conceptual hierarchy: policies → roles.
+func dependentListers() []dependentLister {
+	return []dependentLister{
+		namespacedLister("VaultPolicy",
+			func() *vaultv1alpha1.VaultPolicyList { return &vaultv1alpha1.VaultPolicyList{} },
+			func(l *vaultv1alpha1.VaultPolicyList, connName string) []dependentRef {
+				refs := make([]dependentRef, 0, len(l.Items))
+				for i := range l.Items {
+					if l.Items[i].Spec.ConnectionRef == connName {
+						refs = append(refs, dependentRef{namespace: l.Items[i].Namespace, name: l.Items[i].Name})
+					}
+				}
+				return refs
+			}),
+		clusterLister("VaultClusterPolicy",
+			func() *vaultv1alpha1.VaultClusterPolicyList { return &vaultv1alpha1.VaultClusterPolicyList{} },
+			func(l *vaultv1alpha1.VaultClusterPolicyList, connName string) []dependentRef {
+				refs := make([]dependentRef, 0, len(l.Items))
+				for i := range l.Items {
+					if l.Items[i].Spec.ConnectionRef == connName {
+						refs = append(refs, dependentRef{name: l.Items[i].Name})
+					}
+				}
+				return refs
+			}),
+		namespacedLister("VaultRole",
+			func() *vaultv1alpha1.VaultRoleList { return &vaultv1alpha1.VaultRoleList{} },
+			func(l *vaultv1alpha1.VaultRoleList, connName string) []dependentRef {
+				refs := make([]dependentRef, 0, len(l.Items))
+				for i := range l.Items {
+					if l.Items[i].Spec.ConnectionRef == connName {
+						refs = append(refs, dependentRef{namespace: l.Items[i].Namespace, name: l.Items[i].Name})
+					}
+				}
+				return refs
+			}),
+		clusterLister("VaultClusterRole",
+			func() *vaultv1alpha1.VaultClusterRoleList { return &vaultv1alpha1.VaultClusterRoleList{} },
+			func(l *vaultv1alpha1.VaultClusterRoleList, connName string) []dependentRef {
+				refs := make([]dependentRef, 0, len(l.Items))
+				for i := range l.Items {
+					if l.Items[i].Spec.ConnectionRef == connName {
+						refs = append(refs, dependentRef{name: l.Items[i].Name})
+					}
+				}
+				return refs
+			}),
+	}
+}
+
+// dependentRef captures the identity of a dependent CRD instance.
+type dependentRef struct{ namespace, name string }
+
+// namespacedLister constructs a lister that formats matches as
+// "Kind/namespace/name" for namespaced CRD types.
+func namespacedLister[L client.ObjectList](
+	kind string,
+	newList func() L,
+	match func(L, string) []dependentRef,
+) dependentLister {
+	return func(ctx context.Context, c client.Client, connName string) ([]string, error) {
+		list := newList()
+		if err := c.List(ctx, list); err != nil {
+			return nil, fmt.Errorf("failed to list %ss: %w", kind, err)
+		}
+		refs := match(list, connName)
+		out := make([]string, 0, len(refs))
+		for _, r := range refs {
+			out = append(out, fmt.Sprintf("%s/%s/%s", kind, r.namespace, r.name))
+		}
+		return out, nil
+	}
+}
+
+// clusterLister constructs a lister that formats matches as "Kind/name"
+// for cluster-scoped CRD types.
+func clusterLister[L client.ObjectList](
+	kind string,
+	newList func() L,
+	match func(L, string) []dependentRef,
+) dependentLister {
+	return func(ctx context.Context, c client.Client, connName string) ([]string, error) {
+		list := newList()
+		if err := c.List(ctx, list); err != nil {
+			return nil, fmt.Errorf("failed to list %ss: %w", kind, err)
+		}
+		refs := match(list, connName)
+		out := make([]string, 0, len(refs))
+		for _, r := range refs {
+			out = append(out, fmt.Sprintf("%s/%s", kind, r.name))
+		}
+		return out, nil
+	}
+}
+
+// listDependents returns all resources that reference this VaultConnection,
+// formatted as "Type/namespace/name" (namespaced) or "Type/name" (cluster).
 func (h *Handler) listDependents(ctx context.Context, connName string) ([]string, error) {
 	var dependents []string
-
-	// Check VaultPolicies
-	var policies vaultv1alpha1.VaultPolicyList
-	if err := h.client.List(ctx, &policies); err != nil {
-		return nil, fmt.Errorf("failed to list VaultPolicies: %w", err)
-	}
-	for i := range policies.Items {
-		if policies.Items[i].Spec.ConnectionRef == connName {
-			dependents = append(dependents, fmt.Sprintf("VaultPolicy/%s/%s",
-				policies.Items[i].Namespace, policies.Items[i].Name))
+	for _, lister := range dependentListers() {
+		found, err := lister(ctx, h.client, connName)
+		if err != nil {
+			return nil, err
 		}
+		dependents = append(dependents, found...)
 	}
-
-	// Check VaultClusterPolicies
-	var clusterPolicies vaultv1alpha1.VaultClusterPolicyList
-	if err := h.client.List(ctx, &clusterPolicies); err != nil {
-		return nil, fmt.Errorf("failed to list VaultClusterPolicies: %w", err)
-	}
-	for i := range clusterPolicies.Items {
-		if clusterPolicies.Items[i].Spec.ConnectionRef == connName {
-			dependents = append(dependents, fmt.Sprintf("VaultClusterPolicy/%s",
-				clusterPolicies.Items[i].Name))
-		}
-	}
-
-	// Check VaultRoles
-	var roles vaultv1alpha1.VaultRoleList
-	if err := h.client.List(ctx, &roles); err != nil {
-		return nil, fmt.Errorf("failed to list VaultRoles: %w", err)
-	}
-	for i := range roles.Items {
-		if roles.Items[i].Spec.ConnectionRef == connName {
-			dependents = append(dependents, fmt.Sprintf("VaultRole/%s/%s",
-				roles.Items[i].Namespace, roles.Items[i].Name))
-		}
-	}
-
-	// Check VaultClusterRoles
-	var clusterRoles vaultv1alpha1.VaultClusterRoleList
-	if err := h.client.List(ctx, &clusterRoles); err != nil {
-		return nil, fmt.Errorf("failed to list VaultClusterRoles: %w", err)
-	}
-	for i := range clusterRoles.Items {
-		if clusterRoles.Items[i].Spec.ConnectionRef == connName {
-			dependents = append(dependents, fmt.Sprintf("VaultClusterRole/%s",
-				clusterRoles.Items[i].Name))
-		}
-	}
-
 	return dependents, nil
 }
 
-// Cleanup removes the Vault client from the cache when the connection is deleted.
+// Cleanup tears down a VaultConnection: it blocks deletion if dependents
+// still reference it, otherwise revokes Vault state and clears local caches.
 func (h *Handler) Cleanup(ctx context.Context, conn *vaultv1alpha1.VaultConnection) error {
 	log := logr.FromContextOrDiscard(ctx)
 
-	// Check for dependent resources before proceeding with cleanup
-	dependents, err := h.listDependents(ctx, conn.Name)
-	if err != nil {
-		log.Error(err, "failed to list dependents")
-		return fmt.Errorf("failed to check for dependent resources: %w", err)
-	}
-	if len(dependents) > 0 {
-		msg := fmt.Sprintf("deletion blocked: %d dependent resource(s) still reference this connection: %s",
-			len(dependents), strings.Join(dependents, ", "))
-		log.Info(msg)
-
-		// Set Deleting condition to indicate blocked state
-		conn.Status.Phase = vaultv1alpha1.PhaseDeleting
-		conn.Status.Conditions = conditions.Set(conn.Status.Conditions, conn.Generation,
-			vaultv1alpha1.ConditionTypeDeleting, metav1.ConditionFalse,
-			vaultv1alpha1.ReasonChildrenExist, msg)
-		if updateErr := h.client.Status().Update(ctx, conn); updateErr != nil {
-			log.V(1).Info("failed to update deletion-blocked status", "error", updateErr)
-		}
-		return fmt.Errorf("%s", msg)
+	if err := h.blockOnDependents(ctx, conn); err != nil {
+		return err
 	}
 
-	// Update phase to Deleting
-	conn.Status.Phase = vaultv1alpha1.PhaseDeleting
-	if err := h.client.Status().Update(ctx, conn); err != nil {
-		log.V(1).Info("failed to update status to Deleting (ignoring)", "error", err)
-	}
-
-	// Disable auth mount if opted in (before token revocation, since disabling
-	// the mount revokes all tokens through it anyway)
-	if conn.Spec.Auth.Bootstrap != nil &&
-		conn.Spec.Auth.Bootstrap.CleanupAuthMount != nil &&
-		*conn.Spec.Auth.Bootstrap.CleanupAuthMount &&
-		conn.Status.AuthStatus != nil &&
-		conn.Status.AuthStatus.BootstrapComplete {
-		authPath := defaultKubernetesAuthPath
-		if conn.Spec.Auth.Kubernetes != nil && conn.Spec.Auth.Kubernetes.AuthPath != "" {
-			authPath = conn.Spec.Auth.Kubernetes.AuthPath
-		}
-		if cachedClient, err := h.clientCache.Get(conn.Name); err == nil {
-			if err := cachedClient.DisableAuth(ctx, authPath); err != nil {
-				log.Error(err, "failed to disable auth mount (non-fatal)", "path", authPath)
-			} else {
-				log.Info("disabled auth mount created during bootstrap", "path", authPath)
-			}
-		}
-	}
-
-	// Revoke operator token before losing the reference (best-effort)
-	if cachedClient, err := h.clientCache.Get(conn.Name); err == nil && cachedClient.IsAuthenticated() {
-		revokeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		defer cancel()
-		if err := cachedClient.RevokeSelf(revokeCtx); err != nil {
-			log.V(1).Info("failed to revoke Vault token (non-fatal)", "error", err)
-		} else {
-			log.Info("revoked Vault token for deleted connection")
-		}
-	}
-
-	// Unregister from lifecycle controllers
-	if h.lifecycleCtrl != nil {
-		h.lifecycleCtrl.Unregister(conn.Name)
-		log.V(1).Info("unregistered from lifecycle controller", "connectionName", conn.Name)
-	}
-
-	if h.reviewerCtrl != nil {
-		h.reviewerCtrl.Unregister(conn.Name)
-		log.V(1).Info("unregistered from reviewer controller", "connectionName", conn.Name)
-	}
-
-	// Remove from cache
+	h.markPhaseDeleting(ctx, conn)
+	h.tearDownVaultState(ctx, conn)
+	h.unregisterTokenControllers(conn)
 	h.clientCache.Delete(conn.Name)
 	log.V(1).Info("removed client from cache", "connectionName", conn.Name)
 
-	// Publish ConnectionDisconnected event
 	if h.eventBus != nil {
 		h.eventBus.PublishAsync(ctx, events.NewConnectionDisconnected(conn.Name, "resource deleted"))
 	}
 
 	log.Info("VaultConnection cleanup completed")
 	return nil
+}
+
+// blockOnDependents returns a non-nil error when cleanup must abort: either
+// the dependent listing itself failed, or at least one dependent resource
+// still references this connection. The connection's Deleting condition is
+// updated to surface the block reason to the user.
+func (h *Handler) blockOnDependents(
+	ctx context.Context, conn *vaultv1alpha1.VaultConnection,
+) error {
+	log := logr.FromContextOrDiscard(ctx)
+
+	dependents, err := h.listDependents(ctx, conn.Name)
+	if err != nil {
+		log.Error(err, "failed to list dependents")
+		return fmt.Errorf("failed to check for dependent resources: %w", err)
+	}
+	if len(dependents) == 0 {
+		return nil
+	}
+
+	msg := fmt.Sprintf("deletion blocked: %d dependent resource(s) still reference this connection: %s",
+		len(dependents), strings.Join(dependents, ", "))
+	log.Info(msg)
+
+	conn.Status.Phase = vaultv1alpha1.PhaseDeleting
+	conn.Status.Conditions = conditions.Set(conn.Status.Conditions, conn.Generation,
+		vaultv1alpha1.ConditionTypeDeleting, metav1.ConditionFalse,
+		vaultv1alpha1.ReasonChildrenExist, msg)
+	if updateErr := h.client.Status().Update(ctx, conn); updateErr != nil {
+		log.V(1).Info("failed to update deletion-blocked status", "error", updateErr)
+	}
+	return errors.New(msg)
+}
+
+// markPhaseDeleting persists Phase=Deleting on the connection. Failures are
+// logged at V(1) — the cleanup proceeds regardless because losing the
+// status update doesn't change the on-disk reality of the resources.
+func (h *Handler) markPhaseDeleting(ctx context.Context, conn *vaultv1alpha1.VaultConnection) {
+	conn.Status.Phase = vaultv1alpha1.PhaseDeleting
+	if err := h.client.Status().Update(ctx, conn); err != nil {
+		logr.FromContextOrDiscard(ctx).V(1).Info(
+			"failed to update status to Deleting (ignoring)", "error", err)
+	}
+}
+
+// tearDownVaultState revokes Vault-side resources we own:
+// the bootstrap-created auth mount (when CleanupAuthMount opt-in) and the
+// operator's own token. All operations are best-effort.
+func (h *Handler) tearDownVaultState(ctx context.Context, conn *vaultv1alpha1.VaultConnection) {
+	h.disableAuthMountIfOptedIn(ctx, conn)
+	h.revokeOperatorToken(ctx, conn)
+}
+
+// disableAuthMountIfOptedIn disables the Kubernetes auth mount when the
+// user explicitly set CleanupAuthMount=true and bootstrap had completed.
+// WARNING: this revokes ALL tokens issued through the mount.
+func (h *Handler) disableAuthMountIfOptedIn(
+	ctx context.Context, conn *vaultv1alpha1.VaultConnection,
+) {
+	if !shouldCleanupAuthMount(conn) {
+		return
+	}
+	authPath := defaultKubernetesAuthPath
+	if conn.Spec.Auth.Kubernetes != nil && conn.Spec.Auth.Kubernetes.AuthPath != "" {
+		authPath = conn.Spec.Auth.Kubernetes.AuthPath
+	}
+	cachedClient, err := h.clientCache.Get(conn.Name)
+	if err != nil {
+		return
+	}
+	log := logr.FromContextOrDiscard(ctx)
+	if disableErr := cachedClient.DisableAuth(ctx, authPath); disableErr != nil {
+		log.Error(disableErr, "failed to disable auth mount (non-fatal)", "path", authPath)
+		return
+	}
+	log.Info("disabled auth mount created during bootstrap", "path", authPath)
+}
+
+// shouldCleanupAuthMount reports whether the user opted in to disabling
+// the bootstrap-created auth mount on connection deletion.
+func shouldCleanupAuthMount(conn *vaultv1alpha1.VaultConnection) bool {
+	return conn.Spec.Auth.Bootstrap != nil &&
+		conn.Spec.Auth.Bootstrap.CleanupAuthMount != nil &&
+		*conn.Spec.Auth.Bootstrap.CleanupAuthMount &&
+		conn.Status.AuthStatus != nil &&
+		conn.Status.AuthStatus.BootstrapComplete
+}
+
+// revokeOperatorToken revokes the operator's own Vault token before we
+// lose the cached client reference. Bounded by a 5s timeout because Vault
+// may be unreachable during cluster teardown.
+func (h *Handler) revokeOperatorToken(ctx context.Context, conn *vaultv1alpha1.VaultConnection) {
+	cachedClient, err := h.clientCache.Get(conn.Name)
+	if err != nil || !cachedClient.IsAuthenticated() {
+		return
+	}
+	revokeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	log := logr.FromContextOrDiscard(ctx)
+	if revokeErr := cachedClient.RevokeSelf(revokeCtx); revokeErr != nil {
+		log.V(1).Info("failed to revoke Vault token (non-fatal)", "error", revokeErr)
+		return
+	}
+	log.Info("revoked Vault token for deleted connection")
+}
+
+// unregisterTokenControllers detaches this connection from the renewal
+// and reviewer-rotation background loops.
+func (h *Handler) unregisterTokenControllers(conn *vaultv1alpha1.VaultConnection) {
+	if h.lifecycleCtrl != nil {
+		h.lifecycleCtrl.Unregister(conn.Name)
+	}
+	if h.reviewerCtrl != nil {
+		h.reviewerCtrl.Unregister(conn.Name)
+	}
 }
 
 // isAuthError returns true if the error indicates a Vault authentication/authorization failure.
@@ -550,31 +745,11 @@ func (h *Handler) buildAndAuthenticateClient(
 	ctx context.Context,
 	conn *vaultv1alpha1.VaultConnection,
 ) (*vault.Client, error) {
-	// Build TLS config
-	var tlsConfig *vault.TLSConfig
-	if conn.Spec.TLS != nil {
-		tlsConfig = &vault.TLSConfig{
-			SkipVerify: conn.Spec.TLS.SkipVerify,
-		}
-		if conn.Spec.TLS.CASecretRef != nil {
-			caCert, err := h.getSecretData(ctx, conn.Spec.TLS.CASecretRef)
-			if err != nil {
-				return nil, fmt.Errorf("failed to get CA certificate: %w", err)
-			}
-			tlsConfig.CACert = caCert
-		}
-	}
-
-	// Create client
-	vaultClient, err := vault.NewClient(vault.ClientConfig{
-		Address:   conn.Spec.Address,
-		TLSConfig: tlsConfig,
-	})
+	vaultClient, err := h.newUnauthenticatedVaultClient(ctx, conn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create vault client: %w", err)
 	}
 
-	// Authenticate
 	if err := h.authenticate(ctx, vaultClient, conn); err != nil {
 		return nil, fmt.Errorf("failed to authenticate: %w", err)
 	}
@@ -701,132 +876,13 @@ func (h *Handler) updateHealthStatus(conn *vaultv1alpha1.VaultConnection, health
 }
 
 // authenticate authenticates the Vault client using the configured auth method.
+// Dispatch is delegated to authRegistry; per-method logic lives in authprovider.
 func (h *Handler) authenticate(
 	ctx context.Context,
 	vaultClient *vault.Client,
 	conn *vaultv1alpha1.VaultConnection,
 ) error {
-	authCfg := conn.Spec.Auth
-
-	// Kubernetes auth - uses TokenProvider for token acquisition
-	if authCfg.Kubernetes != nil {
-		authPath := authCfg.Kubernetes.AuthPath
-		if authPath == "" {
-			authPath = defaultKubernetesAuthPath
-		}
-
-		// Get token using TokenProvider (supports both mounted and TokenRequest API)
-		tokenInfo, err := h.getServiceAccountToken(ctx, conn)
-		if err != nil {
-			return fmt.Errorf("failed to get service account token: %w", err)
-		}
-
-		return vaultClient.AuthenticateKubernetesWithToken(ctx, authCfg.Kubernetes.Role, authPath, tokenInfo.Token)
-	}
-
-	// Token auth
-	if authCfg.Token != nil {
-		tokenValue, err := h.getSecretData(ctx, &authCfg.Token.SecretRef)
-		if err != nil {
-			return fmt.Errorf("failed to get token from secret: %w", err)
-		}
-		return vaultClient.AuthenticateToken(tokenValue)
-	}
-
-	// AppRole auth
-	if authCfg.AppRole != nil {
-		secretID, err := h.getSecretData(ctx, &authCfg.AppRole.SecretIDRef)
-		if err != nil {
-			return fmt.Errorf("failed to get secret ID from secret: %w", err)
-		}
-		mountPath := authCfg.AppRole.MountPath
-		if mountPath == "" {
-			mountPath = "approle"
-		}
-		return vaultClient.AuthenticateAppRole(ctx, authCfg.AppRole.RoleID, secretID, mountPath)
-	}
-
-	// JWT auth
-	if authCfg.JWT != nil {
-		jwt, err := h.getJWTToken(ctx, authCfg.JWT)
-		if err != nil {
-			return fmt.Errorf("failed to get JWT: %w", err)
-		}
-		authPath := authCfg.JWT.AuthPath
-		if authPath == "" {
-			authPath = "jwt"
-		}
-		return vaultClient.AuthenticateJWT(ctx, authCfg.JWT.Role, authPath, jwt)
-	}
-
-	// OIDC auth (workload identity)
-	if authCfg.OIDC != nil {
-		jwt, err := h.getOIDCToken(ctx, authCfg.OIDC)
-		if err != nil {
-			return fmt.Errorf("failed to get OIDC token: %w", err)
-		}
-		authPath := authCfg.OIDC.AuthPath
-		if authPath == "" {
-			authPath = "oidc"
-		}
-		return vaultClient.AuthenticateOIDC(ctx, authCfg.OIDC.Role, authPath, jwt)
-	}
-
-	// AWS IAM auth
-	if authCfg.AWS != nil {
-		loginData, err := h.getAWSLoginData(ctx, authCfg.AWS)
-		if err != nil {
-			return fmt.Errorf("failed to generate AWS login data: %w", err)
-		}
-		authPath := authCfg.AWS.AuthPath
-		if authPath == "" {
-			authPath = "aws"
-		}
-		return vaultClient.AuthenticateAWS(ctx, authCfg.AWS.Role, authPath, loginData)
-	}
-
-	// GCP IAM auth
-	if authCfg.GCP != nil {
-		signedJWT, err := h.getGCPSignedJWT(ctx, authCfg.GCP)
-		if err != nil {
-			return fmt.Errorf("failed to generate GCP signed JWT: %w", err)
-		}
-		authPath := authCfg.GCP.AuthPath
-		if authPath == "" {
-			authPath = "gcp"
-		}
-		return vaultClient.AuthenticateGCP(ctx, authCfg.GCP.Role, authPath, signedJWT)
-	}
-
-	return fmt.Errorf("no authentication method configured")
-}
-
-// getServiceAccountToken gets a service account token using the configured provider.
-func (h *Handler) getServiceAccountToken(
-	ctx context.Context, conn *vaultv1alpha1.VaultConnection,
-) (*token.TokenInfo, error) {
-	if h.tokenProvider == nil {
-		return nil, fmt.Errorf("token provider not configured")
-	}
-
-	// Determine token duration
-	duration := token.DefaultTokenDuration
-	if conn.Spec.Auth.Kubernetes != nil && conn.Spec.Auth.Kubernetes.TokenDuration.Duration > 0 {
-		duration = conn.Spec.Auth.Kubernetes.TokenDuration.Duration
-	}
-
-	// Use the operator's service account (from environment or default)
-	saName := getOperatorServiceAccountName()
-	saNamespace := getOperatorNamespace()
-
-	return h.tokenProvider.GetToken(ctx, token.GetTokenOptions{
-		ServiceAccount: token.ServiceAccountRef{
-			Name:      saName,
-			Namespace: saNamespace,
-		},
-		Duration:  duration,
-		Audiences: []string{token.DefaultAudience},
-	})
+	return h.authRegistry.Authenticate(ctx, vaultClient, conn)
 }
 
 // getOperatorServiceAccountName returns the operator's service account name.
@@ -897,158 +953,6 @@ func (h *Handler) setCondition(
 		conn.Status.Conditions, conn.Generation,
 		condType, status, reason, message,
 	)
-}
-
-// getJWTToken retrieves a JWT for the JWT auth method.
-// Uses either a secret reference or the TokenRequest API.
-func (h *Handler) getJWTToken(ctx context.Context, jwtCfg *vaultv1alpha1.JWTAuth) (string, error) {
-	// If a JWT secret is provided, use it
-	if jwtCfg.JWTSecretRef != nil {
-		return h.getSecretData(ctx, jwtCfg.JWTSecretRef)
-	}
-
-	// Otherwise, use TokenRequest API to generate a short-lived token
-	if h.tokenProvider == nil {
-		return "", fmt.Errorf("token provider not configured for JWT auth")
-	}
-
-	// Determine duration
-	duration := token.DefaultTokenDuration
-	if jwtCfg.TokenDuration.Duration > 0 {
-		duration = jwtCfg.TokenDuration.Duration
-	}
-
-	// Determine audiences
-	audiences := jwtCfg.Audiences
-	if len(audiences) == 0 {
-		audiences = []string{"vault"}
-	}
-
-	// Get token from operator's service account
-	saName := getOperatorServiceAccountName()
-	saNamespace := getOperatorNamespace()
-
-	tokenInfo, err := h.tokenProvider.GetToken(ctx, token.GetTokenOptions{
-		ServiceAccount: token.ServiceAccountRef{
-			Name:      saName,
-			Namespace: saNamespace,
-		},
-		Duration:  duration,
-		Audiences: audiences,
-	})
-	if err != nil {
-		return "", fmt.Errorf("failed to get JWT from TokenRequest: %w", err)
-	}
-
-	return tokenInfo.Token, nil
-}
-
-// getOIDCToken retrieves a JWT for the OIDC auth method.
-// Uses the TokenRequest API with OIDC-specific audience configuration.
-func (h *Handler) getOIDCToken(ctx context.Context, oidcCfg *vaultv1alpha1.OIDCAuth) (string, error) {
-	// If a JWT secret is provided, use it
-	if oidcCfg.JWTSecretRef != nil {
-		return h.getSecretData(ctx, oidcCfg.JWTSecretRef)
-	}
-
-	// Check if we should use service account token
-	useServiceAccountToken := true
-	if oidcCfg.UseServiceAccountToken != nil {
-		useServiceAccountToken = *oidcCfg.UseServiceAccountToken
-	}
-
-	if !useServiceAccountToken {
-		return "", fmt.Errorf("OIDC auth requires either jwtSecretRef or useServiceAccountToken=true")
-	}
-
-	// Use TokenRequest API to generate a short-lived token
-	if h.tokenProvider == nil {
-		return "", fmt.Errorf("token provider not configured for OIDC auth")
-	}
-
-	// Determine duration
-	duration := token.DefaultTokenDuration
-	if oidcCfg.TokenDuration.Duration > 0 {
-		duration = oidcCfg.TokenDuration.Duration
-	}
-
-	// Determine audiences - for OIDC, use the provider URL if no audiences specified
-	audiences := oidcCfg.Audiences
-	if len(audiences) == 0 && oidcCfg.ProviderURL != "" {
-		audiences = []string{oidcCfg.ProviderURL}
-	}
-	if len(audiences) == 0 {
-		audiences = []string{"vault"}
-	}
-
-	// Get token from operator's service account
-	saName := getOperatorServiceAccountName()
-	saNamespace := getOperatorNamespace()
-
-	tokenInfo, err := h.tokenProvider.GetToken(ctx, token.GetTokenOptions{
-		ServiceAccount: token.ServiceAccountRef{
-			Name:      saName,
-			Namespace: saNamespace,
-		},
-		Duration:  duration,
-		Audiences: audiences,
-	})
-	if err != nil {
-		return "", fmt.Errorf("failed to get OIDC token from TokenRequest: %w", err)
-	}
-
-	return tokenInfo.Token, nil
-}
-
-// getAWSLoginData generates AWS IAM login data for Vault authentication.
-func (h *Handler) getAWSLoginData(ctx context.Context, awsCfg *vaultv1alpha1.AWSAuth) (map[string]interface{}, error) {
-	opts := auth.AWSAuthOptions{
-		Region:                 awsCfg.Region,
-		STSEndpoint:            awsCfg.STSEndpoint,
-		IAMServerIDHeaderValue: awsCfg.IAMServerIDHeaderValue,
-		Role:                   awsCfg.Role,
-	}
-
-	return auth.GenerateAWSIAMLoginData(ctx, opts)
-}
-
-// getGCPSignedJWT generates a GCP-signed JWT for Vault authentication.
-func (h *Handler) getGCPSignedJWT(ctx context.Context, gcpCfg *vaultv1alpha1.GCPAuth) (string, error) {
-	// Get credentials JSON if provided
-	var credentialsJSON []byte
-	if gcpCfg.CredentialsSecretRef != nil {
-		creds, err := h.getSecretData(ctx, gcpCfg.CredentialsSecretRef)
-		if err != nil {
-			return "", fmt.Errorf("failed to get GCP credentials from secret: %w", err)
-		}
-		credentialsJSON = []byte(creds)
-	}
-
-	opts := auth.GCPAuthOptions{
-		AuthType:            gcpCfg.AuthType,
-		ServiceAccountEmail: gcpCfg.ServiceAccountEmail,
-		Role:                gcpCfg.Role,
-		CredentialsJSON:     credentialsJSON,
-	}
-
-	// Use IAM auth type by default
-	if opts.AuthType == "" || opts.AuthType == "iam" {
-		return auth.GenerateGCPIAMJWT(ctx, opts)
-	}
-
-	// For GCE auth type, generate login data with identity token
-	loginData, err := auth.GenerateGCPGCELoginData(ctx, opts)
-	if err != nil {
-		return "", err
-	}
-
-	// GCE auth returns the JWT in the login data
-	jwt, ok := loginData["jwt"].(string)
-	if !ok {
-		return "", fmt.Errorf("GCE login data missing JWT")
-	}
-
-	return jwt, nil
 }
 
 // Ensure Handler implements FeatureHandler interface.

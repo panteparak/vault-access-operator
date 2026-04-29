@@ -18,7 +18,6 @@ limitations under the License.
 package domain
 
 import (
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
@@ -26,88 +25,64 @@ import (
 
 // RoleAdapter provides a unified interface for both VaultRole and VaultClusterRole.
 // This allows shared logic in the handler while respecting type-specific differences.
+//
+// Common sync-status methods are provided via vaultv1alpha1.SyncStatusReadWriter
+// (implemented by SyncStatusAccessor embedding in the concrete adapter types).
 type RoleAdapter interface {
 	client.Object
+	vaultv1alpha1.SyncStatusReadWriter
 
 	// GetObject returns the underlying Kubernetes API object (e.g. *VaultRole).
 	// Use this when passing to client.Status().Update() since the adapter wrapper
 	// type is not registered in the runtime scheme.
 	GetObject() client.Object
 
-	// GetConnectionRef returns the name of the VaultConnection to use
+	// GetConnectionRef returns the name of the VaultConnection to use.
 	GetConnectionRef() string
 
-	// GetAuthPath returns the mount path of the Kubernetes auth method in Vault
+	// GetAuthPath returns the mount path of the Kubernetes auth method in Vault.
 	GetAuthPath() string
 
-	// GetConflictPolicy returns the conflict handling policy
+	// GetConflictPolicy returns the conflict handling policy.
 	GetConflictPolicy() vaultv1alpha1.ConflictPolicy
 
-	// GetServiceAccountBindings returns formatted "namespace/name" strings for Vault
-	// For VaultRole: uses the role's namespace with each service account name
-	// For VaultClusterRole: uses each ServiceAccountRef's namespace and name
+	// GetServiceAccountBindings returns formatted "namespace/name" strings for Vault.
+	// For VaultRole: uses the role's namespace with each service account name.
+	// For VaultClusterRole: uses each ServiceAccountRef's namespace and name.
 	GetServiceAccountBindings() []string
 
-	// GetPolicies returns the policy references for this role
+	// GetPolicies returns the policy references for this role.
 	GetPolicies() []vaultv1alpha1.PolicyReference
 
-	// GetTokenTTL returns the default TTL for tokens issued by this role
+	// GetTokenTTL returns the default TTL for tokens issued by this role.
 	GetTokenTTL() string
 
-	// GetTokenMaxTTL returns the maximum TTL for tokens issued by this role
+	// GetTokenMaxTTL returns the maximum TTL for tokens issued by this role.
 	GetTokenMaxTTL() string
 
-	// GetDeletionPolicy returns the deletion policy
+	// GetDeletionPolicy returns the deletion policy.
 	GetDeletionPolicy() vaultv1alpha1.DeletionPolicy
 
-	// GetVaultRoleName returns the role name in Vault
-	// For namespaced: {namespace}-{name}, for cluster: {name}
+	// GetVaultRoleName returns the role name in Vault.
+	// For namespaced: {namespace}-{name}, for cluster: {name}.
 	GetVaultRoleName() string
 
-	// GetK8sResourceIdentifier returns the identifier for tracking ownership
-	// For namespaced: {namespace}/{name}, for cluster: {name}
+	// GetK8sResourceIdentifier returns the identifier for tracking ownership.
+	// For namespaced: {namespace}/{name}, for cluster: {name}.
 	GetK8sResourceIdentifier() string
 
-	// IsNamespaced returns true for VaultRole, false for VaultClusterRole
+	// IsNamespaced returns true for VaultRole, false for VaultClusterRole.
 	IsNamespaced() bool
 
-	// Role-specific status fields
+	// Role-specific status fields.
 	SetVaultRoleName(name string)
 	SetBoundServiceAccounts(accounts []string)
 	SetResolvedPolicies(policies []string)
 	GetPolicyBindings() []vaultv1alpha1.PolicyBinding
 	SetPolicyBindings(bindings []vaultv1alpha1.PolicyBinding)
 
-	// Drift mode from spec
+	// GetDriftMode returns the resource's configured drift mode (from spec).
 	GetDriftMode() vaultv1alpha1.DriftMode
-
-	// Common sync status methods (implemented via SyncStatusAccessor embedding)
-	GetPhase() vaultv1alpha1.Phase
-	SetPhase(phase vaultv1alpha1.Phase)
-	GetLastAppliedHash() string
-	SetLastAppliedHash(hash string)
-	SetManaged(managed bool)
-	SetLastSyncedAt(t *metav1.Time)
-	SetLastAttemptAt(t *metav1.Time)
-	SetRetryCount(count int)
-	GetRetryCount() int
-	SetNextRetryAt(t *metav1.Time)
-	SetMessage(msg string)
-	GetConditions() []vaultv1alpha1.Condition
-	SetConditions(conditions []vaultv1alpha1.Condition)
-	GetDriftDetected() bool
-	SetDriftDetected(driftDetected bool)
-	SetLastDriftCheckAt(t *metav1.Time)
-	GetEffectiveDriftMode() vaultv1alpha1.DriftMode
-	SetEffectiveDriftMode(mode vaultv1alpha1.DriftMode)
-	GetDriftSummary() string
-	SetDriftSummary(summary string)
-	GetDriftCorrectedAt() *metav1.Time
-	SetDriftCorrectedAt(t *metav1.Time)
-	GetDeletionStartedAt() *metav1.Time
-	SetDeletionStartedAt(t *metav1.Time)
-	GetBinding() vaultv1alpha1.VaultResourceBinding
-	SetBinding(binding vaultv1alpha1.VaultResourceBinding)
 }
 
 // VaultRoleAdapter adapts VaultRole to the RoleAdapter interface.

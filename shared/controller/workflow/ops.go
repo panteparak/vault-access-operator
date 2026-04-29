@@ -21,7 +21,6 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/panteparak/vault-access-operator/pkg/vault"
 	"github.com/panteparak/vault-access-operator/shared/events"
 )
 
@@ -43,33 +42,33 @@ type ResourceOps interface {
 
 	// CheckConflict checks for conflicts with existing Vault resources.
 	// Supports adoption via annotation or ConflictPolicy.
-	CheckConflict(ctx context.Context, vaultClient *vault.Client) error
+	CheckConflict(ctx context.Context, vaultClient VaultOpsClient) error
 
 	// PrepareContent generates the resource content and returns a spec hash.
 	// For policies: generates HCL. For roles: resolves policies + builds role data.
-	PrepareContent(ctx context.Context, vaultClient *vault.Client) (specHash string, err error)
+	PrepareContent(ctx context.Context, vaultClient VaultOpsClient) (specHash string, err error)
 
 	// --- Vault operations ---
 
 	// DetectDrift compares expected vs actual state in Vault.
 	// Returns (false, "") if detection fails or is inconclusive.
-	DetectDrift(ctx context.Context, vaultClient *vault.Client) (detected bool, summary string)
+	DetectDrift(ctx context.Context, vaultClient VaultOpsClient) (detected bool, summary string)
 
 	// WriteToVault writes the prepared content to Vault. Fatal.
-	WriteToVault(ctx context.Context, vaultClient *vault.Client) error
+	WriteToVault(ctx context.Context, vaultClient VaultOpsClient) error
 
 	// ReadbackVerify reads back from Vault and returns error if content mismatches.
 	// Read failures are non-fatal (return nil); content mismatches are fatal.
-	ReadbackVerify(ctx context.Context, vaultClient *vault.Client) error
+	ReadbackVerify(ctx context.Context, vaultClient VaultOpsClient) error
 
 	// MarkManaged marks the resource as managed by this operator. Best-effort.
-	MarkManaged(ctx context.Context, vaultClient *vault.Client) error
+	MarkManaged(ctx context.Context, vaultClient VaultOpsClient) error
 
 	// DeleteFromVault removes the resource from Vault. Best-effort during cleanup.
-	DeleteFromVault(ctx context.Context, vaultClient *vault.Client) error
+	DeleteFromVault(ctx context.Context, vaultClient VaultOpsClient) error
 
 	// RemoveManaged removes the managed marker. Best-effort.
-	RemoveManaged(ctx context.Context, vaultClient *vault.Client) error
+	RemoveManaged(ctx context.Context, vaultClient VaultOpsClient) error
 
 	// --- Status/binding updates ---
 

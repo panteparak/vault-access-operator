@@ -52,9 +52,10 @@ func setConditionHelper(
 	))
 }
 
-// mockVaultClient provides a mock implementation of the Vault client
+// mockVaultClient implements workflow.VaultOpsClient for policy tests.
+// Role-side methods return explicit "not implemented" errors so that a
+// misrouted test call surfaces a clear error instead of a nil-panic.
 type mockVaultClient struct {
-	*vault.Client
 	writePolicyErr     error
 	deletePolicyErr    error
 	policyExists       bool
@@ -132,6 +133,44 @@ func (m *mockVaultClient) GetPolicyManagedBy(_ context.Context, _ string) (strin
 func (m *mockVaultClient) IsAuthenticated() bool {
 	return m.authenticated
 }
+
+// ReadPolicy returns empty content; policy adopt/drift tests inject this
+// through a broader harness when they need a readable value.
+func (m *mockVaultClient) ReadPolicy(_ context.Context, _ string) (string, error) {
+	return "", nil
+}
+
+// Role-side VaultOpsClient methods are not used by policy tests.
+// They return errors to make accidental misrouting detectable.
+func (m *mockVaultClient) KubernetesAuthRoleExists(
+	_ context.Context, _, _ string,
+) (bool, error) {
+	return false, errPolicyMockRoleCalled
+}
+func (m *mockVaultClient) ReadKubernetesAuthRole(
+	_ context.Context, _, _ string,
+) (map[string]interface{}, error) {
+	return nil, errPolicyMockRoleCalled
+}
+func (m *mockVaultClient) WriteKubernetesAuthRole(
+	_ context.Context, _, _ string, _ map[string]interface{},
+) error {
+	return errPolicyMockRoleCalled
+}
+func (m *mockVaultClient) DeleteKubernetesAuthRole(_ context.Context, _, _ string) error {
+	return errPolicyMockRoleCalled
+}
+func (m *mockVaultClient) MarkRoleManaged(_ context.Context, _, _ string) error {
+	return errPolicyMockRoleCalled
+}
+func (m *mockVaultClient) GetRoleManagedBy(_ context.Context, _ string) (string, error) {
+	return "", errPolicyMockRoleCalled
+}
+func (m *mockVaultClient) RemoveRoleManaged(_ context.Context, _ string) error {
+	return errPolicyMockRoleCalled
+}
+
+var errPolicyMockRoleCalled = errors.New("mockVaultClient: role method called from policy test")
 
 // Test constants
 const (
@@ -696,7 +735,7 @@ func TestHandleSyncError(t *testing.T) {
 			returnedErr := syncerror.Handle(ctx, fakeClient, logr.Discard(), adapter, tt.err)
 
 			// Verify error is returned
-			if returnedErr != tt.err {
+			if !errors.Is(returnedErr, tt.err) {
 				t.Errorf("expected same error to be returned, got %v", returnedErr)
 			}
 

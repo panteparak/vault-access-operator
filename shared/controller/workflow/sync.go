@@ -29,7 +29,6 @@ import (
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/pkg/metrics"
-	"github.com/panteparak/vault-access-operator/pkg/vault"
 	"github.com/panteparak/vault-access-operator/shared/controller/conditions"
 	"github.com/panteparak/vault-access-operator/shared/controller/driftmode"
 	"github.com/panteparak/vault-access-operator/shared/controller/syncerror"
@@ -39,7 +38,7 @@ import (
 
 // VaultClientResolver resolves an authenticated Vault client for a connection.
 // In production this calls vaultclient.Resolve; tests can inject a simpler resolver.
-type VaultClientResolver func(ctx context.Context, connRef, resourceID string) (*vault.Client, error)
+type VaultClientResolver func(ctx context.Context, connRef, resourceID string) (VaultOpsClient, error)
 
 // SyncWorkflow encapsulates the shared sync orchestration for Vault resources.
 // It implements the common reconciliation flow used by both policy and role handlers,
@@ -61,7 +60,7 @@ type syncExecutionState struct {
 	driftDetected      bool
 	driftSummary       string
 	specHash           string
-	vaultClient        *vault.Client
+	vaultClient        VaultOpsClient
 	log                logr.Logger
 }
 
@@ -146,10 +145,10 @@ func (w *SyncWorkflow) initializeSync(
 	phase := resource.GetPhase()
 	if phase != vaultv1alpha1.PhaseSyncing && phase != vaultv1alpha1.PhaseActive {
 		resource.SetPhase(vaultv1alpha1.PhaseSyncing)
-		// Note: Status().Update errors are returned directly (not via handleSyncError)
-		// because handleSyncError itself calls Status().Update, which would loop.
-		if err := w.client.Status().Update(ctx, resource.GetObject()); err != nil {
-			return nil, fmt.Errorf("failed to update status to Syncing: %w", err)
+		// Write errors are returned directly (not via handleSyncError) because
+		// handleSyncError itself calls Status().Update, which would loop.
+		if err := w.commitStatus(ctx, resource, "Syncing"); err != nil {
+			return nil, err
 		}
 	}
 
@@ -217,9 +216,7 @@ func (w *SyncWorkflow) handleDriftModes(
 		state.log.Info("drift detected (detect mode - not correcting)", "resource", state.vaultResourceName)
 		resource.SetMessage("Drift detected: " + state.driftSummary)
 
-		if err := w.client.Status().Update(ctx, resource.GetObject()); err != nil {
-			state.log.V(1).Info("failed to update drift status (non-fatal)", "error", err)
-		}
+		_ = w.commitStatus(ctx, resource, "")
 
 		if resource.GetLastAppliedHash() == state.specHash {
 			return true, nil
@@ -251,8 +248,8 @@ func (w *SyncWorkflow) handleDriftModes(
 	w.setCondition(resource, vaultv1alpha1.ConditionTypeReady, metav1.ConditionFalse,
 		vaultv1alpha1.ReasonConflict, "Drift correction requires allow-destructive annotation")
 
-	if err := w.client.Status().Update(ctx, resource.GetObject()); err != nil {
-		return false, fmt.Errorf("failed to update conflict status: %w", err)
+	if err := w.commitStatus(ctx, resource, "Conflict"); err != nil {
+		return false, err
 	}
 
 	metrics.IncrementDestructiveBlocked(state.kind, resource.GetNamespace())
@@ -275,9 +272,7 @@ func (w *SyncWorkflow) handleUnchangedResource(
 	if err := ops.MarkManaged(ctx, state.vaultClient); err != nil {
 		state.log.V(1).Info("failed to update managed marker (non-fatal)", "error", err)
 	}
-	if err := w.client.Status().Update(ctx, resource.GetObject()); err != nil {
-		state.log.V(1).Info("failed to update status (non-fatal)", "error", err)
-	}
+	_ = w.commitStatus(ctx, resource, "")
 
 	return true
 }
@@ -320,8 +315,8 @@ func (w *SyncWorkflow) finalizeSuccessfulSync(
 	w.setCondition(resource, vaultv1alpha1.ConditionTypeDrifted, metav1.ConditionFalse,
 		vaultv1alpha1.ReasonNoDrift, "No drift detected")
 
-	if err := w.client.Status().Update(ctx, resource.GetObject()); err != nil {
-		return fmt.Errorf("failed to update status to Active: %w", err)
+	if err := w.commitStatus(ctx, resource, "Active"); err != nil {
+		return err
 	}
 
 	if state.driftDetected && w.recorder != nil {
@@ -340,6 +335,26 @@ func (w *SyncWorkflow) finalizeSuccessfulSync(
 // handleSyncError classifies the error and updates status via syncerror.Handle.
 func (w *SyncWorkflow) handleSyncError(ctx context.Context, resource SyncableResource, err error) error {
 	return syncerror.Handle(ctx, w.client, w.log, resource, err, w.recorder)
+}
+
+// commitStatus persists the current in-memory status of the resource.
+// If label is non-empty, write failures are returned as a fatal error wrapped
+// with that label. If label is empty, write failures are logged at V(1) and
+// swallowed — suitable for non-fatal status updates in steady-state paths.
+func (w *SyncWorkflow) commitStatus(
+	ctx context.Context,
+	resource SyncableResource,
+	label string,
+) error {
+	if err := w.client.Status().Update(ctx, resource.GetObject()); err != nil {
+		if label == "" {
+			logr.FromContextOrDiscard(ctx).V(1).Info(
+				"non-fatal status update failed", "error", err)
+			return nil
+		}
+		return fmt.Errorf("failed to update status to %s: %w", label, err)
+	}
+	return nil
 }
 
 // setCondition sets or updates a condition on the resource.

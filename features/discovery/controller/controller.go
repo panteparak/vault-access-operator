@@ -86,39 +86,26 @@ func NewReconciler(cfg ReconcilerConfig) *Reconciler {
 	}
 }
 
-// Reconcile handles discovery for a VaultConnection
+// Reconcile handles discovery for a VaultConnection.
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := r.Log.WithValues("vaultconnection", req.Name)
 
-	// Fetch the VaultConnection
 	var conn vaultv1alpha1.VaultConnection
 	if err := r.Get(ctx, req.NamespacedName, &conn); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	// Check if discovery is enabled
 	if conn.Spec.Discovery == nil || !conn.Spec.Discovery.Enabled {
 		log.V(2).Info("discovery not enabled for connection")
 		return ctrl.Result{}, nil
 	}
 
-	// Check if it's time to scan
-	scanInterval := ParseInterval(conn.Spec.Discovery.Interval)
-	if scanInterval < MinScanInterval {
-		scanInterval = MinScanInterval
+	scanInterval := scanIntervalFor(conn.Spec.Discovery)
+	if waitFor, due := timeUntilNextScan(&conn, scanInterval); !due {
+		log.V(2).Info("skipping scan, not yet due", "nextScanIn", waitFor)
+		return ctrl.Result{RequeueAfter: waitFor}, nil
 	}
 
-	if conn.Status.DiscoveryStatus != nil && conn.Status.DiscoveryStatus.LastScanAt != nil {
-		timeSinceLastScan := time.Since(conn.Status.DiscoveryStatus.LastScanAt.Time)
-		if timeSinceLastScan < scanInterval {
-			// Schedule next scan
-			nextScan := scanInterval - timeSinceLastScan
-			log.V(2).Info("skipping scan, not yet due", "nextScanIn", nextScan)
-			return ctrl.Result{RequeueAfter: nextScan}, nil
-		}
-	}
-
-	// Get Vault client
 	vaultClient, err := r.ClientCache.Get(conn.Name)
 	if err != nil {
 		log.Error(err, "failed to get Vault client")
@@ -126,46 +113,94 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	}
 
 	log.Info("starting discovery scan")
+	result := r.runScan(ctx, &conn, vaultClient, log)
 
-	// Create scanner and run — pass the connection's default auth path for role discovery
+	if err := r.persistScanResult(ctx, req.Name, result); err != nil {
+		log.Error(err, "failed to update VaultConnection status")
+		// Don't return the error: the controller would double-requeue it.
+		return ctrl.Result{RequeueAfter: time.Minute}, nil
+	}
+
+	r.emitDiscoveryEvent(&conn, result)
+	r.maybeAutoCreateCRs(ctx, &conn, result, log)
+
+	log.Info("discovery scan completed",
+		"unmanagedPolicies", len(result.UnmanagedPolicies),
+		"unmanagedRoles", len(result.UnmanagedRoles))
+	return ctrl.Result{RequeueAfter: scanInterval}, nil
+}
+
+// scanIntervalFor returns the configured scan interval, clamped to
+// MinScanInterval to prevent runaway scans.
+func scanIntervalFor(cfg *vaultv1alpha1.DiscoveryConfig) time.Duration {
+	interval := ParseInterval(cfg.Interval)
+	if interval < MinScanInterval {
+		return MinScanInterval
+	}
+	return interval
+}
+
+// timeUntilNextScan reports whether the connection is due for another scan.
+// Returns (0, true) when due now; otherwise (remaining, false) where
+// `remaining` is how long the caller should requeue for.
+func timeUntilNextScan(conn *vaultv1alpha1.VaultConnection, interval time.Duration) (time.Duration, bool) {
+	if conn.Status.DiscoveryStatus == nil || conn.Status.DiscoveryStatus.LastScanAt == nil {
+		return 0, true
+	}
+	elapsed := time.Since(conn.Status.DiscoveryStatus.LastScanAt.Time)
+	if elapsed >= interval {
+		return 0, true
+	}
+	return interval - elapsed, false
+}
+
+// runScan invokes the scanner against Vault and emits Prometheus metrics.
+func (r *Reconciler) runScan(
+	ctx context.Context, conn *vaultv1alpha1.VaultConnection,
+	vaultClient *vault.Client, log logr.Logger,
+) *ScanResult {
 	authPath := ""
 	if conn.Spec.Defaults != nil {
 		authPath = conn.Spec.Defaults.AuthPath
 	}
 	scanner := NewScanner(vaultClient, conn.Spec.Discovery, authPath, log)
 	result := scanner.Scan(ctx)
-
-	// Update metrics
 	scanner.UpdateMetrics(conn.Name, result)
+	return result
+}
 
-	// Update status with retry to handle concurrent modifications
-	now := metav1.Now()
-	if err := r.updateDiscoveryStatus(ctx, req.Name, now, result); err != nil {
-		log.Error(err, "failed to update VaultConnection status")
-		return ctrl.Result{RequeueAfter: time.Minute}, nil // Don't return error to avoid double requeue
+// persistScanResult updates DiscoveryStatus with a retry loop to handle
+// concurrent modifications from the connection reconciler.
+func (r *Reconciler) persistScanResult(ctx context.Context, name string, result *ScanResult) error {
+	return r.updateDiscoveryStatus(ctx, name, metav1.Now(), result)
+}
+
+// emitDiscoveryEvent posts a normal-type event whenever the scan found
+// any unmanaged Vault resources, giving operators a visible signal.
+func (r *Reconciler) emitDiscoveryEvent(conn *vaultv1alpha1.VaultConnection, result *ScanResult) {
+	if len(result.DiscoveredResources) == 0 {
+		return
 	}
+	r.Recorder.Eventf(conn, corev1.EventTypeNormal, "DiscoveryScanComplete",
+		"Found %d unmanaged policies and %d unmanaged roles",
+		len(result.UnmanagedPolicies), len(result.UnmanagedRoles))
+}
 
-	// Emit event
-	if len(result.DiscoveredResources) > 0 {
-		r.Recorder.Eventf(&conn, corev1.EventTypeNormal, "DiscoveryScanComplete",
-			"Found %d unmanaged policies and %d unmanaged roles",
-			len(result.UnmanagedPolicies), len(result.UnmanagedRoles))
+// maybeAutoCreateCRs runs auto-creation only when the user opted in via
+// AutoCreateCRs and at least one discovered resource exists. Failures are
+// surfaced as a warning event but do not abort the reconcile.
+func (r *Reconciler) maybeAutoCreateCRs(
+	ctx context.Context, conn *vaultv1alpha1.VaultConnection,
+	result *ScanResult, log logr.Logger,
+) {
+	if !conn.Spec.Discovery.AutoCreateCRs || len(result.DiscoveredResources) == 0 {
+		return
 	}
-
-	// Handle auto-create if configured
-	if conn.Spec.Discovery.AutoCreateCRs && len(result.DiscoveredResources) > 0 {
-		if err := r.autoCreateCRs(ctx, &conn, result); err != nil {
-			log.Error(err, "failed to auto-create CRs")
-			r.Recorder.Eventf(&conn, corev1.EventTypeWarning, "AutoCreateFailed",
-				"Failed to auto-create CRs: %v", err)
-		}
+	if err := r.autoCreateCRs(ctx, conn, result); err != nil {
+		log.Error(err, "failed to auto-create CRs")
+		r.Recorder.Eventf(conn, corev1.EventTypeWarning, "AutoCreateFailed",
+			"Failed to auto-create CRs: %v", err)
 	}
-
-	log.Info("discovery scan completed",
-		"unmanagedPolicies", len(result.UnmanagedPolicies),
-		"unmanagedRoles", len(result.UnmanagedRoles))
-
-	return ctrl.Result{RequeueAfter: scanInterval}, nil
 }
 
 // autoCreateCRs creates K8s resources for discovered Vault resources

@@ -208,7 +208,7 @@ func getRegionFromIMDS(ctx context.Context) (string, error) {
 		// Fall back to IMDSv1
 		return getRegionFromIMDSv1(ctx)
 	}
-	defer tokenResp.Body.Close()
+	defer func() { _ = tokenResp.Body.Close() }()
 
 	tokenBytes, err := io.ReadAll(tokenResp.Body)
 	if err != nil {
@@ -229,7 +229,7 @@ func getRegionFromIMDS(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer regionResp.Body.Close()
+	defer func() { _ = regionResp.Body.Close() }()
 
 	regionBytes, err := io.ReadAll(regionResp.Body)
 	if err != nil {
@@ -257,7 +257,7 @@ func getRegionFromIMDSv1(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	regionBytes, err := io.ReadAll(resp.Body)
 	if err != nil {

@@ -57,7 +57,7 @@ func TestCleanupWorkflow_HappyPath(t *testing.T) {
 	resource := newTestResource(policy)
 
 	vc := newAuthenticatedVaultClient(t)
-	getter := func(_ string) (*vault.Client, error) {
+	getter := func(_ string) (VaultOpsClient, error) {
 		return vc, nil
 	}
 
@@ -103,7 +103,7 @@ func TestCleanupWorkflow_RetainPolicy(t *testing.T) {
 	resource := newTestResource(policy)
 
 	vc := newAuthenticatedVaultClient(t)
-	getter := func(_ string) (*vault.Client, error) {
+	getter := func(_ string) (VaultOpsClient, error) {
 		return vc, nil
 	}
 
@@ -145,7 +145,7 @@ func TestCleanupWorkflow_VaultClientError(t *testing.T) {
 	k8sClient := newFakeK8sClient(t, policy)
 	resource := newTestResource(policy)
 
-	errorGetter := func(_ string) (*vault.Client, error) {
+	errorGetter := func(_ string) (VaultOpsClient, error) {
 		return nil, errors.New("client not found")
 	}
 
@@ -186,7 +186,7 @@ func TestCleanupWorkflow_UnauthenticatedClient(t *testing.T) {
 
 	// newTestVaultClient creates a client that is NOT authenticated by default
 	unauthClient := newTestVaultClient(t)
-	getter := func(_ string) (*vault.Client, error) {
+	getter := func(_ string) (VaultOpsClient, error) {
 		return unauthClient, nil
 	}
 
@@ -226,7 +226,7 @@ func TestCleanupWorkflow_DeleteFromVaultError_BestEffort(t *testing.T) {
 	resource := newTestResource(policy)
 
 	vc := newAuthenticatedVaultClient(t)
-	getter := func(_ string) (*vault.Client, error) {
+	getter := func(_ string) (VaultOpsClient, error) {
 		return vc, nil
 	}
 
@@ -271,7 +271,7 @@ func TestCleanupWorkflow_RemoveManagedError_BestEffort(t *testing.T) {
 	resource := newTestResource(policy)
 
 	vc := newAuthenticatedVaultClient(t)
-	getter := func(_ string) (*vault.Client, error) {
+	getter := func(_ string) (VaultOpsClient, error) {
 		return vc, nil
 	}
 
@@ -319,7 +319,7 @@ func TestCleanupWorkflow_DeletionStartedAtPreserved(t *testing.T) {
 	resource := newTestResource(policy)
 
 	vc := newAuthenticatedVaultClient(t)
-	getter := func(_ string) (*vault.Client, error) {
+	getter := func(_ string) (VaultOpsClient, error) {
 		return vc, nil
 	}
 
@@ -360,7 +360,7 @@ func TestCleanupWorkflow_NilEventBus(t *testing.T) {
 	resource := newTestResource(policy)
 
 	vc := newAuthenticatedVaultClient(t)
-	getter := func(_ string) (*vault.Client, error) {
+	getter := func(_ string) (VaultOpsClient, error) {
 		return vc, nil
 	}
 

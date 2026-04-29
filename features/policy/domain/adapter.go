@@ -18,82 +18,59 @@ limitations under the License.
 package domain
 
 import (
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 )
 
-// PolicyAdapter provides a unified interface for both VaultPolicy and VaultClusterPolicy.
-// This allows shared logic in the handler while respecting type-specific differences.
+// PolicyAdapter provides a unified interface for both VaultPolicy and
+// VaultClusterPolicy. This allows shared logic in the handler while
+// respecting type-specific differences.
+//
+// Common sync-status methods are provided via vaultv1alpha1.SyncStatusReadWriter
+// (implemented by SyncStatusAccessor embedding in the concrete adapter types).
 type PolicyAdapter interface {
 	client.Object
+	vaultv1alpha1.SyncStatusReadWriter
 
 	// GetObject returns the underlying Kubernetes API object (e.g. *VaultPolicy).
 	// Use this when passing to client.Status().Update() since the adapter wrapper
 	// type is not registered in the runtime scheme.
 	GetObject() client.Object
 
-	// GetConnectionRef returns the name of the VaultConnection to use
+	// GetConnectionRef returns the name of the VaultConnection to use.
 	GetConnectionRef() string
 
-	// GetRules returns the policy rules
+	// GetRules returns the policy rules.
 	GetRules() []vaultv1alpha1.PolicyRule
 
-	// GetDeletionPolicy returns the deletion policy
+	// GetDeletionPolicy returns the deletion policy.
 	GetDeletionPolicy() vaultv1alpha1.DeletionPolicy
 
-	// GetConflictPolicy returns the conflict handling policy
+	// GetConflictPolicy returns the conflict handling policy.
 	GetConflictPolicy() vaultv1alpha1.ConflictPolicy
 
-	// GetVaultPolicyName returns the policy name in Vault
-	// For namespaced: {namespace}-{name}, for cluster: {name}
+	// GetVaultPolicyName returns the policy name in Vault.
+	// For namespaced: {namespace}-{name}, for cluster: {name}.
 	GetVaultPolicyName() string
 
-	// GetK8sResourceIdentifier returns the identifier for tracking ownership
-	// For namespaced: {namespace}/{name}, for cluster: {name}
+	// GetK8sResourceIdentifier returns the identifier for tracking ownership.
+	// For namespaced: {namespace}/{name}, for cluster: {name}.
 	GetK8sResourceIdentifier() string
 
-	// IsNamespaced returns true for VaultPolicy, false for VaultClusterPolicy
+	// IsNamespaced returns true for VaultPolicy, false for VaultClusterPolicy.
 	IsNamespaced() bool
 
-	// IsEnforceNamespaceBoundary returns whether namespace boundary is enforced
+	// IsEnforceNamespaceBoundary returns whether namespace boundary is enforced.
 	IsEnforceNamespaceBoundary() bool
 
-	// Policy-specific status fields
+	// Policy-specific status fields.
 	GetVaultName() string
 	SetVaultName(name string)
 	SetRulesCount(count int)
 
-	// Drift mode from spec
+	// GetDriftMode returns the resource's configured drift mode (from spec).
 	GetDriftMode() vaultv1alpha1.DriftMode
-
-	// Common sync status methods (implemented via SyncStatusAccessor embedding)
-	GetPhase() vaultv1alpha1.Phase
-	SetPhase(phase vaultv1alpha1.Phase)
-	GetLastAppliedHash() string
-	SetLastAppliedHash(hash string)
-	SetManaged(managed bool)
-	SetLastSyncedAt(t *metav1.Time)
-	SetLastAttemptAt(t *metav1.Time)
-	SetRetryCount(count int)
-	GetRetryCount() int
-	SetNextRetryAt(t *metav1.Time)
-	SetMessage(msg string)
-	GetConditions() []vaultv1alpha1.Condition
-	SetConditions(conditions []vaultv1alpha1.Condition)
-	GetDriftDetected() bool
-	SetDriftDetected(driftDetected bool)
-	SetLastDriftCheckAt(t *metav1.Time)
-	GetEffectiveDriftMode() vaultv1alpha1.DriftMode
-	SetEffectiveDriftMode(mode vaultv1alpha1.DriftMode)
-	GetDriftSummary() string
-	SetDriftSummary(summary string)
-	SetDriftCorrectedAt(t *metav1.Time)
-	GetDeletionStartedAt() *metav1.Time
-	SetDeletionStartedAt(t *metav1.Time)
-	GetBinding() vaultv1alpha1.VaultResourceBinding
-	SetBinding(binding vaultv1alpha1.VaultResourceBinding)
 }
 
 // VaultPolicyAdapter adapts VaultPolicy to the PolicyAdapter interface.

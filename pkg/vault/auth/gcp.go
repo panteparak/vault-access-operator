@@ -151,7 +151,7 @@ func gcpMetadataGet(ctx context.Context, url, description string) (string, error
 	if err != nil {
 		return "", fmt.Errorf("%s request failed: %w", description, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("%s request returned status %d", description, resp.StatusCode)

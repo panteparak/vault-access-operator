@@ -212,7 +212,7 @@ func TestBaseReconciler_Reconcile_SyncError(t *testing.T) {
 
 	result, err := r.Reconcile(context.Background(), req, handler, newConfigMap)
 
-	if err != syncErr {
+	if !errors.Is(err, syncErr) {
 		t.Errorf("expected error %v, got %v", syncErr, err)
 	}
 
@@ -372,7 +372,7 @@ func TestBaseReconciler_Reconcile_CleanupError(t *testing.T) {
 
 	result, err := r.Reconcile(context.Background(), req, handler, newConfigMap)
 
-	if err != cleanupErr {
+	if !errors.Is(err, cleanupErr) {
 		t.Errorf("expected error %v, got %v", cleanupErr, err)
 	}
 

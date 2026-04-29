@@ -379,7 +379,7 @@ var _ = Describe("Input Validation Tests", Ordered, Label("validation"), func() 
 						ServiceAccounts: []string{sharedSAName},
 						Policies: []vaultv1alpha1.PolicyReference{
 							{
-								Kind:      kind,
+								Kind:      vaultv1alpha1.PolicyKind(kind),
 								Name:      sharedPolicyName,
 								Namespace: testNamespace,
 							},

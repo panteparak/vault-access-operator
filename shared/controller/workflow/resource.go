@@ -20,17 +20,16 @@ limitations under the License.
 package workflow
 
 import (
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 )
 
-// SyncableResource is the common interface shared by PolicyAdapter and RoleAdapter.
-// It provides the status fields that the shared workflow needs to read and write.
-// Both adapters satisfy this interface via SyncStatusAccessor embedding (for common
-// status methods) plus a handful of resource-specific identity/spec methods.
-type SyncableResource interface {
+// VaultResourceIdentity captures the immutable identity and scope of a
+// Vault resource during reconciliation. Consumers that only need to read
+// the resource's identity (connection ref, scope, spec policies) should
+// depend on this narrower interface.
+type VaultResourceIdentity interface {
 	client.Object
 
 	// GetObject returns the underlying K8s API object for status updates.
@@ -45,50 +44,16 @@ type SyncableResource interface {
 	// IsNamespaced returns true for namespaced resources, false for cluster-scoped.
 	IsNamespaced() bool
 
-	// Spec fields needed by workflow
+	// Spec policies influencing workflow behavior.
 	GetDeletionPolicy() vaultv1alpha1.DeletionPolicy
 	GetConflictPolicy() vaultv1alpha1.ConflictPolicy
 	GetDriftMode() vaultv1alpha1.DriftMode
+}
 
-	// Common sync status methods (implemented via SyncStatusAccessor embedding
-	// in concrete adapter types)
-
-	// Phase
-	GetPhase() vaultv1alpha1.Phase
-	SetPhase(phase vaultv1alpha1.Phase)
-
-	// Hash
-	GetLastAppliedHash() string
-	SetLastAppliedHash(hash string)
-
-	// General sync tracking
-	SetManaged(managed bool)
-	SetLastSyncedAt(t *metav1.Time)
-	SetLastAttemptAt(t *metav1.Time)
-	SetRetryCount(count int)
-	GetRetryCount() int
-	SetNextRetryAt(t *metav1.Time)
-	SetMessage(msg string)
-
-	// Conditions
-	GetConditions() []vaultv1alpha1.Condition
-	SetConditions(conditions []vaultv1alpha1.Condition)
-
-	// Drift
-	GetDriftDetected() bool
-	SetDriftDetected(driftDetected bool)
-	SetLastDriftCheckAt(t *metav1.Time)
-	GetEffectiveDriftMode() vaultv1alpha1.DriftMode
-	SetEffectiveDriftMode(mode vaultv1alpha1.DriftMode)
-	GetDriftSummary() string
-	SetDriftSummary(summary string)
-	SetDriftCorrectedAt(t *metav1.Time)
-
-	// Deletion
-	GetDeletionStartedAt() *metav1.Time
-	SetDeletionStartedAt(t *metav1.Time)
-
-	// Binding
-	GetBinding() vaultv1alpha1.VaultResourceBinding
-	SetBinding(binding vaultv1alpha1.VaultResourceBinding)
+// SyncableResource is the common interface shared by PolicyAdapter and
+// RoleAdapter. It composes the narrow identity view with the full set of
+// status-writing sub-interfaces implemented by SyncStatusAccessor.
+type SyncableResource interface {
+	VaultResourceIdentity
+	vaultv1alpha1.SyncStatusReadWriter
 }

@@ -25,14 +25,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
-	"github.com/panteparak/vault-access-operator/pkg/vault"
 	"github.com/panteparak/vault-access-operator/shared/controller/conditions"
 	"github.com/panteparak/vault-access-operator/shared/events"
 )
 
 // VaultClientGetter retrieves a Vault client from cache.
 // Simpler than VaultClientResolver — used during cleanup where full validation is unnecessary.
-type VaultClientGetter func(connRef string) (*vault.Client, error)
+type VaultClientGetter func(connRef string) (VaultOpsClient, error)
 
 // CleanupWorkflow encapsulates the shared cleanup orchestration for Vault resources.
 type CleanupWorkflow struct {

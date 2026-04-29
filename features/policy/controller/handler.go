@@ -18,8 +18,6 @@ package controller
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"strings"
 
@@ -30,6 +28,7 @@ import (
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/features/policy/domain"
 	"github.com/panteparak/vault-access-operator/pkg/vault"
+	"github.com/panteparak/vault-access-operator/shared/controller/hash"
 	"github.com/panteparak/vault-access-operator/shared/controller/vaultclient"
 	"github.com/panteparak/vault-access-operator/shared/controller/workflow"
 	"github.com/panteparak/vault-access-operator/shared/events"
@@ -64,12 +63,15 @@ func NewHandler(
 	}
 
 	// Build vault client resolver using the shared vaultclient package
-	resolver := func(ctx context.Context, connRef, resourceID string) (*vault.Client, error) {
+	resolver := func(ctx context.Context, connRef, resourceID string) (workflow.VaultOpsClient, error) {
 		return vaultclient.Resolve(ctx, c, cache, connRef, resourceID)
+	}
+	cleanupGetter := func(connRef string) (workflow.VaultOpsClient, error) {
+		return cache.Get(connRef)
 	}
 
 	h.syncWorkflow = workflow.NewSyncWorkflow(c, resolver, bus, log, h.recorder)
-	h.cleanupWorkflow = workflow.NewCleanupWorkflow(c, cache.Get, bus, log)
+	h.cleanupWorkflow = workflow.NewCleanupWorkflow(c, cleanupGetter, bus, log)
 	return h
 }
 
@@ -113,7 +115,7 @@ func (h *Handler) validateNamespaceBoundary(adapter domain.PolicyAdapter) error 
 // Supports adoption via annotation (vault.platform.io/adopt: "true") or ConflictPolicy.
 func (h *Handler) checkConflict(
 	ctx context.Context,
-	vaultClient *vault.Client,
+	vaultClient workflow.VaultOpsClient,
 	adapter domain.PolicyAdapter,
 	vaultPolicyName string,
 ) error {
@@ -224,10 +226,10 @@ func (h *Handler) buildRuleDescriptions(rules []vaultv1alpha1.PolicyRule, namesp
 	return descs
 }
 
-// calculateHash calculates SHA256 hash of content.
+// calculateHash returns a SHA256 hash of the given HCL content using the
+// shared hash package for consistency with the role handler.
 func (h *Handler) calculateHash(content string) string {
-	hash := sha256.Sum256([]byte(content))
-	return hex.EncodeToString(hash[:])
+	return hash.FromString(content)
 }
 
 // normalizeHCL normalizes HCL for comparison by trimming whitespace.

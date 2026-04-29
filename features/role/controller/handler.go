@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -70,12 +71,15 @@ func NewHandler(
 	}
 
 	// Build vault client resolver using the shared vaultclient package
-	resolver := func(ctx context.Context, connRef, resourceID string) (*vault.Client, error) {
+	resolver := func(ctx context.Context, connRef, resourceID string) (workflow.VaultOpsClient, error) {
 		return vaultclient.Resolve(ctx, c, cache, connRef, resourceID)
+	}
+	cleanupGetter := func(connRef string) (workflow.VaultOpsClient, error) {
+		return cache.Get(connRef)
 	}
 
 	h.syncWorkflow = workflow.NewSyncWorkflow(c, resolver, bus, log, h.recorder)
-	h.cleanupWorkflow = workflow.NewCleanupWorkflow(c, cache.Get, bus, log)
+	h.cleanupWorkflow = workflow.NewCleanupWorkflow(c, cleanupGetter, bus, log)
 	return h
 }
 
@@ -97,7 +101,7 @@ func (h *Handler) CleanupRole(ctx context.Context, adapter domain.RoleAdapter) e
 // Supports adoption via annotation (vault.platform.io/adopt: "true") or ConflictPolicy.
 func (h *Handler) checkConflict(
 	ctx context.Context,
-	vaultClient *vault.Client,
+	vaultClient workflow.VaultOpsClient,
 	adapter domain.RoleAdapter,
 	authPath, vaultRoleName string,
 ) error {
@@ -166,7 +170,7 @@ func (h *Handler) shouldAdopt(adapter domain.RoleAdapter) bool {
 // Uses the shared drift.Comparator for consistent field comparison.
 func (h *Handler) detectRoleDrift(
 	ctx context.Context,
-	vaultClient *vault.Client,
+	vaultClient workflow.VaultOpsClient,
 	authPath, roleName string,
 	expectedData map[string]interface{},
 ) (bool, string) {
@@ -212,21 +216,11 @@ func (h *Handler) buildPolicyBindings(
 
 	for i, ref := range policyRefs {
 		vaultPolicyName := binding.VaultPolicyName(ref, adapter.GetNamespace())
-		resolved := h.contains(resolvedPolicies, vaultPolicyName)
+		resolved := slices.Contains(resolvedPolicies, vaultPolicyName)
 		bindings[i] = binding.NewPolicyBindingRef(ref, adapter.GetNamespace(), vaultPolicyName, resolved)
 	}
 
 	return bindings
-}
-
-// contains checks if a string slice contains a value.
-func (h *Handler) contains(slice []string, val string) bool {
-	for _, s := range slice {
-		if s == val {
-			return true
-		}
-	}
-	return false
 }
 
 // verifyPoliciesExistInVault checks that each resolved policy actually exists in Vault.
@@ -234,7 +228,7 @@ func (h *Handler) contains(slice []string, val string) bool {
 // Vault allows binding non-existent policies; this is informational for the user.
 func (h *Handler) verifyPoliciesExistInVault(
 	ctx context.Context,
-	vaultClient *vault.Client,
+	vaultClient workflow.VaultOpsClient,
 	adapter domain.RoleAdapter,
 	policyNames []string,
 ) {
@@ -281,11 +275,9 @@ func (h *Handler) resolvePolicyNames(_ context.Context, adapter domain.RoleAdapt
 		var policyName string
 
 		switch policyRef.Kind {
-		case "VaultPolicy":
-			// For VaultPolicy, use namespace-name format
+		case vaultv1alpha1.PolicyKindNamespaced:
 			namespace := policyRef.Namespace
 			if namespace == "" && adapter.IsNamespaced() {
-				// Default to the role's namespace if not specified
 				namespace = adapter.GetNamespace()
 			}
 			if namespace == "" {
@@ -297,14 +289,13 @@ func (h *Handler) resolvePolicyNames(_ context.Context, adapter domain.RoleAdapt
 			}
 			policyName = namespace + "-" + policyRef.Name
 
-		case "VaultClusterPolicy":
-			// For VaultClusterPolicy, use name only
+		case vaultv1alpha1.PolicyKindCluster:
 			policyName = policyRef.Name
 
 		default:
 			return nil, infraerrors.NewValidationError(
 				"policies",
-				policyRef.Kind,
+				string(policyRef.Kind),
 				"invalid policy kind, must be VaultPolicy or VaultClusterPolicy",
 			)
 		}

@@ -91,42 +91,42 @@ func (m *mockOps) Validate() error {
 	return m.validateErr
 }
 
-func (m *mockOps) CheckConflict(_ context.Context, _ *vault.Client) error {
+func (m *mockOps) CheckConflict(_ context.Context, _ VaultOpsClient) error {
 	m.calls = append(m.calls, "CheckConflict")
 	return m.checkConflictErr
 }
 
-func (m *mockOps) PrepareContent(_ context.Context, _ *vault.Client) (string, error) {
+func (m *mockOps) PrepareContent(_ context.Context, _ VaultOpsClient) (string, error) {
 	m.calls = append(m.calls, "PrepareContent")
 	return m.specHash, m.prepareErr
 }
 
-func (m *mockOps) DetectDrift(_ context.Context, _ *vault.Client) (bool, string) {
+func (m *mockOps) DetectDrift(_ context.Context, _ VaultOpsClient) (bool, string) {
 	m.calls = append(m.calls, "DetectDrift")
 	return m.driftDetected, m.driftSummary
 }
 
-func (m *mockOps) WriteToVault(_ context.Context, _ *vault.Client) error {
+func (m *mockOps) WriteToVault(_ context.Context, _ VaultOpsClient) error {
 	m.calls = append(m.calls, "WriteToVault")
 	return m.writeErr
 }
 
-func (m *mockOps) ReadbackVerify(_ context.Context, _ *vault.Client) error {
+func (m *mockOps) ReadbackVerify(_ context.Context, _ VaultOpsClient) error {
 	m.calls = append(m.calls, "ReadbackVerify")
 	return m.readbackErr
 }
 
-func (m *mockOps) MarkManaged(_ context.Context, _ *vault.Client) error {
+func (m *mockOps) MarkManaged(_ context.Context, _ VaultOpsClient) error {
 	m.calls = append(m.calls, "MarkManaged")
 	return m.markManagedErr
 }
 
-func (m *mockOps) DeleteFromVault(_ context.Context, _ *vault.Client) error {
+func (m *mockOps) DeleteFromVault(_ context.Context, _ VaultOpsClient) error {
 	m.calls = append(m.calls, "DeleteFromVault")
 	return m.deleteErr
 }
 
-func (m *mockOps) RemoveManaged(_ context.Context, _ *vault.Client) error {
+func (m *mockOps) RemoveManaged(_ context.Context, _ VaultOpsClient) error {
 	m.calls = append(m.calls, "RemoveManaged")
 	return m.removeManagedErr
 }

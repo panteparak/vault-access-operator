@@ -23,9 +23,10 @@ import (
 	"github.com/go-logr/logr"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/features/policy/domain"
-	"github.com/panteparak/vault-access-operator/pkg/vault"
 	"github.com/panteparak/vault-access-operator/shared/controller/binding"
+	"github.com/panteparak/vault-access-operator/shared/controller/workflow"
 	"github.com/panteparak/vault-access-operator/shared/events"
 	infraerrors "github.com/panteparak/vault-access-operator/shared/infrastructure/errors"
 )
@@ -55,9 +56,9 @@ func NewPolicyOps(adapter domain.PolicyAdapter, handler *Handler) *PolicyOps {
 
 func (o *PolicyOps) ResourceKind() string {
 	if o.adapter.IsNamespaced() {
-		return "VaultPolicy"
+		return string(vaultv1alpha1.PolicyKindNamespaced)
 	}
-	return "VaultClusterPolicy"
+	return string(vaultv1alpha1.PolicyKindCluster)
 }
 
 func (o *PolicyOps) VaultResourceName() string {
@@ -73,19 +74,19 @@ func (o *PolicyOps) Validate() error {
 }
 
 // CheckConflict checks for conflicts with existing Vault policies.
-func (o *PolicyOps) CheckConflict(ctx context.Context, vaultClient *vault.Client) error {
+func (o *PolicyOps) CheckConflict(ctx context.Context, vaultClient workflow.VaultOpsClient) error {
 	return o.handler.checkConflict(ctx, vaultClient, o.adapter, o.adapter.GetVaultPolicyName())
 }
 
 // PrepareContent generates HCL and returns the spec hash.
-func (o *PolicyOps) PrepareContent(_ context.Context, _ *vault.Client) (string, error) {
+func (o *PolicyOps) PrepareContent(_ context.Context, _ workflow.VaultOpsClient) (string, error) {
 	o.hcl = o.handler.generatePolicyHCL(
 		o.adapter.GetRules(), o.namespace, o.adapter.GetName())
 	return o.handler.calculateHash(o.hcl), nil
 }
 
 // DetectDrift compares expected vs actual HCL content in Vault.
-func (o *PolicyOps) DetectDrift(ctx context.Context, vaultClient *vault.Client) (bool, string) {
+func (o *PolicyOps) DetectDrift(ctx context.Context, vaultClient workflow.VaultOpsClient) (bool, string) {
 	log := logr.FromContextOrDiscard(ctx)
 	currentHCL, err := vaultClient.ReadPolicy(ctx, o.adapter.GetVaultPolicyName())
 	if err != nil {
@@ -103,7 +104,7 @@ func (o *PolicyOps) DetectDrift(ctx context.Context, vaultClient *vault.Client) 
 // WriteToVault writes the generated HCL to Vault.
 // Skips the write if the discovery-pending annotation is set — this prevents
 // auto-created discovery CRs from overwriting adopted Vault policies with placeholder rules.
-func (o *PolicyOps) WriteToVault(ctx context.Context, vaultClient *vault.Client) error {
+func (o *PolicyOps) WriteToVault(ctx context.Context, vaultClient workflow.VaultOpsClient) error {
 	annotations := o.adapter.GetAnnotations()
 	if annotations["vault.platform.io/discovery-pending"] == "true" {
 		logr.FromContextOrDiscard(ctx).Info("skipping write for discovery-pending policy",
@@ -114,7 +115,7 @@ func (o *PolicyOps) WriteToVault(ctx context.Context, vaultClient *vault.Client)
 }
 
 // ReadbackVerify reads back the policy from Vault and verifies content matches.
-func (o *PolicyOps) ReadbackVerify(ctx context.Context, vaultClient *vault.Client) error {
+func (o *PolicyOps) ReadbackVerify(ctx context.Context, vaultClient workflow.VaultOpsClient) error {
 	log := logr.FromContextOrDiscard(ctx)
 	readbackHCL, readErr := vaultClient.ReadPolicy(ctx, o.adapter.GetVaultPolicyName())
 	if readErr != nil {
@@ -129,7 +130,7 @@ func (o *PolicyOps) ReadbackVerify(ctx context.Context, vaultClient *vault.Clien
 }
 
 // MarkManaged marks the policy as managed with rule descriptions.
-func (o *PolicyOps) MarkManaged(ctx context.Context, vaultClient *vault.Client) error {
+func (o *PolicyOps) MarkManaged(ctx context.Context, vaultClient workflow.VaultOpsClient) error {
 	k8sResource := o.adapter.GetK8sResourceIdentifier()
 	descriptions := o.handler.buildRuleDescriptions(
 		o.adapter.GetRules(), o.namespace, o.adapter.GetName())
@@ -137,12 +138,12 @@ func (o *PolicyOps) MarkManaged(ctx context.Context, vaultClient *vault.Client) 
 }
 
 // DeleteFromVault deletes the policy from Vault.
-func (o *PolicyOps) DeleteFromVault(ctx context.Context, vaultClient *vault.Client) error {
+func (o *PolicyOps) DeleteFromVault(ctx context.Context, vaultClient workflow.VaultOpsClient) error {
 	return vaultClient.DeletePolicy(ctx, o.adapter.GetVaultPolicyName())
 }
 
 // RemoveManaged removes the managed marker for this policy.
-func (o *PolicyOps) RemoveManaged(ctx context.Context, vaultClient *vault.Client) error {
+func (o *PolicyOps) RemoveManaged(ctx context.Context, vaultClient workflow.VaultOpsClient) error {
 	return vaultClient.RemovePolicyManaged(ctx, o.adapter.GetVaultPolicyName())
 }
 

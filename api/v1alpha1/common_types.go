@@ -164,12 +164,34 @@ type PolicyParameters struct {
 	Required []string `json:"required,omitempty"`
 }
 
+// PolicyKind identifies the type of a referenced policy resource.
+// Values are restricted to PolicyKindNamespaced or PolicyKindCluster.
+type PolicyKind string
+
+const (
+	// PolicyKindNamespaced references a namespaced VaultPolicy.
+	PolicyKindNamespaced PolicyKind = "VaultPolicy"
+	// PolicyKindCluster references a cluster-scoped VaultClusterPolicy.
+	PolicyKindCluster PolicyKind = "VaultClusterPolicy"
+)
+
+// Role kind string constants used by feature controllers' ResourceKind()
+// methods. Kept as untyped strings since they are not referenced by CRD
+// spec fields (unlike PolicyKind above), only by internal workflow labels
+// and event identifiers.
+const (
+	// RoleKindNamespaced is the workflow kind label for VaultRole.
+	RoleKindNamespaced = "VaultRole"
+	// RoleKindCluster is the workflow kind label for VaultClusterRole.
+	RoleKindCluster = "VaultClusterRole"
+)
+
 // PolicyReference defines a reference to a VaultPolicy or VaultClusterPolicy
 type PolicyReference struct {
 	// Kind of the policy (VaultPolicy or VaultClusterPolicy)
 	// +kubebuilder:validation:Enum=VaultPolicy;VaultClusterPolicy
 	// +kubebuilder:validation:Required
-	Kind string `json:"kind"`
+	Kind PolicyKind `json:"kind"`
 
 	// Name of the policy
 	// +kubebuilder:validation:Required

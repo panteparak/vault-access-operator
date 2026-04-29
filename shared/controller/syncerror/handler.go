@@ -54,21 +54,8 @@ func Handle(
 ) error {
 	gen := target.GetGeneration()
 
-	// Determine phase and reason based on error type
-	var reason string
-	if infraerrors.IsConflictError(err) {
-		target.SetPhase(vaultv1alpha1.PhaseConflict)
-		reason = vaultv1alpha1.ReasonConflict
-	} else if infraerrors.IsValidationError(err) {
-		target.SetPhase(vaultv1alpha1.PhaseError)
-		reason = vaultv1alpha1.ReasonValidationFailed
-	} else if infraerrors.IsDependencyError(err) {
-		target.SetPhase(vaultv1alpha1.PhaseError)
-		reason = vaultv1alpha1.ReasonConnectionNotReady
-	} else {
-		target.SetPhase(vaultv1alpha1.PhaseError)
-		reason = vaultv1alpha1.ReasonFailed
-	}
+	phase, reason := classifyError(err)
+	target.SetPhase(phase)
 
 	conds := target.GetConditions()
 	conds = conditions.Set(conds, gen, vaultv1alpha1.ConditionTypeReady,
@@ -98,4 +85,21 @@ func Handle(
 	}
 
 	return err
+}
+
+// classifyError maps an error to the (Phase, Ready-condition reason) pair
+// the workflow uses to surface failures to the user. Conflict errors set
+// PhaseConflict so users see a distinct state from generic Error; all
+// other classified errors land in PhaseError with a more specific reason.
+func classifyError(err error) (vaultv1alpha1.Phase, string) {
+	switch {
+	case infraerrors.IsConflictError(err):
+		return vaultv1alpha1.PhaseConflict, vaultv1alpha1.ReasonConflict
+	case infraerrors.IsValidationError(err):
+		return vaultv1alpha1.PhaseError, vaultv1alpha1.ReasonValidationFailed
+	case infraerrors.IsDependencyError(err):
+		return vaultv1alpha1.PhaseError, vaultv1alpha1.ReasonConnectionNotReady
+	default:
+		return vaultv1alpha1.PhaseError, vaultv1alpha1.ReasonFailed
+	}
 }

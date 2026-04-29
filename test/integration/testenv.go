@@ -197,11 +197,9 @@ func (te *TestEnvironment) startVault() error {
 	defer cancel()
 
 	// Default options for operator testing
-	defaultOpts := []VaultContainerOption{
-		WithOperatorPolicy(),
-		WithLogLevel("info"),
-	}
-	allOpts := append(defaultOpts, te.opts.vaultOpts...)
+	allOpts := make([]VaultContainerOption, 0, 2+len(te.opts.vaultOpts))
+	allOpts = append(allOpts, WithOperatorPolicy(), WithLogLevel("info"))
+	allOpts = append(allOpts, te.opts.vaultOpts...)
 
 	container, err := NewVaultTestContainer(ctx, allOpts...)
 	if err != nil {

@@ -249,7 +249,7 @@ func TestClusterPolicyRules() []vaultv1alpha1.PolicyRule {
 // NewPolicyReference creates a PolicyReference for testing.
 func NewPolicyReference(kind, name, namespace string) vaultv1alpha1.PolicyReference {
 	return vaultv1alpha1.PolicyReference{
-		Kind:      kind,
+		Kind:      vaultv1alpha1.PolicyKind(kind),
 		Name:      name,
 		Namespace: namespace,
 	}

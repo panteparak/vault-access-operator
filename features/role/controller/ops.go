@@ -22,9 +22,11 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/features/role/domain"
 	"github.com/panteparak/vault-access-operator/pkg/vault"
 	"github.com/panteparak/vault-access-operator/shared/controller/binding"
+	"github.com/panteparak/vault-access-operator/shared/controller/workflow"
 	"github.com/panteparak/vault-access-operator/shared/events"
 	infraerrors "github.com/panteparak/vault-access-operator/shared/infrastructure/errors"
 )
@@ -56,9 +58,9 @@ func NewRoleOps(adapter domain.RoleAdapter, handler *Handler) *RoleOps {
 
 func (o *RoleOps) ResourceKind() string {
 	if o.adapter.IsNamespaced() {
-		return "VaultRole"
+		return vaultv1alpha1.RoleKindNamespaced
 	}
-	return "VaultClusterRole"
+	return vaultv1alpha1.RoleKindCluster
 }
 
 func (o *RoleOps) VaultResourceName() string {
@@ -71,12 +73,12 @@ func (o *RoleOps) Validate() error {
 }
 
 // CheckConflict checks for conflicts with existing Vault roles.
-func (o *RoleOps) CheckConflict(ctx context.Context, vaultClient *vault.Client) error {
+func (o *RoleOps) CheckConflict(ctx context.Context, vaultClient workflow.VaultOpsClient) error {
 	return o.handler.checkConflict(ctx, vaultClient, o.adapter, o.authPath, o.adapter.GetVaultRoleName())
 }
 
 // PrepareContent resolves policies, verifies them, builds role data, and returns the spec hash.
-func (o *RoleOps) PrepareContent(ctx context.Context, vaultClient *vault.Client) (string, error) {
+func (o *RoleOps) PrepareContent(ctx context.Context, vaultClient workflow.VaultOpsClient) (string, error) {
 	// Resolve policy names from PolicyReferences
 	policyNames, err := o.handler.resolvePolicyNames(ctx, o.adapter)
 	if err != nil {
@@ -98,17 +100,17 @@ func (o *RoleOps) PrepareContent(ctx context.Context, vaultClient *vault.Client)
 }
 
 // DetectDrift compares expected vs actual role data in Vault.
-func (o *RoleOps) DetectDrift(ctx context.Context, vaultClient *vault.Client) (bool, string) {
+func (o *RoleOps) DetectDrift(ctx context.Context, vaultClient workflow.VaultOpsClient) (bool, string) {
 	return o.handler.detectRoleDrift(ctx, vaultClient, o.authPath, o.adapter.GetVaultRoleName(), o.roleData)
 }
 
 // WriteToVault creates/updates the Kubernetes auth role in Vault.
-func (o *RoleOps) WriteToVault(ctx context.Context, vaultClient *vault.Client) error {
+func (o *RoleOps) WriteToVault(ctx context.Context, vaultClient workflow.VaultOpsClient) error {
 	return vaultClient.WriteKubernetesAuthRole(ctx, o.authPath, o.adapter.GetVaultRoleName(), o.roleData)
 }
 
 // ReadbackVerify reads back the role and checks for drift.
-func (o *RoleOps) ReadbackVerify(ctx context.Context, vaultClient *vault.Client) error {
+func (o *RoleOps) ReadbackVerify(ctx context.Context, vaultClient workflow.VaultOpsClient) error {
 	hasDrift, summary := o.handler.detectRoleDrift(
 		ctx, vaultClient, o.authPath, o.adapter.GetVaultRoleName(), o.roleData,
 	)
@@ -120,18 +122,18 @@ func (o *RoleOps) ReadbackVerify(ctx context.Context, vaultClient *vault.Client)
 }
 
 // MarkManaged marks the role as managed by this operator.
-func (o *RoleOps) MarkManaged(ctx context.Context, vaultClient *vault.Client) error {
+func (o *RoleOps) MarkManaged(ctx context.Context, vaultClient workflow.VaultOpsClient) error {
 	k8sResource := o.adapter.GetK8sResourceIdentifier()
 	return vaultClient.MarkRoleManaged(ctx, o.adapter.GetVaultRoleName(), k8sResource)
 }
 
 // DeleteFromVault deletes the Kubernetes auth role from Vault.
-func (o *RoleOps) DeleteFromVault(ctx context.Context, vaultClient *vault.Client) error {
+func (o *RoleOps) DeleteFromVault(ctx context.Context, vaultClient workflow.VaultOpsClient) error {
 	return vaultClient.DeleteKubernetesAuthRole(ctx, o.authPath, o.adapter.GetVaultRoleName())
 }
 
 // RemoveManaged removes the managed marker for this role.
-func (o *RoleOps) RemoveManaged(ctx context.Context, vaultClient *vault.Client) error {
+func (o *RoleOps) RemoveManaged(ctx context.Context, vaultClient workflow.VaultOpsClient) error {
 	return vaultClient.RemoveRoleManaged(ctx, o.adapter.GetVaultRoleName())
 }
 
