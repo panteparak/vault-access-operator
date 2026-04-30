@@ -327,13 +327,42 @@ func TestValidateJWTClaims(t *testing.T) {
 			errorContains: "expired",
 		},
 		{
-			name: "valid - missing issuer claim (not required)",
+			// Followup: the previous behavior was "missing claim
+			// silently passes when expectedIssuer is set" — that
+			// would have authenticated tokens with no issuer claim
+			// against any expected-issuer policy. Fail-closed is the
+			// correct contract: if you ASK for an issuer, the token
+			// must HAVE one.
+			name: "fail-closed - missing issuer claim when expected",
 			claims: map[string]interface{}{
 				"aud": "vault",
 				"exp": validExpiry,
 			},
 			expectedIssuer: "https://issuer.example.com",
-			expectError:    false, // Missing claim is not checked against expected
+			expectError:    true,
+			errorContains:  "missing required `iss` claim",
+		},
+		{
+			name: "fail-closed - missing audience claim when expected",
+			claims: map[string]interface{}{
+				"iss": "https://issuer.example.com",
+				"exp": validExpiry,
+			},
+			expectedIssuer:   "https://issuer.example.com",
+			expectedAudience: "vault",
+			expectError:      true,
+			errorContains:    "missing required `aud` claim",
+		},
+		{
+			name: "valid - no issuer/audience expected, claim absent",
+			claims: map[string]interface{}{
+				"exp": validExpiry,
+			},
+			// Both expectedIssuer and expectedAudience empty → no claim
+			// required, validation passes regardless of which claims are
+			// or aren't in the token. Pinned alongside the fail-closed
+			// cases so future changes don't accidentally tighten this.
+			expectError: false,
 		},
 	}
 

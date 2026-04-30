@@ -17,6 +17,7 @@ limitations under the License.
 package drift
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -373,5 +374,120 @@ func TestComparator_ReuseSafety(t *testing.T) {
 	}
 	if len(r3.Fields) != 1 || r3.Fields[0] != "field3" {
 		t.Errorf("expected fields [field3], got %v", r3.Fields)
+	}
+}
+
+// TestComparator_CompareMultilineText_Identical pins that equal text produces
+// no drift — this is the common case on every reconcile when the policy is
+// already in sync.
+func TestComparator_CompareMultilineText_Identical(t *testing.T) {
+	t.Parallel()
+	c := NewComparator()
+	c.CompareMultilineText("rules", "path \"foo\" {}\n", "path \"foo\" {}\n")
+
+	r := c.Result()
+	if r.HasDrift {
+		t.Errorf("expected no drift for identical text, got summary=%q", r.Summary)
+	}
+}
+
+// TestComparator_CompareMultilineText_AddedLine simulates a Vault admin
+// manually adding a capability line the operator doesn't know about — the
+// preview must surface the unexpected line with `- ` marker.
+func TestComparator_CompareMultilineText_AddedLine(t *testing.T) {
+	t.Parallel()
+	expected := "path \"foo\" {\ncapabilities = [\"read\"]\n}"
+	actual := "path \"foo\" {\ncapabilities = [\"read\", \"list\"]\n}"
+	c := NewComparator()
+	c.CompareMultilineText("rules", expected, actual)
+
+	r := c.Result()
+	if !r.HasDrift {
+		t.Fatalf("expected drift for changed capabilities")
+	}
+	if !strings.Contains(r.Summary, "- capabilities = [\"read\", \"list\"]") {
+		t.Errorf("summary missing `- ` marker for Vault-side change:\n%s", r.Summary)
+	}
+	if !strings.Contains(r.Summary, "+ capabilities = [\"read\"]") {
+		t.Errorf("summary missing `+ ` marker for expected line:\n%s", r.Summary)
+	}
+	if !strings.Contains(r.Summary, "rules:") {
+		t.Errorf("summary missing field label `rules:`:\n%s", r.Summary)
+	}
+}
+
+// TestComparator_CompareMultilineText_CapsPreview pins that a wildly divergent
+// blob doesn't flood the summary — only `multilineDiffMaxLines` preview lines
+// are emitted, with overflow summarized as `... (N more)`.
+func TestComparator_CompareMultilineText_CapsPreview(t *testing.T) {
+	t.Parallel()
+	var expectedB, actualB strings.Builder
+	for i := 0; i < 20; i++ {
+		expectedB.WriteString("expected-line-")
+		expectedB.WriteString(strings.Repeat("x", i))
+		expectedB.WriteString("\n")
+		actualB.WriteString("actual-line-")
+		actualB.WriteString(strings.Repeat("y", i))
+		actualB.WriteString("\n")
+	}
+	c := NewComparator()
+	c.CompareMultilineText("rules", expectedB.String(), actualB.String())
+
+	r := c.Result()
+	if !r.HasDrift {
+		t.Fatal("expected drift")
+	}
+	if !strings.Contains(r.Summary, "more)") {
+		t.Errorf("summary should cap preview and include `... (N more)`, got:\n%s", r.Summary)
+	}
+	// The cap is 6 lines total; verify we haven't emitted all 40.
+	numMarker := strings.Count(r.Summary, "\n    - ") + strings.Count(r.Summary, "\n    + ")
+	if numMarker > multilineDiffMaxLines {
+		t.Errorf("emitted %d preview lines, want <=%d", numMarker, multilineDiffMaxLines)
+	}
+}
+
+// TestComparator_CompareMultilineText_CombinesWithOtherFields verifies that a
+// multiline diff doesn't crowd out structured field diffs — the Summary lists
+// *all* diverging fields, then per-field details for those that have them.
+func TestComparator_CompareMultilineText_CombinesWithOtherFields(t *testing.T) {
+	t.Parallel()
+	c := NewComparator()
+	c.CompareStrings("name", "role-a", "role-b")
+	c.CompareMultilineText("rules", "alpha\n", "beta\n")
+
+	r := c.Result()
+	if !r.HasDrift {
+		t.Fatal("expected drift")
+	}
+	if len(r.Fields) != 2 {
+		t.Errorf("expected 2 fields, got %v", r.Fields)
+	}
+	if !strings.HasPrefix(r.Summary, "fields differ: name, rules") {
+		t.Errorf("summary should start with combined field list, got:\n%s", r.Summary)
+	}
+	// `name` has no preview; `rules` should appear with its marker.
+	if strings.Contains(r.Summary, "name:\n") {
+		t.Errorf("summary should not have a preview for `name`, got:\n%s", r.Summary)
+	}
+	if !strings.Contains(r.Summary, "rules:\n") {
+		t.Errorf("summary should have a preview for `rules`, got:\n%s", r.Summary)
+	}
+}
+
+// TestComparator_CompareMultilineText_ResetClearsDetails pins that Reset()
+// clears the details map so a re-used comparator doesn't leak previews from
+// a previous comparison.
+func TestComparator_CompareMultilineText_ResetClearsDetails(t *testing.T) {
+	t.Parallel()
+	c := NewComparator()
+	c.CompareMultilineText("rules", "a\n", "b\n")
+	_ = c.Result()
+
+	c.Reset()
+	c.CompareMultilineText("rules", "x\n", "x\n")
+	r := c.Result()
+	if r.HasDrift {
+		t.Errorf("Reset should have cleared state; got summary=%q", r.Summary)
 	}
 }

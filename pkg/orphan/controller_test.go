@@ -699,3 +699,28 @@ func TestOrphanInfo_Fields(t *testing.T) {
 		t.Errorf("ConnectionName = %q, want 'vault-connection'", info.ConnectionName)
 	}
 }
+
+// TestController_StopWithoutStart pins the followup fix where Stop()
+// would deadlock forever when Start was never called. Mirrors the same
+// fix in pkg/cleanup.
+func TestController_StopWithoutStart(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = vaultv1alpha1.AddToScheme(scheme)
+	c := NewController(ControllerConfig{
+		K8sClient: fake.NewClientBuilder().WithScheme(scheme).Build(),
+		Log:       logr.Discard(),
+	})
+
+	done := make(chan struct{})
+	go func() {
+		c.Stop()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Pass.
+	case <-time.After(time.Second):
+		t.Fatal("Stop deadlocked when Start was never called")
+	}
+}

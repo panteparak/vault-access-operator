@@ -85,6 +85,7 @@ type mockOps struct {
 
 func (m *mockOps) ResourceKind() string      { return "VaultPolicy" }
 func (m *mockOps) VaultResourceName() string { return "default-test-policy" }
+func (m *mockOps) AuthPath() string          { return "" }
 
 func (m *mockOps) Validate() error {
 	m.calls = append(m.calls, "Validate")

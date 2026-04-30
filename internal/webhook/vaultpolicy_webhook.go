@@ -89,17 +89,35 @@ func (v *VaultPolicyValidator) ValidateCreate(ctx context.Context, policy *vault
 		return nil, err
 	}
 
-	return v.validateVaultPolicy(policy)
+	// Check for naming collision with OTHER VaultPolicies. The
+	// `namespace-name` join is ambiguous: "ns1/foo-bar" and "ns1-foo/bar"
+	// both compute to "ns1-foo-bar". Without this admission check, the
+	// second CR would hit a runtime Phase=Conflict, or with the adopt
+	// annotation both CRs would race on the same Vault policy.
+	if err := v.checkVaultPolicyCollision(ctx, vaultPolicyName, policy.Namespace, policy.Name); err != nil {
+		return nil, err
+	}
+
+	warnings, err := v.validateVaultPolicy(policy)
+	if err != nil {
+		return warnings, err
+	}
+	// IMPROVEMENTS §36: warn if the referenced VaultConnection doesn't exist yet.
+	warnings = append(warnings, checkConnectionRefExists(ctx, v.client, policy.Spec.ConnectionRef)...)
+	return warnings, nil
 }
 
 // ValidateUpdate implements admission.Validator
 func (v *VaultPolicyValidator) ValidateUpdate(ctx context.Context, oldPolicy, policy *vaultv1alpha1.VaultPolicy) (admission.Warnings, error) {
 	vaultpolicylog.Info("validating VaultPolicy update", "name", policy.Name, "namespace", policy.Namespace)
 
-	// connectionRef is immutable after creation
+	// connectionRef may only change when both connections point at the same
+	// Vault instance (spec.address). Different addresses would move the policy
+	// to a different Vault and silently orphan the original.
 	if oldPolicy.Spec.ConnectionRef != policy.Spec.ConnectionRef {
-		return nil, fmt.Errorf("spec.connectionRef is immutable (was %q, attempted %q)",
-			oldPolicy.Spec.ConnectionRef, policy.Spec.ConnectionRef)
+		if err := v.checkConnectionRefSameAddress(ctx, oldPolicy.Spec.ConnectionRef, policy.Spec.ConnectionRef); err != nil {
+			return nil, err
+		}
 	}
 
 	return v.validateVaultPolicy(policy)
@@ -151,17 +169,25 @@ func (v *VaultClusterPolicyValidator) ValidateCreate(ctx context.Context, policy
 		return nil, err
 	}
 
-	return v.validateVaultClusterPolicy(policy)
+	warnings, err := v.validateVaultClusterPolicy(policy)
+	if err != nil {
+		return warnings, err
+	}
+	// IMPROVEMENTS §36.
+	warnings = append(warnings, checkConnectionRefExists(ctx, v.client, policy.Spec.ConnectionRef)...)
+	return warnings, nil
 }
 
 // ValidateUpdate implements admission.Validator
 func (v *VaultClusterPolicyValidator) ValidateUpdate(ctx context.Context, oldPolicy, policy *vaultv1alpha1.VaultClusterPolicy) (admission.Warnings, error) {
 	vaultpolicylog.Info("validating VaultClusterPolicy update", "name", policy.Name)
 
-	// connectionRef is immutable after creation
+	// connectionRef may only change when both connections point at the same
+	// Vault instance (spec.address). See VaultPolicy ValidateUpdate for rationale.
 	if oldPolicy.Spec.ConnectionRef != policy.Spec.ConnectionRef {
-		return nil, fmt.Errorf("spec.connectionRef is immutable (was %q, attempted %q)",
-			oldPolicy.Spec.ConnectionRef, policy.Spec.ConnectionRef)
+		if err := checkConnectionRefSameAddress(ctx, v.client, oldPolicy.Spec.ConnectionRef, policy.Spec.ConnectionRef); err != nil {
+			return nil, err
+		}
 	}
 
 	return v.validateVaultClusterPolicy(policy)
@@ -302,6 +328,41 @@ func IsValidCapability(cap vaultv1alpha1.Capability) bool {
 	return validCapabilities[cap]
 }
 
+// checkConnectionRefSameAddress is the VaultPolicyValidator method form.
+func (v *VaultPolicyValidator) checkConnectionRefSameAddress(ctx context.Context, oldRef, newRef string) error {
+	return checkConnectionRefSameAddress(ctx, v.client, oldRef, newRef)
+}
+
+// checkConnectionRefSameAddress allows a connectionRef change only when both
+// the old and new VaultConnections resolve to the same spec.address. When one
+// or both connections can't be fetched, we err on the side of the existing
+// immutability behaviour and reject the change.
+func checkConnectionRefSameAddress(ctx context.Context, c client.Client, oldRef, newRef string) error {
+	if c == nil {
+		// Without a client we can't compare addresses — preserve the old
+		// immutability semantic to avoid silent migrations across Vault instances.
+		return fmt.Errorf("spec.connectionRef is immutable (was %q, attempted %q)", oldRef, newRef)
+	}
+
+	oldConn := &vaultv1alpha1.VaultConnection{}
+	if err := c.Get(ctx, types.NamespacedName{Name: oldRef}, oldConn); err != nil {
+		return fmt.Errorf("spec.connectionRef change rejected: cannot resolve previous VaultConnection %q: %w", oldRef, err)
+	}
+	newConn := &vaultv1alpha1.VaultConnection{}
+	if err := c.Get(ctx, types.NamespacedName{Name: newRef}, newConn); err != nil {
+		return fmt.Errorf("spec.connectionRef change rejected: cannot resolve new VaultConnection %q: %w", newRef, err)
+	}
+
+	if oldConn.Spec.Address != newConn.Spec.Address {
+		return fmt.Errorf(
+			"spec.connectionRef change rejected: VaultConnection %q (address %q) and %q (address %q) target different Vault instances",
+			oldRef, oldConn.Spec.Address, newRef, newConn.Spec.Address,
+		)
+	}
+
+	return nil
+}
+
 // checkPolicyNameCollision checks if a VaultClusterPolicy exists that would create a naming collision
 // with the given VaultPolicy. A collision occurs when a VaultClusterPolicy has the same name as the
 // Vault policy name that would be generated for this VaultPolicy (i.e., "{namespace}-{name}").
@@ -325,6 +386,35 @@ func (v *VaultPolicyValidator) checkPolicyNameCollision(ctx context.Context, vau
 	}
 
 	// No collision
+	return nil
+}
+
+// checkVaultPolicyCollision checks if any OTHER VaultPolicy in the cluster
+// computes to the same Vault policy name. The `namespace-name` join is
+// ambiguous (see the collision example in ValidateCreate). Skipped on
+// update since the vaultName is derived from immutable fields.
+func (v *VaultPolicyValidator) checkVaultPolicyCollision(
+	ctx context.Context, vaultPolicyName, namespace, name string,
+) error {
+	if v.client == nil {
+		return nil
+	}
+	policyList := &vaultv1alpha1.VaultPolicyList{}
+	if err := v.client.List(ctx, policyList); err != nil {
+		return fmt.Errorf("failed to list VaultPolicies for collision check: %w", err)
+	}
+	for _, p := range policyList.Items {
+		if p.Namespace == namespace && p.Name == name {
+			continue
+		}
+		existingVaultName := fmt.Sprintf("%s-%s", p.Namespace, p.Name)
+		if existingVaultName == vaultPolicyName {
+			return fmt.Errorf(
+				"naming collision: VaultPolicy %s/%s already maps to Vault policy name %q — "+
+					"rename this CR (or the existing one) so `<namespace>-<name>` is unique",
+				p.Namespace, p.Name, vaultPolicyName)
+		}
+	}
 	return nil
 }
 

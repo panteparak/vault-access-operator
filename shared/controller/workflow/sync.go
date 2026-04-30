@@ -24,6 +24,7 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	ktypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -31,6 +32,7 @@ import (
 	"github.com/panteparak/vault-access-operator/pkg/metrics"
 	"github.com/panteparak/vault-access-operator/shared/controller/conditions"
 	"github.com/panteparak/vault-access-operator/shared/controller/driftmode"
+	"github.com/panteparak/vault-access-operator/shared/controller/dryrun"
 	"github.com/panteparak/vault-access-operator/shared/controller/syncerror"
 	"github.com/panteparak/vault-access-operator/shared/events"
 	infraerrors "github.com/panteparak/vault-access-operator/shared/infrastructure/errors"
@@ -62,6 +64,13 @@ type syncExecutionState struct {
 	specHash           string
 	vaultClient        VaultOpsClient
 	log                logr.Logger
+	// usedAllowDestructive marks that the workflow consumed the
+	// `vault.platform.io/allow-destructive` annotation in this reconcile
+	// to authorize a drift-correction write. After the sync completes
+	// successfully the annotation is auto-cleared so the user must
+	// re-arm it for any future correction. Mirrors the one-shot
+	// semantics of `vault.platform.io/reconcile-now`.
+	usedAllowDestructive bool
 }
 
 // NewSyncWorkflow creates a new SyncWorkflow.
@@ -196,7 +205,7 @@ func (w *SyncWorkflow) handleDriftDetection(
 				vaultv1alpha1.ReasonNoDrift, "No drift detected")
 		}
 
-		metrics.SetDriftDetected(state.kind, resource.GetNamespace(), state.driftDetected)
+		metrics.SetDriftDetected(state.kind, resource.GetNamespace(), resource.GetName(), state.driftDetected)
 		return
 	}
 
@@ -234,6 +243,10 @@ func (w *SyncWorkflow) handleDriftModes(
 	annotations := resource.GetAnnotations()
 	if annotations[vaultv1alpha1.AnnotationAllowDestructive] == vaultv1alpha1.AnnotationValueTrue {
 		state.log.Info("correcting drift with destructive annotation", "resource", state.vaultResourceName)
+		// Mark that we consumed the annotation so finalizeSuccessfulSync
+		// can clear it after the write succeeds — one-shot semantics so
+		// the user must re-arm for any future correction.
+		state.usedAllowDestructive = true
 		return false, nil
 	}
 
@@ -306,14 +319,45 @@ func (w *SyncWorkflow) finalizeSuccessfulSync(
 	resource.SetDriftDetected(false)
 	resource.SetDriftSummary("")
 	resource.SetLastDriftCheckAt(&state.now)
-	w.setCondition(resource, vaultv1alpha1.ConditionTypeReady, metav1.ConditionTrue,
-		vaultv1alpha1.ReasonSucceeded, state.label+" synced to Vault")
+	// Honor a prior PoliciesResolved=False condition before stamping
+	// Ready=True. The role handler's verifyPoliciesExistInVault sets
+	// PoliciesResolved=False/PolicyNotInVault when referenced policies
+	// don't exist in Vault. Earlier this code unconditionally set
+	// Ready=True/Succeeded AND DependencyReady=True/DependencyReady,
+	// directly contradicting the just-set PoliciesResolved=False —
+	// operators saw a "healthy" role that workloads couldn't actually
+	// use because the bound policies were missing. Now Ready and
+	// DependencyReady track the actual dependency state.
+	policiesCond := conditions.Get(resource.GetConditions(), vaultv1alpha1.ConditionTypePoliciesResolved)
+	if policiesCond != nil && policiesCond.Status == metav1.ConditionFalse {
+		w.setCondition(resource, vaultv1alpha1.ConditionTypeReady, metav1.ConditionFalse,
+			policiesCond.Reason, policiesCond.Message)
+		w.setCondition(resource, vaultv1alpha1.ConditionTypeDependencyReady, metav1.ConditionFalse,
+			policiesCond.Reason, policiesCond.Message)
+	} else {
+		w.setCondition(resource, vaultv1alpha1.ConditionTypeReady, metav1.ConditionTrue,
+			vaultv1alpha1.ReasonSucceeded, state.label+" synced to Vault")
+		w.setCondition(resource, vaultv1alpha1.ConditionTypeDependencyReady, metav1.ConditionTrue,
+			vaultv1alpha1.ReasonDependencyReady, "All dependencies ready")
+	}
 	w.setCondition(resource, vaultv1alpha1.ConditionTypeSynced, metav1.ConditionTrue,
 		vaultv1alpha1.ReasonSucceeded, state.label+" synced successfully")
-	w.setCondition(resource, vaultv1alpha1.ConditionTypeDependencyReady, metav1.ConditionTrue,
-		vaultv1alpha1.ReasonDependencyReady, "All dependencies ready")
 	w.setCondition(resource, vaultv1alpha1.ConditionTypeDrifted, metav1.ConditionFalse,
 		vaultv1alpha1.ReasonNoDrift, "No drift detected")
+
+	// IMPROVEMENTS Missing Features §I: surface dry-run state. The ops
+	// layer skipped Vault writes if the resource carries the dry-run
+	// annotation; reflect that intent in conditions so dashboards and
+	// `kubectl describe` make it obvious the policy/role isn't actually
+	// pushed to Vault.
+	if isDryRunResource(resource) {
+		w.setCondition(resource, vaultv1alpha1.ConditionTypeDryRun, metav1.ConditionTrue,
+			vaultv1alpha1.ReasonDryRunSkipped,
+			"Vault writes skipped (vault.platform.io/dry-run=true) — remove the annotation to apply")
+	} else {
+		w.setCondition(resource, vaultv1alpha1.ConditionTypeDryRun, metav1.ConditionFalse,
+			vaultv1alpha1.ReasonSucceeded, "")
+	}
 
 	if err := w.commitStatus(ctx, resource, "Active"); err != nil {
 		return err
@@ -328,8 +372,47 @@ func (w *SyncWorkflow) finalizeSuccessfulSync(
 		ops.PublishSyncEvent(ctx, w.eventBus)
 	}
 
+	// Auto-clear the allow-destructive annotation if it was consumed in
+	// this reconcile. One-shot semantics: the user must re-arm the
+	// annotation for any future drift correction. Without this, a single
+	// "I accept the risk" approval would become a standing permission
+	// that auto-corrects every subsequent drift event silently.
+	//
+	// Best-effort: a patch failure here is logged but doesn't fail the
+	// sync (the destructive write already succeeded). The next reconcile
+	// can re-attempt the clear.
+	if state.usedAllowDestructive {
+		if err := w.clearAllowDestructiveAnnotation(ctx, resource); err != nil {
+			state.log.V(1).Info("failed to clear allow-destructive annotation (non-fatal)",
+				"resource", state.vaultResourceName, "error", err.Error())
+		}
+	}
+
 	state.log.Info(strings.ToLower(state.label)+" synced successfully", "resource", state.vaultResourceName)
 	return nil
+}
+
+// clearAllowDestructiveAnnotation patches off the
+// `vault.platform.io/allow-destructive` annotation via a strategic merge
+// patch. No-op if the annotation isn't set. Mirrors the reconcile-now
+// auto-clear in BaseReconciler so safety annotations behave consistently
+// (one-shot, must be re-armed for each use).
+func (w *SyncWorkflow) clearAllowDestructiveAnnotation(
+	ctx context.Context, resource SyncableResource,
+) error {
+	obj := resource.GetObject()
+	if obj == nil {
+		return nil
+	}
+	if _, ok := obj.GetAnnotations()[vaultv1alpha1.AnnotationAllowDestructive]; !ok {
+		return nil
+	}
+	patch := client.RawPatch(
+		ktypes.MergePatchType,
+		[]byte(fmt.Sprintf(`{"metadata":{"annotations":{%q:null}}}`,
+			vaultv1alpha1.AnnotationAllowDestructive)),
+	)
+	return w.client.Patch(ctx, obj, patch)
 }
 
 // handleSyncError classifies the error and updates status via syncerror.Handle.
@@ -376,4 +459,19 @@ func resourceLabel(kind string) string {
 	s := strings.TrimPrefix(kind, "Vault")
 	s = strings.TrimPrefix(s, "Cluster")
 	return s
+}
+
+// isDryRunResource reports whether the resource carries the
+// vault.platform.io/dry-run=true annotation. The PolicyOps and RoleOps
+// guards skip Vault writes when this is set; the workflow uses it to
+// surface ConditionTypeDryRun. IMPROVEMENTS Missing Features §I.
+//
+// Delegates to the shared dryrun package so all three call sites
+// (policy ops, role ops, sync workflow) agree on the strict-equality
+// semantics. nil resource → false (safe default).
+func isDryRunResource(resource SyncableResource) bool {
+	if resource == nil {
+		return false
+	}
+	return dryrun.IsActive(resource.GetObject())
 }

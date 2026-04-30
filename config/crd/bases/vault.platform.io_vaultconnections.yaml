@@ -585,6 +585,22 @@ spec:
                     description: BootstrapCompletedAt is when bootstrap was completed
                     format: date-time
                     type: string
+                  bootstrapSteps:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      BootstrapSteps tracks which individual bootstrap steps have completed.
+                      Used for diagnostic visibility after a partial failure — e.g., if the
+                      Vault CLI credentials allowed enabling the auth mount but not creating
+                      the operator role, the user can see exactly where it stopped.
+                      Success keys: "AuthMountEnabled", "AuthMountConfigured",
+                      "OperatorPolicyCreated", "OperatorRoleCreated", "BootstrapTokenRevoked"
+                      — values are the RFC3339 timestamps of step completion.
+                      Non-fatal failure keys: "K8sAuthTestFailed", "BootstrapTokenRevokeFailed"
+                      — values are formatted as "failed at <RFC3339>: <error>" so operators
+                      reading the status see both when and why the step failed without
+                      having to grep pod logs. IMPROVEMENTS §10.
+                    type: object
                   tokenAccessor:
                     description: |-
                       TokenAccessor is the Vault token accessor for the current operator token.

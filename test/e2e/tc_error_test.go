@@ -32,6 +32,10 @@ import (
 var _ = Describe("Error Handling Tests", Ordered, Label("module"), func() {
 	ctx := context.Background()
 
+	BeforeAll(func() {
+		RefreshSharedVaultToken(ctx)
+	})
+
 	Context("TC-EH: Error Scenarios", func() {
 		It("TC-EH01: Handle invalid connection reference", func() {
 			invalidPolicyName := "tc-eh01-invalid-conn"

@@ -34,6 +34,12 @@ type ResourceOps interface {
 	// VaultResourceName returns the Vault-side name (e.g., "default-my-policy").
 	VaultResourceName() string
 
+	// AuthPath returns the Vault auth mount for roles (e.g., "auth/kubernetes")
+	// and the empty string for resources that don't live under an auth mount
+	// (policies). Used by the cleanup retry queue to remember which mount to
+	// hit when a failed delete is replayed — see IMPROVEMENTS §2.
+	AuthPath() string
+
 	// --- Pre-sync operations ---
 
 	// Validate performs resource-specific pre-sync validation (e.g., namespace boundary).

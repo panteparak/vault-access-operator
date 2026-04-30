@@ -703,6 +703,19 @@ func UpdateVaultClusterRoleCR(ctx context.Context, name string, mutate func(*vau
 	return PatchObject(ctx, role, client.MergeFrom(old))
 }
 
+// UpdateVaultConnectionCR fetches the latest VaultConnection, applies the
+// mutate function, and writes it back using merge patch to avoid resourceVersion
+// conflicts with the operator's status updates.
+func UpdateVaultConnectionCR(ctx context.Context, name string, mutate func(*vaultv1alpha1.VaultConnection)) error {
+	conn, err := GetVaultConnection(ctx, name, "")
+	if err != nil {
+		return fmt.Errorf("failed to get VaultConnection for update: %w", err)
+	}
+	old := conn.DeepCopy()
+	mutate(conn)
+	return PatchObject(ctx, conn, client.MergeFrom(old))
+}
+
 // =============================================================================
 // CRD Delete helpers (by name, idempotent)
 // =============================================================================

@@ -31,7 +31,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"k8s.io/client-go/tools/record"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/pkg/vault"
@@ -153,7 +154,7 @@ func newMockVaultServer(version string, healthErr bool) *httptest.Server {
 // TestNewHandler tests that NewHandler creates a handler with all fields set.
 func TestNewHandler(t *testing.T) {
 	scheme := createScheme()
-	client := fake.NewClientBuilder().WithScheme(scheme).Build()
+	client := newClientBuilderWithConnectionRefIndex(scheme).Build()
 	cache := vault.NewClientCache()
 	bus := events.NewEventBus(logr.Discard())
 	logger := logr.Discard()
@@ -181,7 +182,7 @@ func TestNewHandler(t *testing.T) {
 // TestNewHandler_NilEventBus tests that NewHandler works with nil EventBus.
 func TestNewHandler_NilEventBus(t *testing.T) {
 	scheme := createScheme()
-	client := fake.NewClientBuilder().WithScheme(scheme).Build()
+	client := newClientBuilderWithConnectionRefIndex(scheme).Build()
 	cache := vault.NewClientCache()
 	logger := logr.Discard()
 
@@ -197,6 +198,27 @@ func TestNewHandler_NilEventBus(t *testing.T) {
 	}
 }
 
+// TestGetSecretData_RejectsEmptyNamespace pins the fix for the silent
+// "default" namespace fallback. Pre-fix, an empty SecretRef.Namespace
+// fell back to "default" — a user with cluster-edit access could plant
+// a secret in "default" and have the operator read it (the operator's
+// RBAC reads cluster-wide). Now empty namespace returns a clear error
+// at runtime as a defense-in-depth check (the webhook also rejects).
+func TestGetSecretData_RejectsEmptyNamespace(t *testing.T) {
+	scheme := createScheme()
+	c := newClientBuilderWithConnectionRefIndex(scheme).Build()
+	h := &Handler{client: c, log: logr.Discard()}
+
+	ref := &vaultv1alpha1.SecretKeySelector{Name: "boot", Key: "token"} // Namespace unset
+	_, err := h.getSecretData(context.Background(), ref)
+	if err == nil {
+		t.Fatal("expected error for empty namespace, got nil")
+	}
+	if !strings.Contains(err.Error(), "namespace is required") {
+		t.Errorf("error = %q, want it to contain 'namespace is required'", err.Error())
+	}
+}
+
 // TestSync_Success tests successful sync updates status to Active and stores client in cache.
 func TestSync_Success(t *testing.T) {
 	// Create mock Vault server
@@ -207,8 +229,7 @@ func TestSync_Success(t *testing.T) {
 	secret := newTokenSecret(tokenSecretOpts{})
 	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
 
-	client := fake.NewClientBuilder().
-		WithScheme(scheme).
+	client := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(secret, conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -270,8 +291,7 @@ func TestSync_AuthenticationError(t *testing.T) {
 	// Create connection without corresponding secret - authentication will fail
 	conn := newVaultConnection(vaultConnectionOpts{address: "http://localhost:8200", secretName: "nonexistent-secret"})
 
-	client := fake.NewClientBuilder().
-		WithScheme(scheme).
+	client := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -332,8 +352,7 @@ func TestSync_VaultVersionError(t *testing.T) {
 	secret := newTokenSecret(tokenSecretOpts{})
 	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
 
-	client := fake.NewClientBuilder().
-		WithScheme(scheme).
+	client := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(secret, conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -388,8 +407,7 @@ func TestSync_WithTLSConfiguration(t *testing.T) {
 		},
 	}
 
-	client := fake.NewClientBuilder().
-		WithScheme(scheme).
+	client := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(secret, conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -428,8 +446,7 @@ func TestSync_PublishesConnectionReadyEvent(t *testing.T) {
 	secret := newTokenSecret(tokenSecretOpts{})
 	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
 
-	client := fake.NewClientBuilder().
-		WithScheme(scheme).
+	client := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(secret, conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -481,8 +498,7 @@ func TestSync_NoEventBus(t *testing.T) {
 	secret := newTokenSecret(tokenSecretOpts{})
 	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
 
-	client := fake.NewClientBuilder().
-		WithScheme(scheme).
+	client := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(secret, conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -516,8 +532,7 @@ func TestSync_UpdatesPhaseToSyncing(t *testing.T) {
 	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
 	conn.Status.Phase = vaultv1alpha1.PhasePending // Start with Pending
 
-	client := fake.NewClientBuilder().
-		WithScheme(scheme).
+	client := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(secret, conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -541,13 +556,101 @@ func TestSync_UpdatesPhaseToSyncing(t *testing.T) {
 	}
 }
 
+// TestCleanup_DependentsMessageBounded pins the fix for the bug where
+// the deletion-blocked condition message enumerated every dependent
+// resource. With 1000+ dependents at ~50 bytes each, the message
+// could exceed the 4KB recommended condition message limit and, when
+// combined with other large status fields, push the per-object size
+// past etcd's 1.5MB limit and silently fail the Status update.
+// The cap is 20 dependents in the message; the full list still
+// appears in the operator log for grep-based investigation.
+func TestCleanup_DependentsMessageBounded(t *testing.T) {
+	scheme := createScheme()
+	conn := newVaultConnection(vaultConnectionOpts{address: "http://localhost:8200"})
+
+	// Build 50 dependent VaultPolicies — well over the 20-cap.
+	objs := []ctrlclient.Object{conn}
+	for i := 0; i < 50; i++ {
+		policy := &vaultv1alpha1.VaultPolicy{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      fmt.Sprintf("dep-policy-%02d", i),
+				Namespace: "default",
+			},
+			Spec: vaultv1alpha1.VaultPolicySpec{ConnectionRef: conn.Name},
+		}
+		objs = append(objs, policy)
+	}
+
+	c := newClientBuilderWithConnectionRefIndex(scheme).
+		WithObjects(objs...).
+		WithStatusSubresource(conn).
+		Build()
+	cache := vault.NewClientCache()
+	bus := events.NewEventBus(logr.Discard())
+	handler := NewHandler(HandlerConfig{Client: c, ClientCache: cache, EventBus: bus, Log: logr.Discard()})
+
+	err := handler.Cleanup(context.Background(), conn)
+	if err == nil {
+		t.Fatal("expected cleanup error (deletion blocked), got nil")
+	}
+	msg := err.Error()
+	// Must include the count up-front
+	if !strings.Contains(msg, "50 dependent resource(s)") {
+		t.Errorf("error message should report total count: %q", msg)
+	}
+	// Must include the truncation note (since 50 > 20)
+	if !strings.Contains(msg, "showing 20 of 50") {
+		t.Errorf("error message should report truncation: %q", msg)
+	}
+	// Sanity bound: message length should be small. With 20 entries
+	// at ~30 bytes each = ~600 + framing, well under 2KB.
+	if len(msg) > 2048 {
+		t.Errorf("error message length = %d, want < 2048 bytes (truncation broken)", len(msg))
+	}
+}
+
+// TestCleanup_DependentsMessageNotTruncatedBelowCap pins the negative
+// case: when there are fewer than the cap, the message lists them all
+// without the "showing X of Y" suffix.
+func TestCleanup_DependentsMessageNotTruncatedBelowCap(t *testing.T) {
+	scheme := createScheme()
+	conn := newVaultConnection(vaultConnectionOpts{address: "http://localhost:8200"})
+
+	objs := []ctrlclient.Object{conn}
+	for i := 0; i < 5; i++ {
+		policy := &vaultv1alpha1.VaultPolicy{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      fmt.Sprintf("dep-policy-%d", i),
+				Namespace: "default",
+			},
+			Spec: vaultv1alpha1.VaultPolicySpec{ConnectionRef: conn.Name},
+		}
+		objs = append(objs, policy)
+	}
+
+	c := newClientBuilderWithConnectionRefIndex(scheme).
+		WithObjects(objs...).
+		WithStatusSubresource(conn).
+		Build()
+	cache := vault.NewClientCache()
+	bus := events.NewEventBus(logr.Discard())
+	handler := NewHandler(HandlerConfig{Client: c, ClientCache: cache, EventBus: bus, Log: logr.Discard()})
+
+	err := handler.Cleanup(context.Background(), conn)
+	if err == nil {
+		t.Fatal("expected cleanup error, got nil")
+	}
+	if strings.Contains(err.Error(), "showing") {
+		t.Errorf("message should not include truncation marker for 5 deps: %q", err.Error())
+	}
+}
+
 // TestCleanup_RemovesClientFromCache tests that cleanup removes client from cache.
 func TestCleanup_RemovesClientFromCache(t *testing.T) {
 	scheme := createScheme()
 	conn := newVaultConnection(vaultConnectionOpts{address: "http://localhost:8200"})
 
-	client := fake.NewClientBuilder().
-		WithScheme(scheme).
+	client := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -586,8 +689,7 @@ func TestCleanup_UpdatesStatusToDeleting(t *testing.T) {
 	conn := newVaultConnection(vaultConnectionOpts{address: "http://localhost:8200"})
 	conn.Status.Phase = vaultv1alpha1.PhaseActive // Start with Active
 
-	client := fake.NewClientBuilder().
-		WithScheme(scheme).
+	client := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -616,8 +718,7 @@ func TestCleanup_PublishesConnectionDisconnectedEvent(t *testing.T) {
 	scheme := createScheme()
 	conn := newVaultConnection(vaultConnectionOpts{address: "http://localhost:8200"})
 
-	client := fake.NewClientBuilder().
-		WithScheme(scheme).
+	client := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -661,8 +762,7 @@ func TestCleanup_NoEventBus(t *testing.T) {
 	scheme := createScheme()
 	conn := newVaultConnection(vaultConnectionOpts{address: "http://localhost:8200"})
 
-	client := fake.NewClientBuilder().
-		WithScheme(scheme).
+	client := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -902,8 +1002,7 @@ func TestSync_SecretKeyNotFound(t *testing.T) {
 	secret := newTokenSecret(tokenSecretOpts{key: "wrong-key"})
 	conn := newVaultConnection(vaultConnectionOpts{address: "http://localhost:8200"})
 
-	client := fake.NewClientBuilder().
-		WithScheme(scheme).
+	client := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(secret, conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -939,8 +1038,7 @@ func TestSync_DefaultSecretNamespace(t *testing.T) {
 	// Create connection with empty namespace (should default to "default")
 	conn := newVaultConnection(vaultConnectionOpts{address: server.URL, secretNamespace: ""})
 
-	client := fake.NewClientBuilder().
-		WithScheme(scheme).
+	client := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(secret, conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -978,8 +1076,7 @@ func TestSync_NoAuthMethodConfigured(t *testing.T) {
 		},
 	}
 
-	client := fake.NewClientBuilder().
-		WithScheme(scheme).
+	client := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -1020,8 +1117,7 @@ func TestSync_StatusMessageCleared(t *testing.T) {
 	conn.Status.Phase = vaultv1alpha1.PhaseError
 	conn.Status.Message = "Previous error message"
 
-	client := fake.NewClientBuilder().
-		WithScheme(scheme).
+	client := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(secret, conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -1050,8 +1146,7 @@ func TestCleanup_CleanupWithoutClientInCache(t *testing.T) {
 	scheme := createScheme()
 	conn := newVaultConnection(vaultConnectionOpts{address: "http://localhost:8200"})
 
-	client := fake.NewClientBuilder().
-		WithScheme(scheme).
+	client := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -1098,8 +1193,7 @@ func TestCleanup_BlockedByDependentPolicies(t *testing.T) {
 		},
 	}
 
-	k8sClient := fake.NewClientBuilder().
-		WithScheme(scheme).
+	k8sClient := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn, policy).
 		WithStatusSubresource(conn).
 		Build()
@@ -1127,8 +1221,7 @@ func TestCleanup_NoDependents(t *testing.T) {
 	conn := newVaultConnection(vaultConnectionOpts{address: "http://localhost:8200"})
 
 	// No dependent resources
-	k8sClient := fake.NewClientBuilder().
-		WithScheme(scheme).
+	k8sClient := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -1177,8 +1270,7 @@ func TestCleanup_BlockedByMixedDependents(t *testing.T) {
 		},
 	}
 
-	k8sClient := fake.NewClientBuilder().
-		WithScheme(scheme).
+	k8sClient := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn, policy, role).
 		WithStatusSubresource(conn).
 		Build()
@@ -1289,8 +1381,7 @@ func TestGetOrRenewClient_CacheHit_FreshToken(t *testing.T) {
 	scheme := createScheme()
 	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
 
-	k8sClient := fake.NewClientBuilder().
-		WithScheme(scheme).
+	k8sClient := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -1337,8 +1428,7 @@ func TestGetOrRenewClient_CacheHit_RenewalThreshold(t *testing.T) {
 	scheme := createScheme()
 	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
 
-	k8sClient := fake.NewClientBuilder().
-		WithScheme(scheme).
+	k8sClient := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -1386,8 +1476,7 @@ func TestGetOrRenewClient_CacheHit_RenewalFails_ReAuth(t *testing.T) {
 	secret := newTokenSecret(tokenSecretOpts{})
 	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
 
-	k8sClient := fake.NewClientBuilder().
-		WithScheme(scheme).
+	k8sClient := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(secret, conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -1431,8 +1520,7 @@ func TestGetOrRenewClient_CacheHit_TokenExpired_ReAuth(t *testing.T) {
 	secret := newTokenSecret(tokenSecretOpts{})
 	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
 
-	k8sClient := fake.NewClientBuilder().
-		WithScheme(scheme).
+	k8sClient := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(secret, conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -1472,8 +1560,7 @@ func TestGetOrRenewClient_CacheHit_StaticToken(t *testing.T) {
 	scheme := createScheme()
 	conn := newVaultConnection(vaultConnectionOpts{address: "http://localhost:8200"})
 
-	k8sClient := fake.NewClientBuilder().
-		WithScheme(scheme).
+	k8sClient := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -1517,8 +1604,7 @@ func TestGetOrRenewClient_CacheHit_AddressMismatch(t *testing.T) {
 	// Connection points to the mock server
 	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
 
-	k8sClient := fake.NewClientBuilder().
-		WithScheme(scheme).
+	k8sClient := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(secret, conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -1564,8 +1650,7 @@ func TestGetOrRenewClient_CacheMiss_FreshAuth(t *testing.T) {
 	secret := newTokenSecret(tokenSecretOpts{})
 	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
 
-	k8sClient := fake.NewClientBuilder().
-		WithScheme(scheme).
+	k8sClient := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(secret, conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -1603,8 +1688,7 @@ func TestGetOrRenewClient_CacheMiss_AuthError(t *testing.T) {
 		secretName: "nonexistent-secret",
 	})
 
-	k8sClient := fake.NewClientBuilder().
-		WithScheme(scheme).
+	k8sClient := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -1647,8 +1731,7 @@ func TestSync_ErrorPhaseResetToSyncing(t *testing.T) {
 	conn.Status.Phase = vaultv1alpha1.PhaseError // Start in Error phase
 	conn.Status.Message = testPreviousError
 
-	k8sClient := fake.NewClientBuilder().
-		WithScheme(scheme).
+	k8sClient := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -1687,8 +1770,7 @@ func TestSync_ActivePhaseNotResetToSyncing(t *testing.T) {
 	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
 	conn.Status.Phase = vaultv1alpha1.PhaseActive // Start in Active phase
 
-	k8sClient := fake.NewClientBuilder().
-		WithScheme(scheme).
+	k8sClient := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(secret, conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -1727,8 +1809,7 @@ func TestSync_SetsHealthyStatusOnSuccess(t *testing.T) {
 	secret := newTokenSecret(tokenSecretOpts{})
 	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
 
-	client := fake.NewClientBuilder().
-		WithScheme(scheme).
+	client := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(secret, conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -1776,8 +1857,7 @@ func TestSync_SetsUnhealthyStatusOnHealthCheckError(t *testing.T) {
 	secret := newTokenSecret(tokenSecretOpts{})
 	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
 
-	client := fake.NewClientBuilder().
-		WithScheme(scheme).
+	client := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(secret, conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -1828,8 +1908,7 @@ func TestSync_IncrementsConsecutiveFailsOnRepeatedFailures(t *testing.T) {
 	// Simulate previous failures
 	conn.Status.ConsecutiveFails = 3
 
-	client := fake.NewClientBuilder().
-		WithScheme(scheme).
+	client := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(secret, conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -1860,8 +1939,7 @@ func TestSync_ResetsConsecutiveFailsOnSuccess(t *testing.T) {
 	conn.Status.HealthCheckError = testPreviousError
 	conn.Status.Healthy = false
 
-	client := fake.NewClientBuilder().
-		WithScheme(scheme).
+	client := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(secret, conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -1906,8 +1984,7 @@ func TestSync_UpdatesLastHealthyTimeOnSuccess(t *testing.T) {
 	oldTime := metav1.NewTime(time.Now().Add(-1 * time.Hour))
 	conn.Status.LastHealthyTime = &oldTime
 
-	client := fake.NewClientBuilder().
-		WithScheme(scheme).
+	client := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(secret, conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -1998,8 +2075,7 @@ func TestHandleSyncError_SetsHealthStatus(t *testing.T) {
 	scheme := createScheme()
 	conn := newVaultConnection(vaultConnectionOpts{address: "http://localhost:8200"})
 
-	client := fake.NewClientBuilder().
-		WithScheme(scheme).
+	client := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -2121,8 +2197,7 @@ func TestGetOrRenewClient_RenewalStrategyReauth(t *testing.T) {
 		},
 	}
 
-	k8sClient := fake.NewClientBuilder().
-		WithScheme(scheme).
+	k8sClient := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -2185,8 +2260,7 @@ func TestGetOrRenewClient_RenewalStrategyRenew_Default(t *testing.T) {
 		},
 	}
 
-	k8sClient := fake.NewClientBuilder().
-		WithScheme(scheme).
+	k8sClient := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -2233,8 +2307,7 @@ func TestGetOrRenewClient_RenewalStrategyReauth_NilKubernetes(t *testing.T) {
 	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
 	// Default newVaultConnection uses Token auth, Kubernetes is nil
 
-	k8sClient := fake.NewClientBuilder().
-		WithScheme(scheme).
+	k8sClient := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -2285,8 +2358,7 @@ func TestSync_RecoveryFromErrorPhase(t *testing.T) {
 	conn.Status.HealthCheckError = "previous vault unreachable"
 	conn.Status.Healthy = false
 
-	k8sClient := fake.NewClientBuilder().
-		WithScheme(scheme).
+	k8sClient := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(secret, conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -2384,8 +2456,7 @@ func TestCleanup_RevokesVaultToken(t *testing.T) {
 	scheme := createScheme()
 	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
 
-	k8sClient := fake.NewClientBuilder().
-		WithScheme(scheme).
+	k8sClient := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -2428,8 +2499,7 @@ func TestCleanup_TokenRevocationFailure_NonFatal(t *testing.T) {
 	scheme := createScheme()
 	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
 
-	k8sClient := fake.NewClientBuilder().
-		WithScheme(scheme).
+	k8sClient := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -2465,6 +2535,101 @@ func TestCleanup_TokenRevocationFailure_NonFatal(t *testing.T) {
 	// Client should still be removed from cache
 	if cache.Has(testConnectionName) {
 		t.Error("expected client to be removed from cache after cleanup")
+	}
+}
+
+// TestCleanup_DisableAuthFailed_EmitsWarningEvent pins the fix for
+// the silent DisableAuth failure. Pre-fix, if the user opted into
+// CleanupAuthMount=true but the Vault call failed (Vault down, RBAC
+// denied), the error was only logged at Error level and the K8s CR
+// still got deleted via finalizer removal — leaving the auth mount
+// enabled in Vault indefinitely. Operators had no visible signal.
+// Now a Warning "DisableAuthFailed" event records the failure.
+func TestCleanup_DisableAuthFailed_EmitsWarningEvent(t *testing.T) {
+	calls := &cleanupCalls{}
+	server := newCleanupVaultServer(cleanupVaultServerOpts{disableAuthErr: true}, calls)
+	defer server.Close()
+
+	scheme := createScheme()
+	cleanupEnabled := true
+	conn := &vaultv1alpha1.VaultConnection{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       testConnectionName,
+			Generation: 1,
+		},
+		Spec: vaultv1alpha1.VaultConnectionSpec{
+			Address: server.URL,
+			Auth: vaultv1alpha1.AuthConfig{
+				Bootstrap: &vaultv1alpha1.BootstrapAuth{
+					SecretRef: vaultv1alpha1.SecretKeySelector{
+						Name:      "bootstrap-token",
+						Namespace: "default",
+						Key:       "token",
+					},
+					CleanupAuthMount: &cleanupEnabled,
+				},
+				Kubernetes: &vaultv1alpha1.KubernetesAuth{
+					Role:     "test-role",
+					AuthPath: "kubernetes",
+				},
+			},
+		},
+		Status: vaultv1alpha1.VaultConnectionStatus{
+			AuthStatus: &vaultv1alpha1.AuthStatus{
+				BootstrapComplete: true,
+			},
+		},
+	}
+
+	k8sClient := newClientBuilderWithConnectionRefIndex(scheme).
+		WithObjects(conn).
+		WithStatusSubresource(conn).
+		Build()
+
+	cache := vault.NewClientCache()
+	vaultClient, _ := vault.NewClient(vault.ClientConfig{Address: server.URL})
+	vaultClient.SetAuthenticated(true)
+	vaultClient.SetToken("s.operator-token")
+	cache.Set(testConnectionName, vaultClient)
+
+	// Inject a fake recorder so we can assert the event was emitted.
+	recorder := record.NewFakeRecorder(10)
+	bus := events.NewEventBus(logr.Discard())
+	handler := NewHandler(HandlerConfig{
+		Client:      k8sClient,
+		ClientCache: cache,
+		EventBus:    bus,
+		Recorder:    recorder,
+		Log:         logr.Discard(),
+	})
+
+	// Cleanup returns nil — the failure is non-fatal by design.
+	if err := handler.Cleanup(context.Background(), conn); err != nil {
+		t.Fatalf("Cleanup returned unexpected error: %v", err)
+	}
+
+	// The Vault call must have been attempted.
+	calls.mu.Lock()
+	disableAttempted := calls.disableAuthCalled
+	calls.mu.Unlock()
+	if !disableAttempted {
+		t.Fatal("DisableAuth should have been attempted")
+	}
+
+	// Drain the fake recorder and look for our warning event.
+	close(recorder.Events)
+	var foundDisableAuthFailed bool
+	for ev := range recorder.Events {
+		if strings.Contains(ev, "DisableAuthFailed") {
+			foundDisableAuthFailed = true
+			if !strings.Contains(ev, "manual cleanup") {
+				t.Errorf("event should mention manual cleanup guidance: %q", ev)
+			}
+			break
+		}
+	}
+	if !foundDisableAuthFailed {
+		t.Error("expected DisableAuthFailed warning event when Vault rejected DisableAuth")
 	}
 }
 
@@ -2506,8 +2671,7 @@ func TestCleanup_DisablesAuthMount_WhenOptedIn(t *testing.T) {
 		},
 	}
 
-	k8sClient := fake.NewClientBuilder().
-		WithScheme(scheme).
+	k8sClient := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -2579,8 +2743,7 @@ func TestCleanup_DoesNotDisableAuthMount_ByDefault(t *testing.T) {
 		},
 	}
 
-	k8sClient := fake.NewClientBuilder().
-		WithScheme(scheme).
+	k8sClient := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -2654,8 +2817,7 @@ func TestCleanup_DisableAuthFailure_NonFatal(t *testing.T) {
 		},
 	}
 
-	k8sClient := fake.NewClientBuilder().
-		WithScheme(scheme).
+	k8sClient := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -2726,8 +2888,7 @@ func TestHandleSyncError_EvictsCacheOnAuthError(t *testing.T) {
 	scheme := createScheme()
 	conn := newVaultConnection(vaultConnectionOpts{address: "http://localhost:8200"})
 
-	client := fake.NewClientBuilder().
-		WithScheme(scheme).
+	client := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn).
 		WithStatusSubresource(conn).
 		Build()
@@ -2757,8 +2918,7 @@ func TestHandleSyncError_KeepsCacheOnNonAuthError(t *testing.T) {
 	scheme := createScheme()
 	conn := newVaultConnection(vaultConnectionOpts{address: "http://localhost:8200"})
 
-	client := fake.NewClientBuilder().
-		WithScheme(scheme).
+	client := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn).
 		WithStatusSubresource(conn).
 		Build()

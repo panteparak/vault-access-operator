@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/go-logr/logr"
 )
 
 const (
@@ -34,6 +36,14 @@ type ManagedResource struct {
 }
 
 // markManaged is the shared implementation for MarkPolicyManaged / MarkRoleManaged.
+//
+// Description-preservation semantics: if `descriptions == nil` and a marker
+// already exists, the existing RuleDescriptions are preserved (caller is
+// signalling "I don't know — keep what's there"). Pass an explicit empty
+// map (`map[string]string{}`) to clear descriptions deliberately. This
+// matters for the §G restore-managed-markers flow which doesn't have
+// access to the rules→descriptions mapping but shouldn't wipe valid
+// descriptions written by a previous normal reconcile.
 func (c *Client) markManaged(
 	ctx context.Context, basePath, resourceName, k8sResource, resourceType string,
 	descriptions map[string]string,
@@ -48,10 +58,15 @@ func (c *Client) markManaged(
 		RuleDescriptions: descriptions,
 	}
 
-	// Check if already managed to preserve ManagedAt
+	// Check if already managed to preserve ManagedAt + descriptions
 	existing, _ := c.getManaged(ctx, basePath, resourceName, resourceType)
 	if existing != nil {
 		metadata.ManagedAt = existing.ManagedAt
+		// Only preserve descriptions on nil (caller doesn't know).
+		// Explicit empty-map means "clear", which we honor.
+		if descriptions == nil {
+			metadata.RuleDescriptions = existing.RuleDescriptions
+		}
 	}
 
 	data, err := json.Marshal(metadata)
@@ -216,6 +231,7 @@ func (c *Client) listManaged(ctx context.Context, basePath, resourceType string)
 		return map[string]ManagedResource{}, nil
 	}
 
+	log := logr.FromContextOrDiscard(ctx)
 	result := make(map[string]ManagedResource, len(keys))
 	for _, k := range keys {
 		name, ok := k.(string)
@@ -223,10 +239,17 @@ func (c *Client) listManaged(ctx context.Context, basePath, resourceType string)
 			continue
 		}
 
-		// Get the metadata for this resource
+		// Get the metadata for this resource. A read failure here is
+		// surfaced to the caller via a per-resource log line — without
+		// it, the orphan controller's downstream "missing entry"
+		// treatment hides the read failure as a non-orphan, masking
+		// real Vault outages. The loop continues so partial results
+		// are still returned.
 		managed, err := c.getManaged(ctx, basePath, name, resourceType)
 		if err != nil {
-			// Log but continue - we want to list what we can
+			log.V(1).Info("failed to read managed metadata; skipping entry",
+				"basePath", basePath, "name", name,
+				"resourceType", resourceType, "error", err.Error())
 			continue
 		}
 		if managed != nil {

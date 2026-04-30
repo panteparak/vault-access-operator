@@ -40,6 +40,7 @@ type mockTarget struct {
 	phase      vaultv1alpha1.Phase
 	message    string
 	conditions []vaultv1alpha1.Condition
+	retryCount int
 }
 
 func (m *mockTarget) GetObject() client.Object                  { return m.object }
@@ -48,6 +49,8 @@ func (m *mockTarget) SetPhase(p vaultv1alpha1.Phase)            { m.phase = p }
 func (m *mockTarget) SetMessage(msg string)                     { m.message = msg }
 func (m *mockTarget) GetConditions() []vaultv1alpha1.Condition  { return m.conditions }
 func (m *mockTarget) SetConditions(c []vaultv1alpha1.Condition) { m.conditions = c }
+func (m *mockTarget) GetRetryCount() int                        { return m.retryCount }
+func (m *mockTarget) SetRetryCount(n int)                       { m.retryCount = n }
 
 func newTestScheme() *runtime.Scheme {
 	s := runtime.NewScheme()
@@ -225,8 +228,10 @@ func TestHandle_NotFoundError(t *testing.T) {
 	if readyCond == nil {
 		t.Fatal("expected Ready condition")
 	}
-	if readyCond.Reason != vaultv1alpha1.ReasonFailed {
-		t.Errorf("expected reason %s, got %s", vaultv1alpha1.ReasonFailed, readyCond.Reason)
+	// IMPROVEMENTS §29: NotFoundError is now classified distinctly as
+	// ReasonResourceNotFound (was ReasonFailed catch-all).
+	if readyCond.Reason != vaultv1alpha1.ReasonResourceNotFound {
+		t.Errorf("expected reason %s, got %s", vaultv1alpha1.ReasonResourceNotFound, readyCond.Reason)
 	}
 }
 
@@ -248,8 +253,60 @@ func TestHandle_ConnectionError(t *testing.T) {
 	if readyCond == nil {
 		t.Fatal("expected Ready condition")
 	}
-	if readyCond.Reason != vaultv1alpha1.ReasonFailed {
-		t.Errorf("expected reason %s, got %s", vaultv1alpha1.ReasonFailed, readyCond.Reason)
+	// IMPROVEMENTS §29: ConnectionError is now classified distinctly as
+	// ReasonNetworkError (was ReasonFailed catch-all). Users can now alert
+	// specifically on transport-layer Vault failures.
+	if readyCond.Reason != vaultv1alpha1.ReasonNetworkError {
+		t.Errorf("expected reason %s, got %s", vaultv1alpha1.ReasonNetworkError, readyCond.Reason)
+	}
+}
+
+// TestHandle_VaultSealedError pins IMPROVEMENTS Missing Features §C: a
+// VaultSealedError (Vault reachable but sealed) is classified with
+// ReasonVaultSealed, distinct from generic Failed and from
+// ReasonNetworkError — operators can suppress alerts since the
+// remediation is operator-external (run `vault operator unseal`).
+func TestHandle_VaultSealedError(t *testing.T) {
+	target := newMockTarget()
+	k8sClient := newFakeClient()
+	sealedErr := infraerrors.NewVaultSealedError("vault-conn", "https://vault:8200", true)
+
+	ctx := context.Background()
+	_ = k8sClient.Create(ctx, target.object.DeepCopyObject().(client.Object))
+	_ = Handle(ctx, k8sClient, logr.Discard(), target, sealedErr)
+
+	if target.phase != vaultv1alpha1.PhaseError {
+		t.Errorf("expected PhaseError, got %s", target.phase)
+	}
+	readyCond := findCondition(target.conditions, vaultv1alpha1.ConditionTypeReady)
+	if readyCond == nil {
+		t.Fatal("expected Ready condition")
+	}
+	if readyCond.Reason != vaultv1alpha1.ReasonVaultSealed {
+		t.Errorf("expected reason %s, got %s",
+			vaultv1alpha1.ReasonVaultSealed, readyCond.Reason)
+	}
+}
+
+// TestHandle_VaultNotInitializedError covers the rarer initialized=false
+// case. Same condition type, distinct reason so dashboards can show
+// "needs vault operator init" vs "needs vault operator unseal".
+func TestHandle_VaultNotInitializedError(t *testing.T) {
+	target := newMockTarget()
+	k8sClient := newFakeClient()
+	uninitErr := infraerrors.NewVaultSealedError("vault-conn", "https://vault:8200", false)
+
+	ctx := context.Background()
+	_ = k8sClient.Create(ctx, target.object.DeepCopyObject().(client.Object))
+	_ = Handle(ctx, k8sClient, logr.Discard(), target, uninitErr)
+
+	readyCond := findCondition(target.conditions, vaultv1alpha1.ConditionTypeReady)
+	if readyCond == nil {
+		t.Fatal("expected Ready condition")
+	}
+	if readyCond.Reason != vaultv1alpha1.ReasonVaultNotInitialized {
+		t.Errorf("expected reason %s, got %s",
+			vaultv1alpha1.ReasonVaultNotInitialized, readyCond.Reason)
 	}
 }
 
@@ -397,6 +454,97 @@ func TestHandle_NonDependencyError_NoDependencyReadyCondition(t *testing.T) {
 	if depCond != nil {
 		t.Errorf("expected no DependencyReady condition for non-dependency error, "+
 			"but found one with reason %s", depCond.Reason)
+	}
+}
+
+// TestHandle_TruncatesLongErrorMessage pins the fix for the bug where
+// a Vault SDK error wrapping a multi-KB response body was written
+// verbatim to 3 condition Messages and Status.Message — when combined
+// with other large status fields a single error could push the
+// per-object size past etcd's 1.5MB limit and silently fail the
+// Status update. Now any error string > MaxConditionMessageLen is
+// truncated with a "[truncated]" tail marker.
+func TestHandle_TruncatesLongErrorMessage(t *testing.T) {
+	target := newMockTarget()
+	k8sClient := newFakeClient()
+	ctx := context.Background()
+	_ = k8sClient.Create(ctx, target.object.DeepCopyObject().(client.Object))
+
+	// 10KB error message — 2.5× the cap.
+	huge := strings.Repeat("X", 10*1024)
+	_ = Handle(ctx, k8sClient, logr.Discard(), target, errors.New(huge)) //nolint:err113
+
+	if len(target.message) > MaxConditionMessageLen {
+		t.Errorf("Status.Message length = %d, want <= %d (not truncated)",
+			len(target.message), MaxConditionMessageLen)
+	}
+	if !strings.HasSuffix(target.message, "…[truncated]") {
+		t.Errorf("Status.Message should end with truncation marker, got tail: %q",
+			target.message[max(0, len(target.message)-30):])
+	}
+
+	// Each condition message is independently capped.
+	for _, c := range target.conditions {
+		if len(c.Message) > MaxConditionMessageLen {
+			t.Errorf("condition %q message length = %d, want <= %d",
+				c.Type, len(c.Message), MaxConditionMessageLen)
+		}
+	}
+}
+
+// TestHandle_ShortErrorMessage_Untouched is the negative case: small
+// errors are passed through unmodified (no spurious truncation).
+func TestHandle_ShortErrorMessage_Untouched(t *testing.T) {
+	target := newMockTarget()
+	k8sClient := newFakeClient()
+	ctx := context.Background()
+	_ = k8sClient.Create(ctx, target.object.DeepCopyObject().(client.Object))
+
+	want := "vault: 503 service unavailable"
+	_ = Handle(ctx, k8sClient, logr.Discard(), target, errors.New(want)) //nolint:err113
+	if target.message != want {
+		t.Errorf("Status.Message = %q, want %q (small messages should not be truncated)",
+			target.message, want)
+	}
+}
+
+// TestHandle_IncrementsRetryCount pins the fix for the bug where
+// Status.RetryCount was a dead field — the workflow's success path
+// reset it to 0 but no error path ever incremented it. Operators
+// reading `kubectl get vp -o jsonpath='{..status.retryCount}'` always
+// saw 0, even after dozens of consecutive failures.
+func TestHandle_IncrementsRetryCount(t *testing.T) {
+	target := newMockTarget()
+	target.retryCount = 4
+	k8sClient := newFakeClient()
+	ctx := context.Background()
+	_ = k8sClient.Create(ctx, target.object.DeepCopyObject().(client.Object))
+
+	_ = Handle(ctx, k8sClient, logr.Discard(), target, errors.New("transient")) //nolint:err113
+	if target.retryCount != 5 {
+		t.Errorf("retryCount = %d, want 5 (4 + 1)", target.retryCount)
+	}
+
+	_ = Handle(ctx, k8sClient, logr.Discard(), target, errors.New("transient")) //nolint:err113
+	if target.retryCount != 6 {
+		t.Errorf("retryCount after second error = %d, want 6", target.retryCount)
+	}
+}
+
+// TestHandle_RetryCountStartsFromZero covers the first-error path:
+// a fresh CR has RetryCount=0 and the first error must take it to 1.
+func TestHandle_RetryCountStartsFromZero(t *testing.T) {
+	target := newMockTarget()
+	if target.retryCount != 0 {
+		t.Fatalf("setup: expected fresh target.retryCount=0, got %d", target.retryCount)
+	}
+	k8sClient := newFakeClient()
+	ctx := context.Background()
+	_ = k8sClient.Create(ctx, target.object.DeepCopyObject().(client.Object))
+
+	_ = Handle(ctx, k8sClient, logr.Discard(), target, errors.New("first failure")) //nolint:err113
+	if target.retryCount != 1 {
+		t.Errorf("first error: retryCount = %d, want 1", target.retryCount)
 	}
 }
 

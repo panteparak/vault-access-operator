@@ -24,13 +24,16 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/go-logr/logr"
 	oplogger "github.com/panteparak/vault-access-operator/pkg/logger"
+	"github.com/panteparak/vault-access-operator/pkg/metrics"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -144,7 +147,17 @@ func (r *BaseReconciler[T]) Reconcile(
 	req ctrl.Request,
 	handler FeatureHandler[T],
 	newResource func() T,
-) (ctrl.Result, error) {
+) (result ctrl.Result, err error) {
+	// IMPROVEMENTS Missing Features §K: record Reconcile wall-clock duration
+	// in the `vault_access_operator_reconcile_duration_seconds` histogram.
+	// The `kind` label uses the concrete resource type's GoString via
+	// newResource(); in tests this may be a fake type, which is fine.
+	start := time.Now()
+	defer func() {
+		kind := kindLabelForResource(newResource)
+		metrics.ObserveReconcileDuration(kind, time.Since(start).Seconds(), err == nil)
+	}()
+
 	reconcileID := shortID()
 	log := r.Logger.WithValues(
 		"name", req.Name,
@@ -190,10 +203,41 @@ func (r *BaseReconciler[T]) Reconcile(
 		return r.Status.Error(ctx, resource, err)
 	}
 
-	// Step 5: Update success status
+	// Step 5: Clear the reconcile-now annotation (§H) if set — the trigger
+	// is one-shot, so after a successful sync we remove it to prevent the
+	// watch predicate from re-firing on the next reconciliation tick.
+	// Failure here is non-fatal (the status update below will still
+	// proceed); it just means the annotation lingers and a future watcher
+	// still treats it as stale.
+	if err := r.clearReconcileNowAnnotation(ctx, resource); err != nil {
+		log.V(1).Info("failed to clear reconcile-now annotation (non-fatal)", "error", err.Error())
+	}
+
+	// Step 6: Update success status
 	r.recordEvent(resource, corev1.EventTypeNormal, EventReasonSynced, "Successfully synced to Vault")
 	return r.Status.Success(ctx, resource)
 }
+
+// clearReconcileNowAnnotation removes the reconcile-now annotation via a
+// strategic merge patch if present. No-op if the annotation isn't set.
+// Introduced for IMPROVEMENTS Missing Features §H.
+func (r *BaseReconciler[T]) clearReconcileNowAnnotation(ctx context.Context, resource T) error {
+	anns := resource.GetAnnotations()
+	if _, ok := anns[reconcileNowAnnotation]; !ok {
+		return nil
+	}
+	patch := client.RawPatch(
+		types.MergePatchType,
+		[]byte(fmt.Sprintf(`{"metadata":{"annotations":{%q:null}}}`, reconcileNowAnnotation)),
+	)
+	return r.Client.Patch(ctx, resource, patch)
+}
+
+// reconcileNowAnnotation mirrors api/v1alpha1.AnnotationReconcileNow but
+// we define it locally to keep the base package dependency-free of the
+// concrete API types. Changing the annotation name requires updating
+// both locations (guarded by a tests that pin the exact string).
+const reconcileNowAnnotation = "vault.platform.io/reconcile-now"
 
 // handleDeletion manages the finalizer removal and cleanup process.
 func (r *BaseReconciler[T]) handleDeletion(
@@ -242,4 +286,42 @@ func shortID() string {
 	b := make([]byte, 4)
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+// kindLabelForResource returns the `kind` label to use for the reconcile
+// duration histogram. We derive it from the resource factory (not a live
+// resource) so the label is available even when Reconcile errors before
+// fetching. Returns just the type name (e.g. "VaultRole"), suitable as a
+// Prometheus label value.
+//
+// In practice, freshly-constructed CR pointers don't have TypeMeta
+// populated (controller-runtime doesn't auto-populate it on local
+// constructions, only on Get from the API server). So
+// `GetObjectKind().GroupVersionKind().Kind` typically returns the empty
+// string here — we fall back to deriving the kind from the Go type name.
+//
+// The Go type name path uses reflect to strip the leading `*` and the
+// package qualifier, leaving just the bare type name.
+//
+// Falling back to the empty string is a safe last resort: Prometheus
+// treats it as a valid label.
+func kindLabelForResource[T client.Object](newResource func() T) string {
+	if newResource == nil {
+		return ""
+	}
+	resource := newResource()
+	if k := resource.GetObjectKind().GroupVersionKind().Kind; k != "" {
+		return k
+	}
+	// Reflect on the pointer-target type to get the bare type name.
+	// reflect.TypeOf(resource) returns *vaultv1alpha1.VaultRole;
+	// .Elem() gives vaultv1alpha1.VaultRole; .Name() gives "VaultRole".
+	t := reflect.TypeOf(resource)
+	if t == nil {
+		return ""
+	}
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+	return t.Name()
 }

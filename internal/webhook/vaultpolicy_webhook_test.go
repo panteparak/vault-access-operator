@@ -542,6 +542,70 @@ func TestVaultPolicyValidator_ValidateUpdate(t *testing.T) {
 	}
 }
 
+func TestVaultPolicyValidator_ConnectionRefChange_SameAddressAllowed(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = vaultv1alpha1.AddToScheme(scheme)
+
+	connA := &vaultv1alpha1.VaultConnection{
+		ObjectMeta: metav1.ObjectMeta{Name: "conn-a"},
+		Spec:       vaultv1alpha1.VaultConnectionSpec{Address: "https://vault.example.com:8200"},
+	}
+	connB := &vaultv1alpha1.VaultConnection{
+		ObjectMeta: metav1.ObjectMeta{Name: "conn-b"},
+		Spec:       vaultv1alpha1.VaultConnectionSpec{Address: "https://vault.example.com:8200"},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(connA, connB).Build()
+	v := &VaultPolicyValidator{client: c}
+
+	oldPolicy := &vaultv1alpha1.VaultPolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "p", Namespace: "ns"},
+		Spec: vaultv1alpha1.VaultPolicySpec{
+			ConnectionRef: "conn-a",
+			Rules:         []vaultv1alpha1.PolicyRule{{Path: "secret/*", Capabilities: []vaultv1alpha1.Capability{vaultv1alpha1.CapabilityRead}}},
+		},
+	}
+	newPolicy := oldPolicy.DeepCopy()
+	newPolicy.Spec.ConnectionRef = "conn-b"
+
+	if _, err := v.ValidateUpdate(context.Background(), oldPolicy, newPolicy); err != nil {
+		t.Errorf("expected same-address connectionRef change to be allowed, got %v", err)
+	}
+}
+
+func TestVaultPolicyValidator_ConnectionRefChange_DifferentAddressRejected(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = vaultv1alpha1.AddToScheme(scheme)
+
+	connA := &vaultv1alpha1.VaultConnection{
+		ObjectMeta: metav1.ObjectMeta{Name: "conn-a"},
+		Spec:       vaultv1alpha1.VaultConnectionSpec{Address: "https://vault-a.example.com:8200"},
+	}
+	connB := &vaultv1alpha1.VaultConnection{
+		ObjectMeta: metav1.ObjectMeta{Name: "conn-b"},
+		Spec:       vaultv1alpha1.VaultConnectionSpec{Address: "https://vault-b.example.com:8200"},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(connA, connB).Build()
+	v := &VaultPolicyValidator{client: c}
+
+	oldPolicy := &vaultv1alpha1.VaultPolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "p", Namespace: "ns"},
+		Spec: vaultv1alpha1.VaultPolicySpec{
+			ConnectionRef: "conn-a",
+			Rules:         []vaultv1alpha1.PolicyRule{{Path: "secret/*", Capabilities: []vaultv1alpha1.Capability{vaultv1alpha1.CapabilityRead}}},
+		},
+	}
+	newPolicy := oldPolicy.DeepCopy()
+	newPolicy.Spec.ConnectionRef = "conn-b"
+
+	_, err := v.ValidateUpdate(context.Background(), oldPolicy, newPolicy)
+	if err == nil {
+		t.Fatal("expected different-address connectionRef change to be rejected")
+	}
+	if !strings.Contains(err.Error(), "different Vault instances") {
+		t.Errorf("expected error about different Vault instances, got %v", err)
+	}
+}
+
 func TestVaultPolicyValidator_ValidateDelete(t *testing.T) {
 	policy := &vaultv1alpha1.VaultPolicy{
 		ObjectMeta: metav1.ObjectMeta{
@@ -1671,6 +1735,70 @@ func TestVaultClusterPolicyValidator_CollisionDetection(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestVaultPolicyValidator_VaultPolicyCollision pins the fix for the
+// gap where two VaultPolicies with ambiguous namespace+name
+// concatenations could silently map to the same Vault policy.
+func TestVaultPolicyValidator_VaultPolicyCollision(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = vaultv1alpha1.AddToScheme(scheme)
+
+	existing := &vaultv1alpha1.VaultPolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "foo", Namespace: "my-app"},
+		Spec: vaultv1alpha1.VaultPolicySpec{
+			ConnectionRef: "conn",
+			Rules: []vaultv1alpha1.PolicyRule{
+				{Path: "secret/*", Capabilities: []vaultv1alpha1.Capability{"read"}},
+			},
+		},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing).Build()
+	v := &VaultPolicyValidator{client: c}
+
+	newPolicy := &vaultv1alpha1.VaultPolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "app-foo", Namespace: "my"},
+		Spec: vaultv1alpha1.VaultPolicySpec{
+			ConnectionRef: "conn",
+			Rules: []vaultv1alpha1.PolicyRule{
+				{Path: "secret/*", Capabilities: []vaultv1alpha1.Capability{"read"}},
+			},
+		},
+	}
+	_, err := v.ValidateCreate(context.Background(), newPolicy)
+	if err == nil {
+		t.Fatal("expected collision error, got nil")
+	}
+	if !strings.Contains(err.Error(), "my-app/foo") {
+		t.Errorf("error should name the conflicting existing CR: %v", err)
+	}
+	if !strings.Contains(err.Error(), "my-app-foo") {
+		t.Errorf("error should include the conflicting Vault name: %v", err)
+	}
+}
+
+// TestVaultPolicyValidator_VaultPolicyNoSelfCollision confirms that
+// updating the same CR doesn't trigger a false positive.
+func TestVaultPolicyValidator_VaultPolicyNoSelfCollision(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = vaultv1alpha1.AddToScheme(scheme)
+
+	policy := &vaultv1alpha1.VaultPolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "foo", Namespace: "my-app"},
+		Spec: vaultv1alpha1.VaultPolicySpec{
+			ConnectionRef: "conn",
+			Rules: []vaultv1alpha1.PolicyRule{
+				{Path: "secret/*", Capabilities: []vaultv1alpha1.Capability{"read"}},
+			},
+		},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(policy).Build()
+	v := &VaultPolicyValidator{client: c}
+
+	_, err := v.ValidateCreate(context.Background(), policy)
+	if err != nil {
+		t.Errorf("self should not collide with self, got %v", err)
 	}
 }
 

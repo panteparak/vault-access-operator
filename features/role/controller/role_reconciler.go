@@ -32,6 +32,7 @@ import (
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/features/role/domain"
+	"github.com/panteparak/vault-access-operator/pkg/metrics"
 	"github.com/panteparak/vault-access-operator/shared/controller/base"
 )
 
@@ -76,23 +77,52 @@ func NewRoleReconciler(
 // +kubebuilder:rbac:groups=vault.platform.io,resources=vaultconnections,verbs=get;list;watch
 
 // Reconcile implements the reconciliation loop for VaultRole.
+// Emits `vault_access_operator_role_reconcile_total{kind, namespace, result}`
+// per IMPROVEMENTS §31 (registered-but-dead before this fix).
 func (r *RoleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	return r.base.Reconcile(ctx, req, &roleFeatureHandler{handler: r.handler}, func() *vaultv1alpha1.VaultRole {
+	result, err := r.base.Reconcile(ctx, req, &roleFeatureHandler{handler: r.handler}, func() *vaultv1alpha1.VaultRole {
 		return &vaultv1alpha1.VaultRole{}
 	})
+	metrics.IncrementRoleReconcile(kindLabelVaultRole, req.Namespace, err == nil)
+	return result, err
 }
 
-// SetupWithManager sets up the controller with the Manager.
+// SetupWithManager sets up the controller with the Manager. It watches
+// three event sources:
+//   - The VaultRole itself (generation changes OR reconcile-now annotation
+//     changes via IMPROVEMENTS Missing Features §H).
+//   - VaultConnection phase transitions (IMPROVEMENTS §1 / existing behavior).
+//   - VaultPolicy + VaultClusterPolicy creates/updates (IMPROVEMENTS §27) —
+//     so a role blocked on an unresolved PolicyBinding reconciles within
+//     milliseconds of the policy appearing instead of waiting up to 30s
+//     for the next scheduled sync.
 func (r *RoleReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&vaultv1alpha1.VaultRole{},
-			builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+			builder.WithPredicates(predicate.Or(
+				predicate.GenerationChangedPredicate{},
+				watches.ReconcileNowAnnotationPredicate{},
+			))).
 		Watches(
 			&vaultv1alpha1.VaultConnection{},
 			handler.EnqueueRequestsFromMapFunc(
 				watches.RoleRequestsForConnection(mgr.GetClient()),
 			),
 			builder.WithPredicates(watches.ConnectionPhaseChangedPredicate{}),
+		).
+		Watches(
+			&vaultv1alpha1.VaultPolicy{},
+			handler.EnqueueRequestsFromMapFunc(
+				watches.RoleRequestsForPolicy(mgr.GetClient()),
+			),
+			builder.WithPredicates(watches.PolicyCreatedOrUpdatedPredicate),
+		).
+		Watches(
+			&vaultv1alpha1.VaultClusterPolicy{},
+			handler.EnqueueRequestsFromMapFunc(
+				watches.RoleRequestsForPolicy(mgr.GetClient()),
+			),
+			builder.WithPredicates(watches.PolicyCreatedOrUpdatedPredicate),
 		).
 		Named("vaultrole").
 		Complete(r)

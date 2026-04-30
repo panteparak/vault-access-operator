@@ -293,6 +293,23 @@ spec:
               rulesCount:
                 description: RulesCount is the number of rules in the policy
                 type: integer
+              usedByRoles:
+                description: |-
+                  UsedByRoles lists the K8s resource references of VaultRole and
+                  VaultClusterRole resources that include this policy in their
+                  `spec.policies`. Populated by the policy reconciler from a
+                  reverse index over role status. Useful for `kubectl describe
+                  vaultpolicy X` to answer "who uses this policy?" without a
+                  cluster-wide grep.
+
+                  IMPROVEMENTS Missing Features §B. The list is bounded by
+                  MaxItems to prevent etcd object size blow-up in clusters with
+                  thousands of roles referencing one shared policy — overflow is
+                  indicated by the UsedByRolesTruncated condition.
+                items:
+                  type: string
+                maxItems: 200
+                type: array
               vaultName:
                 description: VaultName is the name of the policy in Vault (namespace-name
                   format)

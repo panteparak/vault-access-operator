@@ -38,6 +38,8 @@ var _ = Describe("Fuzz Tests", Ordered, Label("fuzz"), func() {
 	var sharedPolicyName, sharedSAName string
 
 	BeforeAll(func() {
+		RefreshSharedVaultToken(ctx)
+
 		By("creating shared resources for fuzz tests")
 		sharedPolicyName = uniqueName("tc-fuzz-policy")
 		sharedSAName = uniqueName("tc-fuzz-sa")

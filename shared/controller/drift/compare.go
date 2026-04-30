@@ -38,13 +38,15 @@ type Result struct {
 
 // Comparator provides methods for comparing expected vs actual state.
 type Comparator struct {
-	diffs []string
+	diffs   []string
+	details map[string]string // fieldName → human-readable diff hint (e.g. HCL preview)
 }
 
 // NewComparator creates a new drift comparator.
 func NewComparator() *Comparator {
 	return &Comparator{
-		diffs: make([]string, 0),
+		diffs:   make([]string, 0),
+		details: make(map[string]string),
 	}
 }
 
@@ -84,6 +86,35 @@ func (c *Comparator) CompareStrings(fieldName string, expected, actual string) {
 	}
 }
 
+// CompareMultilineText compares two multiline text blobs (e.g. policy HCL,
+// YAML, JSON). When they differ, the comparator records the field name and
+// a compact line-level diff preview in Result.Summary.
+//
+// The preview uses unified-diff markers: lines prefixed with "- " are
+// present in actual but missing from expected (Vault-side additions we
+// don't know about); lines prefixed with "+ " are present in expected but
+// missing from actual (content we'd write that Vault is missing).
+//
+// Up to multilineDiffMaxLines unique differences are shown; anything beyond
+// is summarized as `... (N more)`. Callers should pass already-normalized
+// text (e.g. post-`normalizeHCL`) so cosmetic whitespace differences don't
+// leak into the preview.
+//
+// Introduced for IMPROVEMENTS §11 (drift comparator duplication) so policy
+// drift surfaces a structured hint instead of a generic "content differs"
+// message.
+func (c *Comparator) CompareMultilineText(fieldName, expected, actual string) {
+	if expected == actual {
+		return
+	}
+	c.diffs = append(c.diffs, fieldName)
+	c.details[fieldName] = multilineDiffPreview(expected, actual, multilineDiffMaxLines)
+}
+
+// multilineDiffMaxLines caps the number of preview lines surfaced for a
+// single field so a wildly divergent blob doesn't flood status conditions.
+const multilineDiffMaxLines = 6
+
 // Result returns the comparison result.
 func (c *Comparator) Result() Result {
 	if len(c.diffs) == 0 {
@@ -98,16 +129,28 @@ func (c *Comparator) Result() Result {
 	fields := make([]string, len(c.diffs))
 	copy(fields, c.diffs)
 
+	summary := "fields differ: " + strings.Join(fields, ", ")
+	// Append per-field previews in the same order fields were recorded so the
+	// message is deterministic across runs.
+	for _, f := range fields {
+		if preview, ok := c.details[f]; ok && preview != "" {
+			summary += "\n  " + f + ":\n" + preview
+		}
+	}
+
 	return Result{
 		HasDrift: true,
 		Fields:   fields,
-		Summary:  "fields differ: " + strings.Join(fields, ", "),
+		Summary:  summary,
 	}
 }
 
 // Reset clears the comparator state for reuse.
 func (c *Comparator) Reset() {
 	c.diffs = c.diffs[:0]
+	for k := range c.details {
+		delete(c.details, k)
+	}
 }
 
 // stringSlicesEqual compares two string slices for equality (order-independent).
@@ -166,6 +209,88 @@ func valuesEqual(a, b interface{}) bool {
 		return false
 	}
 	return fmt.Sprintf("%v", a) == fmt.Sprintf("%v", b)
+}
+
+// multilineDiffPreview produces a compact line-level diff preview between
+// expected and actual. Lines present only in actual are prefixed `- `
+// (unexpected content), lines present only in expected are prefixed `+ `
+// (missing content). Up to `max` lines are emitted; anything beyond is
+// summarized as `  ... (N more)`.
+//
+// This is intentionally simple: it's a set-difference on unique lines, not
+// a true LCS-based diff. For operator-generated HCL (which is deterministic
+// line-by-line) this is sufficient to make the drift cause obvious to an
+// operator reading the condition.
+func multilineDiffPreview(expected, actual string, maxPreviewLines int) string {
+	expectedLines := splitLines(expected)
+	actualLines := splitLines(actual)
+	expectedSet := make(map[string]struct{}, len(expectedLines))
+	for _, l := range expectedLines {
+		expectedSet[l] = struct{}{}
+	}
+	actualSet := make(map[string]struct{}, len(actualLines))
+	for _, l := range actualLines {
+		actualSet[l] = struct{}{}
+	}
+
+	// Preserve original line order when listing diffs; de-dup within each side.
+	var previewBuilder strings.Builder
+	emitted := 0
+	skipped := 0
+	seenActual := make(map[string]struct{})
+	for _, l := range actualLines {
+		if _, ok := expectedSet[l]; ok {
+			continue
+		}
+		if _, dup := seenActual[l]; dup {
+			continue
+		}
+		seenActual[l] = struct{}{}
+		if emitted < maxPreviewLines {
+			previewBuilder.WriteString("    - ")
+			previewBuilder.WriteString(l)
+			previewBuilder.WriteString("\n")
+			emitted++
+		} else {
+			skipped++
+		}
+	}
+	seenExpected := make(map[string]struct{})
+	for _, l := range expectedLines {
+		if _, ok := actualSet[l]; ok {
+			continue
+		}
+		if _, dup := seenExpected[l]; dup {
+			continue
+		}
+		seenExpected[l] = struct{}{}
+		if emitted < maxPreviewLines {
+			previewBuilder.WriteString("    + ")
+			previewBuilder.WriteString(l)
+			previewBuilder.WriteString("\n")
+			emitted++
+		} else {
+			skipped++
+		}
+	}
+	if skipped > 0 {
+		fmt.Fprintf(&previewBuilder, "    ... (%d more)\n", skipped)
+	}
+	// Trim the trailing newline for a tidy single-line append in Summary.
+	return strings.TrimRight(previewBuilder.String(), "\n")
+}
+
+// splitLines is strings.Split(s, "\n") but drops a trailing empty line
+// produced when the input ends in a newline.
+func splitLines(s string) []string {
+	if s == "" {
+		return nil
+	}
+	lines := strings.Split(s, "\n")
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return lines
 }
 
 // CompareMapFields is a convenience function that creates a Comparator,

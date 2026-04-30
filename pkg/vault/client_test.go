@@ -3,10 +3,12 @@ package vault
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 )
@@ -732,6 +734,84 @@ func TestIsHealthy(t *testing.T) {
 	}
 }
 
+// TestSealStatus pins IMPROVEMENTS Missing Features §C: SealStatus
+// returns initialized + sealed flags separately so callers can
+// distinguish "needs init" from "needs unseal" from "transport error".
+func TestSealStatus(t *testing.T) {
+	tests := []struct {
+		name            string
+		serverResponse  func(w http.ResponseWriter, r *http.Request)
+		wantInitialized bool
+		wantSealed      bool
+		wantErr         bool
+	}{
+		{
+			name: "healthy",
+			serverResponse: func(w http.ResponseWriter, _ *http.Request) {
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"initialized": true,
+					"sealed":      false,
+				})
+			},
+			wantInitialized: true,
+			wantSealed:      false,
+		},
+		{
+			name: "sealed",
+			serverResponse: func(w http.ResponseWriter, _ *http.Request) {
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"initialized": true,
+					"sealed":      true,
+				})
+			},
+			wantInitialized: true,
+			wantSealed:      true,
+		},
+		{
+			name: "uninitialized",
+			serverResponse: func(w http.ResponseWriter, _ *http.Request) {
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"initialized": false,
+					"sealed":      true,
+				})
+			},
+			wantInitialized: false,
+			wantSealed:      true,
+		},
+		{
+			name: "server error returns wrapped err",
+			serverResponse: func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusInternalServerError)
+			},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(tt.serverResponse))
+			defer server.Close()
+			client, err := NewClient(ClientConfig{Address: server.URL})
+			if err != nil {
+				t.Fatalf("NewClient: %v", err)
+			}
+			initialized, sealed, err := client.SealStatus(context.Background())
+			if (err != nil) != tt.wantErr {
+				t.Errorf("SealStatus() err = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if tt.wantErr {
+				return
+			}
+			if initialized != tt.wantInitialized {
+				t.Errorf("initialized = %v, want %v", initialized, tt.wantInitialized)
+			}
+			if sealed != tt.wantSealed {
+				t.Errorf("sealed = %v, want %v", sealed, tt.wantSealed)
+			}
+		})
+	}
+}
+
 func TestGetVersion(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -1386,5 +1466,301 @@ func TestRenewSelf_Success(t *testing.T) {
 	// Token expiration should be approximately now + 7200s
 	if client.TokenExpiration().Before(beforeRenew.Add(expectedTTL - time.Second)) {
 		t.Errorf("TokenExpiration() = %v, expected around %v", client.TokenExpiration(), beforeRenew.Add(expectedTTL))
+	}
+}
+
+// TestRenewSelf_RefreshesAccessor pins the bug-fix where RenewSelf
+// updated tokenTTL + tokenExpiration but NOT tokenAccessor, even
+// though Vault may issue a new accessor on renewal. AuthStatus.TokenAccessor
+// then reported the stale accessor — useless for audit-log correlation
+// between operator events and Vault audit entries.
+func TestRenewSelf_RefreshesAccessor(t *testing.T) {
+	const newAccessor = "renewed-accessor-uuid-9999"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"auth": map[string]interface{}{
+				"client_token":   "s.renewed-token",
+				"accessor":       newAccessor,
+				"lease_duration": 3600,
+			},
+		})
+	}))
+	defer server.Close()
+
+	c, err := NewClient(ClientConfig{Address: server.URL})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	c.SetToken("s.original-token")
+	// Seed an old accessor that should be replaced.
+	c.mu.Lock()
+	c.tokenAccessor = "old-accessor-uuid-0000"
+	c.mu.Unlock()
+
+	if err := c.RenewSelf(context.Background()); err != nil {
+		t.Fatalf("RenewSelf: %v", err)
+	}
+	if got := c.TokenAccessor(); got != newAccessor {
+		t.Errorf("TokenAccessor() = %q, want %q (RenewSelf must update the accessor "+
+			"so AuthStatus.TokenAccessor reflects the current Vault-side identity)",
+			got, newAccessor)
+	}
+}
+
+// TestRenewSelf_PreservesAccessorWhenEmpty pins the no-op contract:
+// if Vault returns an empty accessor on renewal (some auth methods
+// don't change it), the existing accessor is preserved rather than
+// wiped to "".
+func TestRenewSelf_PreservesAccessorWhenEmpty(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"auth": map[string]interface{}{
+				"client_token":   "s.renewed-token",
+				"lease_duration": 3600,
+				// accessor omitted (empty)
+			},
+		})
+	}))
+	defer server.Close()
+
+	c, err := NewClient(ClientConfig{Address: server.URL})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	const original = "preserved-accessor-uuid-7777"
+	c.mu.Lock()
+	c.tokenAccessor = original
+	c.mu.Unlock()
+
+	if err := c.RenewSelf(context.Background()); err != nil {
+		t.Fatalf("RenewSelf: %v", err)
+	}
+	if got := c.TokenAccessor(); got != original {
+		t.Errorf("empty accessor in renewal response should preserve existing; got %q want %q",
+			got, original)
+	}
+}
+
+func TestAuthBackendForPath(t *testing.T) {
+	cases := []struct {
+		path string
+		want AuthBackend
+	}{
+		{"", AuthBackendKubernetes},
+		{"auth/kubernetes", AuthBackendKubernetes},
+		{"auth/kubernetes/", AuthBackendKubernetes},
+		{"auth/kubernetes-prod", AuthBackendKubernetes},
+		{"auth/kubernetes-prod/", AuthBackendKubernetes},
+		{"auth/jwt", AuthBackendJWT},
+		{"auth/jwt/", AuthBackendJWT},
+		{"auth/jwt-gitlab", AuthBackendJWT},
+		{"auth/jwt/gitlab", AuthBackendJWT},
+		{"auth/approle", AuthBackendUnknown},
+		{"auth/", AuthBackendKubernetes}, // empty after trim → default
+		// Bare names now accepted (matches user-facing CRD docs and fixtures).
+		// Previously returned Unknown which caused webhook-vs-runtime mismatch:
+		// the webhook accepted bare names but the runtime rejected them.
+		{"kubernetes", AuthBackendKubernetes},
+		{"jwt", AuthBackendJWT},
+		{"approle", AuthBackendUnknown},
+		// False-positive guards: pre-fix strings.HasPrefix("kubernetestest",
+		// "kubernetes") returned true, routing any auth mount whose name
+		// merely started with "kubernetes" through the Kubernetes backend.
+		// Now requires an explicit `-` or `_` separator after the backend
+		// name, so only conventional submount patterns like
+		// `kubernetes-prod` / `kubernetes_prod` match.
+		{"auth/kubernetestest", AuthBackendUnknown},
+		{"auth/jwttoken", AuthBackendUnknown},
+		{"auth/kubernetes_staging", AuthBackendKubernetes},
+		{"auth/jwt_prod", AuthBackendJWT},
+	}
+	for _, tc := range cases {
+		if got := AuthBackendForPath(tc.path); got != tc.want {
+			t.Errorf("AuthBackendForPath(%q) = %q, want %q", tc.path, got, tc.want)
+		}
+	}
+}
+
+// TestClient_ConnectionName_Concurrent pins the fix for the data race
+// on Client.connectionName — earlier versions had Set/Get with no lock
+// while the renewal background loop and reconciler goroutines could
+// read/write the field concurrently. `go test -race` would flag the
+// unsynchronized access. The fix added c.mu around both methods.
+//
+// This test interleaves writes and reads on a single client; without
+// the lock, `-race` reliably reports a data race.
+func TestClient_ConnectionName_Concurrent(t *testing.T) {
+	c := &Client{}
+	var wg sync.WaitGroup
+	for i := 0; i < 50; i++ {
+		wg.Add(2)
+		go func(i int) {
+			defer wg.Done()
+			c.SetConnectionName(fmt.Sprintf("conn-%d", i))
+		}(i)
+		go func() {
+			defer wg.Done()
+			_ = c.ConnectionName()
+		}()
+	}
+	wg.Wait()
+}
+
+// TestRevokeSelf_ClearsLocalState pins the fix for the latent bug
+// where RevokeSelf left `authenticated=true` and the token in place.
+// After RevokeSelf, subsequent calls on the same client must fail
+// fast (unauthenticated) instead of making Vault calls that would
+// return opaque "permission denied" errors. Matches the reality on
+// Vault's side — token is gone, client state mirrors.
+func TestRevokeSelf_ClearsLocalState(t *testing.T) {
+	// Use a test server that accepts the revoke request.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/auth/token/revoke-self" {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	c, err := NewClient(ClientConfig{Address: server.URL})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	c.SetToken("s.bootstrap-token")
+	c.SetAuthenticated(true)
+	if !c.IsAuthenticated() {
+		t.Fatal("precondition: client should be authenticated")
+	}
+
+	if err := c.RevokeSelf(context.Background()); err != nil {
+		t.Fatalf("RevokeSelf: %v", err)
+	}
+	if c.IsAuthenticated() {
+		t.Error("authenticated should be false after RevokeSelf")
+	}
+	if c.Token() != "" {
+		t.Errorf("token should be cleared after RevokeSelf, got %q", c.Token())
+	}
+}
+
+// TestRevokeSelf_ClearsStateEvenOnError pins the contract that local
+// state is cleared even when the Vault-side revoke call fails. If
+// Vault was unreachable, the token is "lost" from the client's view —
+// the operator can't reuse it anyway, so we shouldn't claim to be
+// authenticated.
+func TestRevokeSelf_ClearsStateEvenOnError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		// Always return 500 — simulates Vault being unreachable / broken.
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"errors":["vault internal error"]}`))
+	}))
+	defer server.Close()
+
+	c, err := NewClient(ClientConfig{Address: server.URL})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	c.SetToken("s.token")
+	c.SetAuthenticated(true)
+
+	err = c.RevokeSelf(context.Background())
+	if err == nil {
+		t.Error("expected revoke error, got nil")
+	}
+	if c.IsAuthenticated() {
+		t.Error("authenticated should be false even on revoke error (client can't reuse this token)")
+	}
+	if c.Token() != "" {
+		t.Errorf("token should be cleared, got %q", c.Token())
+	}
+}
+
+// TestNewClient_AppliesDefaultTimeout pins the fix for the bug where
+// vault.NewClient inherited the SDK's 60s default Timeout (combined
+// with MaxRetries=2 → up to 180s of blocked-reconcile time per Vault
+// call). Operators on 30s reconcile periods would have their work
+// queue back up while a single hung Vault call drained the worker.
+// The fix overrides the SDK default to DefaultRequestTimeout (30s)
+// when ClientConfig.Timeout is zero.
+func TestNewClient_AppliesDefaultTimeout(t *testing.T) {
+	c, err := NewClient(ClientConfig{Address: "https://example.com"})
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
+	got := c.Client.CloneConfig().Timeout
+	if got != DefaultRequestTimeout {
+		t.Errorf("Timeout = %v, want %v (SDK default 60s should be overridden)",
+			got, DefaultRequestTimeout)
+	}
+}
+
+// TestNewClient_HonorsExplicitTimeout pins that an explicit non-zero
+// Timeout overrides DefaultRequestTimeout. Without this guard, a
+// future refactor could accidentally always-apply the 30s default and
+// silently break callers that need a longer timeout.
+func TestNewClient_HonorsExplicitTimeout(t *testing.T) {
+	want := 90 * time.Second
+	c, err := NewClient(ClientConfig{Address: "https://example.com", Timeout: want})
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
+	got := c.Client.CloneConfig().Timeout
+	if got != want {
+		t.Errorf("Timeout = %v, want %v (explicit value should win)", got, want)
+	}
+}
+
+// TestClient_AuthenticateToken_Concurrent pins the fix for an
+// unsynchronized write to c.authenticated in AuthenticateToken.
+// Pre-fix the field was assigned directly (`c.authenticated = true`)
+// without taking c.mu, and a concurrent IsAuthenticated() reader
+// would race. Bootstrap is the practical caller — a status-update
+// goroutine and the reconciler both touch this field during the
+// bootstrap → K8s-auth transition. `go test -race` flags the issue.
+func TestClient_AuthenticateToken_Concurrent(t *testing.T) {
+	c, err := NewClient(ClientConfig{Address: "https://example.com"})
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
+	var wg sync.WaitGroup
+	for i := 0; i < 50; i++ {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			_ = c.AuthenticateToken("dummy-token")
+		}()
+		go func() {
+			defer wg.Done()
+			_ = c.IsAuthenticated()
+		}()
+	}
+	wg.Wait()
+	if !c.IsAuthenticated() {
+		t.Error("expected client to be authenticated after AuthenticateToken")
+	}
+}
+
+// TestNormalizeAuthPath pins the bug-fix where bare authPath values
+// like "kubernetes" silently failed because the Vault SDK builds paths
+// like `<authPath>/role/<name>` — without `auth/` prefix that resolves
+// to a non-existent Vault endpoint.
+func TestNormalizeAuthPath(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"", DefaultKubernetesAuthPath},
+		{"kubernetes", "auth/kubernetes"},
+		{"kubernetes/", "auth/kubernetes"},
+		{"jwt", "auth/jwt"},
+		{"auth/kubernetes", "auth/kubernetes"},
+		{"auth/jwt/gitlab", "auth/jwt/gitlab"},
+		{"auth/", "auth/kubernetes"}, // trim then promote empty → default
+	}
+	for _, tc := range cases {
+		if got := NormalizeAuthPath(tc.in); got != tc.want {
+			t.Errorf("NormalizeAuthPath(%q) = %q, want %q", tc.in, got, tc.want)
+		}
 	}
 }

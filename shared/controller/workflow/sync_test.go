@@ -19,6 +19,7 @@ package workflow
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/go-logr/logr"
@@ -181,6 +182,72 @@ func TestSyncWorkflow_HappyPath(t *testing.T) {
 	}
 	if driftedCond.Status != metav1.ConditionFalse {
 		t.Errorf("Drifted status = %q, want %q", driftedCond.Status, metav1.ConditionFalse)
+	}
+}
+
+// TestSyncWorkflow_HappyPath_RespectsPriorPoliciesResolvedFalse pins
+// the fix for the bug where Ready=True/Succeeded was set
+// unconditionally, even when the role handler had just set
+// PoliciesResolved=False/PolicyNotInVault. Pre-fix, operators saw a
+// "healthy" role whose bound policies didn't exist in Vault, so
+// workloads using the role got no permissions while monitoring
+// reported green. The workflow now downgrades Ready and
+// DependencyReady to mirror the PoliciesResolved state.
+func TestSyncWorkflow_HappyPath_RespectsPriorPoliciesResolvedFalse(t *testing.T) {
+	t.Parallel()
+
+	policy := newTestPolicy()
+	conn := newTestVaultConnection()
+	k8s := newFakeK8sClient(t, policy, conn)
+	wf := newSyncWorkflowForTest(t, k8s)
+
+	res := newTestResource(policy)
+	// Simulate the role handler's verifyPoliciesExistInVault having set
+	// PoliciesResolved=False/PolicyNotInVault on a prior step. The shared
+	// workflow's finalize must honor this and refuse to stamp Ready=True.
+	missingMsg := "policies not found in Vault: missing-policy"
+	res.SetConditions([]vaultv1alpha1.Condition{
+		{
+			Type:    vaultv1alpha1.ConditionTypePoliciesResolved,
+			Status:  metav1.ConditionFalse,
+			Reason:  vaultv1alpha1.ReasonPolicyNotInVault,
+			Message: missingMsg,
+		},
+	})
+	ops := &mockOps{specHash: "abc123"}
+
+	err := wf.Execute(context.Background(), res, ops)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	readyCond := findCondition(res.GetConditions(), vaultv1alpha1.ConditionTypeReady)
+	if readyCond == nil {
+		t.Fatal("Ready condition not found")
+	}
+	if readyCond.Status != metav1.ConditionFalse {
+		t.Errorf("Ready.Status = %q, want False (PoliciesResolved=False blocks)",
+			readyCond.Status)
+	}
+	if readyCond.Reason != vaultv1alpha1.ReasonPolicyNotInVault {
+		t.Errorf("Ready.Reason = %q, want %q",
+			readyCond.Reason, vaultv1alpha1.ReasonPolicyNotInVault)
+	}
+
+	depCond := findCondition(res.GetConditions(), vaultv1alpha1.ConditionTypeDependencyReady)
+	if depCond == nil {
+		t.Fatal("DependencyReady condition not found")
+	}
+	if depCond.Status != metav1.ConditionFalse {
+		t.Errorf("DependencyReady.Status = %q, want False (mirrors PoliciesResolved)",
+			depCond.Status)
+	}
+
+	// Synced should still be True — the spec was synced to Vault, only the
+	// references couldn't be resolved.
+	syncedCond := findCondition(res.GetConditions(), vaultv1alpha1.ConditionTypeSynced)
+	if syncedCond == nil || syncedCond.Status != metav1.ConditionTrue {
+		t.Error("Synced should remain True even when PoliciesResolved is False")
 	}
 }
 
@@ -442,6 +509,58 @@ func TestSyncWorkflow_DriftCorrect_AllowedWithAnnotation(t *testing.T) {
 	if res.GetPhase() != vaultv1alpha1.PhaseActive {
 		t.Errorf("phase = %q, want %q", res.GetPhase(), vaultv1alpha1.PhaseActive)
 	}
+
+	// Followup fix: the allow-destructive annotation must be auto-cleared
+	// after the destructive write succeeds. Without this, a one-time
+	// "I accept the risk" would become a standing permission for all
+	// future drift corrections.
+	var fresh vaultv1alpha1.VaultPolicy
+	if err := k8s.Get(context.Background(),
+		client.ObjectKey{Name: policy.Name, Namespace: policy.Namespace},
+		&fresh); err != nil {
+		t.Fatalf("failed to re-fetch policy: %v", err)
+	}
+	if _, present := fresh.Annotations[vaultv1alpha1.AnnotationAllowDestructive]; present {
+		t.Error("allow-destructive annotation should be auto-cleared after a successful drift correction")
+	}
+}
+
+// TestSyncWorkflow_DriftCorrect_DoesNotClearAnnotationWhenUnused pins
+// the negative side: a successful sync that did NOT consume the
+// allow-destructive path leaves the annotation alone (e.g. spec
+// changes in detect mode while annotation is incidentally set).
+func TestSyncWorkflow_DriftCorrect_DoesNotClearAnnotationWhenUnused(t *testing.T) {
+	t.Parallel()
+
+	policy := newTestPolicy()
+	// detect mode → never enters the destructive path even with annotation set
+	policy.Spec.DriftMode = vaultv1alpha1.DriftModeDetect
+	policy.Status.Phase = vaultv1alpha1.PhaseActive
+	policy.Status.LastAppliedHash = testOldHash
+	policy.Annotations = map[string]string{
+		vaultv1alpha1.AnnotationAllowDestructive: vaultv1alpha1.AnnotationValueTrue,
+	}
+
+	conn := newTestVaultConnection()
+	k8s := newFakeK8sClient(t, policy, conn)
+	wf := newSyncWorkflowForTest(t, k8s)
+	res := newTestResource(policy)
+	ops := &mockOps{specHash: "new-hash"}
+
+	if err := wf.Execute(context.Background(), res, ops); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var fresh vaultv1alpha1.VaultPolicy
+	if err := k8s.Get(context.Background(),
+		client.ObjectKey{Name: policy.Name, Namespace: policy.Namespace},
+		&fresh); err != nil {
+		t.Fatalf("failed to re-fetch policy: %v", err)
+	}
+	v, present := fresh.Annotations[vaultv1alpha1.AnnotationAllowDestructive]
+	if !present || v != vaultv1alpha1.AnnotationValueTrue {
+		t.Error("allow-destructive should remain when destructive correction was NOT triggered")
+	}
 }
 
 func TestSyncWorkflow_SkipIfUnchanged(t *testing.T) {
@@ -513,5 +632,70 @@ func TestSyncWorkflow_DriftIgnoreMode(t *testing.T) {
 	// WriteToVault should be called (hash differs, so not skipped)
 	if !containsCall(ops.calls, "WriteToVault") {
 		t.Error("expected WriteToVault to be called when hash differs")
+	}
+}
+
+// TestSyncWorkflow_DryRunCondition_True pins IMPROVEMENTS Missing
+// Features §I: when the resource carries vault.platform.io/dry-run=true,
+// the workflow's finalizeSuccessfulSync sets the DryRun condition to
+// True with reason DryRunSkipped. The ops layer is responsible for
+// actually skipping Vault writes (mockOps doesn't model that here).
+func TestSyncWorkflow_DryRunCondition_True(t *testing.T) {
+	t.Parallel()
+
+	policy := newTestPolicy()
+	policy.Annotations = map[string]string{
+		vaultv1alpha1.AnnotationDryRun: vaultv1alpha1.AnnotationValueTrue,
+	}
+	conn := newTestVaultConnection()
+	k8s := newFakeK8sClient(t, policy, conn)
+	wf := newSyncWorkflowForTest(t, k8s)
+
+	res := newTestResource(policy)
+	ops := &mockOps{specHash: "abc"}
+
+	if err := wf.Execute(context.Background(), res, ops); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	dryRunCond := findCondition(res.GetConditions(), vaultv1alpha1.ConditionTypeDryRun)
+	if dryRunCond == nil {
+		t.Fatal("DryRun condition not found")
+	}
+	if dryRunCond.Status != metav1.ConditionTrue {
+		t.Errorf("DryRun status = %q, want True", dryRunCond.Status)
+	}
+	if dryRunCond.Reason != vaultv1alpha1.ReasonDryRunSkipped {
+		t.Errorf("DryRun reason = %q, want %q",
+			dryRunCond.Reason, vaultv1alpha1.ReasonDryRunSkipped)
+	}
+	if !strings.Contains(dryRunCond.Message, "vault.platform.io/dry-run") {
+		t.Errorf("DryRun message should mention the annotation; got %q", dryRunCond.Message)
+	}
+}
+
+// TestSyncWorkflow_DryRunCondition_False covers the negative case: a
+// resource WITHOUT the dry-run annotation gets DryRun=False.
+func TestSyncWorkflow_DryRunCondition_False(t *testing.T) {
+	t.Parallel()
+
+	policy := newTestPolicy() // no annotations
+	conn := newTestVaultConnection()
+	k8s := newFakeK8sClient(t, policy, conn)
+	wf := newSyncWorkflowForTest(t, k8s)
+
+	res := newTestResource(policy)
+	ops := &mockOps{specHash: "abc"}
+
+	if err := wf.Execute(context.Background(), res, ops); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	dryRunCond := findCondition(res.GetConditions(), vaultv1alpha1.ConditionTypeDryRun)
+	if dryRunCond == nil {
+		t.Fatal("DryRun condition should still be set (=False) for non-dry-run resources")
+	}
+	if dryRunCond.Status != metav1.ConditionFalse {
+		t.Errorf("DryRun status = %q, want False", dryRunCond.Status)
 	}
 }

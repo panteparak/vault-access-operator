@@ -76,13 +76,27 @@ func (m *mockVaultAuthenticator) RenewSelf(ctx context.Context) (*AuthResult, er
 
 type mockEventPublisher struct {
 	publishFunc func(ctx context.Context, event interface{}) error
+	mu          sync.Mutex
+	events      []interface{}
 }
 
 func (m *mockEventPublisher) Publish(ctx context.Context, event interface{}) error {
+	m.mu.Lock()
+	m.events = append(m.events, event)
+	m.mu.Unlock()
 	if m.publishFunc != nil {
 		return m.publishFunc(ctx, event)
 	}
 	return nil
+}
+
+// snapshotEvents returns a copy of the recorded events for inspection.
+func (m *mockEventPublisher) snapshotEvents() []interface{} {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]interface{}, len(m.events))
+	copy(out, m.events)
+	return out
 }
 
 // ---------------------------------------------------------------------------
@@ -563,5 +577,90 @@ func TestLifecycleController_OnRefreshCallback(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("expected onRefresh callback to be invoked, but timed out")
+	}
+}
+
+// TestLifecycleController_PublishesTokenRenewed pins the fix where the
+// controller's eventBus field was stored but never used despite the
+// package docs promising "Publishes TokenRenewed events on successful
+// renewal". Now a successful renewal emits a TokenRenewed event that
+// downstream subscribers (metrics, dashboards) can consume.
+func TestLifecycleController_PublishesTokenRenewed(t *testing.T) {
+	pub := &mockEventPublisher{}
+	auth := &mockVaultAuthenticator{
+		renewFunc: func(_ context.Context) (*AuthResult, error) {
+			return &AuthResult{
+				ClientToken:    "renewed-token",
+				TokenTTL:       time.Hour,
+				Renewable:      true,
+				ExpirationTime: time.Now().Add(time.Hour),
+				Policies:       []string{"default"},
+			}, nil
+		},
+	}
+	ctrl := newTestController(&mockTokenProvider{}, auth, pub)
+	_ = ctrl.Register("test-conn", validConfig(), nil)
+
+	if err := ctrl.renewConnection(context.Background(), "test-conn"); err != nil {
+		t.Fatalf("renewConnection: %v", err)
+	}
+
+	events := pub.snapshotEvents()
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+}
+
+// TestLifecycleController_PublishesTokenRenewalFailed pins the
+// failure-path counterpart. Operators can alert on sustained renewal
+// failures by subscribing to this event.
+func TestLifecycleController_PublishesTokenRenewalFailed(t *testing.T) {
+	pub := &mockEventPublisher{}
+	auth := &mockVaultAuthenticator{
+		renewFunc: func(_ context.Context) (*AuthResult, error) {
+			return nil, fmt.Errorf("vault unreachable") //nolint:err113
+		},
+		authK8sFunc: func(_ context.Context, _, _, _ string) (*AuthResult, error) {
+			return nil, fmt.Errorf("vault still unreachable") //nolint:err113
+		},
+	}
+	provider := &mockTokenProvider{
+		getTokenFunc: func(_ context.Context, _ GetTokenOptions) (*TokenInfo, error) {
+			return &TokenInfo{Token: "jwt"}, nil
+		},
+	}
+	ctrl := newTestController(provider, auth, pub)
+	_ = ctrl.Register("test-conn", validConfig(), nil)
+
+	// renewConnection should return the renewal error after the re-auth
+	// fallback also fails.
+	if err := ctrl.renewConnection(context.Background(), "test-conn"); err == nil {
+		t.Fatal("expected renewal error, got nil")
+	}
+
+	events := pub.snapshotEvents()
+	if len(events) == 0 {
+		t.Fatal("expected a TokenRenewalFailed event, got 0")
+	}
+}
+
+// TestLifecycleController_NilEventPublisher_NoPanic confirms the
+// renewal path is safe when the controller is constructed without an
+// event publisher (which all in-tree tests do today).
+func TestLifecycleController_NilEventPublisher_NoPanic(t *testing.T) {
+	auth := &mockVaultAuthenticator{
+		renewFunc: func(_ context.Context) (*AuthResult, error) {
+			return &AuthResult{
+				ClientToken:    "renewed-token",
+				TokenTTL:       time.Hour,
+				Renewable:      true,
+				ExpirationTime: time.Now().Add(time.Hour),
+			}, nil
+		},
+	}
+	ctrl := newTestController(&mockTokenProvider{}, auth, nil)
+	_ = ctrl.Register("test-conn", validConfig(), nil)
+	if err := ctrl.renewConnection(context.Background(), "test-conn"); err != nil {
+		t.Fatalf("renewConnection: %v", err)
 	}
 }

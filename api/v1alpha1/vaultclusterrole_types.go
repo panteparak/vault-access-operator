@@ -26,7 +26,9 @@ type VaultClusterRoleSpec struct {
 	// +kubebuilder:validation:Required
 	ConnectionRef string `json:"connectionRef"`
 
-	// AuthPath is the mount path of the Kubernetes auth method in Vault
+	// AuthPath is the mount path of the Vault auth method to manage this role in
+	// (e.g. `auth/kubernetes`, `auth/jwt`). Must include the `auth/` prefix.
+	// Defaults to `auth/kubernetes` when unset.
 	// +optional
 	AuthPath string `json:"authPath,omitempty"`
 
@@ -63,6 +65,13 @@ type VaultClusterRoleSpec struct {
 	// If not specified, uses the VaultConnection's default (which defaults to "detect").
 	// +optional
 	DriftMode DriftMode `json:"driftMode,omitempty"`
+
+	// JWT contains optional overrides when AuthPath targets a JWT auth mount.
+	// If omitted and AuthPath starts with "auth/jwt", defaults are derived from
+	// ServiceAccounts and the referenced VaultConnection. Must be unset for
+	// non-JWT auth paths.
+	// +optional
+	JWT *VaultRoleJWTSpec `json:"jwt,omitempty"`
 }
 
 // VaultClusterRoleStatus defines the observed state of VaultClusterRole.

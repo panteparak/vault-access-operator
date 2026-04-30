@@ -323,6 +323,8 @@ e2e-deploy-operator: e2e-check-context ## Deploy operator via Helm into k3s (wit
 		--set 'extraEnv[0].value=30s' \
 		--set 'extraEnv[1].name=OPERATOR_MIN_SCAN_INTERVAL' \
 		--set 'extraEnv[1].value=15s' \
+		--set 'extraEnv[2].name=OPERATOR_CLEANUP_RETRY_INTERVAL' \
+		--set 'extraEnv[2].value=30s' \
 		--wait --timeout 5m
 	$(E2E_KUBECTL) wait --for=condition=Available deployment \
 		-l app.kubernetes.io/name=vault-access-operator \
@@ -343,6 +345,8 @@ e2e-deploy-operator-with-webhooks: e2e-check-context e2e-install-cert-manager ##
 		--set 'extraEnv[0].value=30s' \
 		--set 'extraEnv[1].name=OPERATOR_MIN_SCAN_INTERVAL' \
 		--set 'extraEnv[1].value=15s' \
+		--set 'extraEnv[2].name=OPERATOR_CLEANUP_RETRY_INTERVAL' \
+		--set 'extraEnv[2].value=30s' \
 		--wait --timeout 5m
 	$(E2E_KUBECTL) wait --for=condition=Available deployment \
 		-l app.kubernetes.io/name=vault-access-operator \
@@ -387,7 +391,7 @@ e2e-local-test: ## Run all E2E tests against local stack
 		E2E_K8S_HOST=https://k3s:6443 \
 		E2E_OPERATOR_IMAGE=$(E2E_OPERATOR_IMAGE) \
 		E2E_SKIP_BUILD=true E2E_SKIP_IMAGE_LOAD=true \
-		go test ./test/e2e/ -v -ginkgo.v -ginkgo.fail-fast -timeout 10m
+		go test ./test/e2e/ -v -ginkgo.v -ginkgo.fail-fast -timeout 45m
 
 .PHONY: e2e-local-test-auth
 e2e-local-test-auth: ## Run auth E2E tests only
@@ -395,7 +399,7 @@ e2e-local-test-auth: ## Run auth E2E tests only
 		E2E_K8S_HOST=https://k3s:6443 \
 		E2E_OPERATOR_IMAGE=$(E2E_OPERATOR_IMAGE) \
 		E2E_SKIP_BUILD=true E2E_SKIP_IMAGE_LOAD=true \
-		go test ./test/e2e/ -v -ginkgo.v -ginkgo.fail-fast -ginkgo.label-filter="auth" -timeout 10m
+		go test ./test/e2e/ -v -ginkgo.v -ginkgo.fail-fast -ginkgo.label-filter="auth" -timeout 15m
 
 .PHONY: e2e-local-test-modules
 e2e-local-test-modules: ## Run module E2E tests only
@@ -403,7 +407,7 @@ e2e-local-test-modules: ## Run module E2E tests only
 		E2E_K8S_HOST=https://k3s:6443 \
 		E2E_OPERATOR_IMAGE=$(E2E_OPERATOR_IMAGE) \
 		E2E_SKIP_BUILD=true E2E_SKIP_IMAGE_LOAD=true \
-		go test ./test/e2e/ -v -ginkgo.v -ginkgo.fail-fast -ginkgo.label-filter="module || setup" -timeout 15m
+		go test ./test/e2e/ -v -ginkgo.v -ginkgo.fail-fast -ginkgo.label-filter="module || setup" -timeout 25m
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter

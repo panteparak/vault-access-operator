@@ -230,28 +230,45 @@ func (s *Scanner) shouldExcludeSystemPolicy(policyName string) bool {
 	return false
 }
 
-// matchesPolicyPatterns checks if a policy name matches the configured patterns
+// matchesPolicyPatterns checks if a policy name matches the configured patterns.
+// filepath.Match errors are logged at Error level instead of silently dropped —
+// the webhook validates patterns at admission, so an error here means either
+// (a) the CR was applied with the webhook unavailable (failurePolicy=Ignore),
+// or (b) a bug in ValidatePatterns. Either way the operator should know.
 func (s *Scanner) matchesPolicyPatterns(policyName string) bool {
 	if len(s.config.PolicyPatterns) == 0 {
 		return true // No patterns means match all
 	}
 
 	for _, pattern := range s.config.PolicyPatterns {
-		if matched, _ := filepath.Match(pattern, policyName); matched {
+		matched, err := filepath.Match(pattern, policyName)
+		if err != nil {
+			s.log.Error(err, "invalid glob pattern in policyPatterns (bypassing webhook validation?)",
+				"pattern", pattern, "policyName", policyName)
+			continue
+		}
+		if matched {
 			return true
 		}
 	}
 	return false
 }
 
-// matchesRolePatterns checks if a role name matches the configured patterns
+// matchesRolePatterns checks if a role name matches the configured patterns.
+// Same logging contract as matchesPolicyPatterns.
 func (s *Scanner) matchesRolePatterns(roleName string) bool {
 	if len(s.config.RolePatterns) == 0 {
 		return true // No patterns means match all
 	}
 
 	for _, pattern := range s.config.RolePatterns {
-		if matched, _ := filepath.Match(pattern, roleName); matched {
+		matched, err := filepath.Match(pattern, roleName)
+		if err != nil {
+			s.log.Error(err, "invalid glob pattern in rolePatterns (bypassing webhook validation?)",
+				"pattern", pattern, "roleName", roleName)
+			continue
+		}
+		if matched {
 			return true
 		}
 	}

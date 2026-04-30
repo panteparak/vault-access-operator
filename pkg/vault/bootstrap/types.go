@@ -83,8 +83,23 @@ type Result struct {
 	// BootstrapRevoked indicates if the bootstrap token was revoked.
 	BootstrapRevoked bool
 
+	// BootstrapRevokeError is set when AutoRevoke was requested but the
+	// revocation call to Vault failed. Bootstrap is allowed to "succeed"
+	// with a non-revoked token (the operator already transitioned to K8s
+	// auth) so this is captured for visibility rather than treated as
+	// fatal — without it, operators read "bootstrap completed successfully"
+	// in logs while a long-lived bootstrap token silently lingers in Vault.
+	BootstrapRevokeError string
+
 	// K8sAuthTestPassed indicates if K8s auth was tested successfully.
 	K8sAuthTestPassed bool
+
+	// K8sAuthTestError is set when the K8s auth test failed. Like
+	// BootstrapRevokeError, this is captured but non-fatal — the operator
+	// will retry on the next reconcile. Surfacing it lets the connection
+	// handler emit a clear status condition instead of leaving the user
+	// to grep for "kubernetes auth test failed" in pod logs.
+	K8sAuthTestError string
 
 	// TokenReviewerExpiration is when the token_reviewer_jwt expires.
 	TokenReviewerExpiration time.Time

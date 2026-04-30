@@ -186,6 +186,40 @@ const (
 	RoleKindCluster = "VaultClusterRole"
 )
 
+// VaultRoleJWTSpec contains optional overrides for JWT auth roles.
+// When a VaultRole (or VaultClusterRole) targets an auth/jwt mount via AuthPath,
+// the operator derives sensible defaults from ServiceAccounts and the referenced
+// VaultConnection. Fields in this struct let users override those defaults.
+type VaultRoleJWTSpec struct {
+	// UserClaim is the JWT claim to read as the identity. Defaults to "sub".
+	// +optional
+	UserClaim string `json:"userClaim,omitempty"`
+
+	// BoundAudiences restricts which audiences the token must contain.
+	// Defaults to the VaultConnection's spec.auth.jwt.audiences when the
+	// connection uses JWT auth, otherwise to
+	// ["https://kubernetes.default.svc.cluster.local"].
+	// +optional
+	BoundAudiences []string `json:"boundAudiences,omitempty"`
+
+	// BoundSubject restricts the token's sub claim to an exact match.
+	// Defaults to "system:serviceaccount:<namespace>:<serviceAccounts[0]>".
+	// Mutually exclusive with BoundClaims.
+	// +optional
+	BoundSubject string `json:"boundSubject,omitempty"`
+
+	// BoundClaims is an advanced match — arbitrary claim to value(s).
+	// When set, BoundSubject is ignored.
+	// +optional
+	BoundClaims map[string]string `json:"boundClaims,omitempty"`
+
+	// RoleType is the Vault JWT role type. Only "jwt" is supported.
+	// Defaults to "jwt".
+	// +kubebuilder:validation:Enum=jwt
+	// +optional
+	RoleType string `json:"roleType,omitempty"`
+}
+
 // PolicyReference defines a reference to a VaultPolicy or VaultClusterPolicy
 type PolicyReference struct {
 	// Kind of the policy (VaultPolicy or VaultClusterPolicy)
@@ -297,6 +331,21 @@ const (
 	ConditionTypeDependencyReady  = "DependencyReady"
 	ConditionTypeDrifted          = "Drifted"
 	ConditionTypeDeleting         = "Deleting"
+	// ConditionTypeDryRun is True when the resource carries the
+	// `vault.platform.io/dry-run=true` annotation and the operator
+	// skipped one or more Vault-side writes during reconcile. Message
+	// surfaces the would-be operation. IMPROVEMENTS Missing Features §I.
+	ConditionTypeDryRun = "DryRun"
+
+	// ConditionTypeBootstrapped is True on a VaultConnection once the
+	// bootstrap flow has completed and the K8s auth test has verified
+	// the operator can authenticate via the new mount. Set in the
+	// connection handler's runBootstrap. Without this, operators
+	// querying `kubectl get vc -o jsonpath='..conditions[?(@.type=="Bootstrapped")]'`
+	// got an empty result during the brief window between bootstrap
+	// committing status and the next reconcile landing the normal
+	// Ready=True — confusing CI checks that polled for readiness.
+	ConditionTypeBootstrapped = "Bootstrapped"
 )
 
 // ConditionReason constants
@@ -319,6 +368,36 @@ const (
 	ReasonObservedGenStale      = "ObservedGenerationStale"
 	ReasonPolicyNotInVault      = "PolicyNotInVault"
 	ReasonImmutableFieldChanged = "ImmutableFieldChanged"
+
+	// ReasonResourceNotFound is emitted when a referenced K8s resource
+	// (Secret, ServiceAccount, etc.) can't be found. Distinct from
+	// ReasonPolicyNotFound, which is specific to Vault policies.
+	// IMPROVEMENTS §29.
+	ReasonResourceNotFound = "ResourceNotFound"
+
+	// ReasonNetworkError is emitted when transport-layer errors (DNS, TLS,
+	// TCP, unreachable) prevent reaching Vault. Distinct from
+	// ReasonFailed (generic) and ReasonConnectionNotReady (dependency
+	// resolution). IMPROVEMENTS §29.
+	ReasonNetworkError = "NetworkError"
+
+	// ReasonDryRunSkipped is the condition reason for ConditionTypeDryRun
+	// when the operator would have written/deleted but skipped because the
+	// resource carries `vault.platform.io/dry-run=true`.
+	// IMPROVEMENTS Missing Features §I.
+	ReasonDryRunSkipped = "DryRunSkipped"
+
+	// ReasonVaultSealed is set on Ready=False / Healthy=False when Vault
+	// is reachable but in a sealed state. Distinct from ReasonNetworkError
+	// (transport failure) and ReasonFailed (generic). Operators see this
+	// reason when an external action (auto-unseal trigger, manual unseal)
+	// is needed to recover the connection. IMPROVEMENTS Missing Features §C.
+	ReasonVaultSealed = "VaultSealed"
+
+	// ReasonVaultNotInitialized is the analog of ReasonVaultSealed for
+	// the rarer case where Vault is reachable but `vault operator init`
+	// hasn't run yet. Same dashboard treatment, different remediation.
+	ReasonVaultNotInitialized = "VaultNotInitialized"
 )
 
 // ToSecretReference converts LocalSecretKeySelector to a corev1.SecretKeySelector
@@ -434,6 +513,81 @@ const (
 	// Value is the timestamp when the resource was discovered
 	AnnotationDiscovered = "vault.platform.io/discovered-at"
 
+	// AnnotationDiscoveredFrom names the VaultConnection that surfaced the resource.
+	// Set by discovery auto-create alongside AnnotationDiscovered; informational only.
+	AnnotationDiscoveredFrom = "vault.platform.io/discovered-from"
+
+	// AnnotationDiscoveryPending marks an auto-created adoption CR whose spec
+	// still contains placeholder values. Operators MUST skip writes to Vault
+	// while this annotation is set to AnnotationValueTrue — otherwise the
+	// placeholder would overwrite the adopted Vault resource. Users clear the
+	// annotation after replacing placeholders with the real spec.
+	AnnotationDiscoveryPending = "vault.platform.io/discovery-pending"
+
+	// AnnotationReconcileNow, when set to any value, forces an immediate
+	// reconcile of the annotated CR even if spec.generation didn't change.
+	// Useful after a Vault-side manual fix to pull the operator back in sync
+	// without bumping the spec.
+	//
+	// The handler clears this annotation at the end of a successful sync so
+	// the trigger is single-shot — without that clearing step, the watcher
+	// would re-enqueue on every reconcile and loop forever.
+	//
+	// IMPROVEMENTS Missing Features §H.
+	AnnotationReconcileNow = "vault.platform.io/reconcile-now"
+
+	// AnnotationRestoreManagedMarkers, when set to AnnotationValueTrue on a
+	// VaultConnection, triggers a one-shot mass re-adoption: the connection
+	// reconciler lists every dependent CR (VaultPolicy, VaultClusterPolicy,
+	// VaultRole, VaultClusterRole) referencing this connection and re-writes
+	// the managed-marker entry in Vault's KV store for each.
+	//
+	// Use case: someone wiped `secret/data/vault-access-operator/managed/`
+	// (manual cleanup, accidental policy delete, KV mount restoration from
+	// snapshot). Without the markers, every dependent CR is conflict-blocked
+	// because the operator can't tell that it owns those Vault resources.
+	// Setting this annotation recovers the cluster in one operation instead
+	// of N annotations on N CRs.
+	//
+	// Auto-clears after a successful pass — single-shot trigger. Failures
+	// during the pass are logged with per-resource detail; the operator
+	// re-tries on the next reconcile until the user clears the annotation.
+	//
+	// IMPROVEMENTS Missing Features §G.
+	AnnotationRestoreManagedMarkers = "vault.platform.io/restore-managed-markers"
+
+	// AnnotationDryRun, when set to AnnotationValueTrue, makes the operator
+	// SKIP all Vault-side writes (WriteToVault, MarkManaged, DeleteFromVault)
+	// for the annotated resource and surface what it WOULD have written via
+	// the `DryRun` status condition.
+	//
+	// Use case: preview a policy/role change ("what HCL would the operator
+	// push?") or preview a delete ("what would happen if I removed this CR?")
+	// without committing the change to Vault. Drift detection still runs so
+	// the user can compare expected vs. actual.
+	//
+	// Persistent — does NOT auto-clear. Users remove the annotation when
+	// ready to apply for real. Combine with `DriftMode: correct` to preview
+	// what a drift-correction WOULD overwrite without overwriting it.
+	//
+	// IMPROVEMENTS Missing Features §I.
+	AnnotationDryRun = "vault.platform.io/dry-run"
+
 	// AnnotationValueTrue is the canonical value for boolean annotation flags
 	AnnotationValueTrue = "true"
+
+	// DiscoveryPlaceholderValue is the sentinel string the discovery
+	// auto-create flow injects into VaultRole.Spec.ServiceAccounts and
+	// VaultRole.Spec.Policies (and their cluster equivalents) so the
+	// CR satisfies MinItems=1 schema validation while the user adopts
+	// the resource. The discovery-pending annotation tells the
+	// reconciler to skip Vault writes; the webhook ALSO refuses to
+	// remove discovery-pending while this placeholder remains, so a
+	// user can't accidentally write the placeholder to Vault by
+	// clearing the annotation in isolation.
+	//
+	// Lifted from features/discovery/controller into the API package so
+	// the role/cluster-role webhooks can reference the same string
+	// without taking a controller-package dependency.
+	DiscoveryPlaceholderValue = "discovery-placeholder-replace-me"
 )

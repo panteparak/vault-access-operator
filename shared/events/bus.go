@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/go-logr/logr"
 )
@@ -139,9 +140,30 @@ func (b *EventBus) safeInvoke(ctx context.Context, handler handlerFunc, event Ev
 // PublishAsync sends an event to all subscribed handlers asynchronously.
 // It returns immediately and handlers are invoked in a goroutine.
 // Use this when you don't need to wait for handlers to complete.
+//
+// IMPORTANT: handlers run on a NEW background context derived from the
+// caller's ctx logger only — NOT the caller's request-scoped ctx.
+// Without this decoupling, controller-runtime cancels the reconcile
+// ctx as soon as Reconcile returns, which can cancel handlers
+// mid-execution (e.g., a metric emission or downstream HTTP call). The
+// logger is preserved so request-scoped log fields (reconcileID, etc.)
+// stay attached to handler logs.
+//
+// Caller-provided cancellation is honored only via the timeout below
+// — handlers should be quick. Add a hard 10s deadline as a safety net
+// against runaway handlers leaking goroutines indefinitely.
 func (b *EventBus) PublishAsync(ctx context.Context, event Event) {
+	// Preserve the logger but drop all other ctx values (deadlines,
+	// cancellation). Handlers get a fresh background ctx with a 10s
+	// deadline.
+	parentLog, _ := logr.FromContext(ctx)
 	go func() {
-		_ = b.Publish(ctx, event)
+		bgCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if parentLog.GetSink() != nil {
+			bgCtx = logr.NewContext(bgCtx, parentLog)
+		}
+		_ = b.Publish(bgCtx, event)
 	}()
 }
 

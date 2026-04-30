@@ -96,16 +96,30 @@ var (
 		[]string{"connection", "type"},
 	)
 
-	// DriftDetectedGauge tracks resources with detected drift.
-	// Uses kind+namespace only (not name) to avoid unbounded Prometheus cardinality.
+	// DriftDetectedGauge tracks per-resource drift state.
+	//
+	// Labels: kind+namespace+name. Earlier versions of this metric used
+	// kind+namespace only to bound cardinality, but that caused multiple
+	// resources in the same namespace to overwrite each other's drift
+	// signal — a healthy resource's "0" would silently mask another
+	// resource's "1". Per-resource labels are the correct granularity
+	// for the alert rule users actually want
+	// (`vault_access_operator_vault_drift_detected == 1` per resource).
+	//
+	// Cardinality risk is bounded in practice (<1000 CRs per kind in
+	// typical clusters); call DeleteLabelValues from the cleanup
+	// workflow on resource deletion to prevent series leak.
+	//
+	// User-facing docs (docs/concepts/architecture.md) already show
+	// kind+namespace+name labels — code now matches docs.
 	DriftDetectedGauge = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Namespace: "vault_access_operator",
 			Subsystem: "vault",
 			Name:      "drift_detected",
-			Help:      "Number of resources with detected drift (1=drift, 0=no drift)",
+			Help:      "Per-resource drift state (1=drift, 0=no drift)",
 		},
-		[]string{"kind", "namespace"},
+		[]string{"kind", "namespace", "name"},
 	)
 
 	// CleanupQueueSizeGauge tracks the size of the cleanup retry queue.
@@ -183,6 +197,25 @@ var (
 		},
 		[]string{"connection", "result"},
 	)
+
+	// ReconcileDurationSeconds tracks the wall-clock duration of a single
+	// Reconcile call, keyed by CR kind and result. Enables alerting on
+	// reconcile latency regressions (e.g. "p99 > 10s for VaultPolicy").
+	// Introduced for IMPROVEMENTS.md Missing Features §K.
+	//
+	// Buckets are chosen for a typical operator Reconcile: most complete
+	// under 1s when Vault is local and responsive; slow cases sit in the
+	// 5–30s range when Vault is contended or network-partitioned.
+	ReconcileDurationSeconds = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Namespace: "vault_access_operator",
+			Subsystem: "reconcile",
+			Name:      "duration_seconds",
+			Help:      "Wall-clock duration of a Reconcile call, seconds",
+			Buckets:   []float64{0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60},
+		},
+		[]string{"kind", "result"},
+	)
 )
 
 func init() {
@@ -202,7 +235,19 @@ func init() {
 		AdoptionTotal,
 		DiscoveredResourcesGauge,
 		DiscoveryScanTotal,
+		ReconcileDurationSeconds,
 	)
+}
+
+// ObserveReconcileDuration records a Reconcile duration observation.
+// Called from BaseReconciler.Reconcile so every CR kind's reconcile
+// latency is tracked uniformly.
+func ObserveReconcileDuration(kind string, durationSeconds float64, success bool) {
+	result := ResultFailure
+	if success {
+		result = ResultSuccess
+	}
+	ReconcileDurationSeconds.WithLabelValues(kind, result).Observe(durationSeconds)
 }
 
 // SetConnectionHealth sets the health status for a connection.
@@ -212,6 +257,24 @@ func SetConnectionHealth(connection string, healthy bool) {
 		val = 1.0
 	}
 	ConnectionHealthGauge.WithLabelValues(connection).Set(val)
+}
+
+// DeleteConnectionMetrics removes all per-connection series so the
+// Prometheus registry doesn't grow forever as VaultConnection resources
+// are created and destroyed (e.g., GitOps churn, ephemeral PR
+// environments). Without this call, every unique connection name leaks
+// 4 series for the lifetime of the operator process: 1 health gauge,
+// 1 consecutive-fails gauge, and 2 health-check-result counter variants.
+//
+// Mirrors the DeleteDriftDetected pattern used by the cleanup workflow.
+// Callers should invoke this from the connection's Cleanup path AFTER
+// the cache entry is removed — once both are cleared, the connection
+// is fully forgotten.
+func DeleteConnectionMetrics(connection string) {
+	ConnectionHealthGauge.DeleteLabelValues(connection)
+	ConnectionConsecutiveFailsGauge.DeleteLabelValues(connection)
+	ConnectionHealthCheckTotal.DeleteLabelValues(connection, ResultSuccess)
+	ConnectionHealthCheckTotal.DeleteLabelValues(connection, ResultFailure)
 }
 
 // IncrementHealthCheck increments the health check counter.
@@ -251,13 +314,32 @@ func SetOrphanedResources(connection, resourceType string, count int) {
 	OrphanedResourcesGauge.WithLabelValues(connection, resourceType).Set(float64(count))
 }
 
-// SetDriftDetected sets the drift detection status for a resource.
-func SetDriftDetected(kind, namespace string, detected bool) {
+// DeleteOrphanedResourcesMetrics removes per-connection orphan series
+// when a connection is removed. Without this, the orphan controller's
+// next scan no longer touches the labels but the previous values stay
+// in the registry forever — a deleted connection's "5 orphaned policies"
+// gauge would persist as a stale alert until operator restart.
+func DeleteOrphanedResourcesMetrics(connection string) {
+	OrphanedResourcesGauge.DeleteLabelValues(connection, "policy")
+	OrphanedResourcesGauge.DeleteLabelValues(connection, "role")
+}
+
+// SetDriftDetected sets the per-resource drift state. Includes name in
+// the label set so multiple resources in the same namespace don't
+// overwrite each other's drift signal.
+func SetDriftDetected(kind, namespace, name string, detected bool) {
 	val := 0.0
 	if detected {
 		val = 1.0
 	}
-	DriftDetectedGauge.WithLabelValues(kind, namespace).Set(val)
+	DriftDetectedGauge.WithLabelValues(kind, namespace, name).Set(val)
+}
+
+// DeleteDriftDetected removes the per-resource series so the metric
+// doesn't leak after a CR is deleted. Called from the cleanup workflow.
+// No-op if the labels were never set.
+func DeleteDriftDetected(kind, namespace, name string) {
+	DriftDetectedGauge.DeleteLabelValues(kind, namespace, name)
 }
 
 // SetCleanupQueueSize sets the cleanup queue size.
@@ -305,4 +387,15 @@ func IncrementDiscoveryScan(connection string, success bool) {
 		result = ResultSuccess
 	}
 	DiscoveryScanTotal.WithLabelValues(connection, result).Inc()
+}
+
+// DeleteDiscoveryMetrics removes per-connection discovery series so a
+// deleted connection's "12 unmanaged policies" reading doesn't linger
+// in the registry until restart. Wipes both the gauge for each
+// resource type and both result variants of the scan counter.
+func DeleteDiscoveryMetrics(connection string) {
+	DiscoveredResourcesGauge.DeleteLabelValues(connection, "policy")
+	DiscoveredResourcesGauge.DeleteLabelValues(connection, "role")
+	DiscoveryScanTotal.DeleteLabelValues(connection, ResultSuccess)
+	DiscoveryScanTotal.DeleteLabelValues(connection, ResultFailure)
 }

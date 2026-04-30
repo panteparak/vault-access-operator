@@ -69,6 +69,12 @@ type PolicyAdapter interface {
 	SetVaultName(name string)
 	SetRulesCount(count int)
 
+	// UsedByRoles is the reverse policy→role index (IMPROVEMENTS §B).
+	// Populated by the policy reconciler from a list of all VaultRole
+	// and VaultClusterRole resources that reference this policy.
+	GetUsedByRoles() []string
+	SetUsedByRoles(refs []string)
+
 	// GetDriftMode returns the resource's configured drift mode (from spec).
 	GetDriftMode() vaultv1alpha1.DriftMode
 }
@@ -104,6 +110,8 @@ func (a *VaultPolicyAdapter) IsEnforceNamespaceBoundary() bool {
 func (a *VaultPolicyAdapter) GetVaultName() string                  { return a.Status.VaultName }
 func (a *VaultPolicyAdapter) SetVaultName(name string)              { a.Status.VaultName = name }
 func (a *VaultPolicyAdapter) SetRulesCount(count int)               { a.Status.RulesCount = count }
+func (a *VaultPolicyAdapter) GetUsedByRoles() []string              { return a.Status.UsedByRoles }
+func (a *VaultPolicyAdapter) SetUsedByRoles(refs []string)          { a.Status.UsedByRoles = refs }
 func (a *VaultPolicyAdapter) GetDriftMode() vaultv1alpha1.DriftMode { return a.Spec.DriftMode }
 
 // VaultClusterPolicyAdapter adapts VaultClusterPolicy to the PolicyAdapter interface.
@@ -138,4 +146,6 @@ func (a *VaultClusterPolicyAdapter) IsEnforceNamespaceBoundary() bool { return f
 func (a *VaultClusterPolicyAdapter) GetVaultName() string                  { return a.Status.VaultName }
 func (a *VaultClusterPolicyAdapter) SetVaultName(name string)              { a.Status.VaultName = name }
 func (a *VaultClusterPolicyAdapter) SetRulesCount(count int)               { a.Status.RulesCount = count }
+func (a *VaultClusterPolicyAdapter) GetUsedByRoles() []string              { return a.Status.UsedByRoles }
+func (a *VaultClusterPolicyAdapter) SetUsedByRoles(refs []string)          { a.Status.UsedByRoles = refs }
 func (a *VaultClusterPolicyAdapter) GetDriftMode() vaultv1alpha1.DriftMode { return a.Spec.DriftMode }

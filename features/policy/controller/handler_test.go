@@ -22,6 +22,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/go-logr/logr"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -645,7 +646,10 @@ func TestBuildRuleDescriptions(t *testing.T) {
 		}
 	})
 
-	t.Run("rules without descriptions return nil", func(t *testing.T) {
+	t.Run("rules without descriptions return empty map", func(t *testing.T) {
+		// Was previously nil; now returns explicit empty map so markManaged
+		// distinguishes "no descriptions" (clear existing) from "I don't
+		// know" (preserve existing). See markManaged docstring.
 		rules := []vaultv1alpha1.PolicyRule{
 			{
 				Path:         "secret/data/app/*",
@@ -654,8 +658,11 @@ func TestBuildRuleDescriptions(t *testing.T) {
 		}
 
 		descs := handler.buildRuleDescriptions(rules, "ns", "name")
-		if descs != nil {
-			t.Errorf("expected nil descriptions, got %v", descs)
+		if descs == nil {
+			t.Error("expected empty (non-nil) map; nil now means 'preserve' for markManaged")
+		}
+		if len(descs) != 0 {
+			t.Errorf("expected empty map, got %v", descs)
 		}
 	})
 
@@ -784,25 +791,23 @@ func TestCleanupPolicy_DeletionPolicyDelete(t *testing.T) {
 	// For this test we just verify the deletion policy logic
 	eventBus := events.NewEventBus(logr.Discard())
 
-	var deletedEvent events.PolicyDeleted
-	var eventPublished bool
+	// Subscribe via a buffered channel for synchronization. Earlier
+	// versions of this test wrote to closure-captured vars from the
+	// async handler and read them from the main goroutine without sync,
+	// triggering -race warnings. The channel + length check below makes
+	// the handoff explicit; the values are still asserted to be unused
+	// by the test, just safely so.
+	eventCh := make(chan events.PolicyDeleted, 1)
 	events.Subscribe(eventBus, func(_ context.Context, e events.PolicyDeleted) error {
-		deletedEvent = e
-		eventPublished = true
+		eventCh <- e
 		return nil
 	})
 
 	handler := NewHandler(fakeClient, clientCache, eventBus, logr.Discard())
 	adapter := domain.NewVaultPolicyAdapter(policy)
 
-	// Test the deletion logic directly - cleanup won't fully work without real vault client
-	// but we can verify the event would be published
 	ctx := context.Background()
-
-	// Since we can't mock the vault client fully in this handler design,
-	// we test what we can - the event publishing and phase setting
 	err := handler.CleanupPolicy(ctx, adapter)
-
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -812,10 +817,13 @@ func TestCleanupPolicy_DeletionPolicyDelete(t *testing.T) {
 		t.Errorf("expected phase Deleting, got %s", adapter.GetPhase())
 	}
 
-	// Wait a bit for async event
-	// In real tests we'd use proper synchronization
-	_ = eventPublished
-	_ = deletedEvent
+	// Drain the async event with a hard deadline so the race detector
+	// has a happens-before edge between the handler write and our read.
+	// The event might not arrive (no Vault client wired) — that's fine.
+	select {
+	case <-eventCh:
+	case <-time.After(500 * time.Millisecond):
+	}
 	_ = mockClient
 }
 
@@ -1030,7 +1038,7 @@ func TestCalculateHash(t *testing.T) {
 	handler := &Handler{log: logr.Discard()}
 
 	t.Run("same content produces same hash", func(t *testing.T) {
-		content := "path \"secret/*\" { capabilities = [\"read\"] }"
+		content := existingPolicyHCL
 		hash1 := handler.calculateHash(content)
 		hash2 := handler.calculateHash(content)
 
@@ -1040,7 +1048,7 @@ func TestCalculateHash(t *testing.T) {
 	})
 
 	t.Run("different content produces different hash", func(t *testing.T) {
-		content1 := "path \"secret/*\" { capabilities = [\"read\"] }"
+		content1 := existingPolicyHCL
 		content2 := "path \"secret/*\" { capabilities = [\"read\", \"list\"] }"
 		hash1 := handler.calculateHash(content1)
 		hash2 := handler.calculateHash(content2)

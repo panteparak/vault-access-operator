@@ -38,32 +38,56 @@ import (
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/pkg/vault"
+	"github.com/panteparak/vault-access-operator/shared/controller/base"
+	"github.com/panteparak/vault-access-operator/shared/controller/conditions"
 )
 
 const (
 	// DefaultScanInterval is the default interval between discovery scans
 	DefaultScanInterval = time.Hour
+
+	// discoveryPlaceholder aliases the canonical
+	// vaultv1alpha1.DiscoveryPlaceholderValue (which is also referenced by
+	// the role/cluster-role webhooks) so the discovery feature can use a
+	// short local name. Both must stay in sync — the alias is enforced
+	// at compile time.
+	discoveryPlaceholder = vaultv1alpha1.DiscoveryPlaceholderValue
 )
 
-// MinScanInterval is the minimum allowed scan interval.
-// It can be overridden via the OPERATOR_MIN_SCAN_INTERVAL environment variable.
-var MinScanInterval = time.Minute * 5
+// DefaultMinScanInterval is the minimum scan interval used when a
+// ReconcilerConfig leaves MinScanInterval unset. Can still be overridden per
+// call via the OPERATOR_MIN_SCAN_INTERVAL env var (see
+// resolveMinScanInterval). Kept as a package-level const for tests that
+// reference "the default minimum" without constructing a full config.
+const DefaultMinScanInterval = time.Minute * 5
+
+// MinScanInterval mirrors DefaultMinScanInterval for backward compatibility
+// with test code that still references this package variable.
+// IMPROVEMENTS §23 lifted the primary configuration path into
+// ReconcilerConfig.MinScanInterval; this var is now a read-only default
+// populated at init so existing callers (and the test helper that mutated
+// it) see no change.
+//
+//nolint:gochecknoglobals // retained for backward compat during §23 transition
+var MinScanInterval = DefaultMinScanInterval
 
 func init() {
-	if v := os.Getenv("OPERATOR_MIN_SCAN_INTERVAL"); v != "" {
-		if d, err := time.ParseDuration(v); err == nil {
-			MinScanInterval = d
-		}
-	}
+	// Use the shared helper so a misconfigured OPERATOR_MIN_SCAN_INTERVAL
+	// produces a stderr warning at startup instead of silently falling
+	// back to the default — matching the behavior of the REQUEUE_*
+	// env vars.
+	MinScanInterval = base.ParseIntervalEnv(
+		"OPERATOR_MIN_SCAN_INTERVAL", DefaultMinScanInterval, os.Stderr)
 }
 
 // Reconciler reconciles VaultConnection resources for discovery
 type Reconciler struct {
 	client.Client
-	Scheme      *runtime.Scheme
-	ClientCache *vault.ClientCache
-	Log         logr.Logger
-	Recorder    record.EventRecorder
+	Scheme          *runtime.Scheme
+	ClientCache     *vault.ClientCache
+	Log             logr.Logger
+	Recorder        record.EventRecorder
+	minScanInterval time.Duration
 }
 
 // ReconcilerConfig holds configuration for creating a Reconciler
@@ -73,16 +97,27 @@ type ReconcilerConfig struct {
 	ClientCache *vault.ClientCache
 	Log         logr.Logger
 	Recorder    record.EventRecorder
+
+	// MinScanInterval (IMPROVEMENTS §23) lets tests override the minimum
+	// scan interval without mutating a package-level global. Zero uses the
+	// package-level MinScanInterval value (which is itself resolved from
+	// DefaultMinScanInterval + OPERATOR_MIN_SCAN_INTERVAL env var at init).
+	MinScanInterval time.Duration
 }
 
 // NewReconciler creates a new discovery Reconciler
 func NewReconciler(cfg ReconcilerConfig) *Reconciler {
+	minInterval := cfg.MinScanInterval
+	if minInterval <= 0 {
+		minInterval = MinScanInterval
+	}
 	return &Reconciler{
-		Client:      cfg.Client,
-		Scheme:      cfg.Scheme,
-		ClientCache: cfg.ClientCache,
-		Log:         cfg.Log.WithName("discovery-controller"),
-		Recorder:    cfg.Recorder,
+		minScanInterval: minInterval,
+		Client:          cfg.Client,
+		Scheme:          cfg.Scheme,
+		ClientCache:     cfg.ClientCache,
+		Log:             cfg.Log.WithName("discovery-controller"),
+		Recorder:        cfg.Recorder,
 	}
 }
 
@@ -100,7 +135,13 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return ctrl.Result{}, nil
 	}
 
-	scanInterval := scanIntervalFor(conn.Spec.Discovery)
+	// Check if it's time to scan. Floor honors the per-reconciler config
+	// (IMPROVEMENTS §23) which falls back to the package-level
+	// MinScanInterval when unset.
+	scanInterval := ParseInterval(conn.Spec.Discovery.Interval)
+	if scanInterval < r.minScanInterval {
+		scanInterval = r.minScanInterval
+	}
 	if waitFor, due := timeUntilNextScan(&conn, scanInterval); !due {
 		log.V(2).Info("skipping scan, not yet due", "nextScanIn", waitFor)
 		return ctrl.Result{RequeueAfter: waitFor}, nil
@@ -128,16 +169,6 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		"unmanagedPolicies", len(result.UnmanagedPolicies),
 		"unmanagedRoles", len(result.UnmanagedRoles))
 	return ctrl.Result{RequeueAfter: scanInterval}, nil
-}
-
-// scanIntervalFor returns the configured scan interval, clamped to
-// MinScanInterval to prevent runaway scans.
-func scanIntervalFor(cfg *vaultv1alpha1.DiscoveryConfig) time.Duration {
-	interval := ParseInterval(cfg.Interval)
-	if interval < MinScanInterval {
-		return MinScanInterval
-	}
-	return interval
 }
 
 // timeUntilNextScan reports whether the connection is due for another scan.
@@ -245,10 +276,10 @@ func (r *Reconciler) createPolicyCR(
 			Name:      discovered.SuggestedCRName,
 			Namespace: namespace,
 			Annotations: map[string]string{
-				vaultv1alpha1.AnnotationAdopt:         "true",
-				vaultv1alpha1.AnnotationDiscovered:    discovered.DiscoveredAt.Format(time.RFC3339),
-				"vault.platform.io/discovered-from":   conn.Name,
-				"vault.platform.io/discovery-pending": "true",
+				vaultv1alpha1.AnnotationAdopt:            vaultv1alpha1.AnnotationValueTrue,
+				vaultv1alpha1.AnnotationDiscovered:       discovered.DiscoveredAt.Format(time.RFC3339),
+				vaultv1alpha1.AnnotationDiscoveredFrom:   conn.Name,
+				vaultv1alpha1.AnnotationDiscoveryPending: vaultv1alpha1.AnnotationValueTrue,
 			},
 		},
 		Spec: vaultv1alpha1.VaultPolicySpec{
@@ -270,6 +301,13 @@ func (r *Reconciler) createPolicyCR(
 	}
 
 	if err := r.Create(ctx, policy); err != nil {
+		// AlreadyExists is the steady-state on every scan after the first
+		// create — the placeholder CR is already there waiting for user
+		// adoption. Treating it as success keeps the per-scan log clean
+		// and prevents the spurious AutoCreateFailed warning event.
+		if apierrors.IsAlreadyExists(err) {
+			return nil
+		}
 		return fmt.Errorf("failed to create VaultPolicy: %w", err)
 	}
 
@@ -288,36 +326,79 @@ func (r *Reconciler) createRoleCR(
 			Name:      discovered.SuggestedCRName,
 			Namespace: namespace,
 			Annotations: map[string]string{
-				vaultv1alpha1.AnnotationAdopt:       "true",
-				vaultv1alpha1.AnnotationDiscovered:  discovered.DiscoveredAt.Format(time.RFC3339),
-				"vault.platform.io/discovered-from": conn.Name,
+				vaultv1alpha1.AnnotationAdopt:          vaultv1alpha1.AnnotationValueTrue,
+				vaultv1alpha1.AnnotationDiscovered:     discovered.DiscoveredAt.Format(time.RFC3339),
+				vaultv1alpha1.AnnotationDiscoveredFrom: conn.Name,
+				// discovery-pending blocks RoleOps.WriteToVault from overwriting
+				// the adopted Vault role with the placeholder spec below.
+				// Users MUST remove this annotation after replacing the placeholders
+				// with their real serviceAccounts and policies.
+				vaultv1alpha1.AnnotationDiscoveryPending: vaultv1alpha1.AnnotationValueTrue,
 			},
 		},
 		Spec: vaultv1alpha1.VaultRoleSpec{
 			ConnectionRef:  conn.Name,
 			ConflictPolicy: vaultv1alpha1.ConflictPolicyAdopt,
 			DriftMode:      vaultv1alpha1.DriftModeDetect,
-			// ServiceAccounts will need to be filled in manually
-			ServiceAccounts: []string{},
+			// Placeholder values satisfy MinItems=1 on ServiceAccounts + Policies
+			// so the K8s API server accepts the CR. The discovery-pending annotation
+			// ensures these are never written to Vault; the user replaces them with
+			// the real spec after reviewing the adopted Vault role.
+			ServiceAccounts: []string{discoveryPlaceholder},
+			Policies: []vaultv1alpha1.PolicyReference{
+				{Kind: "VaultClusterPolicy", Name: discoveryPlaceholder},
+			},
 		},
 	}
 
 	if err := r.Create(ctx, role); err != nil {
+		// AlreadyExists = previous scan already created this placeholder.
+		// Skip silently rather than emit a Warning AutoCreateFailed event
+		// every scan interval (typically 5min) for every previously-seen role.
+		if apierrors.IsAlreadyExists(err) {
+			return nil
+		}
 		return fmt.Errorf("failed to create VaultRole: %w", err)
 	}
 
 	return nil
 }
 
-// updateDiscoveryStatus updates the discovery status with retry on conflict.
-// This is necessary because the connection controller also updates VaultConnection status,
-// leading to potential optimistic lock conflicts.
+// MaxDiscoveredResourcesInStatus caps how many DiscoveredResource entries
+// the controller will write to a single VaultConnection status (IMPROVEMENTS §5).
+// The CRD's `+kubebuilder:validation:MaxItems=500` schema marker enforces this
+// at the API server, so writes that exceed it would be rejected with
+// "Too many: N: must have at most 500 items" — looping the reconciler forever.
+// We pre-truncate here so the user gets a clean Truncated condition instead.
+const MaxDiscoveredResourcesInStatus = 500
+
+// updateDiscoveryStatus updates the discovery status using a server-side
+// merge patch (IMPROVEMENTS §9). Previously this used Update inside
+// retry.RetryOnConflict because the connection controller also writes to
+// VaultConnection.Status — both writers using full Update produced
+// optimistic-concurrency conflicts. With MergeFrom, the patch only carries
+// the DiscoveryStatus subset of fields and tolerates concurrent changes to
+// the connection-controller-owned fields (Phase, AuthStatus, Health).
+//
+// retry.RetryOnConflict is preserved as a belt-and-braces guard for the
+// rare case where the resource is mid-deletion or the API server still
+// rejects a stale patch.
 func (r *Reconciler) updateDiscoveryStatus(
 	ctx context.Context,
 	connectionName string,
 	scanTime metav1.Time,
 	result *ScanResult,
 ) error {
+	// IMPROVEMENTS §5: cap the slice before persisting. We track how many we
+	// dropped so the user can see it via the DiscoveryResultsTruncated condition.
+	totalDiscovered := len(result.DiscoveredResources)
+	persistedResources := result.DiscoveredResources
+	truncatedCount := 0
+	if totalDiscovered > MaxDiscoveredResourcesInStatus {
+		persistedResources = result.DiscoveredResources[:MaxDiscoveredResourcesInStatus]
+		truncatedCount = totalDiscovered - MaxDiscoveredResourcesInStatus
+	}
+
 	return retry.RetryOnConflict(retry.DefaultBackoff, func() error {
 		// Re-fetch the VaultConnection to get the latest version
 		var conn vaultv1alpha1.VaultConnection
@@ -328,6 +409,13 @@ func (r *Reconciler) updateDiscoveryStatus(
 			return err
 		}
 
+		// Capture the pre-mutation snapshot so MergeFrom can compute the
+		// minimal field-level patch that touches ONLY the discovery-owned
+		// status subset. Anything we don't change here stays untouched on
+		// the server even if the connection controller wrote to it
+		// concurrently.
+		original := conn.DeepCopy()
+
 		// Initialize discovery status if needed
 		if conn.Status.DiscoveryStatus == nil {
 			conn.Status.DiscoveryStatus = &vaultv1alpha1.DiscoveryStatus{}
@@ -337,10 +425,42 @@ func (r *Reconciler) updateDiscoveryStatus(
 		conn.Status.DiscoveryStatus.LastScanAt = &scanTime
 		conn.Status.DiscoveryStatus.UnmanagedPolicies = len(result.UnmanagedPolicies)
 		conn.Status.DiscoveryStatus.UnmanagedRoles = len(result.UnmanagedRoles)
-		conn.Status.DiscoveryStatus.DiscoveredResources = result.DiscoveredResources
+		conn.Status.DiscoveryStatus.DiscoveredResources = persistedResources
 
-		return r.Status().Update(ctx, &conn)
+		// Surface the truncation as a condition so users can tighten their
+		// discovery patterns rather than wonder why the count doesn't match.
+		setDiscoveryTruncatedCondition(&conn, truncatedCount, totalDiscovered)
+
+		return r.Status().Patch(ctx, &conn, client.MergeFrom(original))
 	})
+}
+
+// setDiscoveryTruncatedCondition adds, updates, or removes the
+// DiscoveryResultsTruncated condition based on whether truncation happened.
+// Idempotent: if the previous condition matches the desired state, no change
+// is made (controller-runtime conditions library handles LastTransitionTime).
+func setDiscoveryTruncatedCondition(conn *vaultv1alpha1.VaultConnection, truncated, total int) {
+	const condType = "DiscoveryResultsTruncated"
+	if truncated > 0 {
+		msg := fmt.Sprintf(
+			"%d of %d discovered resources omitted from status (cap=%d). "+
+				"Tighten spec.discovery.{policy,role}Patterns to reduce.",
+			truncated, total, MaxDiscoveredResourcesInStatus)
+		conn.Status.Conditions = conditions.Set(
+			conn.Status.Conditions, conn.Generation,
+			condType, metav1.ConditionTrue,
+			"Capped", msg,
+		)
+		return
+	}
+	// No truncation this scan — clear the condition to False so a previously-set
+	// True doesn't linger after the user fixes their patterns.
+	conn.Status.Conditions = conditions.Set(
+		conn.Status.Conditions, conn.Generation,
+		condType, metav1.ConditionFalse,
+		"WithinCap",
+		fmt.Sprintf("All %d discovered resources persisted (cap=%d).", total, MaxDiscoveredResourcesInStatus),
+	)
 }
 
 // SetupWithManager sets up the controller with the Manager.

@@ -1,37 +1,12 @@
-/*
-Copyright 2026.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
-
-// Package vault provides a thin wrapper around the HashiCorp Vault Go SDK
-// with operator-specific metadata (authentication state, token TTL,
-// connection identity). Methods are organized by concern across multiple
-// files on the same *Client type:
-//
-//   - client.go       — construction, TLS, connection identity
-//   - token_state.go  — authenticated flag, token expiration/TTL/accessor, RenewSelf
-//   - health.go       — IsHealthy, GetVersion
-//   - auth_methods.go — all Authenticate* methods
-//   - policy_ops.go   — policy CRUD against sys/policies/acl
-//   - role_ops.go     — Kubernetes auth role CRUD
-//   - bootstrap_ops.go— auth mount management + token revocation (bootstrap-only)
 package vault
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"net/http"
+	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -40,6 +15,96 @@ import (
 
 // DefaultKubernetesAuthPath is the default path for Kubernetes auth in Vault
 const DefaultKubernetesAuthPath = "auth/kubernetes"
+
+// DefaultJWTAuthPath is the default path for JWT auth in Vault
+const DefaultJWTAuthPath = "auth/jwt"
+
+// AuthBackend identifies the kind of Vault auth backend a role targets.
+type AuthBackend string
+
+const (
+	// AuthBackendKubernetes identifies the `auth/kubernetes` family of mounts.
+	AuthBackendKubernetes AuthBackend = "kubernetes"
+	// AuthBackendJWT identifies the `auth/jwt` family of mounts.
+	AuthBackendJWT AuthBackend = "jwt"
+	// AuthBackendUnknown is returned for unrecognized auth paths.
+	AuthBackendUnknown AuthBackend = ""
+)
+
+// AuthBackendForPath returns the backend family for an auth mount path.
+// Matches the first path segment after a leading `auth/` (or implicit
+// `auth/` for bare names) so submounts like `auth/kubernetes-prod` or
+// `auth/jwt/gitlab` resolve to their parent family.
+//
+// Accepts both forms that appear in the user-facing CRD docs and existing
+// fixtures:
+//   - Full: `auth/kubernetes`, `auth/jwt`, `auth/kubernetes-prod`
+//   - Bare: `kubernetes`, `jwt` — treated as implicit `auth/<name>`
+//
+// Empty input resolves to Kubernetes (matching DefaultKubernetesAuthPath).
+// Returns AuthBackendUnknown for unrecognized backends (e.g. `auth/aws`,
+// `auth/approle`) — those need explicit role-write support added before
+// they're useful (IMPROVEMENTS §7).
+func AuthBackendForPath(authPath string) AuthBackend {
+	p := strings.TrimRight(NormalizeAuthPath(authPath), "/")
+	if p == "" {
+		return AuthBackendKubernetes
+	}
+	const prefix = "auth/"
+	rest := strings.TrimPrefix(p, prefix)
+	seg, _, _ := strings.Cut(rest, "/")
+	switch {
+	case hasBackendPrefix(seg, "kubernetes"):
+		return AuthBackendKubernetes
+	case hasBackendPrefix(seg, "jwt"):
+		return AuthBackendJWT
+	default:
+		return AuthBackendUnknown
+	}
+}
+
+// hasBackendPrefix returns true if seg equals backend exactly, or starts
+// with `backend-` / `backend_` (the conventional separators for a Vault
+// multi-tenant submount like `kubernetes-prod`). Requiring an explicit
+// separator avoids false-positive matches: pre-fix, `strings.HasPrefix`
+// alone accepted `kubernetestest` as a Kubernetes mount, which would
+// then route role-writes through the Kubernetes code path against a
+// mount that isn't actually Kubernetes auth.
+func hasBackendPrefix(seg, backend string) bool {
+	if seg == backend {
+		return true
+	}
+	if len(seg) <= len(backend) || !strings.HasPrefix(seg, backend) {
+		return false
+	}
+	sep := seg[len(backend)]
+	return sep == '-' || sep == '_'
+}
+
+// NormalizeAuthPath ensures the path has the `auth/` prefix that the
+// Vault SDK requires. Bare mount names like "kubernetes" or "jwt" are
+// promoted to "auth/kubernetes" / "auth/jwt"; full paths like
+// "auth/kubernetes" are returned unchanged. Empty input (or just "auth/"
+// after trim) returns DefaultKubernetesAuthPath.
+//
+// Centralizes the prefix-handling so every Vault SDK call (Write/Read/
+// Delete/Exists) sees a path that's actually addressable in Vault. Before
+// this helper, a bare "kubernetes" was accepted by the webhook but
+// produced a Vault path of `/v1/kubernetes/role/foo` (not the actual
+// mount at `/v1/auth/kubernetes/role/foo`), causing silent reconcile
+// failures.
+func NormalizeAuthPath(authPath string) string {
+	p := strings.TrimRight(authPath, "/")
+	// Empty input OR a bare "auth" with no mount name → default. Don't
+	// produce "auth/auth" by accidentally re-prefixing.
+	if p == "" || p == "auth" {
+		return DefaultKubernetesAuthPath
+	}
+	if strings.HasPrefix(p, "auth/") {
+		return p
+	}
+	return "auth/" + p
+}
 
 // Client wraps the Vault API client with additional metadata.
 // Mutable metadata fields are protected by mu for concurrent access
@@ -67,13 +132,27 @@ type TLSConfig struct {
 	SkipVerify bool
 }
 
-// NewClient creates a new Vault client with the given configuration
+// DefaultRequestTimeout caps each Vault HTTP request so a hung Vault
+// (e.g., a load balancer that accepts TCP but drops the request) can't
+// stall a reconcile for the SDK's default 60s × MaxRetries=2 (= up to
+// 180s of blocked-reconcile time per Vault call). Operators run on
+// 30s-default reconcile periods; a 180s hang means the whole work
+// queue backs up. 30s is long enough for healthy Vaults to respond
+// even on slow networks, short enough for the controller to report
+// a transient error and retry.
+const DefaultRequestTimeout = 30 * time.Second
+
+// NewClient creates a new Vault client with the given configuration.
+// If cfg.Timeout is zero the SDK default (60s) is overridden with
+// DefaultRequestTimeout to bound reconcile-blocking.
 func NewClient(cfg ClientConfig) (*Client, error) {
 	config := api.DefaultConfig()
 	config.Address = cfg.Address
 
 	if cfg.Timeout > 0 {
 		config.Timeout = cfg.Timeout
+	} else {
+		config.Timeout = DefaultRequestTimeout
 	}
 
 	if cfg.TLSConfig != nil {
@@ -82,6 +161,7 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 		}
 
 		if cfg.TLSConfig.CACert != "" {
+			// Set CA cert using the API's TLS configuration
 			if err := config.ConfigureTLS(&api.TLSConfig{
 				CACert:   cfg.TLSConfig.CACert,
 				Insecure: cfg.TLSConfig.SkipVerify,
@@ -105,12 +185,481 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 	}, nil
 }
 
-// SetConnectionName sets the connection name for this client
+// SetConnectionName sets the connection name for this client.
+//
+// Holds c.mu (write lock) — `connectionName` is documented as a
+// "mutable metadata field protected by mu" but earlier versions
+// skipped the lock here, producing a data race detectable by
+// `go test -race` when the renewal background loop reads
+// ConnectionName() while ClientCache.Set rebinds an entry.
 func (c *Client) SetConnectionName(name string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.connectionName = name
 }
 
-// ConnectionName returns the connection name for this client
+// ConnectionName returns the connection name for this client.
+// Holds c.mu (read lock) — see SetConnectionName for context.
 func (c *Client) ConnectionName() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	return c.connectionName
+}
+
+// IsAuthenticated returns whether the client has been authenticated
+func (c *Client) IsAuthenticated() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.authenticated
+}
+
+// SetAuthenticated marks the client as authenticated
+func (c *Client) SetAuthenticated(auth bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.authenticated = auth
+}
+
+// TokenExpiration returns when the current Vault token expires.
+// Returns zero time if not set (e.g., static token auth).
+func (c *Client) TokenExpiration() time.Time {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.tokenExpiration
+}
+
+// TokenTTL returns the original TTL of the current Vault token.
+// Returns zero if not set (e.g., static token auth).
+func (c *Client) TokenTTL() time.Duration {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.tokenTTL
+}
+
+// SetTokenExpiration sets when the token expires.
+func (c *Client) SetTokenExpiration(t time.Time) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.tokenExpiration = t
+}
+
+// SetTokenTTL sets the token's original TTL.
+func (c *Client) SetTokenTTL(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.tokenTTL = d
+}
+
+// RenewSelf renews the current Vault token in place.
+// Updates tokenExpiration, tokenTTL, AND tokenAccessor with the new
+// values from Vault. Vault may issue a new accessor on renewal
+// (depending on policy and whether the underlying token was rotated);
+// without this update the cached tokenAccessor stays stale and
+// AuthStatus.TokenAccessor reports the wrong value, breaking audit
+// correlation between operator-side and Vault-side audit logs.
+func (c *Client) RenewSelf(ctx context.Context) error {
+	secret, err := c.Auth().Token().RenewSelfWithContext(ctx, 0)
+	if err != nil {
+		return fmt.Errorf("token renewal failed: %w", err)
+	}
+	if secret == nil || secret.Auth == nil {
+		return nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if secret.Auth.LeaseDuration > 0 {
+		ttl := time.Duration(secret.Auth.LeaseDuration) * time.Second
+		c.tokenTTL = ttl
+		c.tokenExpiration = time.Now().Add(ttl)
+	}
+	// Vault returns the (possibly-rotated) accessor in the renewal
+	// response. Empty means "unchanged" — preserve the existing value
+	// rather than wiping a known-good accessor.
+	if secret.Auth.Accessor != "" {
+		c.tokenAccessor = secret.Auth.Accessor
+	}
+	return nil
+}
+
+// IsHealthy checks if Vault is healthy and the client can connect
+func (c *Client) IsHealthy(ctx context.Context) (bool, error) {
+	health, err := c.Sys().HealthWithContext(ctx)
+	if err != nil {
+		return false, fmt.Errorf("vault health check failed: %w", err)
+	}
+
+	// Vault is healthy if initialized and unsealed
+	return health.Initialized && !health.Sealed, nil
+}
+
+// SealStatus returns Vault's seal status as separate flags so the caller
+// can distinguish "sealed" (recoverable on Vault unseal, no operator
+// action needed) from "uninitialized" (requires init flow) and from
+// transport-layer failure (Vault unreachable). Used by IMPROVEMENTS
+// Missing Features §C to drive faster requeue + a distinct condition
+// reason when Vault is in a recoverable sealed state.
+func (c *Client) SealStatus(ctx context.Context) (initialized, sealed bool, err error) {
+	health, err := c.Sys().HealthWithContext(ctx)
+	if err != nil {
+		return false, false, fmt.Errorf("vault seal-status check failed: %w", err)
+	}
+	return health.Initialized, health.Sealed, nil
+}
+
+// GetVersion returns the Vault server version
+func (c *Client) GetVersion(ctx context.Context) (string, error) {
+	health, err := c.Sys().HealthWithContext(ctx)
+	if err != nil {
+		return "", fmt.Errorf("failed to get vault version: %w", err)
+	}
+	return health.Version, nil
+}
+
+// AuthenticateKubernetes authenticates using the Kubernetes auth method.
+// It reads the JWT from the specified tokenPath (file system).
+func (c *Client) AuthenticateKubernetes(ctx context.Context, role, mountPath, tokenPath string) error {
+	if mountPath == "" {
+		mountPath = "kubernetes"
+	}
+	if tokenPath == "" {
+		tokenPath = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+	}
+
+	jwt, err := os.ReadFile(tokenPath)
+	if err != nil {
+		return fmt.Errorf("failed to read service account token: %w", err)
+	}
+
+	return c.AuthenticateKubernetesWithToken(ctx, role, mountPath, string(jwt))
+}
+
+// handleAuthResponse processes a Vault auth response — sets token, TTL, and expiration.
+// All auth methods (except static token) delegate their post-login handling here.
+func (c *Client) handleAuthResponse(secret *api.Secret, methodName string) error {
+	if secret == nil || secret.Auth == nil {
+		return fmt.Errorf("%s auth returned no token", methodName)
+	}
+
+	c.SetToken(secret.Auth.ClientToken)
+	c.mu.Lock()
+	c.authenticated = true
+	c.tokenAccessor = secret.Auth.Accessor
+	if secret.Auth.LeaseDuration > 0 {
+		ttl := time.Duration(secret.Auth.LeaseDuration) * time.Second
+		c.tokenTTL = ttl
+		c.tokenExpiration = time.Now().Add(ttl)
+	}
+	c.mu.Unlock()
+	return nil
+}
+
+// TokenAccessor returns the accessor of the current Vault token.
+// Accessors identify tokens without exposing them, useful for audit
+// correlation and out-of-band revocation.
+func (c *Client) TokenAccessor() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.tokenAccessor
+}
+
+func (c *Client) authenticateWithLoginPayload(
+	ctx context.Context,
+	mountPath string,
+	defaultMountPath string,
+	methodName string,
+	loginData map[string]interface{},
+) error {
+	if mountPath == "" {
+		mountPath = defaultMountPath
+	}
+
+	path := fmt.Sprintf("auth/%s/login", mountPath)
+	secret, err := c.Logical().WriteWithContext(ctx, path, loginData)
+	if err != nil {
+		return fmt.Errorf("%s auth failed: %w", methodName, err)
+	}
+
+	return c.handleAuthResponse(secret, methodName)
+}
+
+// AuthenticateKubernetesWithToken authenticates using the Kubernetes auth method.
+// Unlike AuthenticateKubernetes, this method accepts the JWT token directly,
+// which is useful when using the TokenRequest API or other token sources.
+func (c *Client) AuthenticateKubernetesWithToken(ctx context.Context, role, mountPath, jwt string) error {
+	return c.authenticateWithLoginPayload(ctx, mountPath, "kubernetes", "kubernetes", map[string]interface{}{
+		"role": role,
+		"jwt":  jwt,
+	})
+}
+
+// AuthenticateToken authenticates using a static token. Per the
+// Client contract (mu protects mutable metadata), `authenticated` must
+// be written under the lock — earlier this set it directly, which the
+// race detector flags whenever a concurrent IsAuthenticated() reads
+// the same field. Bootstrap is the practical caller: a status-update
+// goroutine and the reconciler both touch `c.authenticated` during
+// the bootstrap → K8s-auth transition window.
+func (c *Client) AuthenticateToken(token string) error {
+	if token == "" {
+		return fmt.Errorf("token cannot be empty")
+	}
+	c.SetToken(token)
+	c.SetAuthenticated(true)
+	return nil
+}
+
+// AuthenticateAppRole authenticates using the AppRole auth method
+func (c *Client) AuthenticateAppRole(ctx context.Context, roleID, secretID, mountPath string) error {
+	return c.authenticateWithLoginPayload(ctx, mountPath, "approle", "approle", map[string]interface{}{
+		"role_id":   roleID,
+		"secret_id": secretID,
+	})
+}
+
+// AuthenticateJWT authenticates using the JWT auth method.
+// This is used for generic JWT-based authentication with external identity providers.
+func (c *Client) AuthenticateJWT(ctx context.Context, role, mountPath, jwt string) error {
+	return c.authenticateWithLoginPayload(ctx, mountPath, "jwt", "JWT", map[string]interface{}{
+		"role": role,
+		"jwt":  jwt,
+	})
+}
+
+// AuthenticateOIDC authenticates using the OIDC auth method with a JWT token.
+// This is used for workload identity (EKS OIDC, Azure AD, etc.) where the JWT
+// is obtained from the K8s TokenRequest API with the OIDC issuer as the audience.
+func (c *Client) AuthenticateOIDC(ctx context.Context, role, mountPath, jwt string) error {
+	// Note: OIDC login uses the same endpoint format as JWT.
+	return c.authenticateWithLoginPayload(ctx, mountPath, "oidc", "OIDC", map[string]interface{}{
+		"role": role,
+		"jwt":  jwt,
+	})
+}
+
+// AuthenticateAWS authenticates using the AWS IAM auth method.
+// The loginData must be pre-generated by the auth/aws helper which handles
+// STS request signing using AWS SDK.
+func (c *Client) AuthenticateAWS(ctx context.Context, role, mountPath string, loginData map[string]interface{}) error {
+	// Add role to login data
+	loginData["role"] = role
+
+	return c.authenticateWithLoginPayload(ctx, mountPath, "aws", "AWS", loginData)
+}
+
+// AuthenticateGCP authenticates using the GCP IAM auth method.
+// The signedJWT must be pre-generated by the auth/gcp helper which handles
+// JWT signing using GCP credentials.
+func (c *Client) AuthenticateGCP(ctx context.Context, role, mountPath, signedJWT string) error {
+	return c.authenticateWithLoginPayload(ctx, mountPath, "gcp", "GCP", map[string]interface{}{
+		"role": role,
+		"jwt":  signedJWT,
+	})
+}
+
+// WritePolicy writes a policy to Vault
+func (c *Client) WritePolicy(ctx context.Context, name, hcl string) error {
+	return c.Sys().PutPolicyWithContext(ctx, name, hcl)
+}
+
+// ReadPolicy reads a policy from Vault
+func (c *Client) ReadPolicy(ctx context.Context, name string) (string, error) {
+	return c.Sys().GetPolicyWithContext(ctx, name)
+}
+
+// DeletePolicy deletes a policy from Vault
+func (c *Client) DeletePolicy(ctx context.Context, name string) error {
+	return c.Sys().DeletePolicyWithContext(ctx, name)
+}
+
+// PolicyExists checks if a policy exists in Vault
+func (c *Client) PolicyExists(ctx context.Context, name string) (bool, error) {
+	policies, err := c.Sys().ListPoliciesWithContext(ctx)
+	if err != nil {
+		return false, err
+	}
+	for _, p := range policies {
+		if p == name {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// ListPolicies returns all policy names in Vault
+func (c *Client) ListPolicies(ctx context.Context) ([]string, error) {
+	return c.Sys().ListPoliciesWithContext(ctx)
+}
+
+// ListKubernetesAuthRoles returns all role names under the Kubernetes auth mount
+func (c *Client) ListKubernetesAuthRoles(ctx context.Context, authPath string) ([]string, error) {
+	authPath = NormalizeAuthPath(authPath)
+	path := fmt.Sprintf("%s/role", authPath)
+	secret, err := c.Logical().ListWithContext(ctx, path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list roles at %s: %w", path, err)
+	}
+	if secret == nil || secret.Data == nil {
+		return nil, nil
+	}
+
+	keys, ok := secret.Data["keys"].([]interface{})
+	if !ok {
+		return nil, nil
+	}
+
+	roles := make([]string, 0, len(keys))
+	for _, key := range keys {
+		if s, ok := key.(string); ok {
+			roles = append(roles, s)
+		}
+	}
+	return roles, nil
+}
+
+// WriteKubernetesAuthRole writes a Kubernetes auth role to Vault.
+// Errors from the Vault SDK are wrapped with the operation + path so
+// log lines and status messages name the failed resource — earlier
+// versions returned the raw error which lost that context once wrapped
+// at the call site.
+func (c *Client) WriteKubernetesAuthRole(
+	ctx context.Context, authPath, roleName string, data map[string]interface{},
+) error {
+	authPath = NormalizeAuthPath(authPath)
+	path := fmt.Sprintf("%s/role/%s", authPath, roleName)
+	if _, err := c.Logical().WriteWithContext(ctx, path, data); err != nil {
+		return fmt.Errorf("failed to write kubernetes auth role at %s: %w", path, err)
+	}
+	return nil
+}
+
+// ReadKubernetesAuthRole reads a Kubernetes auth role from Vault.
+func (c *Client) ReadKubernetesAuthRole(
+	ctx context.Context, authPath, roleName string,
+) (map[string]interface{}, error) {
+	authPath = NormalizeAuthPath(authPath)
+	path := fmt.Sprintf("%s/role/%s", authPath, roleName)
+	secret, err := c.Logical().ReadWithContext(ctx, path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read kubernetes auth role at %s: %w", path, err)
+	}
+	if secret == nil {
+		return nil, nil
+	}
+	return secret.Data, nil
+}
+
+// DeleteKubernetesAuthRole deletes a Kubernetes auth role from Vault.
+func (c *Client) DeleteKubernetesAuthRole(ctx context.Context, authPath, roleName string) error {
+	authPath = NormalizeAuthPath(authPath)
+	path := fmt.Sprintf("%s/role/%s", authPath, roleName)
+	if _, err := c.Logical().DeleteWithContext(ctx, path); err != nil {
+		return fmt.Errorf("failed to delete kubernetes auth role at %s: %w", path, err)
+	}
+	return nil
+}
+
+// KubernetesAuthRoleExists checks if a Kubernetes auth role exists
+func (c *Client) KubernetesAuthRoleExists(ctx context.Context, authPath, roleName string) (bool, error) {
+	data, err := c.ReadKubernetesAuthRole(ctx, authPath, roleName)
+	if err != nil {
+		return false, err
+	}
+	return data != nil, nil
+}
+
+// ============================================================================
+// VaultBootstrapClient interface methods
+// ============================================================================
+
+// EnableAuth enables an auth method at the given path.
+// This is used during bootstrap to enable the Kubernetes auth method.
+func (c *Client) EnableAuth(ctx context.Context, path, methodType string) error {
+	return c.Sys().EnableAuthWithOptionsWithContext(ctx, path, &api.EnableAuthOptions{
+		Type: methodType,
+	})
+}
+
+// IsAuthEnabled checks if an auth method is enabled at the given path.
+func (c *Client) IsAuthEnabled(ctx context.Context, path string) (bool, error) {
+	auths, err := c.Sys().ListAuthWithContext(ctx)
+	if err != nil {
+		return false, fmt.Errorf("failed to list auth methods: %w", err)
+	}
+
+	// Auth paths in Vault end with a slash
+	pathWithSlash := path + "/"
+	_, exists := auths[pathWithSlash]
+	return exists, nil
+}
+
+// WriteKubernetesAuthConfig writes the Kubernetes auth configuration.
+// This configures the kubernetes_host, kubernetes_ca_cert, and token_reviewer_jwt.
+func (c *Client) WriteKubernetesAuthConfig(ctx context.Context, mountPath string, config map[string]interface{}) error {
+	path := fmt.Sprintf("auth/%s/config", mountPath)
+	_, err := c.Logical().WriteWithContext(ctx, path, config)
+	if err != nil {
+		return fmt.Errorf("failed to write kubernetes auth config: %w", err)
+	}
+	return nil
+}
+
+// UpdateKubernetesAuthConfig updates only the token_reviewer_jwt in the
+// Kubernetes auth configuration. Vault's config endpoint performs a
+// merge-update, so this preserves kubernetes_host and kubernetes_ca_cert.
+// Implements token.VaultAuthConfigUpdater.
+func (c *Client) UpdateKubernetesAuthConfig(ctx context.Context, mountPath, tokenReviewerJWT string) error {
+	return c.WriteKubernetesAuthConfig(ctx, mountPath, map[string]interface{}{
+		"token_reviewer_jwt": tokenReviewerJWT,
+	})
+}
+
+// DisableAuth disables an auth method at the given path.
+// WARNING: This revokes ALL tokens issued through this auth mount.
+func (c *Client) DisableAuth(ctx context.Context, path string) error {
+	return c.Sys().DisableAuthWithContext(ctx, path)
+}
+
+// WriteKubernetesRole creates or updates a Kubernetes auth role.
+// This is used during bootstrap to create the operator's role.
+func (c *Client) WriteKubernetesRole(
+	ctx context.Context, mountPath, roleName string, config map[string]interface{},
+) error {
+	path := fmt.Sprintf("auth/%s/role/%s", mountPath, roleName)
+	_, err := c.Logical().WriteWithContext(ctx, path, config)
+	if err != nil {
+		return fmt.Errorf("failed to write kubernetes role: %w", err)
+	}
+	return nil
+}
+
+// RevokeToken revokes the specified token.
+func (c *Client) RevokeToken(ctx context.Context, token string) error {
+	return c.Auth().Token().RevokeTreeWithContext(ctx, token)
+}
+
+// RevokeSelf revokes the current token AND clears the client's local
+// auth state so subsequent calls fail fast (unauthenticated) instead of
+// making Vault requests that would return 403.
+//
+// Before this state-clear, a caller that reused the client after
+// RevokeSelf would see opaque `permission denied` errors — the client
+// thought it was authenticated, Vault disagreed. Tests would pass (the
+// bootstrap → K8s-auth flow authenticates again right after), but any
+// future code path that reused the client would be confused. Clearing
+// local state means `IsAuthenticated() == false` and `Token() == ""`
+// immediately after RevokeSelf returns — matching reality on Vault's
+// side.
+//
+// Returns the Vault error from RevokeSelfWithContext so callers can
+// still distinguish "revoke succeeded" from "revoke failed but we
+// still cleared local state". Local state is cleared unconditionally
+// on the assumption that a failed RevokeSelf is terminal — if Vault
+// couldn't revoke the token, we're not going to use it again from
+// this client anyway.
+func (c *Client) RevokeSelf(ctx context.Context) error {
+	err := c.Auth().Token().RevokeSelfWithContext(ctx, "")
+	// Clear local state regardless of server-side outcome.
+	c.SetToken("")
+	c.SetAuthenticated(false)
+	return err
 }

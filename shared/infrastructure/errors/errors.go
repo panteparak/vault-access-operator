@@ -186,6 +186,50 @@ func IsConnectionError(err error) bool {
 	return errors.As(err, &connErr)
 }
 
+// VaultSealedError indicates Vault is reachable but in a sealed state.
+// Distinct from ConnectionError (transport failure) and from generic
+// error (unknown). Sealed is a recoverable condition handled by an
+// operator-external action (running `vault operator unseal` or auto-unseal
+// from KMS); the operator just needs to retry on a faster cadence than
+// the regular reconcile interval until Vault is unsealed.
+//
+// IMPROVEMENTS Missing Features §C.
+type VaultSealedError struct {
+	ConnectionName string // Name of the VaultConnection resource
+	Address        string // Vault address (informational)
+	Initialized    bool   // Whether Vault has been initialized at all
+}
+
+func (e *VaultSealedError) Error() string {
+	if !e.Initialized {
+		return fmt.Sprintf(
+			"vault at %s (connection %q) is not initialized — run `vault operator init`",
+			e.Address, e.ConnectionName,
+		)
+	}
+	return fmt.Sprintf(
+		"vault at %s (connection %q) is sealed — run `vault operator unseal` or wait for auto-unseal",
+		e.Address, e.ConnectionName,
+	)
+}
+
+// NewVaultSealedError creates a VaultSealedError.
+func NewVaultSealedError(connName, address string, initialized bool) *VaultSealedError {
+	return &VaultSealedError{
+		ConnectionName: connName,
+		Address:        address,
+		Initialized:    initialized,
+	}
+}
+
+// IsVaultSealedError returns true if the error chain contains a
+// VaultSealedError. Used by the status handler to apply a faster
+// requeue interval and a distinct condition reason.
+func IsVaultSealedError(err error) bool {
+	var sealedErr *VaultSealedError
+	return errors.As(err, &sealedErr)
+}
+
 // DependencyError indicates a required dependency is not ready.
 // For example, a VaultRole depends on its referenced VaultConnection.
 type DependencyError struct {

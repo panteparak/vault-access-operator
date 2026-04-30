@@ -572,3 +572,34 @@ func TestController_Stop(t *testing.T) {
 		t.Error("Start did not return after Stop")
 	}
 }
+
+// TestController_StopWithoutStart pins the followup fix where Stop()
+// would deadlock forever waiting on stoppedCh that nothing would close
+// (because Start was never called). Common in test scaffolding and in
+// any error path where Start returns before reaching the actual loop.
+func TestController_StopWithoutStart(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	c := NewController(ControllerConfig{
+		Queue:       NewQueue(fakeClient, "test-namespace"),
+		ClientCache: &mockClientCache{client: &mockVaultClient{}},
+		Log:         newTestLogger(),
+	})
+
+	// Stop without Start — should NOT block forever.
+	done := make(chan struct{})
+	go func() {
+		c.Stop()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Pass: Stop returned promptly.
+	case <-time.After(time.Second):
+		t.Fatal("Stop deadlocked when Start was never called " +
+			"(stoppedCh never closes because the loop never ran)")
+	}
+}

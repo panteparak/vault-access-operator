@@ -83,6 +83,16 @@ func (v *VaultRoleValidator) ValidateCreate(ctx context.Context, role *vaultv1al
 		return nil, err
 	}
 
+	// Check for naming collision with OTHER VaultRoles. The `namespace-name`
+	// join is ambiguous: "ns1/foo-bar" and "ns1-foo/bar" both compute to
+	// "ns1-foo-bar". Without this check, the second CR to be created would
+	// hit a runtime Phase=Conflict instead of a clear admission error, and
+	// with the adopt annotation both CRs would race on the same Vault
+	// resource (overwriting each other on every reconcile).
+	if err := v.checkVaultRoleCollision(ctx, vaultRoleName, role.Namespace, role.Name); err != nil {
+		return nil, err
+	}
+
 	return v.validateWithContext(ctx, role)
 }
 
@@ -143,11 +153,84 @@ func (v *VaultRoleValidator) validate(role *vaultv1alpha1.VaultRole) (admission.
 		}
 	}
 
+	// Validate JWT-specific constraints
+	if jwtErrs := validateJWTSpec(role.Spec.AuthPath, role.Spec.JWT, len(role.Spec.ServiceAccounts)); len(jwtErrs) > 0 {
+		errs = append(errs, jwtErrs...)
+	}
+
+	// IMPROVEMENTS §7: reject authPath values that target a Vault auth
+	// backend the operator doesn't yet implement at the *role-write* level.
+	// Operators can still authenticate *themselves* via AWS/GCP/OIDC/AppRole
+	// (see VaultConnection.spec.auth), but the VaultRole CR can only write
+	// role data to `auth/kubernetes/*` or `auth/jwt/*` mounts for now.
+	// Catching this at admission time is clearer than waiting for the
+	// reconcile-time ValidationError to surface in status.
+	if authErr := validateAuthPathSupported(role.Spec.AuthPath); authErr != "" {
+		errs = append(errs, authErr)
+	}
+
+	// Reject the discovery placeholder appearing without the
+	// discovery-pending annotation. The discovery flow injects the
+	// placeholder + annotation as a pair so MinItems=1 is satisfied
+	// while the user adopts. If the user clears the annotation but
+	// leaves the placeholder, a Vault write would push the literal
+	// "discovery-placeholder-replace-me" string as a service account
+	// name, producing a Vault role bound to a non-existent SA.
+	if errStr := validateDiscoveryPlaceholderConsistency(
+		role.Annotations, role.Spec.ServiceAccounts, role.Spec.Policies,
+	); errStr != "" {
+		errs = append(errs, errStr)
+	}
+
 	if len(errs) > 0 {
 		return nil, fmt.Errorf("validation failed: %s", strings.Join(errs, "; "))
 	}
 
 	return nil, nil
+}
+
+// validateDiscoveryPlaceholderConsistency rejects a CR that contains
+// the discovery placeholder string in any spec field but does NOT have
+// the `vault.platform.io/discovery-pending=true` annotation. The pair
+// is a single transactional state — clearing the annotation means
+// "I've adopted this resource; here is the real spec." Leaving the
+// placeholder while clearing the annotation is almost always a user
+// mistake (forgot to replace placeholders) and would produce a Vault
+// resource with garbage values.
+//
+// Returns "" when valid (placeholder absent OR annotation present) or
+// when annotation is set (discovery-pending blocks the write anyway).
+//
+// Implements the followup to IMPROVEMENTS Missing Features §G via
+// the audit finding F4.
+func validateDiscoveryPlaceholderConsistency(
+	annotations map[string]string,
+	serviceAccounts []string,
+	policies []vaultv1alpha1.PolicyReference,
+) string {
+	// If discovery-pending is set, the reconciler skips Vault writes;
+	// placeholder is allowed in this transient state.
+	if annotations[vaultv1alpha1.AnnotationDiscoveryPending] == vaultv1alpha1.AnnotationValueTrue {
+		return ""
+	}
+	for _, sa := range serviceAccounts {
+		if sa == vaultv1alpha1.DiscoveryPlaceholderValue {
+			return "spec.serviceAccounts contains the discovery placeholder " +
+				"(\"" + vaultv1alpha1.DiscoveryPlaceholderValue + "\") but the " +
+				"vault.platform.io/discovery-pending annotation is not set; " +
+				"replace the placeholder with real service account names before " +
+				"clearing the annotation"
+		}
+	}
+	for _, p := range policies {
+		if p.Name == vaultv1alpha1.DiscoveryPlaceholderValue {
+			return "spec.policies contains the discovery placeholder " +
+				"(\"" + vaultv1alpha1.DiscoveryPlaceholderValue + "\") but the " +
+				"vault.platform.io/discovery-pending annotation is not set; " +
+				"replace with real policy references before clearing the annotation"
+		}
+	}
+	return ""
 }
 
 // validateWithContext performs validation including dependency checks for VaultRole
@@ -160,6 +243,9 @@ func (v *VaultRoleValidator) validateWithContext(ctx context.Context, role *vaul
 	// Check policy dependencies (returns warnings, not errors)
 	depWarnings := v.checkPolicyDependencies(ctx, role.Spec.Policies, role.Namespace)
 	warnings = append(warnings, depWarnings...)
+
+	// IMPROVEMENTS §36: warn if the referenced VaultConnection doesn't exist yet.
+	warnings = append(warnings, checkConnectionRefExists(ctx, v.client, role.Spec.ConnectionRef)...)
 
 	return warnings, nil
 }
@@ -280,11 +366,131 @@ func (v *VaultClusterRoleValidator) validate(role *vaultv1alpha1.VaultClusterRol
 		}
 	}
 
+	// Validate JWT-specific constraints
+	if jwtErrs := validateJWTSpec(role.Spec.AuthPath, role.Spec.JWT, len(role.Spec.ServiceAccounts)); len(jwtErrs) > 0 {
+		errs = append(errs, jwtErrs...)
+	}
+
+	// IMPROVEMENTS §7: reject authPath values that target a Vault auth
+	// backend the operator doesn't yet implement at the *role-write* level.
+	// Operators can still authenticate *themselves* via AWS/GCP/OIDC/AppRole
+	// (see VaultConnection.spec.auth), but the VaultRole CR can only write
+	// role data to `auth/kubernetes/*` or `auth/jwt/*` mounts for now.
+	// Catching this at admission time is clearer than waiting for the
+	// reconcile-time ValidationError to surface in status.
+	if authErr := validateAuthPathSupported(role.Spec.AuthPath); authErr != "" {
+		errs = append(errs, authErr)
+	}
+
+	// Mirror the placeholder check from VaultRole. ServiceAccountRef has
+	// a different shape so we extract just the names for the shared helper.
+	saNames := make([]string, len(role.Spec.ServiceAccounts))
+	for i, ref := range role.Spec.ServiceAccounts {
+		saNames[i] = ref.Name
+	}
+	if errStr := validateDiscoveryPlaceholderConsistency(
+		role.Annotations, saNames, role.Spec.Policies,
+	); errStr != "" {
+		errs = append(errs, errStr)
+	}
+
 	if len(errs) > 0 {
 		return nil, fmt.Errorf("validation failed: %s", strings.Join(errs, "; "))
 	}
 
 	return nil, nil
+}
+
+// validateAuthPathSupported returns a non-empty error string if the given
+// authPath does not resolve to a backend the role handler can write to.
+// Empty/default authPath is fine (it resolves to the Kubernetes default).
+//
+// Accepts both the full Vault mount form (`auth/kubernetes`, `auth/jwt`)
+// and the bare short form (`kubernetes`, `jwt`) — both appear in our
+// user-facing docs and existing CRDs. Anything else (aws, gcp, approle,
+// ldap, etc.) is rejected with a reference to the §7 coverage roadmap.
+//
+// Introduced for IMPROVEMENTS §7: previously this validation lived only at
+// reconcile time (handler.go's backend switch returned ValidationError),
+// which meant an unsupported authPath could be accepted into etcd and only
+// surface in status after reconcile. Admission-time rejection gives the
+// user immediate feedback.
+func validateAuthPathSupported(authPath string) string {
+	// Empty is the default — resolves to Kubernetes at sync time.
+	if authPath == "" {
+		return ""
+	}
+	// Accept both full (`auth/kubernetes`) and bare (`kubernetes`) forms.
+	// Strip the `auth/` prefix if present, then test against the known
+	// backend prefix set. This mirrors how AuthBackendForPath recognises
+	// submounts like `auth/kubernetes-prod`.
+	stripped := strings.TrimPrefix(authPath, "auth/")
+	stripped = strings.TrimRight(stripped, "/")
+	if stripped == "" {
+		return ""
+	}
+	seg, _, _ := strings.Cut(stripped, "/")
+	if strings.HasPrefix(seg, "kubernetes") || strings.HasPrefix(seg, "jwt") {
+		return ""
+	}
+	return fmt.Sprintf(
+		"spec.authPath %q targets an unsupported Vault auth backend "+
+			"(only auth/kubernetes/* and auth/jwt/* are implemented for role writes). "+
+			"See IMPROVEMENTS.md §7 for the backend coverage roadmap",
+		authPath,
+	)
+}
+
+// validateJWTSpec enforces constraints on the optional spec.jwt sub-object
+// and the combination of authPath / serviceAccounts / jwt.
+//
+// Rules:
+//   - spec.jwt may only be set when authPath targets a JWT auth mount.
+//   - When authPath is a JWT mount, any of:
+//   - len(serviceAccounts) <= 1, OR
+//   - spec.jwt.boundSubject is set, OR
+//   - spec.jwt.boundClaims is set
+//     is acceptable. Otherwise the operator cannot derive a single bound_subject.
+//   - spec.jwt.boundSubject and spec.jwt.boundClaims are mutually exclusive.
+func validateJWTSpec(authPath string, jwt *vaultv1alpha1.VaultRoleJWTSpec, serviceAccountCount int) []string {
+	var errs []string
+	isJWT := isJWTAuthPath(authPath)
+
+	if jwt != nil && !isJWT {
+		errs = append(errs, "spec.jwt may only be used when authPath targets a JWT auth mount (e.g. auth/jwt)")
+		return errs
+	}
+
+	if !isJWT {
+		return nil
+	}
+
+	if jwt != nil && jwt.BoundSubject != "" && len(jwt.BoundClaims) > 0 {
+		errs = append(errs, "spec.jwt.boundSubject and spec.jwt.boundClaims are mutually exclusive")
+	}
+
+	// Derivation can only produce a single bound_subject; require explicit override for multi-SA.
+	if serviceAccountCount > 1 {
+		hasOverride := jwt != nil && (jwt.BoundSubject != "" || len(jwt.BoundClaims) > 0)
+		if !hasOverride {
+			errs = append(errs, "JWT VaultRole with more than one serviceAccount must set spec.jwt.boundSubject or spec.jwt.boundClaims explicitly")
+		}
+	}
+	return errs
+}
+
+// isJWTAuthPath returns true if the given authPath identifies a JWT auth mount.
+// Mirrors vault.AuthBackendForPath without taking a dependency on pkg/vault
+// from the webhook package.
+func isJWTAuthPath(authPath string) bool {
+	p := strings.TrimRight(authPath, "/")
+	const prefix = "auth/"
+	if !strings.HasPrefix(p, prefix) {
+		return false
+	}
+	rest := p[len(prefix):]
+	seg, _, _ := strings.Cut(rest, "/")
+	return seg == "jwt" || strings.HasPrefix(seg, "jwt")
 }
 
 // validateWithContext performs validation including dependency checks for VaultClusterRole
@@ -297,6 +503,9 @@ func (v *VaultClusterRoleValidator) validateWithContext(ctx context.Context, rol
 	// Check policy dependencies (returns warnings, not errors)
 	depWarnings := v.checkPolicyDependencies(ctx, role.Spec.Policies)
 	warnings = append(warnings, depWarnings...)
+
+	// IMPROVEMENTS §36.
+	warnings = append(warnings, checkConnectionRefExists(ctx, v.client, role.Spec.ConnectionRef)...)
 
 	return warnings, nil
 }
@@ -398,6 +607,41 @@ func (v *VaultRoleValidator) checkRoleNameCollision(ctx context.Context, vaultRo
 	}
 
 	// No collision
+	return nil
+}
+
+// checkVaultRoleCollision checks if any OTHER VaultRole in the cluster
+// computes to the same Vault role name. The `namespace-name` join is
+// ambiguous (see the collision example in ValidateCreate). Skipped on
+// update since the vaultName is derived from immutable fields — a
+// collision would have been caught at create.
+//
+// Compares namespace+name as a tuple to distinguish "this is me being
+// updated/recreated" (same namespace+name) from "there's another CR
+// that collides" (different namespace+name with same computed name).
+func (v *VaultRoleValidator) checkVaultRoleCollision(
+	ctx context.Context, vaultRoleName, namespace, name string,
+) error {
+	if v.client == nil {
+		return nil
+	}
+	roleList := &vaultv1alpha1.VaultRoleList{}
+	if err := v.client.List(ctx, roleList); err != nil {
+		return fmt.Errorf("failed to list VaultRoles for collision check: %w", err)
+	}
+	for _, r := range roleList.Items {
+		// Skip the CR being created/updated itself.
+		if r.Namespace == namespace && r.Name == name {
+			continue
+		}
+		existingVaultName := fmt.Sprintf("%s-%s", r.Namespace, r.Name)
+		if existingVaultName == vaultRoleName {
+			return fmt.Errorf(
+				"naming collision: VaultRole %s/%s already maps to Vault role name %q — "+
+					"rename this CR (or the existing one) so `<namespace>-<name>` is unique",
+				r.Namespace, r.Name, vaultRoleName)
+		}
+	}
 	return nil
 }
 

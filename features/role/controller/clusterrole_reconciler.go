@@ -32,6 +32,7 @@ import (
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/features/role/domain"
+	"github.com/panteparak/vault-access-operator/pkg/metrics"
 	"github.com/panteparak/vault-access-operator/shared/controller/base"
 )
 
@@ -76,30 +77,55 @@ func NewClusterRoleReconciler(
 // +kubebuilder:rbac:groups=vault.platform.io,resources=vaultclusterroles/finalizers,verbs=update
 
 // Reconcile implements the reconciliation loop for VaultClusterRole.
+// Emits `vault_access_operator_role_reconcile_total` per IMPROVEMENTS §31.
 func (r *ClusterRoleReconciler) Reconcile(
 	ctx context.Context,
 	req ctrl.Request,
 ) (ctrl.Result, error) {
-	return r.base.Reconcile(
+	result, err := r.base.Reconcile(
 		ctx, req,
 		&clusterRoleFeatureHandler{handler: r.handler},
 		func() *vaultv1alpha1.VaultClusterRole {
 			return &vaultv1alpha1.VaultClusterRole{}
 		},
 	)
+	metrics.IncrementRoleReconcile(kindLabelVaultClusterRole, "", err == nil)
+	return result, err
 }
 
-// SetupWithManager sets up the controller with the Manager.
+// SetupWithManager sets up the controller with the Manager. Watches
+// VaultConnection phase changes, plus VaultPolicy and VaultClusterPolicy
+// create/update events (IMPROVEMENTS §27) so cluster roles blocked on
+// unresolved PolicyBindings reconcile immediately when the policy appears.
+// The For predicate also fires on reconcile-now annotation changes so
+// users can force a sync without bumping the generation (§H).
 func (r *ClusterRoleReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&vaultv1alpha1.VaultClusterRole{},
-			builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+			builder.WithPredicates(predicate.Or(
+				predicate.GenerationChangedPredicate{},
+				watches.ReconcileNowAnnotationPredicate{},
+			))).
 		Watches(
 			&vaultv1alpha1.VaultConnection{},
 			handler.EnqueueRequestsFromMapFunc(
 				watches.ClusterRoleRequestsForConnection(mgr.GetClient()),
 			),
 			builder.WithPredicates(watches.ConnectionPhaseChangedPredicate{}),
+		).
+		Watches(
+			&vaultv1alpha1.VaultPolicy{},
+			handler.EnqueueRequestsFromMapFunc(
+				watches.ClusterRoleRequestsForPolicy(mgr.GetClient()),
+			),
+			builder.WithPredicates(watches.PolicyCreatedOrUpdatedPredicate),
+		).
+		Watches(
+			&vaultv1alpha1.VaultClusterPolicy{},
+			handler.EnqueueRequestsFromMapFunc(
+				watches.ClusterRoleRequestsForPolicy(mgr.GetClient()),
+			),
+			builder.WithPredicates(watches.PolicyCreatedOrUpdatedPredicate),
 		).
 		Named("vaultclusterrole").
 		Complete(r)

@@ -927,3 +927,109 @@ func TestBaseReconciler_EventRecording_NilRecorder_Deletion(t *testing.T) {
 		t.Error("expected empty result after successful cleanup")
 	}
 }
+
+// TestBaseReconciler_Reconcile_ClearsReconcileNowAnnotation pins
+// IMPROVEMENTS Missing Features §H: after a successful Sync, the base
+// reconciler patches the `vault.platform.io/reconcile-now` annotation off
+// the resource so the watch predicate doesn't re-fire on every reconcile.
+func TestBaseReconciler_Reconcile_ClearsReconcileNowAnnotation(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test",
+			Namespace: "default",
+			Annotations: map[string]string{
+				"vault.platform.io/reconcile-now": "2026-04-18T10:00:00Z",
+				"other":                           "keep-me",
+			},
+		},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cm).Build()
+
+	r := NewBaseReconciler[*corev1.ConfigMap](c, scheme, logr.Discard(), "test.finalizer", nil, nil)
+	handler := &mockHandler{}
+
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "test", Namespace: "default"}}
+	if _, err := r.Reconcile(context.Background(), req, handler, newConfigMap); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var updated corev1.ConfigMap
+	if err := c.Get(context.Background(), req.NamespacedName, &updated); err != nil {
+		t.Fatalf("failed to re-fetch: %v", err)
+	}
+	if _, stillSet := updated.Annotations["vault.platform.io/reconcile-now"]; stillSet {
+		t.Error("reconcile-now annotation should be cleared after successful sync")
+	}
+	if updated.Annotations["other"] != "keep-me" {
+		t.Errorf("unrelated annotations must survive the patch; got %+v", updated.Annotations)
+	}
+}
+
+// TestKindLabelForResource pins the bug-fix from the §K-followup: the
+// reconcile-duration histogram's `kind` label must be a clean type name
+// like "ConfigMap" or "VaultPolicy", not "*v1alpha1.VaultPolicy" which
+// the original `fmt.Sprintf("%T")` fallback produced. Operators looking
+// at Prometheus would have seen `kind="*v1alpha1.VaultPolicy"` which is
+// ugly, breaks dashboard labels, and includes the package qualifier.
+//
+// The fix uses reflect.TypeOf().Elem().Name() to strip both the pointer
+// prefix and the package path. Tests against ConfigMap (a builtin from
+// corev1) since that's what BaseReconciler_test_helpers uses.
+func TestKindLabelForResource(t *testing.T) {
+	got := kindLabelForResource(newConfigMap)
+	if got != "ConfigMap" {
+		t.Errorf("expected clean type name 'ConfigMap', got %q", got)
+	}
+}
+
+func TestKindLabelForResource_Nil(t *testing.T) {
+	got := kindLabelForResource[*corev1.ConfigMap](nil)
+	if got != "" {
+		t.Errorf("expected empty string for nil factory, got %q", got)
+	}
+}
+
+// TestBaseReconciler_Reconcile_KeepsReconcileNowAnnotation_OnSyncError
+// pins that a failing Sync does NOT clear the annotation — the user's
+// forced-sync intent should outlive a transient failure so the next
+// reconcile still honors it.
+func TestBaseReconciler_Reconcile_KeepsReconcileNowAnnotation_OnSyncError(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test",
+			Namespace: "default",
+			Annotations: map[string]string{
+				"vault.platform.io/reconcile-now": "2026-04-18T10:00:00Z",
+			},
+		},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cm).Build()
+
+	r := NewBaseReconciler[*corev1.ConfigMap](c, scheme, logr.Discard(), "test.finalizer", nil, nil)
+	handler := &mockHandler{
+		syncFunc: func(ctx context.Context, resource *corev1.ConfigMap) error {
+			return errors.New("vault unreachable")
+		},
+	}
+
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "test", Namespace: "default"}}
+	// The BaseReconciler.Status.Error path returns nil error but sets a
+	// requeue — we don't care about the exact result, only that the
+	// annotation is intact.
+	_, _ = r.Reconcile(context.Background(), req, handler, newConfigMap)
+
+	var updated corev1.ConfigMap
+	if err := c.Get(context.Background(), req.NamespacedName, &updated); err != nil {
+		t.Fatalf("failed to re-fetch: %v", err)
+	}
+	if _, stillSet := updated.Annotations["vault.platform.io/reconcile-now"]; !stillSet {
+		t.Error("reconcile-now annotation must survive a failed sync — " +
+			"the user's intent to force-reconcile outlives a transient error")
+	}
+}

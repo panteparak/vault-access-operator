@@ -1486,6 +1486,81 @@ func TestVaultClusterRoleValidator_CollisionDetection(t *testing.T) {
 	}
 }
 
+// TestVaultRoleValidator_VaultRoleCollision pins the fix for the gap
+// where two VaultRoles with ambiguous namespace+name concatenations
+// could silently map to the same Vault role. Pre-fix the second CR
+// hit runtime Phase=Conflict (confusing for the user — spec is valid,
+// just another CR claims the same name); now the webhook rejects at
+// `kubectl apply` time with a clear message pointing at the conflicting
+// existing CR.
+func TestVaultRoleValidator_VaultRoleCollision(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = vaultv1alpha1.AddToScheme(scheme)
+
+	// Existing role: namespace="my-app", name="foo" → vaultName="my-app-foo"
+	existing := &vaultv1alpha1.VaultRole{
+		ObjectMeta: metav1.ObjectMeta{Name: "foo", Namespace: "my-app"},
+		Spec: vaultv1alpha1.VaultRoleSpec{
+			ConnectionRef:   "conn",
+			ServiceAccounts: []string{"sa"},
+			Policies: []vaultv1alpha1.PolicyReference{
+				{Kind: "VaultPolicy", Name: "p"},
+			},
+		},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing).Build()
+	v := &VaultRoleValidator{client: c}
+
+	// New role: namespace="my", name="app-foo" → vaultName="my-app-foo" (collision!)
+	newRole := &vaultv1alpha1.VaultRole{
+		ObjectMeta: metav1.ObjectMeta{Name: "app-foo", Namespace: "my"},
+		Spec: vaultv1alpha1.VaultRoleSpec{
+			ConnectionRef:   "conn",
+			ServiceAccounts: []string{"sa"},
+			Policies: []vaultv1alpha1.PolicyReference{
+				{Kind: "VaultPolicy", Name: "p"},
+			},
+		},
+	}
+	_, err := v.ValidateCreate(context.Background(), newRole)
+	if err == nil {
+		t.Fatal("expected collision error, got nil")
+	}
+	if !strings.Contains(err.Error(), "my-app/foo") {
+		t.Errorf("error should name the conflicting existing CR: %v", err)
+	}
+	if !strings.Contains(err.Error(), "my-app-foo") {
+		t.Errorf("error should include the conflicting Vault name: %v", err)
+	}
+}
+
+// TestVaultRoleValidator_VaultRoleNoSelfCollision confirms that
+// updating (or re-validating) the same CR doesn't trigger a false
+// positive — the collision check skips the CR being validated itself.
+func TestVaultRoleValidator_VaultRoleNoSelfCollision(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = vaultv1alpha1.AddToScheme(scheme)
+
+	role := &vaultv1alpha1.VaultRole{
+		ObjectMeta: metav1.ObjectMeta{Name: "foo", Namespace: "my-app"},
+		Spec: vaultv1alpha1.VaultRoleSpec{
+			ConnectionRef:   "conn",
+			ServiceAccounts: []string{"sa"},
+			Policies: []vaultv1alpha1.PolicyReference{
+				{Kind: "VaultPolicy", Name: "p"},
+			},
+		},
+	}
+	// The same role exists in the fake client — simulating re-validation.
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(role).Build()
+	v := &VaultRoleValidator{client: c}
+
+	_, err := v.ValidateCreate(context.Background(), role)
+	if err != nil {
+		t.Errorf("self should not collide with self, got %v", err)
+	}
+}
+
 func TestVaultRoleValidator_CollisionWithNilClient(t *testing.T) {
 	// Test that validation still works when client is nil (skip collision check)
 	v := &VaultRoleValidator{client: nil}
@@ -1743,9 +1818,12 @@ func TestVaultRoleValidator_DependencyValidation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			scheme := newRoleTestScheme()
+			// IMPROVEMENTS §36: pre-populate the connectionRef so these tests
+			// stay focused on policy dependency warnings.
+			existing := append([]runtime.Object{testConnectionStub()}, tt.existingObjects...)
 			fakeClient := fake.NewClientBuilder().
 				WithScheme(scheme).
-				WithRuntimeObjects(tt.existingObjects...).
+				WithRuntimeObjects(existing...).
 				Build()
 
 			v := &VaultRoleValidator{client: fakeClient}
@@ -1898,9 +1976,14 @@ func TestVaultClusterRoleValidator_DependencyValidation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			scheme := newRoleTestScheme()
+			// IMPROVEMENTS §36: the validator now also warns on missing
+			// connectionRef. Pre-populate the referenced VaultConnection so
+			// these tests keep focus on their original purpose (policy
+			// dependency checks) rather than counting an unrelated warning.
+			existing := append([]runtime.Object{testConnectionStub()}, tt.existingObjects...)
 			fakeClient := fake.NewClientBuilder().
 				WithScheme(scheme).
-				WithRuntimeObjects(tt.existingObjects...).
+				WithRuntimeObjects(existing...).
 				Build()
 
 			v := &VaultClusterRoleValidator{client: fakeClient}
@@ -1935,6 +2018,9 @@ func TestVaultClusterRoleValidator_DependencyValidation(t *testing.T) {
 func TestVaultRoleValidator_DependencyValidationOnUpdate(t *testing.T) {
 	// Test that dependency validation also runs on update
 	scheme := newRoleTestScheme()
+	// No test-connection pre-populated: this test already expects 2 warnings
+	// (1 missing-policy + 1 missing-connection). The wantWarnings assertion
+	// below was updated accordingly.
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
 
 	v := &VaultRoleValidator{client: fakeClient}
@@ -1972,7 +2058,318 @@ func TestVaultRoleValidator_DependencyValidationOnUpdate(t *testing.T) {
 		t.Errorf("ValidateUpdate() unexpected error: %v", err)
 	}
 
-	if len(warnings) != 1 {
-		t.Errorf("ValidateUpdate() expected 1 warning, got %d: %v", len(warnings), warnings)
+	// Expect 2 warnings: (a) the missing-policy dependency + (b) the new
+	// §36 check — "test-connection" doesn't exist in the fake client, so the
+	// connectionRef existence check also emits. Both are non-blocking.
+	if len(warnings) != 2 {
+		t.Errorf("ValidateUpdate() expected 2 warnings (missing policy + missing connection), got %d: %v", len(warnings), warnings)
+	}
+}
+
+const authPathJWT = "auth/jwt"
+
+func TestIsJWTAuthPath(t *testing.T) {
+	cases := []struct {
+		path string
+		want bool
+	}{
+		{"", false},
+		{"auth/kubernetes", false},
+		{"auth/kubernetes-prod", false},
+		{"auth/jwt", true},
+		{"auth/jwt/", true},
+		{"auth/jwt/gitlab", true},
+		{"auth/jwt-gitlab", true},
+		{"auth/approle", false},
+		{"jwt", false},
+	}
+	for _, tc := range cases {
+		if got := isJWTAuthPath(tc.path); got != tc.want {
+			t.Errorf("isJWTAuthPath(%q) = %v, want %v", tc.path, got, tc.want)
+		}
+	}
+}
+
+func TestValidateJWTSpec(t *testing.T) {
+	cases := []struct {
+		name                string
+		authPath            string
+		jwt                 *vaultv1alpha1.VaultRoleJWTSpec
+		serviceAccountCount int
+		wantErrSubstring    string
+	}{
+		{
+			name:                "non-jwt path with no jwt spec",
+			authPath:            "auth/kubernetes",
+			serviceAccountCount: 1,
+		},
+		{
+			name:                "jwt path with single SA, no override",
+			authPath:            authPathJWT,
+			serviceAccountCount: 1,
+		},
+		{
+			name:                "jwt path with multi-SA and explicit boundSubject",
+			authPath:            authPathJWT,
+			jwt:                 &vaultv1alpha1.VaultRoleJWTSpec{BoundSubject: "sub"},
+			serviceAccountCount: 3,
+		},
+		{
+			name:                "jwt path with multi-SA and explicit boundClaims",
+			authPath:            authPathJWT,
+			jwt:                 &vaultv1alpha1.VaultRoleJWTSpec{BoundClaims: map[string]string{"k": "v"}},
+			serviceAccountCount: 2,
+		},
+		{
+			name:                "jwt path with multi-SA, no override, rejected",
+			authPath:            authPathJWT,
+			serviceAccountCount: 2,
+			wantErrSubstring:    "more than one serviceAccount",
+		},
+		{
+			name:                "jwt set but authPath is k8s, rejected",
+			authPath:            "auth/kubernetes",
+			jwt:                 &vaultv1alpha1.VaultRoleJWTSpec{BoundSubject: "x"},
+			serviceAccountCount: 1,
+			wantErrSubstring:    "may only be used when authPath targets a JWT auth mount",
+		},
+		{
+			name:                "boundSubject and boundClaims mutually exclusive",
+			authPath:            authPathJWT,
+			jwt:                 &vaultv1alpha1.VaultRoleJWTSpec{BoundSubject: "x", BoundClaims: map[string]string{"k": "v"}},
+			serviceAccountCount: 1,
+			wantErrSubstring:    "mutually exclusive",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			errs := validateJWTSpec(tc.authPath, tc.jwt, tc.serviceAccountCount)
+			if tc.wantErrSubstring == "" {
+				if len(errs) > 0 {
+					t.Errorf("expected no errors, got %v", errs)
+				}
+				return
+			}
+			if len(errs) == 0 {
+				t.Fatalf("expected error containing %q, got none", tc.wantErrSubstring)
+			}
+			if !strings.Contains(strings.Join(errs, "; "), tc.wantErrSubstring) {
+				t.Errorf("expected error containing %q, got %v", tc.wantErrSubstring, errs)
+			}
+		})
+	}
+}
+
+func TestVaultRoleValidator_ValidateCreate_JWT(t *testing.T) {
+	ctx := context.Background()
+	scheme := runtime.NewScheme()
+	_ = vaultv1alpha1.AddToScheme(scheme)
+	client := fake.NewClientBuilder().WithScheme(scheme).Build()
+	v := &VaultRoleValidator{client: client}
+
+	cases := []struct {
+		name        string
+		role        *vaultv1alpha1.VaultRole
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name: "jwt single SA",
+			role: &vaultv1alpha1.VaultRole{
+				ObjectMeta: metav1.ObjectMeta{Name: "r1", Namespace: "ns"},
+				Spec: vaultv1alpha1.VaultRoleSpec{
+					ConnectionRef:   "c",
+					AuthPath:        authPathJWT,
+					ServiceAccounts: []string{"sa1"},
+					Policies:        []vaultv1alpha1.PolicyReference{{Kind: "VaultClusterPolicy", Name: "p"}},
+				},
+			},
+		},
+		{
+			name: "jwt multi SA without override rejected",
+			role: &vaultv1alpha1.VaultRole{
+				ObjectMeta: metav1.ObjectMeta{Name: "r2", Namespace: "ns"},
+				Spec: vaultv1alpha1.VaultRoleSpec{
+					ConnectionRef:   "c",
+					AuthPath:        authPathJWT,
+					ServiceAccounts: []string{"sa1", "sa2"},
+					Policies:        []vaultv1alpha1.PolicyReference{{Kind: "VaultClusterPolicy", Name: "p"}},
+				},
+			},
+			wantErr:     true,
+			errContains: "more than one serviceAccount",
+		},
+		{
+			name: "jwt sub-spec with k8s auth path rejected",
+			role: &vaultv1alpha1.VaultRole{
+				ObjectMeta: metav1.ObjectMeta{Name: "r3", Namespace: "ns"},
+				Spec: vaultv1alpha1.VaultRoleSpec{
+					ConnectionRef:   "c",
+					AuthPath:        "auth/kubernetes",
+					ServiceAccounts: []string{"sa1"},
+					Policies:        []vaultv1alpha1.PolicyReference{{Kind: "VaultClusterPolicy", Name: "p"}},
+					JWT:             &vaultv1alpha1.VaultRoleJWTSpec{BoundSubject: "x"},
+				},
+			},
+			wantErr:     true,
+			errContains: "may only be used when authPath",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := v.ValidateCreate(ctx, tc.role)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected error containing %q, got nil", tc.errContains)
+				}
+				if !strings.Contains(err.Error(), tc.errContains) {
+					t.Errorf("expected error containing %q, got %q", tc.errContains, err.Error())
+				}
+				return
+			}
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+// TestValidateAuthPathSupported pins IMPROVEMENTS §7: the webhook must
+// reject VaultRole CRs whose authPath targets a Vault auth backend the
+// role handler doesn't implement (aws/gcp/approle/ldap/etc.), while still
+// accepting all the forms that appear in our docs and fixtures:
+//   - empty (defaults to auth/kubernetes)
+//   - bare mount name: "kubernetes", "jwt"
+//   - full form: "auth/kubernetes", "auth/jwt"
+//   - submounts: "auth/kubernetes-prod", "auth/jwt/gitlab"
+func TestValidateAuthPathSupported(t *testing.T) {
+	cases := []struct {
+		name             string
+		authPath         string
+		wantErrSubstring string // empty means expect accept
+	}{
+		{name: "empty defaults to kubernetes", authPath: ""},
+		{name: "bare kubernetes (docs form)", authPath: "kubernetes"},
+		{name: "bare jwt (docs form)", authPath: "jwt"},
+		{name: "full kubernetes path", authPath: "auth/kubernetes"},
+		{name: "full jwt path", authPath: "auth/jwt"},
+		{name: "kubernetes submount", authPath: "auth/kubernetes-prod"},
+		{name: "jwt submount", authPath: "auth/jwt/gitlab"},
+		{name: "jwt path with trailing slash", authPath: "auth/jwt/"},
+		{
+			name:             "aws backend rejected",
+			authPath:         "auth/aws",
+			wantErrSubstring: "unsupported Vault auth backend",
+		},
+		{
+			name:             "gcp backend rejected",
+			authPath:         "auth/gcp",
+			wantErrSubstring: "unsupported Vault auth backend",
+		},
+		{
+			name:             "approle backend rejected",
+			authPath:         "auth/approle",
+			wantErrSubstring: "unsupported Vault auth backend",
+		},
+		{
+			name:             "ldap backend rejected",
+			authPath:         "auth/ldap",
+			wantErrSubstring: "unsupported Vault auth backend",
+		},
+		{
+			name:             "bare aws rejected",
+			authPath:         "aws",
+			wantErrSubstring: "unsupported Vault auth backend",
+		},
+		{
+			name:             "§7 roadmap reference present in rejection",
+			authPath:         "auth/approle",
+			wantErrSubstring: "IMPROVEMENTS.md §7",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := validateAuthPathSupported(tc.authPath)
+			if tc.wantErrSubstring == "" {
+				if got != "" {
+					t.Errorf("validateAuthPathSupported(%q) = %q, want accept", tc.authPath, got)
+				}
+				return
+			}
+			if !strings.Contains(got, tc.wantErrSubstring) {
+				t.Errorf("validateAuthPathSupported(%q) = %q, want error containing %q",
+					tc.authPath, got, tc.wantErrSubstring)
+			}
+		})
+	}
+}
+
+// TestValidateDiscoveryPlaceholderConsistency pins the F4 fix from
+// the parallel features audit. Discovery auto-creates a CR with
+// `discovery-placeholder-replace-me` in spec.serviceAccounts/policies
+// AND a `vault.platform.io/discovery-pending=true` annotation. The
+// pair is transactional — clearing the annotation while leaving the
+// placeholder would push the literal placeholder string to Vault as
+// an SA name, producing a Vault role bound to a non-existent SA.
+func TestValidateDiscoveryPlaceholderConsistency(t *testing.T) {
+	pendingAnnotation := map[string]string{
+		vaultv1alpha1.AnnotationDiscoveryPending: vaultv1alpha1.AnnotationValueTrue,
+	}
+	cases := []struct {
+		name             string
+		annotations      map[string]string
+		serviceAccounts  []string
+		policies         []vaultv1alpha1.PolicyReference
+		wantErrSubstring string // empty means valid
+	}{
+		{
+			name:            "no placeholder, no annotation — valid (normal CR)",
+			serviceAccounts: []string{"my-app"},
+			policies:        []vaultv1alpha1.PolicyReference{{Kind: "VaultPolicy", Name: "p1"}},
+		},
+		{
+			name:            "placeholder + pending annotation — valid (discovery state)",
+			annotations:     pendingAnnotation,
+			serviceAccounts: []string{vaultv1alpha1.DiscoveryPlaceholderValue},
+			policies: []vaultv1alpha1.PolicyReference{
+				{Kind: "VaultPolicy", Name: vaultv1alpha1.DiscoveryPlaceholderValue},
+			},
+		},
+		{
+			name:             "placeholder SA without annotation — REJECTED",
+			serviceAccounts:  []string{vaultv1alpha1.DiscoveryPlaceholderValue},
+			policies:         []vaultv1alpha1.PolicyReference{{Kind: "VaultPolicy", Name: "p1"}},
+			wantErrSubstring: "discovery placeholder",
+		},
+		{
+			name:            "placeholder policy without annotation — REJECTED",
+			serviceAccounts: []string{"my-app"},
+			policies: []vaultv1alpha1.PolicyReference{
+				{Kind: "VaultPolicy", Name: vaultv1alpha1.DiscoveryPlaceholderValue},
+			},
+			wantErrSubstring: "discovery placeholder",
+		},
+		{
+			name:            "real values + pending annotation — valid (mid-adoption)",
+			annotations:     pendingAnnotation,
+			serviceAccounts: []string{"real-sa"},
+			policies:        []vaultv1alpha1.PolicyReference{{Kind: "VaultPolicy", Name: "real-policy"}},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := validateDiscoveryPlaceholderConsistency(
+				tc.annotations, tc.serviceAccounts, tc.policies)
+			if tc.wantErrSubstring == "" {
+				if got != "" {
+					t.Errorf("expected no error, got %q", got)
+				}
+				return
+			}
+			if !strings.Contains(got, tc.wantErrSubstring) {
+				t.Errorf("expected error containing %q, got %q", tc.wantErrSubstring, got)
+			}
+		})
 	}
 }

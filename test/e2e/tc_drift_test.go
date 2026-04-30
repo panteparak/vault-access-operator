@@ -32,6 +32,10 @@ import (
 var _ = Describe("Drift Detection Tests", Ordered, Label("drift"), func() {
 	ctx := context.Background()
 
+	BeforeAll(func() {
+		RefreshSharedVaultToken(ctx)
+	})
+
 	Context("TC-DRIFT: Policy Drift Detection", func() {
 		It("TC-DRIFT01-IGNORE: DriftMode=ignore skips detection", func() {
 			policyName := "tc-drift01-ignore"

@@ -1,0 +1,107 @@
+# MkDocs configuration for the **internal / contributor** documentation site.
+#
+# This builds a separate mini-site at `/internal/*` that is NOT listed in the
+# main nav (see main `mkdocs.yml`'s `exclude_docs: internal/`). Build both:
+#
+#   mkdocs build --strict                           # → site/
+#   mkdocs build --strict -f mkdocs-internal.yml    # → site/internal/
+#
+# The combined output tree nests correctly because `site_dir: site/internal`.
+
+site_name: Vault Access Operator — Internal Docs
+site_description: Contributor-facing documentation for vault-access-operator internals.
+site_url: https://panteparak.github.io/vault-access-operator/internal/
+repo_url: https://github.com/panteparak/vault-access-operator
+repo_name: panteparak/vault-access-operator
+edit_uri: edit/main/docs/internal/
+
+docs_dir: docs/internal
+site_dir: site/internal
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.top
+    - navigation.sections
+    - navigation.expand
+    - navigation.indexes
+    - search.highlight
+    - content.code.copy
+    - content.action.edit
+    - toc.integrate
+  icon:
+    repo: fontawesome/brands/github
+
+# The internal docs use lots of `../../path/file.go:line` repo-relative links
+# so contributors reading on GitHub can jump straight to source. These don't
+# resolve inside MkDocs' rendered site — accept that and downgrade the
+# warnings to info so --strict still passes.
+validation:
+  nav:
+    omitted_files: ignore
+  links:
+    absolute_links: warn
+    unrecognized_links: info
+    anchors: info
+    not_found: info
+
+plugins:
+  - search
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - admonition
+  - pymdownx.details
+  - tables
+  - toc:
+      permalink: true
+
+# Nested navigation for the internal site only.
+# The top nav of the main user-facing site is unaffected.
+nav:
+  - Home: index.md
+  - Overview: PROJECT_OVERVIEW.md
+  - Architecture: ARCHITECTURE.md
+  - Flow Foundations: FLOW_OVERVIEW.md
+  - Flows:
+      - Manager Lifecycle: FLOW_LIFECYCLE.md
+      - Connection: FLOW_CONNECTION.md
+      - Policy: FLOW_POLICY.md
+      - Role: FLOW_ROLE.md
+      - Discovery: FLOW_DISCOVERY.md
+      - Deletion: FLOW_DELETION.md
+      - Authentication: FLOW_AUTH.md
+      - Admission Webhooks: FLOW_WEBHOOK.md
+      - Event Bus: FLOW_EVENTS.md
+      - Metrics: FLOW_METRICS.md
+  - Instructions: INSTRUCTIONS.md
+  - Improvements & Gaps: IMPROVEMENTS.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/panteparak/vault-access-operator
+
+copyright: Copyright &copy; 2024-2026 Vault Access Operator Contributors

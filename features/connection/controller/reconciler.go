@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -34,6 +35,7 @@ import (
 	"github.com/panteparak/vault-access-operator/pkg/vault/bootstrap"
 	"github.com/panteparak/vault-access-operator/pkg/vault/token"
 	"github.com/panteparak/vault-access-operator/shared/controller/base"
+	"github.com/panteparak/vault-access-operator/shared/controller/watches"
 	"github.com/panteparak/vault-access-operator/shared/events"
 )
 
@@ -76,6 +78,7 @@ func NewReconciler(cfg ReconcilerConfig) *Reconciler {
 		TokenProvider:    tokenProvider,
 		ClusterDiscovery: clusterDiscovery,
 		Log:              log.WithName("handler"),
+		Recorder:         cfg.Recorder,
 	})
 
 	// Create base reconciler with custom requeue times
@@ -116,11 +119,84 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	})
 }
 
-// SetupWithManager sets up the controller with the Manager.
+// IndexFieldConnectionRef is the field-indexer key used by `listDependents` to
+// find every VaultPolicy / VaultClusterPolicy / VaultRole / VaultClusterRole
+// that references a given VaultConnection without doing a cluster-wide list
+// scan (IMPROVEMENTS §15).
+const IndexFieldConnectionRef = "spec.connectionRef"
+
+// SetupWithManager sets up the controller with the Manager. Registers the
+// spec.connectionRef field indexer on the four dependent CRD kinds so that
+// Cleanup can query `client.MatchingFields{IndexFieldConnectionRef: name}`
+// instead of listing every resource cluster-wide and filtering in Go.
+//
+// The For predicate accepts:
+//   - Spec changes (GenerationChangedPredicate — the default).
+//   - The `vault.platform.io/reconcile-now` annotation being added or
+//     updated (IMPROVEMENTS Missing Features §H — same trigger that
+//     works on policy/role reconcilers; previously omitted from
+//     VaultConnection by oversight).
+//
+// Note: the `vault.platform.io/restore-managed-markers` annotation (§G)
+// does NOT trigger an immediate reconcile via this predicate — that
+// predicate is specific to AnnotationReconcileNow. Setting
+// restore-managed-markers takes effect on the next scheduled reconcile
+// (≤30s, the requeueOnSuccess interval). To force-trigger immediately,
+// also set `vault.platform.io/reconcile-now` on the same connection.
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
+	if err := registerConnectionRefIndexers(context.Background(), mgr); err != nil {
+		return fmt.Errorf("register connectionRef field indexers: %w", err)
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&vaultv1alpha1.VaultConnection{},
-			builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+			builder.WithPredicates(predicate.Or(
+				predicate.GenerationChangedPredicate{},
+				watches.ReconcileNowAnnotationPredicate{},
+			))).
 		Named("vaultconnection").
 		Complete(r)
+}
+
+// registerConnectionRefIndexers adds a field index on spec.connectionRef for
+// each dependent CRD kind. The indexer runs once per kind at manager startup
+// and is idempotent across reconciler setups (controller-runtime dedupes by
+// key + type). Errors here are fatal — without the indexer the MatchingFields
+// query in listDependents fails at request time, which would stall cleanup.
+func registerConnectionRefIndexers(ctx context.Context, mgr ctrl.Manager) error {
+	indexer := mgr.GetFieldIndexer()
+	types := []struct {
+		obj      client.Object
+		accessor func(client.Object) []string
+	}{
+		{
+			obj: &vaultv1alpha1.VaultPolicy{},
+			accessor: func(o client.Object) []string {
+				return []string{o.(*vaultv1alpha1.VaultPolicy).Spec.ConnectionRef}
+			},
+		},
+		{
+			obj: &vaultv1alpha1.VaultClusterPolicy{},
+			accessor: func(o client.Object) []string {
+				return []string{o.(*vaultv1alpha1.VaultClusterPolicy).Spec.ConnectionRef}
+			},
+		},
+		{
+			obj: &vaultv1alpha1.VaultRole{},
+			accessor: func(o client.Object) []string {
+				return []string{o.(*vaultv1alpha1.VaultRole).Spec.ConnectionRef}
+			},
+		},
+		{
+			obj: &vaultv1alpha1.VaultClusterRole{},
+			accessor: func(o client.Object) []string {
+				return []string{o.(*vaultv1alpha1.VaultClusterRole).Spec.ConnectionRef}
+			},
+		},
+	}
+	for _, t := range types {
+		if err := indexer.IndexField(ctx, t.obj, IndexFieldConnectionRef, t.accessor); err != nil {
+			return fmt.Errorf("index %T: %w", t.obj, err)
+		}
+	}
+	return nil
 }
