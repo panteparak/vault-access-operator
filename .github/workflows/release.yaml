@@ -50,8 +50,16 @@ jobs:
       - name: Auto-compute version with commitizen
         id: dispatch
         run: |
-          # Try commitizen bump --dry-run to get next version
-          CZ_VERSION=$(cz bump --dry-run 2>/dev/null | grep -oP 'bump version .+ → \K.+' || echo "")
+          # Parse the "version X → Y" line from `cz bump --dry-run`. Anchored on
+          # "version <semver> → <semver>" (rather than the older "bump version"
+          # prefix) so cz output format changes between releases don't silently
+          # break version detection — commitizen 4.x emits `bump: version …`
+          # while older releases emitted `bump version …`.
+          CZ_OUTPUT=$(cz bump --dry-run 2>&1 || true)
+          echo "::group::cz bump --dry-run output"
+          echo "$CZ_OUTPUT"
+          echo "::endgroup::"
+          CZ_VERSION=$(echo "$CZ_OUTPUT" | grep -oP 'version [0-9.]+ → \K[0-9.]+' | head -1 || echo "")
           echo "cz-version=$CZ_VERSION" >> $GITHUB_OUTPUT
 
       - name: Set dispatch version
