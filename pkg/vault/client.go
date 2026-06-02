@@ -603,14 +603,35 @@ func (c *Client) WriteKubernetesAuthConfig(ctx context.Context, mountPath string
 	return nil
 }
 
-// UpdateKubernetesAuthConfig updates only the token_reviewer_jwt in the
-// Kubernetes auth configuration. Vault's config endpoint performs a
-// merge-update, so this preserves kubernetes_host and kubernetes_ca_cert.
+// UpdateKubernetesAuthConfig refreshes the token_reviewer_jwt in the Kubernetes
+// auth configuration. Vault's auth/<mount>/config endpoint is NOT a merge-update:
+// it requires kubernetes_host on every write (omitting it returns
+// "no host provided"). So we read the current config and re-write it with the new
+// token_reviewer_jwt, preserving host and the CA/issuer settings. The
+// token_reviewer_jwt itself is write-only and is never returned by the read.
 // Implements token.VaultAuthConfigUpdater.
 func (c *Client) UpdateKubernetesAuthConfig(ctx context.Context, mountPath, tokenReviewerJWT string) error {
-	return c.WriteKubernetesAuthConfig(ctx, mountPath, map[string]interface{}{
-		"token_reviewer_jwt": tokenReviewerJWT,
-	})
+	path := fmt.Sprintf("auth/%s/config", mountPath)
+	existing, err := c.Logical().ReadWithContext(ctx, path)
+	if err != nil {
+		return fmt.Errorf("failed to read kubernetes auth config: %w", err)
+	}
+
+	config := map[string]interface{}{"token_reviewer_jwt": tokenReviewerJWT}
+	if existing != nil {
+		// Re-supply the fields Vault needs on a config write (kubernetes_host is
+		// required) plus the common CA/issuer settings, so refreshing the JWT
+		// doesn't reset them.
+		for _, k := range []string{
+			"kubernetes_host", "kubernetes_ca_cert",
+			"disable_local_ca_jwt", "disable_iss_validation", "issuer",
+		} {
+			if v, ok := existing.Data[k]; ok && v != nil {
+				config[k] = v
+			}
+		}
+	}
+	return c.WriteKubernetesAuthConfig(ctx, mountPath, config)
 }
 
 // DisableAuth disables an auth method at the given path.

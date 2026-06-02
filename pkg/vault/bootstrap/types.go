@@ -77,6 +77,13 @@ type Result struct {
 	// AuthMethodCreated indicates if the auth method was created (vs already existed).
 	AuthMethodCreated bool
 
+	// AuthConfigured indicates the Kubernetes auth config (host, CA cert,
+	// token_reviewer_jwt) was successfully written. Distinct from
+	// AuthMethodCreated so partial-failure recording (IMPROVEMENTS §10) can
+	// distinguish "mount enabled" from "mount enabled AND configured" — a
+	// bootstrap that fails at the configure step has the former but not the latter.
+	AuthConfigured bool
+
 	// RoleCreated indicates if the operator role was created.
 	RoleCreated bool
 

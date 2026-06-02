@@ -64,17 +64,21 @@ func (m *managerImpl) Bootstrap(
 		AuthPath: "auth/" + config.AuthMethodName,
 	}
 
+	// On every fatal early-exit below we return the partially-populated result
+	// (not nil) alongside the error so the connection handler can record which
+	// steps completed before the failure (IMPROVEMENTS §10).
+
 	// Step 1: Enable Kubernetes auth method
 	authMethodCreated, err := m.enableAuthMethod(ctx, vaultClient, config.AuthMethodName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to enable auth method: %w", err)
+		return result, fmt.Errorf("failed to enable auth method: %w", err)
 	}
 	result.AuthMethodCreated = authMethodCreated
 
 	// Step 2: Get Kubernetes cluster configuration
 	k8sConfig, err := m.getK8sConfig(ctx, config.KubernetesConfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get kubernetes config: %w", err)
+		return result, fmt.Errorf("failed to get kubernetes config: %w", err)
 	}
 
 	// Step 3: Get token_reviewer_jwt
@@ -86,19 +90,20 @@ func (m *managerImpl) Bootstrap(
 		Duration:       config.TokenReviewerDuration,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to get token_reviewer_jwt: %w", err)
+		return result, fmt.Errorf("failed to get token_reviewer_jwt: %w", err)
 	}
 	result.TokenReviewerExpiration = tokenInfo.ExpirationTime
 
 	// Step 4: Configure Kubernetes auth
 	if err := m.configureKubernetesAuth(ctx, vaultClient, config.AuthMethodName, k8sConfig, tokenInfo.Token); err != nil {
-		return nil, fmt.Errorf("failed to configure kubernetes auth: %w", err)
+		return result, fmt.Errorf("failed to configure kubernetes auth: %w", err)
 	}
+	result.AuthConfigured = true
 
 	// Step 5: Create operator role
 	roleCreated, err := m.createOperatorRole(ctx, vaultClient, config)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create operator role: %w", err)
+		return result, fmt.Errorf("failed to create operator role: %w", err)
 	}
 	result.RoleCreated = roleCreated
 

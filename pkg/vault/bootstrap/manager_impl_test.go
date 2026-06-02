@@ -415,3 +415,74 @@ func TestBootstrap_AllSucceeded_NoErrorsInResult(t *testing.T) {
 		t.Error("K8sAuthTestPassed should be true on successful test")
 	}
 }
+
+func newPartialFailureConfig() *Config {
+	return &Config{
+		BootstrapToken: "bootstrap-token",
+		AuthMethodName: "kubernetes",
+		OperatorRole:   "operator",
+		OperatorPolicy: "operator",
+		OperatorServiceAccount: token.ServiceAccountRef{
+			Name:      "operator-sa",
+			Namespace: "vault-system",
+		},
+	}
+}
+
+// TestBootstrap_PartialFailure_ConfigStep_ReturnsProgress pins IMPROVEMENTS §10:
+// when bootstrap fails at the configure-auth step, it returns the partially
+// populated result (not nil) so the connection handler can record that the
+// mount was enabled before the failure. AuthConfigured must be false since
+// that step is exactly what failed.
+func TestBootstrap_PartialFailure_ConfigStep_ReturnsProgress(t *testing.T) {
+	mgr := newSurfacingTestManager()
+	client := &fakeBootstrapClient{
+		currentToken:   "bootstrap-token",
+		configWriteErr: errors.New("vault: connection refused"),
+	}
+
+	result, err := mgr.Bootstrap(context.Background(), client, newPartialFailureConfig())
+	if err == nil {
+		t.Fatal("expected error when configure-auth step fails")
+	}
+	if result == nil {
+		t.Fatal("expected partial result on failure, got nil (§10 regression)")
+	}
+	if !result.AuthMethodCreated {
+		t.Error("AuthMethodCreated should be true — the mount was enabled before the configure failure")
+	}
+	if result.AuthConfigured {
+		t.Error("AuthConfigured should be false — the configure step is what failed")
+	}
+	if result.RoleCreated {
+		t.Error("RoleCreated should be false — never reached")
+	}
+}
+
+// TestBootstrap_PartialFailure_RoleStep_ReturnsProgress pins that a failure at
+// the create-role step returns a result recording every earlier step
+// (AuthMethodCreated + AuthConfigured) but not RoleCreated.
+func TestBootstrap_PartialFailure_RoleStep_ReturnsProgress(t *testing.T) {
+	mgr := newSurfacingTestManager()
+	client := &fakeBootstrapClient{
+		currentToken: "bootstrap-token",
+		roleWriteErr: errors.New("vault: permission denied"),
+	}
+
+	result, err := mgr.Bootstrap(context.Background(), client, newPartialFailureConfig())
+	if err == nil {
+		t.Fatal("expected error when create-role step fails")
+	}
+	if result == nil {
+		t.Fatal("expected partial result on failure, got nil (§10 regression)")
+	}
+	if !result.AuthMethodCreated {
+		t.Error("AuthMethodCreated should be true — earlier step")
+	}
+	if !result.AuthConfigured {
+		t.Error("AuthConfigured should be true — the configure step completed before the role failure")
+	}
+	if result.RoleCreated {
+		t.Error("RoleCreated should be false — the create-role step is what failed")
+	}
+}
