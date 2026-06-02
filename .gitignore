@@ -34,3 +34,7 @@ tmp/e2e/
 
 # Integration test profiling output
 reports/
+
+# Claude Code — keep settings.json and skills/commands tracked, exclude per-user files
+.claude/settings.local.json
+.claude/worktrees/
