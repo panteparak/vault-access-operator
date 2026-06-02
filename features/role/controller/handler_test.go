@@ -583,8 +583,116 @@ func TestBuildRoleData_JWT_BoundClaimsReplacesSubject(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected bound_claims map, got %T", roleData["bound_claims"])
 	}
-	if claims["groups"] != "eso-writers" {
-		t.Errorf("expected bound_claims.groups=eso-writers, got %v", claims["groups"])
+	// Scalars from BoundClaims are wrapped as single-element []interface{} so
+	// the round-trip shape from Vault matches and the drift comparator stays
+	// stable. Vault treats scalar and single-element list values equivalently.
+	groups, ok := claims["groups"].([]interface{})
+	if !ok || len(groups) != 1 || groups[0] != "eso-writers" {
+		t.Errorf("expected bound_claims.groups=[eso-writers], got %v (%T)", claims["groups"], claims["groups"])
+	}
+	// bound_claims_type defaults to "string" whenever any bound_claims is set.
+	if roleData["bound_claims_type"] != "string" {
+		t.Errorf("expected bound_claims_type=string default, got %v", roleData["bound_claims_type"])
+	}
+}
+
+func TestBuildRoleData_JWT_BoundClaimsList_ScalarsAndLists(t *testing.T) {
+	role := newVaultRole("test-role", "bar")
+	role.Spec.AuthPath = authPathJWT
+	role.Spec.ServiceAccounts = []string{"foo-sa"}
+	role.Spec.JWT = &vaultv1alpha1.VaultRoleJWTSpec{
+		BoundClaimsList: map[string][]string{
+			"project_id": {"111"},             // scalar via single-element list
+			"ref":        {"main", "develop"}, // multi-value
+		},
+	}
+
+	handler := NewHandler(newFakeClient(role), vault.NewClientCache(), nil, logr.Discard())
+	adapter := domain.NewVaultRoleAdapter(role)
+
+	roleData, err := handler.buildRoleData(adapter, []string{"p"}, adapter.GetServiceAccountBindings(), nil)
+	if err != nil {
+		t.Fatalf("buildRoleData returned error: %v", err)
+	}
+	claims, ok := roleData["bound_claims"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected bound_claims map, got %T", roleData["bound_claims"])
+	}
+	projectID, ok := claims["project_id"].([]interface{})
+	if !ok || len(projectID) != 1 || projectID[0] != "111" {
+		t.Errorf("expected project_id=[111], got %v", claims["project_id"])
+	}
+	refs, ok := claims["ref"].([]interface{})
+	if !ok || len(refs) != 2 || refs[0] != "main" || refs[1] != "develop" {
+		t.Errorf("expected ref=[main develop], got %v", claims["ref"])
+	}
+}
+
+func TestBuildRoleData_JWT_BoundClaimsType_Glob(t *testing.T) {
+	role := newVaultRole("test-role", "bar")
+	role.Spec.AuthPath = authPathJWT
+	role.Spec.ServiceAccounts = []string{"foo-sa"}
+	role.Spec.JWT = &vaultv1alpha1.VaultRoleJWTSpec{
+		BoundClaimsList: map[string][]string{"ref": {"feat/*"}},
+		BoundClaimsType: "glob",
+	}
+
+	handler := NewHandler(newFakeClient(role), vault.NewClientCache(), nil, logr.Discard())
+	adapter := domain.NewVaultRoleAdapter(role)
+
+	roleData, err := handler.buildRoleData(adapter, []string{"p"}, adapter.GetServiceAccountBindings(), nil)
+	if err != nil {
+		t.Fatalf("buildRoleData returned error: %v", err)
+	}
+	if roleData["bound_claims_type"] != "glob" {
+		t.Errorf("expected bound_claims_type=glob, got %v", roleData["bound_claims_type"])
+	}
+}
+
+func TestBuildRoleData_JWT_BoundClaimsList_OverridesBoundClaims(t *testing.T) {
+	role := newVaultRole("test-role", "bar")
+	role.Spec.AuthPath = authPathJWT
+	role.Spec.ServiceAccounts = []string{"foo-sa"}
+	role.Spec.JWT = &vaultv1alpha1.VaultRoleJWTSpec{
+		BoundClaims:     map[string]string{"ref": "stale"},
+		BoundClaimsList: map[string][]string{"ref": {"main", "develop"}},
+	}
+
+	handler := NewHandler(newFakeClient(role), vault.NewClientCache(), nil, logr.Discard())
+	adapter := domain.NewVaultRoleAdapter(role)
+
+	roleData, err := handler.buildRoleData(adapter, []string{"p"}, adapter.GetServiceAccountBindings(), nil)
+	if err != nil {
+		t.Fatalf("buildRoleData returned error: %v", err)
+	}
+	claims, ok := roleData["bound_claims"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected bound_claims map, got %T", roleData["bound_claims"])
+	}
+	refs, ok := claims["ref"].([]interface{})
+	if !ok || len(refs) != 2 || refs[0] != "main" || refs[1] != "develop" {
+		t.Errorf("expected ref=[main develop] (list wins), got %v", claims["ref"])
+	}
+}
+
+func TestBuildRoleData_JWT_NoClaimsType_WhenNoClaims(t *testing.T) {
+	role := newVaultRole("test-role", "bar")
+	role.Spec.AuthPath = authPathJWT
+	role.Spec.ServiceAccounts = []string{"foo-sa"}
+	// No BoundClaims / BoundClaimsList set — falls back to bound_subject path.
+
+	handler := NewHandler(newFakeClient(role), vault.NewClientCache(), nil, logr.Discard())
+	adapter := domain.NewVaultRoleAdapter(role)
+
+	roleData, err := handler.buildRoleData(adapter, []string{"p"}, adapter.GetServiceAccountBindings(), nil)
+	if err != nil {
+		t.Fatalf("buildRoleData returned error: %v", err)
+	}
+	if _, has := roleData["bound_claims_type"]; has {
+		t.Errorf("bound_claims_type should be absent when no bound_claims are set, got %v", roleData["bound_claims_type"])
+	}
+	if _, has := roleData["bound_subject"]; !has {
+		t.Error("expected bound_subject when no bound_claims are set")
 	}
 }
 
@@ -731,6 +839,54 @@ func TestCompareJWTRoleFields(t *testing.T) {
 		compareJWTRoleFields(c, expected, current)
 		if c.Result().HasDrift {
 			t.Errorf("expected no drift when token_policies matches, got: %s", c.Result().Summary)
+		}
+	})
+
+	t.Run("no drift on bound_claims round-trip with []interface{} values", func(t *testing.T) {
+		// Mirrors what buildJWTRoleData produces (lists of []interface{})
+		// against what Vault returns when reading the role back.
+		expected := map[string]interface{}{
+			"policies":        []string{"p"},
+			"bound_audiences": []string{"aud"},
+			"bound_claims": map[string]interface{}{
+				"project_id": []interface{}{"111"},
+				"ref":        []interface{}{"main", "develop"},
+			},
+			"bound_claims_type": "string",
+		}
+		current := map[string]interface{}{
+			"policies":        []interface{}{"p"},
+			"bound_audiences": []interface{}{"aud"},
+			"bound_claims": map[string]interface{}{
+				"project_id": []interface{}{"111"},
+				"ref":        []interface{}{"main", "develop"},
+			},
+			"bound_claims_type": "string",
+		}
+		c := drift.NewComparator()
+		compareJWTRoleFields(c, expected, current)
+		if c.Result().HasDrift {
+			t.Errorf("expected no drift on round-trip, got: %s", c.Result().Summary)
+		}
+	})
+
+	t.Run("drift detected when bound_claims_type changes", func(t *testing.T) {
+		expected := map[string]interface{}{
+			"policies":          []string{"p"},
+			"bound_audiences":   []string{"aud"},
+			"bound_claims":      map[string]interface{}{"ref": []interface{}{"feat/*"}},
+			"bound_claims_type": "glob",
+		}
+		current := map[string]interface{}{
+			"policies":          []interface{}{"p"},
+			"bound_audiences":   []interface{}{"aud"},
+			"bound_claims":      map[string]interface{}{"ref": []interface{}{"feat/*"}},
+			"bound_claims_type": "string",
+		}
+		c := drift.NewComparator()
+		compareJWTRoleFields(c, expected, current)
+		if !c.Result().HasDrift {
+			t.Error("expected drift when bound_claims_type differs")
 		}
 	})
 }

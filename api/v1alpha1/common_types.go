@@ -208,10 +208,29 @@ type VaultRoleJWTSpec struct {
 	// +optional
 	BoundSubject string `json:"boundSubject,omitempty"`
 
-	// BoundClaims is an advanced match — arbitrary claim to value(s).
-	// When set, BoundSubject is ignored.
+	// BoundClaims restricts JWT claims to scalar values (exact match).
+	// Use BoundClaimsList for new specs — it supports multiple allowed values
+	// per claim. Entries here are merged with BoundClaimsList; on key collision,
+	// BoundClaimsList wins. When either field is set, BoundSubject is ignored.
 	// +optional
+	// Deprecated: use BoundClaimsList for multi-value support.
 	BoundClaims map[string]string `json:"boundClaims,omitempty"`
+
+	// BoundClaimsList restricts JWT claims to scalar or list values.
+	// Use single-element lists for scalars: {"project_id": ["42"]}.
+	// Pass multi-element lists to allow any-of matching: {"ref": ["main","develop"]}.
+	// Mutually exclusive with BoundSubject.
+	// +optional
+	BoundClaimsList map[string][]string `json:"boundClaimsList,omitempty"`
+
+	// BoundClaimsType controls how Vault interprets bound_claims values:
+	// "string" (exact match, default) or "glob" (shell-style wildcard match).
+	// Maps directly to Vault's bound_claims_type role parameter and applies
+	// to ALL keys in the bound_claims map — not per-claim.
+	// +kubebuilder:validation:Enum=string;glob
+	// +kubebuilder:default=string
+	// +optional
+	BoundClaimsType string `json:"boundClaimsType,omitempty"`
 
 	// RoleType is the Vault JWT role type. Only "jwt" is supported.
 	// Defaults to "jwt".

@@ -266,6 +266,8 @@ func compareJWTRoleFields(c *drift.Comparator, expected, current map[string]inte
 	c.CompareValuesIfExpected("user_claim", expected["user_claim"], current["user_claim"])
 	if _, hasClaims := expected["bound_claims"]; hasClaims {
 		c.CompareValues("bound_claims", expected["bound_claims"], current["bound_claims"])
+		c.CompareValuesIfExpected("bound_claims_type",
+			expected["bound_claims_type"], current["bound_claims_type"])
 	} else {
 		c.CompareValuesIfExpected("bound_subject",
 			expected["bound_subject"], current["bound_subject"])
@@ -535,13 +537,18 @@ func (h *Handler) buildJWTRoleData(
 		"policies":        policyNames,
 	}
 
-	if len(jwtSpec.BoundClaims) > 0 {
-		// Cast map[string]string to map[string]interface{} for Vault API.
-		claims := make(map[string]interface{}, len(jwtSpec.BoundClaims))
-		for k, v := range jwtSpec.BoundClaims {
-			claims[k] = v
+	if len(jwtSpec.BoundClaims) > 0 || len(jwtSpec.BoundClaimsList) > 0 {
+		data["bound_claims"] = mergeBoundClaims(jwtSpec.BoundClaims, jwtSpec.BoundClaimsList)
+
+		// Always emit bound_claims_type when bound_claims is set, defaulting
+		// to "string". Vault treats this field as sticky: once switched to
+		// "glob", a role write that omits it leaves the prior value in place.
+		// Emitting explicitly on every write avoids that latent state.
+		claimsType := jwtSpec.BoundClaimsType
+		if claimsType == "" {
+			claimsType = "string"
 		}
-		data["bound_claims"] = claims
+		data["bound_claims_type"] = claimsType
 	} else {
 		subject, err := resolveJWTBoundSubject(adapter, jwtSpec, serviceAccountBindings)
 		if err != nil {
@@ -558,6 +565,27 @@ func (h *Handler) buildJWTRoleData(
 	}
 
 	return data, nil
+}
+
+// mergeBoundClaims combines BoundClaims (deprecated scalars) and
+// BoundClaimsList (lists) into a single bound_claims payload. Lists win on
+// key collision. All values are emitted as []interface{} because that is what
+// Vault returns when reading the role back; emitting Go-native []string would
+// cause the drift comparator's reflect.DeepEqual to flag false drift on every
+// reconcile.
+func mergeBoundClaims(scalars map[string]string, lists map[string][]string) map[string]interface{} {
+	out := make(map[string]interface{}, len(scalars)+len(lists))
+	for k, v := range scalars {
+		out[k] = []interface{}{v}
+	}
+	for k, vs := range lists {
+		list := make([]interface{}, len(vs))
+		for i, v := range vs {
+			list[i] = v
+		}
+		out[k] = list
+	}
+	return out
 }
 
 // resolveJWTBoundSubject returns either the explicit override, or derives
@@ -582,7 +610,7 @@ func resolveJWTBoundSubject(
 		return "", infraerrors.NewValidationError(
 			"serviceAccounts", fmt.Sprintf("%d entries", len(serviceAccountBindings)),
 			"JWT VaultRole with more than one serviceAccount must set "+
-				"spec.jwt.boundSubject or spec.jwt.boundClaims explicitly",
+				"spec.jwt.boundSubject, spec.jwt.boundClaims, or spec.jwt.boundClaimsList explicitly",
 		)
 	}
 	parts := strings.SplitN(serviceAccountBindings[0], "/", 2)

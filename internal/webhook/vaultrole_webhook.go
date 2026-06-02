@@ -120,9 +120,8 @@ func (v *VaultRoleValidator) ValidateDelete(ctx context.Context, role *vaultv1al
 }
 
 // validate performs validation for VaultRole
-//
-//nolint:unparam // Warnings return is for future use and interface consistency
 func (v *VaultRoleValidator) validate(role *vaultv1alpha1.VaultRole) (admission.Warnings, error) {
+	var warnings admission.Warnings
 	var errs []string
 
 	// Validate service accounts are not empty
@@ -153,10 +152,10 @@ func (v *VaultRoleValidator) validate(role *vaultv1alpha1.VaultRole) (admission.
 		}
 	}
 
-	// Validate JWT-specific constraints
-	if jwtErrs := validateJWTSpec(role.Spec.AuthPath, role.Spec.JWT, len(role.Spec.ServiceAccounts)); len(jwtErrs) > 0 {
-		errs = append(errs, jwtErrs...)
-	}
+	// Validate JWT-specific constraints (warnings non-blocking; errors block).
+	jwtWarnings, jwtErrs := validateJWTSpec(role.Spec.AuthPath, role.Spec.JWT, len(role.Spec.ServiceAccounts))
+	warnings = append(warnings, jwtWarnings...)
+	errs = append(errs, jwtErrs...)
 
 	// IMPROVEMENTS §7: reject authPath values that target a Vault auth
 	// backend the operator doesn't yet implement at the *role-write* level.
@@ -183,10 +182,10 @@ func (v *VaultRoleValidator) validate(role *vaultv1alpha1.VaultRole) (admission.
 	}
 
 	if len(errs) > 0 {
-		return nil, fmt.Errorf("validation failed: %s", strings.Join(errs, "; "))
+		return warnings, fmt.Errorf("validation failed: %s", strings.Join(errs, "; "))
 	}
 
-	return nil, nil
+	return warnings, nil
 }
 
 // validateDiscoveryPlaceholderConsistency rejects a CR that contains
@@ -334,9 +333,8 @@ func (v *VaultClusterRoleValidator) ValidateDelete(ctx context.Context, role *va
 }
 
 // validate performs validation for VaultClusterRole
-//
-//nolint:unparam // Warnings return is for future use and interface consistency
 func (v *VaultClusterRoleValidator) validate(role *vaultv1alpha1.VaultClusterRole) (admission.Warnings, error) {
+	var warnings admission.Warnings
 	var errs []string
 
 	// Validate service accounts are not empty
@@ -366,10 +364,10 @@ func (v *VaultClusterRoleValidator) validate(role *vaultv1alpha1.VaultClusterRol
 		}
 	}
 
-	// Validate JWT-specific constraints
-	if jwtErrs := validateJWTSpec(role.Spec.AuthPath, role.Spec.JWT, len(role.Spec.ServiceAccounts)); len(jwtErrs) > 0 {
-		errs = append(errs, jwtErrs...)
-	}
+	// Validate JWT-specific constraints (warnings non-blocking; errors block).
+	jwtWarnings, jwtErrs := validateJWTSpec(role.Spec.AuthPath, role.Spec.JWT, len(role.Spec.ServiceAccounts))
+	warnings = append(warnings, jwtWarnings...)
+	errs = append(errs, jwtErrs...)
 
 	// IMPROVEMENTS §7: reject authPath values that target a Vault auth
 	// backend the operator doesn't yet implement at the *role-write* level.
@@ -395,10 +393,10 @@ func (v *VaultClusterRoleValidator) validate(role *vaultv1alpha1.VaultClusterRol
 	}
 
 	if len(errs) > 0 {
-		return nil, fmt.Errorf("validation failed: %s", strings.Join(errs, "; "))
+		return warnings, fmt.Errorf("validation failed: %s", strings.Join(errs, "; "))
 	}
 
-	return nil, nil
+	return warnings, nil
 }
 
 // validateAuthPathSupported returns a non-empty error string if the given
@@ -444,39 +442,103 @@ func validateAuthPathSupported(authPath string) string {
 // validateJWTSpec enforces constraints on the optional spec.jwt sub-object
 // and the combination of authPath / serviceAccounts / jwt.
 //
-// Rules:
+// Errors block admission; warnings are surfaced via the admission response
+// without blocking. Errors cover correctness invariants:
 //   - spec.jwt may only be set when authPath targets a JWT auth mount.
-//   - When authPath is a JWT mount, any of:
-//   - len(serviceAccounts) <= 1, OR
-//   - spec.jwt.boundSubject is set, OR
-//   - spec.jwt.boundClaims is set
-//     is acceptable. Otherwise the operator cannot derive a single bound_subject.
-//   - spec.jwt.boundSubject and spec.jwt.boundClaims are mutually exclusive.
-func validateJWTSpec(authPath string, jwt *vaultv1alpha1.VaultRoleJWTSpec, serviceAccountCount int) []string {
-	var errs []string
+//   - spec.jwt.boundSubject and spec.jwt.{boundClaims,boundClaimsList}
+//     are mutually exclusive.
+//   - Multi-SA roles must pin identity via boundSubject, boundClaims, or
+//     boundClaimsList — the operator cannot derive a single bound_subject
+//     from multiple SAs.
+//
+// Warnings cover footgun bindings common in CI/CD JWT auth — most CI tokens
+// (GitLab, GitHub Actions, etc.) carry a `ref` claim that must be paired
+// with `ref_type` and `ref_protected` to avoid tag-spoof and unprotected-branch
+// bypass.
+func validateJWTSpec(
+	authPath string, jwt *vaultv1alpha1.VaultRoleJWTSpec, serviceAccountCount int,
+) (warnings, errs []string) {
 	isJWT := isJWTAuthPath(authPath)
 
 	if jwt != nil && !isJWT {
 		errs = append(errs, "spec.jwt may only be used when authPath targets a JWT auth mount (e.g. auth/jwt)")
-		return errs
+		return warnings, errs
 	}
 
 	if !isJWT {
-		return nil
+		return warnings, errs
 	}
 
-	if jwt != nil && jwt.BoundSubject != "" && len(jwt.BoundClaims) > 0 {
-		errs = append(errs, "spec.jwt.boundSubject and spec.jwt.boundClaims are mutually exclusive")
+	hasClaims := jwt != nil && (len(jwt.BoundClaims) > 0 || len(jwt.BoundClaimsList) > 0)
+
+	if jwt != nil && jwt.BoundSubject != "" && hasClaims {
+		errs = append(errs,
+			"spec.jwt.boundSubject and spec.jwt.boundClaims/boundClaimsList are mutually exclusive")
 	}
 
 	// Derivation can only produce a single bound_subject; require explicit override for multi-SA.
 	if serviceAccountCount > 1 {
-		hasOverride := jwt != nil && (jwt.BoundSubject != "" || len(jwt.BoundClaims) > 0)
+		hasOverride := jwt != nil && (jwt.BoundSubject != "" || hasClaims)
 		if !hasOverride {
-			errs = append(errs, "JWT VaultRole with more than one serviceAccount must set spec.jwt.boundSubject or spec.jwt.boundClaims explicitly")
+			errs = append(errs,
+				"JWT VaultRole with more than one serviceAccount must set "+
+					"spec.jwt.boundSubject, spec.jwt.boundClaims, or spec.jwt.boundClaimsList explicitly")
 		}
 	}
-	return errs
+
+	if jwt == nil {
+		return warnings, errs
+	}
+
+	// BoundClaimsType without any claims is a no-op — likely user confusion.
+	if jwt.BoundClaimsType != "" && !hasClaims {
+		warnings = append(warnings,
+			"spec.jwt.boundClaimsType is set but no bound_claims are defined; "+
+				"the field has no effect without spec.jwt.boundClaims or spec.jwt.boundClaimsList")
+	}
+
+	// Duplicate key in BoundClaims AND BoundClaimsList — list wins silently.
+	for k := range jwt.BoundClaims {
+		if _, dup := jwt.BoundClaimsList[k]; dup {
+			warnings = append(warnings, fmt.Sprintf(
+				"spec.jwt.boundClaims[%q] is overridden by spec.jwt.boundClaimsList[%q]; "+
+					"remove the scalar entry to silence this warning",
+				k, k,
+			))
+		}
+	}
+
+	// CI/CD security guardrails for `ref` bindings (GitLab, GitHub Actions,
+	// Buildkite, CircleCI all emit ref/ref_type/ref_protected style claims).
+	if jwtClaimIsBound(jwt, "ref") {
+		if !jwtClaimIsBound(jwt, "ref_type") {
+			warnings = append(warnings,
+				"spec.jwt binds 'ref' without 'ref_type'. A tag with the same name as a branch can satisfy this role. "+
+					"Add ref_type: [\"branch\"] or [\"tag\"] to spec.jwt.boundClaimsList.")
+		}
+		if !jwtClaimIsBound(jwt, "ref_protected") {
+			warnings = append(warnings,
+				"spec.jwt binds 'ref' without 'ref_protected'. An attacker pushing an unprotected branch "+
+					"with the same name can satisfy this role. For protected-branch-only bindings, add "+
+					"ref_protected: [\"true\"] to spec.jwt.boundClaimsList (note: this is the string \"true\", "+
+					"not a YAML boolean).")
+		}
+	}
+
+	return warnings, errs
+}
+
+// jwtClaimIsBound reports whether the given claim key is bound by either
+// BoundClaims (deprecated scalars) or BoundClaimsList (lists).
+func jwtClaimIsBound(jwt *vaultv1alpha1.VaultRoleJWTSpec, key string) bool {
+	if jwt == nil {
+		return false
+	}
+	if _, ok := jwt.BoundClaims[key]; ok {
+		return true
+	}
+	_, ok := jwt.BoundClaimsList[key]
+	return ok
 }
 
 // isJWTAuthPath returns true if the given authPath identifies a JWT auth mount.

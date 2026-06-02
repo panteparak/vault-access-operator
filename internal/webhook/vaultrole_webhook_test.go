@@ -2092,33 +2092,46 @@ func TestIsJWTAuthPath(t *testing.T) {
 
 func TestValidateJWTSpec(t *testing.T) {
 	cases := []struct {
-		name                string
-		authPath            string
-		jwt                 *vaultv1alpha1.VaultRoleJWTSpec
-		serviceAccountCount int
-		wantErrSubstring    string
+		name                 string
+		authPath             string
+		jwt                  *vaultv1alpha1.VaultRoleJWTSpec
+		serviceAccountCount  int
+		wantErrSubstring     string
+		wantWarningSubstring string
+		wantNoWarning        bool
 	}{
 		{
 			name:                "non-jwt path with no jwt spec",
 			authPath:            "auth/kubernetes",
 			serviceAccountCount: 1,
+			wantNoWarning:       true,
 		},
 		{
 			name:                "jwt path with single SA, no override",
 			authPath:            authPathJWT,
 			serviceAccountCount: 1,
+			wantNoWarning:       true,
 		},
 		{
 			name:                "jwt path with multi-SA and explicit boundSubject",
 			authPath:            authPathJWT,
 			jwt:                 &vaultv1alpha1.VaultRoleJWTSpec{BoundSubject: "sub"},
 			serviceAccountCount: 3,
+			wantNoWarning:       true,
 		},
 		{
 			name:                "jwt path with multi-SA and explicit boundClaims",
 			authPath:            authPathJWT,
-			jwt:                 &vaultv1alpha1.VaultRoleJWTSpec{BoundClaims: map[string]string{"k": "v"}},
+			jwt:                 &vaultv1alpha1.VaultRoleJWTSpec{BoundClaims: map[string]string{"project_id": "111"}},
 			serviceAccountCount: 2,
+			wantNoWarning:       true,
+		},
+		{
+			name:                "jwt path with multi-SA and explicit boundClaimsList",
+			authPath:            authPathJWT,
+			jwt:                 &vaultv1alpha1.VaultRoleJWTSpec{BoundClaimsList: map[string][]string{"project_id": {"111"}}},
+			serviceAccountCount: 2,
+			wantNoWarning:       true,
 		},
 		{
 			name:                "jwt path with multi-SA, no override, rejected",
@@ -2136,25 +2149,112 @@ func TestValidateJWTSpec(t *testing.T) {
 		{
 			name:                "boundSubject and boundClaims mutually exclusive",
 			authPath:            authPathJWT,
-			jwt:                 &vaultv1alpha1.VaultRoleJWTSpec{BoundSubject: "x", BoundClaims: map[string]string{"k": "v"}},
+			jwt:                 &vaultv1alpha1.VaultRoleJWTSpec{BoundSubject: "x", BoundClaims: map[string]string{"project_id": "111"}},
 			serviceAccountCount: 1,
 			wantErrSubstring:    "mutually exclusive",
+		},
+		{
+			name:                "boundSubject and boundClaimsList mutually exclusive",
+			authPath:            authPathJWT,
+			jwt:                 &vaultv1alpha1.VaultRoleJWTSpec{BoundSubject: "x", BoundClaimsList: map[string][]string{"project_id": {"111"}}},
+			serviceAccountCount: 1,
+			wantErrSubstring:    "mutually exclusive",
+		},
+		{
+			name:     "ref bound without ref_type warns",
+			authPath: authPathJWT,
+			jwt: &vaultv1alpha1.VaultRoleJWTSpec{
+				BoundClaimsList: map[string][]string{
+					"project_id":    {"111"},
+					"ref":           {"develop"},
+					"ref_protected": {"true"},
+				},
+			},
+			serviceAccountCount:  1,
+			wantWarningSubstring: "without 'ref_type'",
+		},
+		{
+			name:     "ref bound without ref_protected warns",
+			authPath: authPathJWT,
+			jwt: &vaultv1alpha1.VaultRoleJWTSpec{
+				BoundClaimsList: map[string][]string{
+					"project_id": {"111"},
+					"ref":        {"develop"},
+					"ref_type":   {"branch"},
+				},
+			},
+			serviceAccountCount:  1,
+			wantWarningSubstring: "without 'ref_protected'",
+		},
+		{
+			name:     "fully-pinned ref binding emits no warnings",
+			authPath: authPathJWT,
+			jwt: &vaultv1alpha1.VaultRoleJWTSpec{
+				BoundClaimsList: map[string][]string{
+					"project_id":    {"111"},
+					"ref":           {"develop"},
+					"ref_type":      {"branch"},
+					"ref_protected": {"true"},
+				},
+			},
+			serviceAccountCount: 1,
+			wantNoWarning:       true,
+		},
+		{
+			name:     "boundClaimsType without claims warns",
+			authPath: authPathJWT,
+			jwt: &vaultv1alpha1.VaultRoleJWTSpec{
+				BoundClaimsType: "glob",
+				BoundSubject:    "sub",
+			},
+			serviceAccountCount:  1,
+			wantWarningSubstring: "no effect without",
+		},
+		{
+			name:     "duplicate key in boundClaims and boundClaimsList warns",
+			authPath: authPathJWT,
+			jwt: &vaultv1alpha1.VaultRoleJWTSpec{
+				BoundClaims:     map[string]string{"project_id": "stale"},
+				BoundClaimsList: map[string][]string{"project_id": {"111"}},
+			},
+			serviceAccountCount:  1,
+			wantWarningSubstring: "overridden by spec.jwt.boundClaimsList",
+		},
+		{
+			name:     "boundClaims-only (no ref) emits no warnings",
+			authPath: authPathJWT,
+			jwt: &vaultv1alpha1.VaultRoleJWTSpec{
+				BoundClaimsList: map[string][]string{"project_id": {"111"}},
+			},
+			serviceAccountCount: 1,
+			wantNoWarning:       true,
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			errs := validateJWTSpec(tc.authPath, tc.jwt, tc.serviceAccountCount)
+			warnings, errs := validateJWTSpec(tc.authPath, tc.jwt, tc.serviceAccountCount)
 			if tc.wantErrSubstring == "" {
 				if len(errs) > 0 {
 					t.Errorf("expected no errors, got %v", errs)
 				}
-				return
+			} else {
+				if len(errs) == 0 {
+					t.Fatalf("expected error containing %q, got none", tc.wantErrSubstring)
+				}
+				if !strings.Contains(strings.Join(errs, "; "), tc.wantErrSubstring) {
+					t.Errorf("expected error containing %q, got %v", tc.wantErrSubstring, errs)
+				}
 			}
-			if len(errs) == 0 {
-				t.Fatalf("expected error containing %q, got none", tc.wantErrSubstring)
+			if tc.wantNoWarning && len(warnings) > 0 {
+				t.Errorf("expected no warnings, got %v", warnings)
 			}
-			if !strings.Contains(strings.Join(errs, "; "), tc.wantErrSubstring) {
-				t.Errorf("expected error containing %q, got %v", tc.wantErrSubstring, errs)
+			if tc.wantWarningSubstring != "" {
+				if len(warnings) == 0 {
+					t.Fatalf("expected warning containing %q, got none", tc.wantWarningSubstring)
+				}
+				if !strings.Contains(strings.Join(warnings, "; "), tc.wantWarningSubstring) {
+					t.Errorf("expected warning containing %q, got %v", tc.wantWarningSubstring, warnings)
+				}
 			}
 		})
 	}
