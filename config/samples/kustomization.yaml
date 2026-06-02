@@ -5,4 +5,5 @@ resources:
 - vault_v1alpha1_vaultpolicy.yaml
 - vault_v1alpha1_vaultclusterrole.yaml
 - vault_v1alpha1_vaultrole.yaml
+- vault_v1alpha1_vaultrole_gitlab.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples

@@ -2,17 +2,18 @@
 
 > This is the actionable output of the documentation pass. Each finding is grouped by **Severity** (Critical / Major / Minor / Cosmetic), with evidence, impact, and a recommended fix. Item numbers are stable — the other FLOW docs link back here by `§<n>`.
 
-## Resolution Status (2026-04-19)
+## Resolution Status (last updated 2026-05-28)
 
-All original findings have been worked through. Tally as of the last commit:
+All findings up to §36 have been worked through. §§37–42 added 2026-05-28 from the [AUDIT-2026-05](AUDIT-2026-05.md) pass. A follow-up pass (also 2026-05-28) resolved §§37, 38, 41, completed §10's partial-failure recording, and wired the §1 reviewer rotator (lifecycle controller deferred — see §1). Tally:
 
 | Status | Count | Items |
 |--------|-------|-------|
-| ✅ Resolved | 34 | §§1–6, 8–11, 13–17, 19–25, 27, 29–34, 36 |
+| ✅ Resolved | 37 | §§1–6, 8–11, 13–17, 19–25, 27, 29–34, 36, 37, 38, 41 |
 | ✅ Resolved (missing features) | 9 | A, B, C, F, G, H, I, J, K |
-| 🟠 Partially resolved | 1 | §7 (validation + doc shipped; backend expansion deferred) |
+| 🟠 Partially resolved | 2 | §1 (reviewer wired; lifecycle deferred), §7 (validation + doc shipped; backend expansion deferred) |
 | ❌ Withdrawn | 4 | §12 (design sound), §18 (low ROI), §26 (already gitignored), §35 (predicate already correct) |
 | 🕰️ Deferred with rationale | 2 | D (multi-cluster, OOS), E (policy templating, Helm-level concern) |
+| 🆕 New (open) | 2 | §§39–40 (workflow integration tests, cluster/role update e2e) |
 
 Each section below lists its current status inline. Items marked `✅ RESOLVED` keep the original finding in a collapsed `<details>` block for historical context and to make future drift easy to spot.
 
@@ -33,7 +34,11 @@ Tests added across this effort: ~170 new unit tests, ~8 new integration tests, p
 
 > **Status**: Partially fixed in `feat(cleanup): wire cleanup + orphan controllers` (commit pending on this branch). The cleanup and orphan controllers are now registered with the manager via `mgr.Add()` at [cmd/main.go](../../cmd/main.go:297-324). Both are leader-gated so only one replica drains the ConfigMap-backed retry queue.
 >
-> **Still pending**: the token lifecycle controller and reviewer rotator ([pkg/vault/token/lifecycle_controller.go](../../pkg/vault/token/lifecycle_controller.go), [reviewer_controller.go](../../pkg/vault/token/reviewer_controller.go)) don't yet implement `NeedsLeaderElection()` and require deeper integration with `connection.Config` so the handler can `Register`/`Unregister` them. Tracked as a follow-up in the next tier.
+> **Reviewer rotator — RESOLVED (2026-05-28)**: [reviewer_controller.go](../../pkg/vault/token/reviewer_controller.go) now implements `NeedsLeaderElection()`, is constructed by the connection feature and registered with the manager in [cmd/main.go](../../cmd/main.go) via `connFeature.ReviewerController`, and is driven per-connection by the handler (`registerTokenReviewer`: `Register` + `SetVaultClient` + an initial priming `Refresh`, guarded so the every-30s reconcile doesn't reset the refresh schedule — `Register` replaces per-connection state). Opt out via `spec.auth.kubernetes.tokenReviewerRotation: false`. A thin `eventBusPublisher` adapter bridges the bus's typed `Publish(Event)` to the token package's `Publish(interface{})`.
+>
+> **e2e-found fix**: verifying through `make e2e-local-test-auth` surfaced that `vault.Client.UpdateKubernetesAuthConfig` wrote *only* `token_reviewer_jwt`, and Vault's `auth/<mount>/config` endpoint rejects that with `400 no host provided` (it is **not** a merge-update, contrary to the old comment). Fixed to read the current config and re-write it preserving `kubernetes_host`/`kubernetes_ca_cert`/issuer settings. This bug was latent because the method was only ever called by the (previously unwired) reviewer; the mock-based unit tests couldn't catch it. The e2e operator logs now show `refreshed token_reviewer_jwt` succeeding for every connection (regression-guarded by the rewritten `TestUpdateKubernetesAuthConfig`).
+>
+> **Token lifecycle controller — still deferred**: wiring it for multi-connection requires a signature change to the `token.VaultAuthenticator` interface — its `AuthenticateKubernetes`/`RenewSelf` methods omit the connection identity, so a single shared instance can't address the right per-connection cached client. Deferred because the reconcile loop already renews each connection's token reactively every 30s (`getOrRenewClient`), so the marginal value (proactive vs reactive renewal) is low relative to the interface churn + the double-renewal race it introduces. `NeedsLeaderElection()` + a testable `checkInterval` option were added to [lifecycle_controller.go](../../pkg/vault/token/lifecycle_controller.go) as prep. Tracked as a follow-up.
 >
 > **Tests**: integration tests `INT-CLEAN01/02/03` in `test/integration/cleanup/controller_wired_test.go` — all 3 passing against envtest + real Vault container (9.4s).
 
@@ -396,7 +401,7 @@ But the operator **authenticates** to Vault via 8 methods (§6). There's an asym
 
 > **Status**: Fixed the diagnostic visibility gap. `AuthStatus.BootstrapSteps` is a new `map[string]string` field (step name → RFC3339 timestamp) populated from `bootstrap.Result` after a successful bootstrap run. Keys cover `AuthMountEnabled`, `AuthMountConfigured`, `OperatorPolicyCreated`, `OperatorRoleCreated`, `BootstrapTokenRevoked`. Operators inspecting `kubectl get vaultconnection X -o yaml` can now see which steps ran.
 >
-> **Note**: the fine-grained map is only populated on the SUCCESS path today, so a partial failure that returns early from `bootstrap.Manager.Bootstrap` still leaves `BootstrapSteps` empty. Extending the bootstrap manager to record partial progress inside the `Result` struct is a follow-up — that requires changes to `pkg/vault/bootstrap` that deserve their own review cycle. For now, the field exists and the schema is stable; wiring partial-failure recording is additive.
+> **Partial-failure recording — RESOLVED (2026-05-28)**: `bootstrap.Manager.Bootstrap` now returns the partially-populated `*Result` (instead of `nil`) on every fatal early-exit, and the connection handler records `BootstrapSteps` from it before surfacing the error (shared `bootstrapSteps` helper used by both the success and failure paths). A new `Result.AuthConfigured` flag distinguishes "mount enabled" from "mount enabled AND configured" so the recorded steps are accurate when bootstrap fails at the configure step. Tests: `manager_impl_test.go` (`TestBootstrap_PartialFailure_{ConfigStep,RoleStep}_ReturnsProgress`) + `handler_bootstrap_test.go::TestRunBootstrap_PartialFailure_RecordsSteps`.
 
 <details><summary>Original finding (kept for history)</summary>
 
@@ -636,13 +641,13 @@ func (h *Handler) normalizeHCL(hcl string) string {
 
 ---
 
-## ✅ 19. JWT `bound_subject` derivation is brittle — RESOLVED (as documentation)
+## ✅ 19. JWT `bound_subject` derivation is brittle — RESOLVED (multi-value claim binding now first-class)
 
-> **Status**: Docs updated. `docs/examples.md` under "JWT-Backed Role" now includes three multi-SA patterns (one-role-per-SA, shared-boundSubject, boundClaims on stable claim) plus an explicit "known limitation" note that our CRD's `BoundClaims map[string]string` can't emit list-valued bound_claims the way Vault natively accepts them.
+> **Status (update 2026-06-02)**: The `map[string][]string` widening that was "tracked separately" is now done — `spec.jwt.boundClaimsList` (multi-value) and `spec.jwt.boundClaimsType` (`string` | `glob`) shipped as additive fields, with `boundClaims` (`map[string]string`) kept for backwards compatibility and merged into `boundClaimsList` at apply time. New runbook [`docs/auth-methods/jwt-gitlab.md`](../auth-methods/jwt-gitlab.md) walks through GitLab CI workload identity end-to-end (works for any OIDC issuer that emits ref/branch/project-style claims). Webhook gained non-blocking warnings for the GitLab-CI footguns: `ref` bound without `ref_type` (tag-spoof), `ref` bound without `ref_protected` (unprotected-branch namesake), and duplicate keys in `boundClaims`/`boundClaimsList`. Drift comparator emits and compares `bound_claims_type` (Vault treats it as sticky — once `glob`, it stays `glob` until the role write explicitly sets it back).
 >
-> **Not done**: auto-synthesizing `bound_claims` when multiple SAs are given and the user hasn't set `bound_subject`/`bound_claims` explicitly — would require widening the CRD field to `map[string][]string` (a breaking schema change). Tracked separately since it's feature work, not a fix.
+> **Original status**: Docs updated. `docs/examples.md` under "JWT-Backed Role" now includes three multi-SA patterns (one-role-per-SA, shared-boundSubject, boundClaims on stable claim) plus an explicit "known limitation" note that our CRD's `BoundClaims map[string]string` can't emit list-valued bound_claims the way Vault natively accepts them.
 >
-> **Why this scope**: the user-facing pain was "error message tells me to set one of these fields but doesn't show how". The doc recipe resolves that — users now have three concrete patterns and know which CRD field fits their situation. The schema widening is a separate product decision.
+> **E2E coverage (2026-06-02)**: `TC-AU08-01..06` shipped in `test/e2e/tc_auth_jwt_bound_claims_test.go`. The test runs the full `VaultRole` → Vault round-trip against a dedicated `auth/jwt-gitlab` mount backed by Dex OIDC discovery (`bound_issuer` pinned). It exercises list-valued bound_claims, glob matching, the `BoundClaims`+`BoundClaimsList` merge precedence, and a no-false-drift check across a full reconcile cycle. Since Dex doesn't emit GitLab-shaped claim names (`project_id`/`ref`/etc.), the test binds on Dex's standard `email` claim instead — the wire format and matching semantics the operator emits are issuer-agnostic, so the test covers the same code path GitLab claims would.
 
 <details><summary>Original finding (kept for history)</summary>
 
@@ -1151,6 +1156,105 @@ Keep `/healthz` as the trivial ping (liveness = pod-level restart trigger).
 
 ---
 
+## ✅ 37. INT-SYNC01 test cannot exercise its stated scenario — RESOLVED (2026-05-28)
+
+> **Status**: Resolved. The integration suites run envtest + Vault **without a manager**, so they can't observe reconcile-time status — INT-SYNC01 was repurposed to assert the enforcement that *actually* fires for the empty-rules case: CRD schema rejection (`+kubebuilder:validation:MinItems=1` on `spec.rules`). It now asserts the create is rejected and cites the MinItems constraint, serving as a regression guard against that marker being dropped. Reconcile-time `ValidationError` classification remains covered by `features/policy/controller` + `shared/controller/syncerror` unit tests. 🟡 Minor.
+>
+> **Original finding (kept for history):**
+>
+> **Evidence**: [test/integration/syncerror/syncerror_test.go:37-66](../../test/integration/syncerror/syncerror_test.go:37) creates a `VaultPolicy` with `Rules: []vaultv1alpha1.PolicyRule{}` and asserts `Expect(err).NotTo(HaveOccurred())` on the K8s create. But the CRD has `+kubebuilder:validation:MinItems=1` on `Rules`, so the K8s API rejects the create with `spec.rules: Invalid value: 0: spec.rules in body should have at least 1 items` — the reconciler never sees the object.
+>
+> **Impact**: The test fails reliably on any environment where the CRD is correctly installed (i.e., always). It's been failing in CI's `test-integration` job since the MinItems marker was added.
+>
+> **Fix options**:
+> 1. Replace the empty-rules trigger with a pattern that passes CRD validation but fails Vault validation (e.g., an unsupported capability for a sys path, or a path Vault rejects but the CRD allows).
+> 2. Remove the test — the "operator classifies invalid HCL as ValidationError" scenario is already enforced at the CRD-schema layer, so the operator's classifier never has to handle it in practice. The actual reconciler-path validation should be tested via a pattern Vault rejects, not via empty rules.
+>
+> **Owner**: TBD
+
+---
+
+## ✅ 38. Conditional assertions in `input_validation_test.go` — RESOLVED (2026-05-28)
+
+> **Status**: Resolved. The "passes regardless of outcome" pattern is gone — each block now either asserts unconditionally or skips with a documented reason. SEC-IV03/04/05 (shell metacharacters, HCL-injection payload, invalid capability) assert unconditionally because the bad input violates the CRD's `spec.rules[].path` Pattern or the capabilities Enum, which envtest's apiserver rejects regardless of webhook state. SEC-IV01/02/10/11 are `Skip`ped with precise reasons: the check is webhook/reconcile-only (not deployed in this envtest suite) or not enforced at any layer today (no rule-count or path-length cap — see follow-up note below). 🟡 Minor.
+>
+> **Follow-up surfaced**: there is no `MaxItems` on `VaultPolicySpec.Rules` and no `MaxLength` on `PolicyRule.Path`, so oversized policies are accepted at every layer. Adding caps is a small CRD hardening change tracked separately.
+>
+> **Original finding (kept for history):**
+>
+> **Evidence**: [test/integration/security/input_validation_test.go](../../test/integration/security/input_validation_test.go) (multiple sites) uses a pattern that passes regardless of webhook state:
+> ```go
+> err := testEnv.K8sClient.Create(ctx, policy)
+> if err == nil {
+>     // "if creation succeeded (webhook not running), verify it doesn't bypass"
+>     defer func() { _ = testEnv.K8sClient.Delete(ctx, policy) }()
+> }
+> // "Note: With webhook enabled, this should fail validation"
+> ```
+> There are no `Expect(...)` calls on the observable outcome. The test passes whether the webhook accepts, rejects, or is absent.
+>
+> **Impact**: Zero signal from the suite. Security-input-validation regressions would not be caught here.
+>
+> **Fix**: Gate each `It(...)` block on webhook availability (skip with documented reason if absent), then assert unconditionally inside (`Expect(err).To(HaveOccurred())` plus a specific error-content check, OR verify the Vault side-effect that the rule should have prevented).
+
+---
+
+## 🆕 39. No direct unit tests for `SyncWorkflow.Execute` / `CleanupWorkflow.Execute` — OPEN
+
+> **Status**: Open. Surfaced by [AUDIT-2026-05](AUDIT-2026-05.md). 🟡 Minor.
+>
+> **Evidence**: Both workflow state machines live in [shared/controller/workflow/sync.go](../../shared/controller/workflow/sync.go) and [shared/controller/workflow/cleanup.go](../../shared/controller/workflow/cleanup.go). They have **88.7% statement coverage** transitively (via the per-feature integration tests in `test/integration/{policy,role,connection,...}`), but no direct test exercises the 9-step orchestration in isolation.
+>
+> **Impact**: A regression in the workflow itself (e.g., a step-ordering bug, a state mutation that breaks an idempotency invariant) only surfaces via downstream feature tests. If those tests have gaps, the workflow bug ships.
+>
+> **Fix**: New `test/integration/workflow/` category with table-driven tests parameterized on `ResourceOps` stubs (no real Vault, no testenv). Cover: drift correction path, conflict-adopt path, dryrun short-circuit, cleanup-failure enqueue.
+
+---
+
+## 🆕 40. Missing CRD update-lifecycle e2e for cluster + role variants — OPEN
+
+> **Status**: Open. Surfaced by [AUDIT-2026-05](AUDIT-2026-05.md). 🟡 Minor.
+>
+> **Evidence**: `test/e2e/` has explicit spec-mutation e2e only for `VaultPolicy` (TC-VP03). `VaultClusterPolicy`, `VaultRole`, `VaultClusterRole` have create+verify+delete coverage but no dedicated "modify spec, observe Vault converge" test.
+>
+> **Impact**: Drift-correction and adapter-path regressions on cluster + role variants only surface in unit/integration tests, not in the full reconcile-against-real-Vault loop.
+>
+> **Fix**: Add TC-CP-UPDATE, TC-VR-UPDATE, TC-CR-UPDATE analogous to TC-VP03 — same Vault-side verification, same generation/observedGeneration assertions.
+
+---
+
+## ✅ 41. `NewNotFoundError` + `NewConnectionError` constructors unused — RESOLVED (2026-05-28)
+
+> **Status**: Resolved (2026-05-28). The two unused constructors were removed from `shared/infrastructure/errors/errors.go`; the `NotFoundError`/`ConnectionError` types and the `IsNotFoundError`/`IsConnectionError` checkers (used in production classifiers) are retained, and the test call sites now construct the structs directly. 🟢 Cosmetic. Different from §29 (which was about the *classifier* using `IsNotFoundError` / `IsConnectionError` — that's resolved). This is about the *constructors* (`NewNotFoundError`, `NewConnectionError`) being defined at [shared/infrastructure/errors/errors.go:141,175](../../shared/infrastructure/errors/errors.go:141) but never called from production code.
+>
+> **Evidence**: `grep -rn "NewNotFoundError\|NewConnectionError" --include='*.go' .` finds only the definitions themselves and a handful of test usages. No production call site.
+>
+> **Impact**: Mild. The types and `Is*` checkers are alive and used in classifier paths (`features/connection/controller/handler.go:932`, `shared/controller/syncerror/handler.go:141,146`). The checkers may be matching errors from other sources via `errors.As` — that needs verification before deletion. Worst case: dead constructor code that's 100% test-covered (per the `shared/infrastructure/errors` package's 100% coverage).
+>
+> **Fix options**:
+> 1. Verify the checkers handle errors from non-custom sources (likely yes — they check for sentinel patterns from Vault SDK / K8s API). Then remove the unused constructors and their tests.
+> 2. Wire the constructors at appropriate places (e.g., when the reconciler hits a 404 from Vault, wrap with `NewNotFoundError`). This adds richer typed error info but may not be needed if the checkers already work on wrapped sentinel errors.
+
+---
+
+## ✅ 42. JWT auth only ever tested via static JWKS, never OIDC discovery — RESOLVED (2026-05-28)
+
+> **Status**: Resolved. Surfaced while validating the JWT/OIDC auth path for an external-Vault + EKS/self-managed scenario. 🟠 Major (auth correctness coverage).
+>
+> **Original gap**: The e2e JWT auth setup (`configureJWTAuthAtPath` in [e2e_suite_test.go](../../test/e2e/e2e_suite_test.go)) *preferred* `oidc_discovery_url` but silently fell back to static `jwt_validation_pubkeys` whenever Vault couldn't reach the issuer. Because the cluster issuer was `https://kubernetes.default.svc` (unresolvable from the external Vault container), **every** run took the static-JWKS fallback. The discovery-URL code path — the one real EKS/IRSA and self-managed clusters actually use — was therefore never exercised end-to-end, and no test asserted which path was active.
+>
+> **Resolution**:
+> - The external Vault container now reaches the control plane by its in-cluster service name. A `k8s-svc-proxy` (alpine/socat) does a TLS passthrough `kubernetes.default.svc:443 → k3s:6443`, mirroring the real `kubernetes.default.svc` Service → apiserver hop. See [docker-compose.e2e.yaml](../../docker-compose.e2e.yaml).
+> - k3s issuer set to the literal `https://kubernetes.default.svc` (`--service-account-issuer` + matching `--service-account-jwks-uri`), with `--api-audiences` pinned so the default token audience stays decoupled from the issuer (as on real EKS). The apiserver itself stays on 6443 — all API access, TokenReview (`kubernetes_host`), kubeconfig, and the operator's `6443` egress networkpolicy are untouched.
+> - Anonymous discovery was already granted via the `system:service-account-issuer-discovery → system:unauthenticated` binding in [vault-rbac.yaml](../../test/e2e/fixtures/vault-rbac.yaml).
+> - Vault `auth/jwt` is now configured with `oidc_discovery_url` + `oidc_discovery_ca_pem` (the k3s CA) instead of static keys ([Makefile](../../Makefile) `e2e-configure-vault`).
+>
+> **Tests**: new **TC-AU07** in [tc_auth_jwt_test.go](../../test/e2e/tc_auth_jwt_test.go) — TC-AU07-01 reads `auth/jwt/config` and *fails loudly* unless `oidc_discovery_url` is set and `jwt_validation_pubkeys` is empty (catches a silent fallback); TC-AU07-02 mints a real K8s SA token and logs in, proving Vault fetched JWKS from the issuer to verify the signature. Verified against **both** issuer styles: EKS-style reachable URL (`https://k3s:6443`) and self-managed literal (`https://kubernetes.default.svc`). Full `auth` label suite (35 specs) passes with zero regression — TokenReview/kubernetes (TC-AU01), JWT (TC-AU04/05/06), Dex OIDC (TC-AU-OIDC), AppRole all green.
+>
+> **Note (constraint)**: a cluster signs SA tokens with exactly one issuer, and Vault (go-oidc) requires `oidc_discovery_url == discovery-doc issuer == token iss`. So two issuer hostnames can't validate the *same* tokens simultaneously — "both styles" is proven sequentially by switching `--service-account-issuer`, not via two live mounts.
+
+---
+
 ## Priority Ranking (if you can only fix 7)
 
 | Rank | Fix | Why first |
@@ -1164,6 +1268,10 @@ Keep `/healthz` as the trivial ping (liveness = pod-level restart trigger).
 | 7 | §31 + §33 — remove dead metrics and fix trivial health probes | cheap-and-visible improvements to operational surface |
 
 ---
+
+## See also
+
+- [AUDIT-2026-05.md](AUDIT-2026-05.md) — source of §§37–41 with full test-execution context.
 
 ## Cross-references back into the flow docs
 

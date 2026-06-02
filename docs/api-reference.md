@@ -431,11 +431,30 @@ spec:
 | `connectionRef` | string | Yes | - | Name of VaultConnection to use |
 | `serviceAccounts` | []string | Yes | - | Service account names (same namespace) |
 | `policies` | []PolicyReference | Yes | - | Policies to attach (min 1) |
-| `authPath` | string | No | From connection | Kubernetes auth mount path |
+| `authPath` | string | No | From connection | Vault auth mount path (`auth/kubernetes/*` or `auth/jwt/*`) |
 | `conflictPolicy` | string | No | `Fail` | `Fail` or `Adopt` |
 | `deletionPolicy` | string | No | `Delete` | `Delete` or `Retain` |
 | `tokenTTL` | duration | No | Vault default | Default token TTL |
 | `tokenMaxTTL` | duration | No | Vault default | Maximum token TTL |
+| `jwt` | VaultRoleJWTSpec | No | - | JWT-auth-specific overrides (only when `authPath` targets `auth/jwt/*`) |
+
+### VaultRoleJWTSpec
+
+Optional sub-object on `VaultRole` / `VaultClusterRole`. Used when `authPath` targets a JWT auth mount (e.g. `auth/jwt`, `auth/jwt-gitlab`). All fields are optional — defaults are derived from `serviceAccounts` and the referenced `VaultConnection`.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `userClaim` | string | `sub` | JWT claim to read as the Vault entity alias |
+| `boundAudiences` | []string | From connection or `["https://kubernetes.default.svc.cluster.local"]` | Required `aud` values |
+| `boundSubject` | string | `system:serviceaccount:<ns>:<sa>` | Exact `sub` claim match. Mutually exclusive with `boundClaims*` |
+| `boundClaims` | map[string]string | - | **Deprecated.** Scalar claim restrictions. Use `boundClaimsList` for new specs |
+| `boundClaimsList` | map[string][]string | - | Multi-value claim restrictions, e.g. `ref: ["main","develop"]`. Mutually exclusive with `boundSubject` |
+| `boundClaimsType` | string (`string` \| `glob`) | `string` | Match mode for all keys in bound_claims. `glob` enables shell-style wildcards |
+| `roleType` | string (`jwt`) | `jwt` | Vault JWT role type |
+
+**Webhook warnings (non-blocking)** fire when `ref` is bound without `ref_type` (tag-spoof guard) or `ref_protected` (unprotected-namesake guard), when `boundClaimsType` is set with no claims, and when a key appears in both `boundClaims` and `boundClaimsList`.
+
+See [JWT for GitLab CI](auth-methods/jwt-gitlab.md) for an end-to-end example.
 
 ### PolicyReference
 
@@ -497,11 +516,12 @@ spec:
 | `connectionRef` | string | Yes | - | Name of VaultConnection to use |
 | `serviceAccounts` | []ServiceAccountRef | Yes | - | Service accounts with namespace |
 | `policies` | []PolicyReference | Yes | - | Policies to attach (min 1) |
-| `authPath` | string | No | From connection | Kubernetes auth mount path |
+| `authPath` | string | No | From connection | Vault auth mount path (`auth/kubernetes/*` or `auth/jwt/*`) |
 | `conflictPolicy` | string | No | `Fail` | `Fail` or `Adopt` |
 | `deletionPolicy` | string | No | `Delete` | `Delete` or `Retain` |
 | `tokenTTL` | duration | No | Vault default | Default token TTL |
 | `tokenMaxTTL` | duration | No | Vault default | Maximum token TTL |
+| `jwt` | VaultRoleJWTSpec | No | - | JWT-auth-specific overrides — same fields as [VaultRole.spec.jwt](#vaultrolejwtspec) |
 
 ### ServiceAccountRef
 

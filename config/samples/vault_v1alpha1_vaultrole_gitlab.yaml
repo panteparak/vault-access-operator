@@ -1,0 +1,56 @@
+# Example VaultRole bound to GitLab CI workload identity (id_tokens).
+# Demonstrates the multi-value boundClaimsList and boundClaimsType="string"
+# (exact match) added for CI/CD JWT auth — see docs/auth-methods/jwt-gitlab.md.
+#
+# Assumes the operator admin has already:
+#   1. enabled the JWT auth mount:  vault auth enable -path=jwt-gitlab jwt
+#   2. configured OIDC discovery + bound_issuer for the mount:
+#        vault write auth/jwt-gitlab/config \
+#            oidc_discovery_url=https://gitlab.example.com \
+#            bound_issuer=https://gitlab.example.com
+apiVersion: vault.platform.io/v1alpha1
+kind: VaultRole
+metadata:
+  labels:
+    app.kubernetes.io/name: vault-access-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: gitlab-ci-role
+  namespace: default
+spec:
+  connectionRef: vault-primary
+  conflictPolicy: Fail
+  deletionPolicy: Delete
+
+  # Targets the JWT mount the admin enabled for GitLab tokens.
+  authPath: auth/jwt-gitlab
+
+  # Placeholder — bypassed for JWT roles bound via spec.jwt.boundClaims*.
+  serviceAccounts:
+    - default
+
+  policies:
+    - kind: VaultPolicy
+      name: gitlab-ci-secrets
+
+  tokenTTL: 10m
+  tokenMaxTTL: 15m
+
+  jwt:
+    # Use the project_id claim for the Vault entity alias — stable across renames.
+    userClaim: project_id
+
+    # Must match the `aud:` value the GitLab job sets under `id_tokens:`.
+    boundAudiences:
+      - https://vault.example.com
+
+    # Pin the role to the specific project + branch + branch-type. ref_protected="true"
+    # blocks unprotected-branch namesakes (e.g. an attacker pushing a `develop` branch
+    # they don't have to gate through protected-branch review).
+    #
+    # NOTE: GitLab serializes ref_protected as the STRING "true"/"false", not a boolean.
+    boundClaimsList:
+      project_path: ["groupA/repoA"]
+      ref: ["develop"]
+      ref_type: ["branch"]
+      ref_protected: ["true"]
+    boundClaimsType: string

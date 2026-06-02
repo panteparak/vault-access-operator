@@ -9,6 +9,28 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ### Added
 
+- **Multi-value and glob claim matching for JWT VaultRoles.**
+  - New `spec.jwt.boundClaimsList` (`map[string][]string`) allows binding a
+    single claim to multiple values — e.g. `ref: ["main", "develop"]` — and
+    is the recommended field for new specs.
+  - New `spec.jwt.boundClaimsType` (`string` | `glob`, default `string`) maps
+    to Vault's `bound_claims_type` and enables shell-style wildcard matching
+    on claim values. The mode applies to every key in the role's bound_claims
+    — Vault does not support per-claim modes.
+  - The handler always emits `bound_claims_type` whenever any bound_claims is
+    set so toggling `glob → unset` writes the new value rather than leaving a
+    stale `glob` in Vault.
+  - The admission webhook surfaces non-blocking warnings when a role binds
+    `ref` without `ref_type` (tag-spoof guard) or `ref_protected` (unprotected
+    branch-namesake guard), when `boundClaimsType` is set with no claims, and
+    when a key appears in both `boundClaims` and `boundClaimsList`.
+  - New runbook [JWT Authentication: GitLab CI](docs/auth-methods/jwt-gitlab.md)
+    documents end-to-end setup against gitlab.com and self-hosted GitLab.
+  - End-to-end coverage in `test/e2e/tc_auth_jwt_bound_claims_test.go`
+    (`TC-AU08-01..06`): exercises the full `VaultRole` → Vault round-trip
+    against a dedicated `auth/jwt-gitlab` mount backed by Dex — list-valued
+    matches, glob matching, scalar-vs-list merge precedence, and no-false-
+    drift on reconcile.
 - **JWT VaultRole support.** `VaultRole` and `VaultClusterRole` now produce a
   Vault JWT-auth role payload when `spec.authPath` targets a JWT mount
   (e.g. `auth/jwt`). Previously the operator always sent a Kubernetes-auth
@@ -30,6 +52,21 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
     roles compare only the fields they actually set.
 - Exported helper `vault.AuthBackendForPath(path)` that resolves an auth
   path to a backend family (`kubernetes`, `jwt`, or `unknown`).
+- **Automatic `token_reviewer_jwt` rotation.** The Kubernetes-auth token
+  reviewer controller is now registered with the manager (leader-gated) and
+  enrolled per `VaultConnection`, so the JWT Vault uses to call the Kubernetes
+  TokenReview API is refreshed before it expires. Previously the controller was
+  implemented but never wired, so the reviewer JWT could expire (~24h after
+  bootstrap configures it) and silently break Kubernetes auth on long-running
+  operators. Opt out with `spec.auth.kubernetes.tokenReviewerRotation: false`.
+
+### Deprecated
+
+- **`spec.jwt.boundClaims` (`map[string]string`)** is superseded by
+  `spec.jwt.boundClaimsList` (`map[string][]string`). The deprecated field is
+  still accepted and merged into the new field at apply time (lists win on
+  key collision). Plan to remove `boundClaims` when the API graduates to
+  `v1beta1`.
 
 ### Changed
 
@@ -42,6 +79,14 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 - `VaultRoleSpec.AuthPath` / `VaultClusterRoleSpec.AuthPath` doc comment
   updated to reflect that any `auth/<backend>` mount is supported now
   (was previously documented as Kubernetes-only).
+
+### Fixed
+
+- **Partial bootstrap failures now record progress.** When `VaultConnection`
+  bootstrap fails midway, `status.authStatus.bootstrapSteps` now reflects the
+  steps that completed before the failure (previously the map was left empty on
+  the error path), making partial failures diagnosable via
+  `kubectl get vaultconnection <name> -o yaml`.
 
 ### Backward compatibility
 

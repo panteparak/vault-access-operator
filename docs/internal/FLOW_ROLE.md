@@ -73,7 +73,7 @@ sequenceDiagram
     alt backend = Kubernetes
         H->>H: buildKubernetesRoleData<br/>- split "ns/name" → names[] + namespaces[] (deduped)<br/>- sort both for deterministic hash<br/>- policies = policyNames<br/>- token_ttl, token_max_ttl (optional)
     else backend = JWT
-        H->>H: buildJWTRoleData<br/>- role_type = "jwt"<br/>- user_claim default "sub"<br/>- bound_audiences (spec or conn fallback)<br/>- bound_claims OR bound_subject derivation<br/>- policies, token_ttl, token_max_ttl
+        H->>H: buildJWTRoleData<br/>- role_type = "jwt"<br/>- user_claim default "sub"<br/>- bound_audiences (spec or conn fallback)<br/>- bound_claims = mergeBoundClaims(scalars, lists) OR bound_subject<br/>- bound_claims_type (when bound_claims is set; default "string")<br/>- policies, token_ttl, token_max_ttl
     end
 
     H-->>Ops: roleData map
@@ -91,7 +91,7 @@ sequenceDiagram
     alt backend = Kubernetes
         H->>H: compare policies, bound_service_account_names, bound_service_account_namespaces
     else backend = JWT
-        H->>H: compare policies (fallback token_policies), bound_audiences, role_type, user_claim, bound_claims or bound_subject
+        H->>H: compare policies (fallback token_policies), bound_audiences, role_type, user_claim, bound_claims + bound_claims_type, or bound_subject
     end
     H->>H: compareValuesIfExpected token_ttl, token_max_ttl (normalized to int seconds)
     H-->>Ops: (drifted, summary)
@@ -139,10 +139,10 @@ flowchart TD
     Default --> K8sPath
 
     K8sPath --> BuildK8s["buildKubernetesRoleData:<br/>- bound_service_account_names<br/>- bound_service_account_namespaces<br/>- policies"]
-    JWTPath --> BuildJWT["buildJWTRoleData:<br/>- role_type (default 'jwt')<br/>- user_claim (default 'sub')<br/>- bound_audiences<br/>- bound_claims OR bound_subject"]
+    JWTPath --> BuildJWT["buildJWTRoleData:<br/>- role_type (default 'jwt')<br/>- user_claim (default 'sub')<br/>- bound_audiences<br/>- (bound_claims + bound_claims_type) OR bound_subject"]
 
-    BuildJWT --> JWTSub{spec.jwt.boundClaims set?}
-    JWTSub -->|yes| UseClaims["bound_claims = map"]
+    BuildJWT --> JWTSub{boundClaims OR<br/>boundClaimsList set?}
+    JWTSub -->|yes| UseClaims["bound_claims = mergeBoundClaims<br/>(lists win on collision,<br/>scalars wrapped as []interface{}{v}<br/>so round-trip matches Vault JSON)<br/>bound_claims_type = spec or 'string' default"]
     JWTSub -->|no| Subject{spec.jwt.boundSubject<br/>set?}
     Subject -->|yes| ExplicitSub["bound_subject = override"]
     Subject -->|no| DeriveSub["derive from first SA<br/>'system:serviceaccount:ns:sa'"]

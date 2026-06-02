@@ -98,6 +98,14 @@ nav:
       - Metrics: FLOW_METRICS.md
   - Instructions: INSTRUCTIONS.md
   - Improvements & Gaps: IMPROVEMENTS.md
+  - Knowledge:
+      - Domain Glossary: CONTEXT.md
+      - Skills Cheat-Sheet: SKILLS.md
+      - End-to-End Workflows: WORKFLOWS.md
+      - Requirements Template: REQUIREMENTS-TEMPLATE.md
+  - Audits:
+      - 'Audit 2026-05-28': AUDIT-2026-05.md
+  - Decisions (ADRs): https://panteparak.github.io/vault-access-operator/adr/README/
 
 extra:
   social:

@@ -238,8 +238,46 @@ Error: claim "sub" not found in token
 1. Check bound_audiences in Vault role matches your token's aud claim
 2. For SA tokens, ensure audiences field in VaultConnection matches
 
+## Binding `VaultRole`s to JWT claims
+
+The `spec.jwt` sub-object on `VaultRole` / `VaultClusterRole` controls the Vault JWT-auth role payload — `user_claim`, `bound_audiences`, `bound_subject`, `bound_claims`, and `bound_claims_type`.
+
+### Multi-value claim matching
+
+Use `boundClaimsList` to allow any-of matching on a claim:
+
+```yaml
+spec:
+  jwt:
+    boundClaimsList:
+      ref: ["main", "develop"]      # token matches if ref ∈ {main, develop}
+      project_id: ["111"]           # single-element list = exact scalar match
+```
+
+The deprecated `boundClaims` field (scalar `map[string]string`) is still accepted for backwards compatibility; entries are merged into `boundClaimsList` at apply time, with `boundClaimsList` winning on key collision. Prefer `boundClaimsList` for new specs.
+
+### Glob matching
+
+`boundClaimsType` controls how Vault interprets claim values:
+
+```yaml
+spec:
+  jwt:
+    boundClaimsList:
+      ref: ["feat/*", "hotfix/*"]
+    boundClaimsType: glob
+```
+
+The mode is **per-role**, not per-claim — Vault applies it to every key in the map. Values without wildcards still match exactly under `glob` mode. If you need exact matching on some claims and glob on others, split into separate roles.
+
+### CI/CD provider runbooks
+
+- **[GitLab CI](jwt-gitlab.md)** — `id_tokens:` keyword, claim glossary, protected vs unprotected branch flows, security checklist.
+- GitHub Actions, Buildkite, CircleCI — the generic `boundClaimsList` + `boundClaimsType` shape works for any OIDC issuer. Apply the same security checklist (audience pinning, ref/branch-protection guards, short TTLs).
+
 ## See Also
 
+- [JWT for GitLab CI](jwt-gitlab.md) - Step-by-step GitLab CI integration
 - [OIDC Authentication](oidc.md) - When OIDC discovery is available
 - [Kubernetes Authentication](kubernetes.md) - Simpler for K8s workloads
 - [API Reference](../api-reference.md) - Complete field reference

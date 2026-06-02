@@ -43,7 +43,12 @@ validation:
     omitted_files: ignore
   links:
     absolute_links: warn
-    unrecognized_links: warn
+    # ADRs and concept docs link to source code via `../../<repo path>` so the
+    # GitHub-rendered view jumps to source. These links don't resolve inside the
+    # built site — downgrade to info so --strict still passes.
+    unrecognized_links: info
+    anchors: info
+    not_found: info
 
 plugins:
   - search
@@ -77,6 +82,7 @@ nav:
     - Overview: auth-methods/index.md
     - Kubernetes: auth-methods/kubernetes.md
     - JWT: auth-methods/jwt.md
+    - 'JWT for GitLab CI': auth-methods/jwt-gitlab.md
     - OIDC: auth-methods/oidc.md
     - AWS IAM: auth-methods/aws-iam.md
     - GCP IAM: auth-methods/gcp-iam.md
@@ -88,6 +94,14 @@ nav:
   - Examples: examples.md
   - Webhooks: webhooks.md
   - Troubleshooting: troubleshooting.md
+  - Decisions:
+    - Overview: adr/README.md
+    - 'ADR 0001 — Adapter pattern': adr/0001-adapter-pattern-for-cluster-scoped-types.md
+    - 'ADR 0002 — Template Method base reconciler': adr/0002-template-method-base-reconciler.md
+    - 'ADR 0003 — Two-level drift & conflict config': adr/0003-two-level-drift-and-conflict-config.md
+    - 'ADR 0004 — Event bus closure capture': adr/0004-event-bus-closure-capture.md
+    - 'ADR 0005 — Cleanup ConfigMap queue': adr/0005-cleanup-failure-configmap-queue.md
+    - 'Template': adr/0000-template.md
 
 extra:
   social:

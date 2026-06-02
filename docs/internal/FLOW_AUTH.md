@@ -4,7 +4,7 @@
 
 The operator authenticates to Vault **per VaultConnection** using one of 8 possible auth methods. Backend selection is **exclusive**: only the first non-nil `Spec.Auth.*` sub-struct is used ([handler.go:704](../../features/connection/controller/handler.go:704)). After authentication, the resulting Vault token is cached along with its expiration; subsequent reconciles renew or re-authenticate based on a 75% TTL threshold and the configured `RenewalStrategy`.
 
-There are **two separate lifecycle controllers** (in `pkg/vault/token/`) whose purpose is to proactively renew tokens and rotate the `token_reviewer_jwt` for k8s-auth — but they are only used in the connection handler's cleanup path via `Unregister`. Their `Start(ctx)` methods exist but are not called. See [IMPROVEMENTS.md §1](IMPROVEMENTS.md#1-unwired-controllers).
+There are **two separate lifecycle controllers** (in `pkg/vault/token/`) whose purpose is to proactively renew tokens and rotate the `token_reviewer_jwt` for k8s-auth. As of 2026-05-28 the **reviewer rotator is wired and running** (registered with the manager, leader-gated, enrolled per-connection by the handler — see [Token Reviewer Rotation](#token-reviewer-rotation-k8s-auth-only) below). The **token lifecycle (renewal) controller remains deferred**: token renewal is currently handled reactively by the 30s reconcile loop (`getOrRenewClient`), and wiring the proactive controller needs a `token.VaultAuthenticator` interface change for multi-connection routing. See [IMPROVEMENTS.md §1](IMPROVEMENTS.md#1-unwired-controllers).
 
 ## Auth Method Matrix
 
@@ -157,17 +157,18 @@ When Vault's k8s auth mount is configured, it needs a `token_reviewer_jwt` to ca
 1. Periodically mint a fresh reviewer JWT via TokenRequest API
 2. Write it back to Vault's auth config (`auth/{mount}/config`)
 
-Like the lifecycle controller, it has a `Start(ctx)` but nothing calls it. The connection handler emits a warning condition if the user explicitly disabled rotation:
+**As of 2026-05-28 this is wired and running** (IMPROVEMENTS §1). The reviewer controller implements `NeedsLeaderElection()` and is registered with the manager in `cmd/main.go` via `connFeature.ReviewerController`. The connection handler enrolls each healthy k8s-auth connection through `registerTokenReviewer` (Register + SetVaultClient + an initial priming Refresh), and the leader-gated background loop refreshes the `token_reviewer_jwt` before it expires. Registration happens once per connection — the handler guards against re-`Register` on every 30s reconcile because `Register` replaces per-connection state (which would reset the refresh schedule).
+
+The connection handler emits a warning condition if the user explicitly disabled rotation:
 
 ```go
-// handler.go:357
 if k8sAuth.TokenReviewerRotation != nil && !*k8sAuth.TokenReviewerRotation {
     setCondition("TokenReviewerRotationDisabled", True, "ManualManagement",
         "Warning: TokenReviewerRotation is disabled. You must manually update token_reviewer_jwt in Vault before it expires.")
 }
 ```
 
-— but if the flag is **default** (unset or true), the warning is skipped even though rotation **is still not running**. This is a silent failure mode: the user thinks rotation is enabled, but nothing is rotating. See [IMPROVEMENTS.md §1](IMPROVEMENTS.md#1-unwired-controllers).
+When disabled, the handler also `Unregister`s the connection from the rotator. When the flag is **default** (unset or true) rotation runs automatically. (Previously this was a silent failure mode — the controller existed but was never started; see [IMPROVEMENTS.md §1](IMPROVEMENTS.md#1-unwired-controllers).)
 
 ## Renewal Strategy
 
