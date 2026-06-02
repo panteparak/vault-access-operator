@@ -1026,6 +1026,309 @@
   
 
     
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Knowledge
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Knowledge
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../CONTEXT/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Domain Glossary
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../SKILLS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Skills Cheat-Sheet
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../WORKFLOWS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    End-to-End Workflows
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../REQUIREMENTS-TEMPLATE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Requirements Template
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Audits
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Audits
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../AUDIT-2026-05/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Audit 2026-05-28
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="https://panteparak.github.io/vault-access-operator/adr/README/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decisions (ADRs)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
   </ul>
 </nav>
                   </div>
@@ -1054,7 +1357,7 @@
 <h1 id="flow-authentication-backends-token-lifecycle">FLOW: Authentication Backends &amp; Token Lifecycle<a class="headerlink" href="#flow-authentication-backends-token-lifecycle" title="Permanent link">&para;</a></h1>
 <h2 id="summary">Summary<a class="headerlink" href="#summary" title="Permanent link">&para;</a></h2>
 <p>The operator authenticates to Vault <strong>per VaultConnection</strong> using one of 8 possible auth methods. Backend selection is <strong>exclusive</strong>: only the first non-nil <code>Spec.Auth.*</code> sub-struct is used (<a href="../../features/connection/controller/handler.go:704">handler.go:704</a>). After authentication, the resulting Vault token is cached along with its expiration; subsequent reconciles renew or re-authenticate based on a 75% TTL threshold and the configured <code>RenewalStrategy</code>.</p>
-<p>There are <strong>two separate lifecycle controllers</strong> (in <code>pkg/vault/token/</code>) whose purpose is to proactively renew tokens and rotate the <code>token_reviewer_jwt</code> for k8s-auth — but they are only used in the connection handler's cleanup path via <code>Unregister</code>. Their <code>Start(ctx)</code> methods exist but are not called. See <a href="../IMPROVEMENTS/#1-unwired-controllers">IMPROVEMENTS.md §1</a>.</p>
+<p>There are <strong>two separate lifecycle controllers</strong> (in <code>pkg/vault/token/</code>) whose purpose is to proactively renew tokens and rotate the <code>token_reviewer_jwt</code> for k8s-auth. As of 2026-05-28 the <strong>reviewer rotator is wired and running</strong> (registered with the manager, leader-gated, enrolled per-connection by the handler — see <a href="#token-reviewer-rotation-k8s-auth-only">Token Reviewer Rotation</a> below). The <strong>token lifecycle (renewal) controller remains deferred</strong>: token renewal is currently handled reactively by the 30s reconcile loop (<code>getOrRenewClient</code>), and wiring the proactive controller needs a <code>token.VaultAuthenticator</code> interface change for multi-connection routing. See <a href="../IMPROVEMENTS/#1-unwired-controllers">IMPROVEMENTS.md §1</a>.</p>
 <h2 id="auth-method-matrix">Auth Method Matrix<a class="headerlink" href="#auth-method-matrix" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -1240,14 +1543,14 @@
 <li>Periodically mint a fresh reviewer JWT via TokenRequest API</li>
 <li>Write it back to Vault's auth config (<code>auth/{mount}/config</code>)</li>
 </ol>
-<p>Like the lifecycle controller, it has a <code>Start(ctx)</code> but nothing calls it. The connection handler emits a warning condition if the user explicitly disabled rotation:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1">// handler.go:357</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="k">if</span><span class="w"> </span><span class="nx">k8sAuth</span><span class="p">.</span><span class="nx">TokenReviewerRotation</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="p">!</span><span class="o">*</span><span class="nx">k8sAuth</span><span class="p">.</span><span class="nx">TokenReviewerRotation</span><span class="w"> </span><span class="p">{</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">    </span><span class="nx">setCondition</span><span class="p">(</span><span class="s">&quot;TokenReviewerRotationDisabled&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">True</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;ManualManagement&quot;</span><span class="p">,</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">        </span><span class="s">&quot;Warning: TokenReviewerRotation is disabled. You must manually update token_reviewer_jwt in Vault before it expires.&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="p">}</span>
+<p><strong>As of 2026-05-28 this is wired and running</strong> (IMPROVEMENTS §1). The reviewer controller implements <code>NeedsLeaderElection()</code> and is registered with the manager in <code>cmd/main.go</code> via <code>connFeature.ReviewerController</code>. The connection handler enrolls each healthy k8s-auth connection through <code>registerTokenReviewer</code> (Register + SetVaultClient + an initial priming Refresh), and the leader-gated background loop refreshes the <code>token_reviewer_jwt</code> before it expires. Registration happens once per connection — the handler guards against re-<code>Register</code> on every 30s reconcile because <code>Register</code> replaces per-connection state (which would reset the refresh schedule).</p>
+<p>The connection handler emits a warning condition if the user explicitly disabled rotation:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">if</span><span class="w"> </span><span class="nx">k8sAuth</span><span class="p">.</span><span class="nx">TokenReviewerRotation</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="p">!</span><span class="o">*</span><span class="nx">k8sAuth</span><span class="p">.</span><span class="nx">TokenReviewerRotation</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">    </span><span class="nx">setCondition</span><span class="p">(</span><span class="s">&quot;TokenReviewerRotationDisabled&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">True</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;ManualManagement&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">        </span><span class="s">&quot;Warning: TokenReviewerRotation is disabled. You must manually update token_reviewer_jwt in Vault before it expires.&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="p">}</span>
 </code></pre></div>
-<p>— but if the flag is <strong>default</strong> (unset or true), the warning is skipped even though rotation <strong>is still not running</strong>. This is a silent failure mode: the user thinks rotation is enabled, but nothing is rotating. See <a href="../IMPROVEMENTS/#1-unwired-controllers">IMPROVEMENTS.md §1</a>.</p>
+<p>When disabled, the handler also <code>Unregister</code>s the connection from the rotator. When the flag is <strong>default</strong> (unset or true) rotation runs automatically. (Previously this was a silent failure mode — the controller existed but was never started; see <a href="../IMPROVEMENTS/#1-unwired-controllers">IMPROVEMENTS.md §1</a>.)</p>
 <h2 id="renewal-strategy">Renewal Strategy<a class="headerlink" href="#renewal-strategy" title="Permanent link">&para;</a></h2>
 <p>Spec field: <code>VaultConnection.Spec.Auth.Kubernetes.RenewalStrategy</code>:
 - <code>renew</code> (default) — attempt <code>token/renew-self</code> first; fallback to re-auth on failure

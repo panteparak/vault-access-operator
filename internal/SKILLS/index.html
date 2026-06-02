@@ -1,0 +1,1766 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Contributor-facing documentation for vault-access-operator internals.">
+      
+      
+      
+        <link rel="canonical" href="https://panteparak.github.io/vault-access-operator/internal/SKILLS/">
+      
+      
+        <link rel="prev" href="../CONTEXT/">
+      
+      
+        <link rel="next" href="../WORKFLOWS/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Skills Cheat-Sheet - Vault Access Operator — Internal Docs</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#claude-code-skills-cheat-sheet" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Vault Access Operator — Internal Docs" class="md-header__button md-logo" aria-label="Vault Access Operator — Internal Docs" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Vault Access Operator — Internal Docs
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Skills Cheat-Sheet
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/panteparak/vault-access-operator" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    panteparak/vault-access-operator
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Vault Access Operator — Internal Docs" class="md-nav__button md-logo" aria-label="Vault Access Operator — Internal Docs" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Vault Access Operator — Internal Docs
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/panteparak/vault-access-operator" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    panteparak/vault-access-operator
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../PROJECT_OVERVIEW/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ARCHITECTURE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_OVERVIEW/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Flow Foundations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Flows
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Flows
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_LIFECYCLE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Manager Lifecycle
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_CONNECTION/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Connection
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_POLICY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_ROLE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Role
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_DISCOVERY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Discovery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_DELETION/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deletion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_AUTH/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Authentication
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_WEBHOOK/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Admission Webhooks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_EVENTS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Event Bus
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_METRICS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../INSTRUCTIONS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Instructions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../IMPROVEMENTS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Improvements & Gaps
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Knowledge
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Knowledge
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../CONTEXT/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Domain Glossary
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Skills Cheat-Sheet
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Skills Cheat-Sheet
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#dev-loop-phases" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dev-loop phases
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Dev-loop phases">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#design" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Design
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#implement" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Implement
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#test" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Test
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#review" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Review
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ship" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Ship
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#debug" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Debug
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#documentation-lifecycle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Documentation lifecycle
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#requirements-gathering" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Requirements gathering
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#business-flow-modeling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Business-flow modeling
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#project-slash-commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Project slash commands
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#when-not-to-use-a-skill" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When not to use a skill
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../WORKFLOWS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    End-to-End Workflows
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../REQUIREMENTS-TEMPLATE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Requirements Template
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Audits
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Audits
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../AUDIT-2026-05/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Audit 2026-05-28
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="https://panteparak.github.io/vault-access-operator/adr/README/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decisions (ADRs)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/panteparak/vault-access-operator/edit/main/docs/internal/SKILLS.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="claude-code-skills-cheat-sheet">Claude Code Skills Cheat-Sheet<a class="headerlink" href="#claude-code-skills-cheat-sheet" title="Permanent link">&para;</a></h1>
+<p>This document maps Claude Code skills to dev-loop phases and additional clusters (documentation, requirements, business-flow). Each row lists the skill, when to use it for this operator, and operator-specific guidance.</p>
+<p><strong>How to invoke a skill:</strong> type <code>/skill-name</code> in Claude Code. Skills marked <strong>(custom)</strong> are defined under <a href="../../.claude/skills/"><code>.claude/skills/</code></a> and are repo-specific.</p>
+<p>For end-to-end scenarios that compose these skills, see <a href="../WORKFLOWS/">WORKFLOWS.md</a>.</p>
+<hr />
+<h2 id="dev-loop-phases">Dev-loop phases<a class="headerlink" href="#dev-loop-phases" title="Permanent link">&para;</a></h2>
+<h3 id="design">Design<a class="headerlink" href="#design" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Skill</th>
+<th>When to use</th>
+<th>Operator-specific notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>dev-flow</code></td>
+<td>Any non-trivial feature</td>
+<td>Runs explore → plan → implement → review → document. Default starting point for feature work.</td>
+</tr>
+<tr>
+<td><code>grill-with-docs</code></td>
+<td>Stress-testing a plan against CONTEXT/ADRs</td>
+<td>Now actionable because both exist. Updates <a href="../CONTEXT/">CONTEXT.md</a> and <a href="../adr/"><code>docs/adr/</code></a> inline as decisions crystallize.</td>
+</tr>
+<tr>
+<td><code>grill-me</code></td>
+<td>Stress-testing conversationally with no doc updates</td>
+<td>Use before formalizing a PRD or ADR.</td>
+</tr>
+<tr>
+<td><code>security-threat-model</code></td>
+<td>New auth method, webhook change, token-handling change</td>
+<td>STRIDE pass. Always pair with a <code>/security-audit</code> after implementation.</td>
+</tr>
+<tr>
+<td><code>to-prd</code></td>
+<td>Capturing a feature spec from a free-form discussion</td>
+<td>Output lands at <code>docs/internal/prd/&lt;slug&gt;.md</code>. Pair with <a href="../REQUIREMENTS-TEMPLATE/">REQUIREMENTS-TEMPLATE.md</a>.</td>
+</tr>
+<tr>
+<td><code>improve-codebase-architecture</code></td>
+<td>Finding refactor / deepening opportunities</td>
+<td>Reads CONTEXT.md + docs/adr/. Output is a list of candidates, not commits.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="implement">Implement<a class="headerlink" href="#implement" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Skill</th>
+<th>When to use</th>
+<th>Operator-specific notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>dev-k8s-operator</code></td>
+<td>New controller / reconciliation logic</td>
+<td>Knows controller-runtime patterns: predicates, indexers, watches. Compose with the project's <code>BaseReconciler</code> (<a href="../adr/0002-template-method-base-reconciler.md">ADR 0002</a>).</td>
+</tr>
+<tr>
+<td><code>dev-go</code></td>
+<td>Pure Go (non-controller) code</td>
+<td>Use for <code>shared/</code>, <code>pkg/</code>, <code>internal/</code> utilities.</td>
+</tr>
+<tr>
+<td><code>tdd</code></td>
+<td>Behavior changes</td>
+<td>Write the integration test first under <code>test/integration/&lt;category&gt;/</code>; let the failing test drive the implementation.</td>
+</tr>
+<tr>
+<td><code>solid</code></td>
+<td>Refactoring <code>shared/</code></td>
+<td>The codebase already follows SOLID; the skill reinforces it. Often pairs with <code>improve-codebase-architecture</code> + a new ADR.</td>
+</tr>
+<tr>
+<td><code>refactor-code</code></td>
+<td>Pattern refactors across files</td>
+<td>Use after <code>improve-codebase-architecture</code> identifies candidates.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="test">Test<a class="headerlink" href="#test" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Skill</th>
+<th>When to use</th>
+<th>Operator-specific notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>test-unit</code></td>
+<td>New exported function</td>
+<td>Vault mocks use <code>httptest.Server</code> against the concrete <code>*vault.Client</code> — see auto-memory and <code>pkg/vault/*_test.go</code>.</td>
+</tr>
+<tr>
+<td><code>test-integration</code></td>
+<td>Controller behavior with real Vault</td>
+<td>Ginkgo + Testcontainers. <code>make test-integration</code>. Categories under <code>test/integration/&lt;cat&gt;/</code>.</td>
+</tr>
+<tr>
+<td><code>test-e2e</code></td>
+<td>User-facing feature</td>
+<td><code>make e2e-local-up &amp;&amp; make e2e-local-test</code>. Test IDs follow <code>TC-{CAT}{NN}</code>.</td>
+</tr>
+<tr>
+<td><code>test-generate</code></td>
+<td>Backfilling coverage on existing code</td>
+<td>Targets exported APIs.</td>
+</tr>
+<tr>
+<td><code>test-performance</code></td>
+<td>Load/throughput validation</td>
+<td>Project already has profiling tests under <code>test/integration/profiling/</code>; this skill complements with k6/Locust if needed.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="review">Review<a class="headerlink" href="#review" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Skill</th>
+<th>When to use</th>
+<th>Operator-specific notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>review-code</code></td>
+<td>Pre-PR self-review</td>
+<td>Reads <code>git diff</code> and reports correctness/security issues. Run before pushing.</td>
+</tr>
+<tr>
+<td><code>pr-review-toolkit:review-pr</code></td>
+<td>Reviewing someone else's PR</td>
+<td>Multi-agent: code-reviewer + test-analyzer + silent-failure-hunter + type-design-analyzer + comment-analyzer.</td>
+</tr>
+<tr>
+<td><code>security-audit</code></td>
+<td>PRs touching webhooks / auth / tokens</td>
+<td>OWASP + secrets scan.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="ship">Ship<a class="headerlink" href="#ship" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Skill</th>
+<th>When to use</th>
+<th>Operator-specific notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>dev-helm</code></td>
+<td>Chart changes</td>
+<td><code>charts/vault-access-operator/</code>. Run <code>make compare-templates</code> after to verify Kustomize parity.</td>
+</tr>
+<tr>
+<td><code>dev-dockerfile</code></td>
+<td>Dockerfile updates</td>
+<td>Multi-arch build is already wired in CI; preserve the entry-point and non-root user.</td>
+</tr>
+<tr>
+<td><code>dev-ci-github</code></td>
+<td>Workflow updates</td>
+<td>Follow the 4-stage gate pattern (lint+unit+integration+verify+docker → gate → security/profiled → E2E).</td>
+</tr>
+<tr>
+<td><code>verify</code></td>
+<td>Manual local verification</td>
+<td>Drives the operator in the local k3s stack to confirm behavior end-to-end. Pairs with <code>/e2e-up</code> + <code>/e2e-test</code>.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="debug">Debug<a class="headerlink" href="#debug" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Skill</th>
+<th>When to use</th>
+<th>Operator-specific notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>debug-k8s</code></td>
+<td>Pod / CRD / RBAC issues</td>
+<td>First stop for "operator won't start." Knows kubectl debugging patterns.</td>
+</tr>
+<tr>
+<td><code>debug-backend</code></td>
+<td>Logic bugs</td>
+<td>Generic structured root-cause loop. Pair with <code>diagnose</code> for hard ones.</td>
+</tr>
+<tr>
+<td><code>diagnose</code></td>
+<td>Hard bugs / regressions</td>
+<td>Reproduce → minimise → hypothesise → instrument → fix → regression-test.</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="documentation-lifecycle">Documentation lifecycle<a class="headerlink" href="#documentation-lifecycle" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Activity</th>
+<th>Skill</th>
+<th>Operator-specific notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Initialize repo-level docs</td>
+<td><code>init</code></td>
+<td>One-time. Used to create <a href="../../CLAUDE.md">CLAUDE.md</a>.</td>
+</tr>
+<tr>
+<td>Detect docs drift</td>
+<td><code>/docs-drift</code> <strong>(custom)</strong></td>
+<td>See <a href="../../.claude/skills/docs-drift/SKILL.md"><code>.claude/skills/docs-drift/SKILL.md</code></a>. Run before opening a PR. Output is a checklist; does <strong>not</strong> auto-edit.</td>
+</tr>
+<tr>
+<td>Update CONTEXT/ADRs while planning</td>
+<td><code>grill-with-docs</code></td>
+<td>Updates the glossary and decisions inline as the plan crystallises.</td>
+</tr>
+<tr>
+<td>Find architectural deepening</td>
+<td><code>improve-codebase-architecture</code></td>
+<td>Reads CONTEXT.md + docs/adr/; outputs a candidates list.</td>
+</tr>
+<tr>
+<td>Memory hygiene</td>
+<td><code>anthropic-skills:consolidate-memory</code></td>
+<td>Reflective pass over your <code>~/.claude/.../memory/</code> auto-memory. Run periodically.</td>
+</tr>
+<tr>
+<td>Author a new repo-specific skill</td>
+<td><code>write-a-skill</code></td>
+<td>Use this to add another <code>.claude/skills/*</code> for recurring repo-specific tasks.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Documentation drift — what gets checked:</strong></p>
+<p>The <code>/docs-drift</code> skill applies these rules to the current branch diff (see <a href="../../.claude/skills/docs-drift/SKILL.md">the skill's SKILL.md</a> for the canonical list):</p>
+<ul>
+<li><code>api/v1alpha1/*_types.go</code> → <code>docs/api-reference.md</code>, <code>CHANGELOG.md</code>, generated CRDs</li>
+<li><code>features/&lt;X&gt;/controller/*.go</code> → <code>docs/internal/FLOW_&lt;X&gt;.md</code>, possibly CONTEXT.md</li>
+<li><code>features/connection/auth/*</code> → <code>docs/auth-methods/&lt;method&gt;.md</code></li>
+<li><code>shared/controller/&lt;pkg&gt;/</code> added/removed → new ADR + CONTEXT.md</li>
+<li><code>cmd/main.go</code> new flag → <code>docs/configuration.md</code></li>
+<li><code>internal/webhook/*.go</code> → <code>docs/webhooks.md</code>, threat-model entry</li>
+</ul>
+<p>In parallel, the <code>.claude/settings.json</code> PostToolUse hook nudges contributors <strong>at edit time</strong> with the same rule set, so most drift is caught before it ever lands in a PR.</p>
+<hr />
+<h2 id="requirements-gathering">Requirements gathering<a class="headerlink" href="#requirements-gathering" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Activity</th>
+<th>Skill</th>
+<th>Operator-specific notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Capture a feature spec</td>
+<td><code>to-prd</code></td>
+<td>Output lands under <code>docs/internal/prd/</code>. Use <a href="../REQUIREMENTS-TEMPLATE/">REQUIREMENTS-TEMPLATE.md</a> as the structural guide.</td>
+</tr>
+<tr>
+<td>Break a plan into tickets</td>
+<td><code>to-issues</code></td>
+<td>Vertical-slice issues; uses tracer-bullet pattern.</td>
+</tr>
+<tr>
+<td>Triage incoming bugs/requests</td>
+<td><code>triage</code></td>
+<td>State machine for grooming the inbox.</td>
+</tr>
+<tr>
+<td>Stress-test a plan conversationally</td>
+<td><code>grill-me</code></td>
+<td>No doc output.</td>
+</tr>
+<tr>
+<td>Stress-test against docs</td>
+<td><code>grill-with-docs</code></td>
+<td>Updates CONTEXT/ADRs inline.</td>
+</tr>
+<tr>
+<td>Threat-model a feature</td>
+<td><code>security-threat-model</code></td>
+<td>Required for auth/webhook/token changes.</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="business-flow-modeling">Business-flow modeling<a class="headerlink" href="#business-flow-modeling" title="Permanent link">&para;</a></h2>
+<p>The 10 <a href="."><code>FLOW_*.md</code></a> files are the project's existing business-flow convention. Each documents a single domain area with: purpose → trigger → sequence diagram (Mermaid) → step pseudocode → error paths → code references → related links.</p>
+<table>
+<thead>
+<tr>
+<th>Activity</th>
+<th>Approach</th>
+<th>Operator-specific notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Document a new runtime flow</td>
+<td><code>/new-flow &lt;NAME&gt;</code></td>
+<td>Creates <code>docs/internal/FLOW_&lt;NAME&gt;.md</code> from the skeleton (see <a href="../WORKFLOWS/">WORKFLOWS.md</a>).</td>
+</tr>
+<tr>
+<td>Map a domain (vocabulary + relationships)</td>
+<td>Update <a href="../CONTEXT/">CONTEXT.md</a> + ADR</td>
+<td>Domain terms → CONTEXT.md. Structural choices → docs/adr/.</td>
+</tr>
+<tr>
+<td>Capture a recurring workflow</td>
+<td><code>write-a-skill</code></td>
+<td>E.g., a future <code>/add-auth-method</code> skill that runs WORKFLOWS Scenario A end-to-end.</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="project-slash-commands">Project slash commands<a class="headerlink" href="#project-slash-commands" title="Permanent link">&para;</a></h2>
+<p>These wrap standardized operations. Source: <a href="../../.claude/commands/"><code>.claude/commands/</code></a>.</p>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>Wraps</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/verify-operator</code></td>
+<td><code>make manifests generate helm-update-crds &amp;&amp; make lint &amp;&amp; make test &amp;&amp; make compare-templates</code></td>
+</tr>
+<tr>
+<td><code>/e2e-up</code></td>
+<td><code>make e2e-local-up</code></td>
+</tr>
+<tr>
+<td><code>/e2e-down</code></td>
+<td><code>make e2e-local-down</code></td>
+</tr>
+<tr>
+<td><code>/e2e-test [focus]</code></td>
+<td><code>make e2e-local-test</code> with optional Ginkgo focus or label filter</td>
+</tr>
+<tr>
+<td><code>/changelog-add</code></td>
+<td>Interactive add of an entry under <code>## [Unreleased]</code></td>
+</tr>
+<tr>
+<td><code>/new-adr &lt;slug&gt;</code></td>
+<td>Copy <code>docs/adr/0000-template.md</code> to the next-numbered ADR</td>
+</tr>
+<tr>
+<td><code>/new-flow &lt;NAME&gt;</code></td>
+<td>Create <code>docs/internal/FLOW_&lt;NAME&gt;.md</code> from the canonical skeleton</td>
+</tr>
+<tr>
+<td><code>/docs-drift</code></td>
+<td>Run the docs-drift skill audit</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="when-not-to-use-a-skill">When <strong>not</strong> to use a skill<a class="headerlink" href="#when-not-to-use-a-skill" title="Permanent link">&para;</a></h2>
+<p>Skills add overhead. Skip them when:</p>
+<ul>
+<li>The task is a one-line typo fix — just edit.</li>
+<li>You're navigating known code — Read/grep is faster than <code>dev-k8s-operator</code>.</li>
+<li>You're in the middle of a debugging session and the skill would interrupt your flow — finish the loop first.</li>
+<li>The skill catalog doesn't include something you need — consider authoring a custom one via <code>write-a-skill</code> rather than forcing an ill-fitting skill.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2024-2026 Vault Access Operator Contributors
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/panteparak/vault-access-operator" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.instant", "navigation.top", "navigation.sections", "navigation.expand", "navigation.indexes", "search.highlight", "content.code.copy", "content.action.edit", "toc.integrate"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

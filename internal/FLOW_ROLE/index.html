@@ -1048,6 +1048,309 @@
   
 
     
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Knowledge
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Knowledge
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../CONTEXT/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Domain Glossary
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../SKILLS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Skills Cheat-Sheet
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../WORKFLOWS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    End-to-End Workflows
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../REQUIREMENTS-TEMPLATE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Requirements Template
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Audits
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Audits
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../AUDIT-2026-05/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Audit 2026-05-28
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="https://panteparak.github.io/vault-access-operator/adr/README/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decisions (ADRs)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
   </ul>
 </nav>
                   </div>
@@ -1195,7 +1498,7 @@
     alt backend = Kubernetes
         H-&gt;&gt;H: buildKubernetesRoleData&lt;br/&gt;- split "ns/name" → names[] + namespaces[] (deduped)&lt;br/&gt;- sort both for deterministic hash&lt;br/&gt;- policies = policyNames&lt;br/&gt;- token_ttl, token_max_ttl (optional)
     else backend = JWT
-        H-&gt;&gt;H: buildJWTRoleData&lt;br/&gt;- role_type = "jwt"&lt;br/&gt;- user_claim default "sub"&lt;br/&gt;- bound_audiences (spec or conn fallback)&lt;br/&gt;- bound_claims OR bound_subject derivation&lt;br/&gt;- policies, token_ttl, token_max_ttl
+        H-&gt;&gt;H: buildJWTRoleData&lt;br/&gt;- role_type = "jwt"&lt;br/&gt;- user_claim default "sub"&lt;br/&gt;- bound_audiences (spec or conn fallback)&lt;br/&gt;- bound_claims = mergeBoundClaims(scalars, lists) OR bound_subject&lt;br/&gt;- bound_claims_type (when bound_claims is set; default "string")&lt;br/&gt;- policies, token_ttl, token_max_ttl
     end
 
     H--&gt;&gt;Ops: roleData map
@@ -1213,7 +1516,7 @@
     alt backend = Kubernetes
         H-&gt;&gt;H: compare policies, bound_service_account_names, bound_service_account_namespaces
     else backend = JWT
-        H-&gt;&gt;H: compare policies (fallback token_policies), bound_audiences, role_type, user_claim, bound_claims or bound_subject
+        H-&gt;&gt;H: compare policies (fallback token_policies), bound_audiences, role_type, user_claim, bound_claims + bound_claims_type, or bound_subject
     end
     H-&gt;&gt;H: compareValuesIfExpected token_ttl, token_max_ttl (normalized to int seconds)
     H--&gt;&gt;Ops: (drifted, summary)
@@ -1257,10 +1560,10 @@
     Default --&gt; K8sPath
 
     K8sPath --&gt; BuildK8s["buildKubernetesRoleData:&lt;br/&gt;- bound_service_account_names&lt;br/&gt;- bound_service_account_namespaces&lt;br/&gt;- policies"]
-    JWTPath --&gt; BuildJWT["buildJWTRoleData:&lt;br/&gt;- role_type (default 'jwt')&lt;br/&gt;- user_claim (default 'sub')&lt;br/&gt;- bound_audiences&lt;br/&gt;- bound_claims OR bound_subject"]
+    JWTPath --&gt; BuildJWT["buildJWTRoleData:&lt;br/&gt;- role_type (default 'jwt')&lt;br/&gt;- user_claim (default 'sub')&lt;br/&gt;- bound_audiences&lt;br/&gt;- (bound_claims + bound_claims_type) OR bound_subject"]
 
-    BuildJWT --&gt; JWTSub{spec.jwt.boundClaims set?}
-    JWTSub --&gt;|yes| UseClaims["bound_claims = map"]
+    BuildJWT --&gt; JWTSub{boundClaims OR&lt;br/&gt;boundClaimsList set?}
+    JWTSub --&gt;|yes| UseClaims["bound_claims = mergeBoundClaims&lt;br/&gt;(lists win on collision,&lt;br/&gt;scalars wrapped as []interface{}{v}&lt;br/&gt;so round-trip matches Vault JSON)&lt;br/&gt;bound_claims_type = spec or 'string' default"]
     JWTSub --&gt;|no| Subject{spec.jwt.boundSubject&lt;br/&gt;set?}
     Subject --&gt;|yes| ExplicitSub["bound_subject = override"]
     Subject --&gt;|no| DeriveSub["derive from first SA&lt;br/&gt;'system:serviceaccount:ns:sa'"]

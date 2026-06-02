@@ -16,7 +16,7 @@
         <link rel="prev" href="../kubernetes/">
       
       
-        <link rel="next" href="../oidc/">
+        <link rel="next" href="../jwt-gitlab/">
       
       
         
@@ -889,6 +889,56 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#binding-vaultroles-to-jwt-claims" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Binding VaultRoles to JWT claims
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Binding VaultRoles to JWT claims">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#multi-value-claim-matching" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Multi-value claim matching
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#glob-matching" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Glob matching
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cicd-provider-runbooks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CI/CD provider runbooks
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#see-also" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -903,6 +953,34 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../jwt-gitlab/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    JWT for GitLab CI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -1218,6 +1296,256 @@
   
 
     
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_10" >
+        
+          
+          <label class="md-nav__link" for="__nav_10" id="__nav_10_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decisions
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_10_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_10">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Decisions
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0001-adapter-pattern-for-cluster-scoped-types/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ADR 0001 — Adapter pattern
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0002-template-method-base-reconciler/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ADR 0002 — Template Method base reconciler
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0003-two-level-drift-and-conflict-config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ADR 0003 — Two-level drift & conflict config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0004-event-bus-closure-capture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ADR 0004 — Event bus closure capture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0005-cleanup-failure-configmap-queue/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ADR 0005 — Cleanup ConfigMap queue
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0000-template/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Template
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
   </ul>
 </nav>
                   </div>
@@ -1477,6 +1805,56 @@
     <span class="md-ellipsis">
       
         "audience mismatch" error
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#binding-vaultroles-to-jwt-claims" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Binding VaultRoles to JWT claims
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Binding VaultRoles to JWT claims">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#multi-value-claim-matching" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Multi-value claim matching
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#glob-matching" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Glob matching
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cicd-provider-runbooks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CI/CD provider runbooks
       
     </span>
   </a>
@@ -1807,8 +2185,34 @@
 <li>Check bound_audiences in Vault role matches your token's aud claim</li>
 <li>For SA tokens, ensure audiences field in VaultConnection matches</li>
 </ol>
+<h2 id="binding-vaultroles-to-jwt-claims">Binding <code>VaultRole</code>s to JWT claims<a class="headerlink" href="#binding-vaultroles-to-jwt-claims" title="Permanent link">&para;</a></h2>
+<p>The <code>spec.jwt</code> sub-object on <code>VaultRole</code> / <code>VaultClusterRole</code> controls the Vault JWT-auth role payload — <code>user_claim</code>, <code>bound_audiences</code>, <code>bound_subject</code>, <code>bound_claims</code>, and <code>bound_claims_type</code>.</p>
+<h3 id="multi-value-claim-matching">Multi-value claim matching<a class="headerlink" href="#multi-value-claim-matching" title="Permanent link">&para;</a></h3>
+<p>Use <code>boundClaimsList</code> to allow any-of matching on a claim:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="nt">spec</span><span class="p">:</span>
+<a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="w">  </span><span class="nt">jwt</span><span class="p">:</span>
+<a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a><span class="w">    </span><span class="nt">boundClaimsList</span><span class="p">:</span>
+<a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a><span class="w">      </span><span class="nt">ref</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;main&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;develop&quot;</span><span class="p p-Indicator">]</span><span class="w">      </span><span class="c1"># token matches if ref ∈ {main, develop}</span>
+<a id="__codelineno-16-5" name="__codelineno-16-5" href="#__codelineno-16-5"></a><span class="w">      </span><span class="nt">project_id</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;111&quot;</span><span class="p p-Indicator">]</span><span class="w">           </span><span class="c1"># single-element list = exact scalar match</span>
+</code></pre></div>
+<p>The deprecated <code>boundClaims</code> field (scalar <code>map[string]string</code>) is still accepted for backwards compatibility; entries are merged into <code>boundClaimsList</code> at apply time, with <code>boundClaimsList</code> winning on key collision. Prefer <code>boundClaimsList</code> for new specs.</p>
+<h3 id="glob-matching">Glob matching<a class="headerlink" href="#glob-matching" title="Permanent link">&para;</a></h3>
+<p><code>boundClaimsType</code> controls how Vault interprets claim values:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="nt">spec</span><span class="p">:</span>
+<a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a><span class="w">  </span><span class="nt">jwt</span><span class="p">:</span>
+<a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a><span class="w">    </span><span class="nt">boundClaimsList</span><span class="p">:</span>
+<a id="__codelineno-17-4" name="__codelineno-17-4" href="#__codelineno-17-4"></a><span class="w">      </span><span class="nt">ref</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;feat/*&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;hotfix/*&quot;</span><span class="p p-Indicator">]</span>
+<a id="__codelineno-17-5" name="__codelineno-17-5" href="#__codelineno-17-5"></a><span class="w">    </span><span class="nt">boundClaimsType</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">glob</span>
+</code></pre></div>
+<p>The mode is <strong>per-role</strong>, not per-claim — Vault applies it to every key in the map. Values without wildcards still match exactly under <code>glob</code> mode. If you need exact matching on some claims and glob on others, split into separate roles.</p>
+<h3 id="cicd-provider-runbooks">CI/CD provider runbooks<a class="headerlink" href="#cicd-provider-runbooks" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><a href="../jwt-gitlab/">GitLab CI</a></strong> — <code>id_tokens:</code> keyword, claim glossary, protected vs unprotected branch flows, security checklist.</li>
+<li>GitHub Actions, Buildkite, CircleCI — the generic <code>boundClaimsList</code> + <code>boundClaimsType</code> shape works for any OIDC issuer. Apply the same security checklist (audience pinning, ref/branch-protection guards, short TTLs).</li>
+</ul>
 <h2 id="see-also">See Also<a class="headerlink" href="#see-also" title="Permanent link">&para;</a></h2>
 <ul>
+<li><a href="../jwt-gitlab/">JWT for GitLab CI</a> - Step-by-step GitLab CI integration</li>
 <li><a href="../oidc/">OIDC Authentication</a> - When OIDC discovery is available</li>
 <li><a href="../kubernetes/">Kubernetes Authentication</a> - Simpler for K8s workloads</li>
 <li><a href="../../api-reference/">API Reference</a> - Complete field reference</li>

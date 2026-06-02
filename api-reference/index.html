@@ -611,6 +611,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../auth-methods/jwt-gitlab/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    JWT for GitLab CI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../auth-methods/oidc/" class="md-nav__link">
         
   
@@ -1339,6 +1367,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#vaultrolejwtspec" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        VaultRoleJWTSpec
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#policyreference" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1555,6 +1594,256 @@
   
 
       </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_10" >
+        
+          
+          <label class="md-nav__link" for="__nav_10" id="__nav_10_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decisions
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_10_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_10">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Decisions
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0001-adapter-pattern-for-cluster-scoped-types/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ADR 0001 — Adapter pattern
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0002-template-method-base-reconciler/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ADR 0002 — Template Method base reconciler
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0003-two-level-drift-and-conflict-config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ADR 0003 — Two-level drift & conflict config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0004-event-bus-closure-capture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ADR 0004 — Event bus closure capture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0005-cleanup-failure-configmap-queue/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ADR 0005 — Cleanup ConfigMap queue
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0000-template/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Template
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
     </li>
   
 
@@ -2045,6 +2334,17 @@
     <span class="md-ellipsis">
       
         Spec Fields
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#vaultrolejwtspec" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        VaultRoleJWTSpec
       
     </span>
   </a>
@@ -3422,7 +3722,7 @@
 <td>string</td>
 <td>No</td>
 <td>From connection</td>
-<td>Kubernetes auth mount path</td>
+<td>Vault auth mount path (<code>auth/kubernetes/*</code> or <code>auth/jwt/*</code>)</td>
 </tr>
 <tr>
 <td><code>conflictPolicy</code></td>
@@ -3452,8 +3752,73 @@
 <td>Vault default</td>
 <td>Maximum token TTL</td>
 </tr>
+<tr>
+<td><code>jwt</code></td>
+<td>VaultRoleJWTSpec</td>
+<td>No</td>
+<td>-</td>
+<td>JWT-auth-specific overrides (only when <code>authPath</code> targets <code>auth/jwt/*</code>)</td>
+</tr>
 </tbody>
 </table>
+<h3 id="vaultrolejwtspec">VaultRoleJWTSpec<a class="headerlink" href="#vaultrolejwtspec" title="Permanent link">&para;</a></h3>
+<p>Optional sub-object on <code>VaultRole</code> / <code>VaultClusterRole</code>. Used when <code>authPath</code> targets a JWT auth mount (e.g. <code>auth/jwt</code>, <code>auth/jwt-gitlab</code>). All fields are optional — defaults are derived from <code>serviceAccounts</code> and the referenced <code>VaultConnection</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>userClaim</code></td>
+<td>string</td>
+<td><code>sub</code></td>
+<td>JWT claim to read as the Vault entity alias</td>
+</tr>
+<tr>
+<td><code>boundAudiences</code></td>
+<td>[]string</td>
+<td>From connection or <code>["https://kubernetes.default.svc.cluster.local"]</code></td>
+<td>Required <code>aud</code> values</td>
+</tr>
+<tr>
+<td><code>boundSubject</code></td>
+<td>string</td>
+<td><code>system:serviceaccount:&lt;ns&gt;:&lt;sa&gt;</code></td>
+<td>Exact <code>sub</code> claim match. Mutually exclusive with <code>boundClaims*</code></td>
+</tr>
+<tr>
+<td><code>boundClaims</code></td>
+<td>map[string]string</td>
+<td>-</td>
+<td><strong>Deprecated.</strong> Scalar claim restrictions. Use <code>boundClaimsList</code> for new specs</td>
+</tr>
+<tr>
+<td><code>boundClaimsList</code></td>
+<td>map[string][]string</td>
+<td>-</td>
+<td>Multi-value claim restrictions, e.g. <code>ref: ["main","develop"]</code>. Mutually exclusive with <code>boundSubject</code></td>
+</tr>
+<tr>
+<td><code>boundClaimsType</code></td>
+<td>string (<code>string</code> | <code>glob</code>)</td>
+<td><code>string</code></td>
+<td>Match mode for all keys in bound_claims. <code>glob</code> enables shell-style wildcards</td>
+</tr>
+<tr>
+<td><code>roleType</code></td>
+<td>string (<code>jwt</code>)</td>
+<td><code>jwt</code></td>
+<td>Vault JWT role type</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Webhook warnings (non-blocking)</strong> fire when <code>ref</code> is bound without <code>ref_type</code> (tag-spoof guard) or <code>ref_protected</code> (unprotected-namesake guard), when <code>boundClaimsType</code> is set with no claims, and when a key appears in both <code>boundClaims</code> and <code>boundClaimsList</code>.</p>
+<p>See <a href="../auth-methods/jwt-gitlab/">JWT for GitLab CI</a> for an end-to-end example.</p>
 <h3 id="policyreference">PolicyReference<a class="headerlink" href="#policyreference" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
@@ -3579,7 +3944,7 @@
 <td>string</td>
 <td>No</td>
 <td>From connection</td>
-<td>Kubernetes auth mount path</td>
+<td>Vault auth mount path (<code>auth/kubernetes/*</code> or <code>auth/jwt/*</code>)</td>
 </tr>
 <tr>
 <td><code>conflictPolicy</code></td>
@@ -3608,6 +3973,13 @@
 <td>No</td>
 <td>Vault default</td>
 <td>Maximum token TTL</td>
+</tr>
+<tr>
+<td><code>jwt</code></td>
+<td>VaultRoleJWTSpec</td>
+<td>No</td>
+<td>-</td>
+<td>JWT-auth-specific overrides — same fields as <a href="#vaultrolejwtspec">VaultRole.spec.jwt</a></td>
 </tr>
 </tbody>
 </table>
