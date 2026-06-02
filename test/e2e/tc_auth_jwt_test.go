@@ -303,6 +303,173 @@ path "sys/policies/acl/*" {
 			})
 		})
 
+		// TC-AU07: JWT auth via OIDC discovery (external Vault → control plane).
+		// This is how EKS/IRSA and self-managed JWT auth work: the SA-token
+		// issuer is a network-reachable OIDC URL, and Vault validates tokens by
+		// fetching the JWKS from the issuer's discovery endpoint at login time —
+		// rather than being handed static public keys out of band.
+		// The local stack models this with an EXTERNAL Vault and the in-cluster
+		// issuer https://kubernetes.default.svc: the k8s-svc-proxy container
+		// (443 → k3s:6443 passthrough, see docker-compose.e2e.yaml) plays the
+		// role of the real kubernetes.default.svc Service, and anonymous
+		// discovery is granted by vault-rbac.yaml. The same mechanism covers the
+		// EKS public-OIDC-URL style — only the issuer host differs. These tests
+		// fail loudly if the config silently fell back to static JWKS.
+		Context("TC-AU07: JWT auth via OIDC discovery "+
+			"(external Vault)", Ordered, func() {
+			const (
+				discoverySAName   = "tc-au07-discovery-sa"
+				discoveryRoleName = "tc-au07-discovery-role"
+			)
+
+			ctx := context.Background()
+
+			BeforeAll(func() {
+				checkOIDCDiscoveryAvailable(ctx)
+
+				By("creating service account for " +
+					"discovery tests")
+				_ = utils.CreateServiceAccount(
+					ctx, testNamespace, discoverySAName,
+				)
+
+				By("ensuring JWT auth is enabled")
+				vaultClient, err :=
+					utils.GetTestVaultClient()
+				Expect(err).NotTo(HaveOccurred())
+				err = vaultClient.EnableAuth(
+					ctx, "jwt", "jwt",
+				)
+				if err != nil &&
+					!strings.Contains(
+						err.Error(), "already in use",
+					) {
+					Fail(fmt.Sprintf(
+						"Failed to enable JWT auth: %v",
+						err,
+					))
+				}
+
+				By("configuring auth/jwt via OIDC " +
+					"discovery against the k3s issuer")
+				// Prefers oidc_discovery_url; only falls
+				// back to static JWKS if discovery is
+				// unreachable. With a reachable issuer it
+				// must take the discovery path —
+				// TC-AU07-01 asserts that.
+				Expect(
+					configureJWTAuthAtPath("auth/jwt"),
+				).To(Succeed())
+			})
+
+			AfterAll(func() {
+				By("cleaning up TC-AU07 test resources")
+				_ = utils.DeleteServiceAccount(
+					ctx, testNamespace, discoverySAName,
+				)
+				vaultClient, err :=
+					utils.GetTestVaultClient()
+				if err == nil {
+					_ = vaultClient.DeleteAuthRole(
+						ctx, "jwt", fmt.Sprintf(
+							"%s-%s", testNamespace,
+							discoveryRoleName,
+						),
+					)
+				}
+			})
+
+			It("TC-AU07-01: auth/jwt must use OIDC "+
+				"discovery, not static JWKS", func() {
+				vaultClient, err :=
+					utils.GetTestVaultClient()
+				Expect(err).NotTo(HaveOccurred())
+
+				By("reading auth/jwt/config")
+				cfg, err := vaultClient.Read(
+					ctx, "auth/jwt/config",
+				)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(cfg).NotTo(BeNil())
+				Expect(cfg.Data).NotTo(BeNil())
+
+				By("asserting oidc_discovery_url is set " +
+					"(discovery active)")
+				discoveryURL, _ := cfg.Data["oidc_discovery_url"].(string)
+				Expect(discoveryURL).NotTo(BeEmpty(),
+					"auth/jwt must use "+
+						"oidc_discovery_url "+
+						"(EKS-faithful), not the "+
+						"static-JWKS fallback")
+
+				By("asserting no static " +
+					"jwt_validation_pubkeys")
+				if keys, ok := cfg.Data["jwt_validation_pubkeys"].([]interface{}); ok {
+					Expect(keys).To(BeEmpty(),
+						"static pubkeys present "+
+							"means discovery "+
+							"fell back")
+				}
+			})
+
+			It("TC-AU07-02: should authenticate a real "+
+				"K8s SA token verified via JWKS "+
+				"discovery", func() {
+				vaultClient, err :=
+					utils.GetTestVaultClient()
+				Expect(err).NotTo(HaveOccurred())
+
+				roleName := fmt.Sprintf(
+					"%s-%s", testNamespace,
+					discoveryRoleName,
+				)
+				By("creating a JWT role bound to the " +
+					"test SA subject")
+				err = vaultClient.WriteAuthRole(
+					ctx, "jwt", roleName,
+					map[string]interface{}{
+						"role_type": "jwt",
+						"bound_audiences": []string{
+							"https://kubernetes." +
+								"default.svc." +
+								"cluster.local",
+						},
+						"bound_subject": fmt.Sprintf(
+							"system:serviceaccount:"+
+								"%s:%s",
+							testNamespace,
+							discoverySAName,
+						),
+						"user_claim": "sub",
+						"policies":   "default",
+						"ttl":        "5m",
+					},
+				)
+				Expect(err).NotTo(HaveOccurred())
+
+				By("minting a real K8s service " +
+					"account token")
+				saToken, err :=
+					utils.CreateServiceAccountTokenClientGo(
+						ctx, testNamespace,
+						discoverySAName,
+					)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(saToken).NotTo(BeEmpty())
+
+				By("logging in — Vault must fetch JWKS " +
+					"from the issuer to verify the " +
+					"token signature")
+				clientToken, err := vaultClient.LoginJWT(
+					ctx, "jwt", roleName, saToken,
+				)
+				Expect(err).NotTo(HaveOccurred(),
+					"login via discovery-based JWKS "+
+						"validation should succeed")
+				Expect(clientToken).NotTo(BeEmpty())
+			})
+		})
+
 		// TC-AU05: OIDC-style JWT Authentication
 		Context("TC-AU05: OIDC with Kubernetes built-in "+
 			"OIDC issuer", Ordered, func() {

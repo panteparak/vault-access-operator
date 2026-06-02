@@ -269,16 +269,27 @@ e2e-configure-vault: ## Configure Vault auth methods and policies for E2E
 		policies=vault-access-operator \
 		ttl=1h
 	@echo "Operator role created"
-	@echo "Configuring JWT auth..."
-	@# External Vault can't reach k3s JWKS endpoint due to TLS issues
-	@# Convert JWKS to PEM and provide directly via jwt_validation_pubkeys
-	@JWKS=$$($(E2E_KUBECTL) get --raw /openid/v1/jwks); \
+	@echo "Configuring JWT auth (OIDC discovery against the in-cluster issuer)..."
+	@# Models a self-managed cluster + EXTERNAL Vault: the SA-token issuer is the
+	@# in-cluster service name https://kubernetes.default.svc (set via
+	@# --service-account-issuer in docker-compose.e2e.yaml). Vault validates by
+	@# fetching /.well-known/openid-configuration + /openid/v1/jwks from the issuer
+	@# — exactly as it would against an EKS/self-managed OIDC provider — instead of
+	@# being handed static public keys. The issuer host resolves to the k8s-svc-proxy
+	@# (443 → k3s:6443 passthrough, mirroring the real kubernetes.default.svc Service);
+	@# anonymous discovery is granted by the system:service-account-issuer-discovery
+	@# binding in vault-rbac.yaml; Vault trusts the k3s TLS cert via oidc_discovery_ca_pem.
+	@# (To model the EKS public-OIDC-URL style instead, point --service-account-issuer
+	@# at a reachable hostname like https://k3s:6443 — same mechanism, different host.)
+	@K8S_CA=$$($(E2E_KUBECTL) config view --raw --minify -o jsonpath='{.clusters[0].cluster.certificate-authority-data}' | base64 -d); \
 	ISSUER=$$($(E2E_KUBECTL) get --raw /.well-known/openid-configuration | jq -r '.issuer'); \
-	PEM=$$(echo "$$JWKS" | python3 hack/jwk-to-pem.py); \
-	$(E2E_VAULT_EXEC) write auth/jwt/config \
-		jwt_validation_pubkeys="$$PEM" \
-		bound_issuer="$$ISSUER"
-	@echo "JWT auth configured with static public key"
+	jq -n \
+		--arg url "$$ISSUER" \
+		--arg ca "$$K8S_CA" \
+		--arg issuer "$$ISSUER" \
+		'{oidc_discovery_url: $$url, oidc_discovery_ca_pem: $$ca, bound_issuer: $$issuer}' | \
+	$(E2E_VAULT_EXEC) write auth/jwt/config -
+	@echo "JWT auth configured with OIDC discovery (issuer=$$($(E2E_KUBECTL) get --raw /.well-known/openid-configuration | jq -r '.issuer'))"
 	@echo "Configuring OIDC auth with Dex..."
 	@# Dex has docker network alias dex.default.svc.cluster.local — Vault resolves it via docker DNS
 	@$(E2E_VAULT_EXEC) write auth/oidc/config \

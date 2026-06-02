@@ -18,8 +18,11 @@ services:
       --disable=servicelb
       --disable=metrics-server
       --kube-apiserver-arg=service-account-issuer=https://kubernetes.default.svc
+      --kube-apiserver-arg=service-account-jwks-uri=https://kubernetes.default.svc/openid/v1/jwks
+      --kube-apiserver-arg=api-audiences=https://kubernetes.default.svc.cluster.local,https://kubernetes.default.svc
       --kube-apiserver-arg=anonymous-auth=true
       --tls-san=k3s
+      --tls-san=kubernetes.default.svc
       --tls-san=localhost
       --tls-san=127.0.0.1
       --write-kubeconfig=/output/kubeconfig.yaml
@@ -37,6 +40,24 @@ services:
       - vao-e2e-net
     environment:
       - K3S_TOKEN=e2e-local-token
+
+  # In-cluster Service analog: a raw TCP passthrough that makes the control
+  # plane reachable at `https://kubernetes.default.svc` (port 443) for the
+  # EXTERNAL Vault container — exactly how a real cluster exposes the API via
+  # the `kubernetes.default.svc:443` Service → kube-proxy → apiserver(:6443).
+  # The apiserver itself stays on 6443 (all API access + TokenReview unchanged);
+  # only OIDC discovery + JWKS for the JWT issuer flow through here. TLS is
+  # end-to-end: k3s presents its serving cert (SAN includes kubernetes.default.svc)
+  # and Vault verifies it against the k3s CA — socat just shuffles bytes.
+  k8s-svc-proxy:
+    image: alpine/socat:1.8.0.0
+    command: ["TCP-LISTEN:443,fork,reuseaddr", "TCP:k3s:6443"]
+    networks:
+      vao-e2e-net:
+        aliases:
+          - kubernetes.default.svc
+    depends_on:
+      - k3s
 
   vault:
     image: hashicorp/vault:1.21.2
