@@ -146,7 +146,7 @@ func TestTransientError(t *testing.T) {
 
 func TestNotFoundError(t *testing.T) {
 	t.Run("namespaced resource", func(t *testing.T) {
-		err := NewNotFoundError("VaultPolicy", "my-policy", "default")
+		err := &NotFoundError{ResourceType: "VaultPolicy", ResourceName: "my-policy", Namespace: "default"}
 		expected := "VaultPolicy default/my-policy not found"
 		if err.Error() != expected {
 			t.Errorf("got %q, want %q", err.Error(), expected)
@@ -154,7 +154,7 @@ func TestNotFoundError(t *testing.T) {
 	})
 
 	t.Run("cluster-scoped resource", func(t *testing.T) {
-		err := NewNotFoundError("VaultConnection", "vault-conn", "")
+		err := &NotFoundError{ResourceType: "VaultConnection", ResourceName: "vault-conn"}
 		expected := "VaultConnection vault-conn not found"
 		if err.Error() != expected {
 			t.Errorf("got %q, want %q", err.Error(), expected)
@@ -162,7 +162,7 @@ func TestNotFoundError(t *testing.T) {
 	})
 
 	t.Run("IsNotFoundError", func(t *testing.T) {
-		notFoundErr := NewNotFoundError("VaultPolicy", "test", "default")
+		notFoundErr := &NotFoundError{ResourceType: "VaultPolicy", ResourceName: "test", Namespace: "default"}
 		wrappedErr := fmt.Errorf("failed: %w", notFoundErr)
 
 		if !IsNotFoundError(notFoundErr) {
@@ -182,7 +182,7 @@ func TestNotFoundError(t *testing.T) {
 func TestConnectionError(t *testing.T) {
 	t.Run("with cause", func(t *testing.T) {
 		cause := errors.New("TLS handshake failed")
-		err := NewConnectionError("vault-conn", "https://vault:8200", cause)
+		err := &ConnectionError{ConnectionName: "vault-conn", Address: "https://vault:8200", Cause: cause}
 		expected := `connection "vault-conn" to https://vault:8200 failed: TLS handshake failed`
 		if err.Error() != expected {
 			t.Errorf("got %q, want %q", err.Error(), expected)
@@ -199,7 +199,7 @@ func TestConnectionError(t *testing.T) {
 
 	t.Run("Unwrap", func(t *testing.T) {
 		cause := errors.New("connection refused")
-		err := NewConnectionError("conn", "https://vault:8200", cause)
+		err := &ConnectionError{ConnectionName: "conn", Address: "https://vault:8200", Cause: cause}
 
 		if !errors.Is(err, cause) {
 			t.Error("expected errors.Is to match underlying cause")
@@ -207,7 +207,7 @@ func TestConnectionError(t *testing.T) {
 	})
 
 	t.Run("IsConnectionError", func(t *testing.T) {
-		connErr := NewConnectionError("conn", "addr", nil)
+		connErr := &ConnectionError{ConnectionName: "conn", Address: "addr"}
 		wrappedErr := fmt.Errorf("failed: %w", connErr)
 
 		if !IsConnectionError(connErr) {
@@ -257,8 +257,8 @@ func TestErrorTypeChecking(t *testing.T) {
 		NewConflictError("policy", "test", ""),
 		NewValidationError("field", "value", "invalid"),
 		NewTransientError("operation", nil),
-		NewNotFoundError("VaultPolicy", "test", "default"),
-		NewConnectionError("conn", "addr", nil),
+		&NotFoundError{ResourceType: "VaultPolicy", ResourceName: "test", Namespace: "default"},
+		&ConnectionError{ConnectionName: "conn", Address: "addr"},
 		NewDependencyError("resource", "dep", "name", "reason"),
 	}
 

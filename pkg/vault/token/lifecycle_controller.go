@@ -55,14 +55,29 @@ type EventPublisher interface {
 	Publish(ctx context.Context, event interface{}) error
 }
 
+// LifecycleControllerOption configures a LifecycleController at construction.
+type LifecycleControllerOption func(*lifecycleControllerImpl)
+
+// WithLifecycleCheckInterval overrides how often the background loop checks for
+// due renewals. Primarily for tests that need a sub-second cadence; production
+// uses the 30s default. Non-positive values are ignored.
+func WithLifecycleCheckInterval(d time.Duration) LifecycleControllerOption {
+	return func(c *lifecycleControllerImpl) {
+		if d > 0 {
+			c.checkInterval = d
+		}
+	}
+}
+
 // NewLifecycleController creates a new LifecycleController.
 func NewLifecycleController(
 	provider TokenProvider,
 	authenticator VaultAuthenticator,
 	eventBus EventPublisher,
 	log logr.Logger,
+	opts ...LifecycleControllerOption,
 ) LifecycleController {
-	return &lifecycleControllerImpl{
+	c := &lifecycleControllerImpl{
 		provider:      provider,
 		authenticator: authenticator,
 		eventBus:      eventBus,
@@ -70,7 +85,16 @@ func NewLifecycleController(
 		connections:   make(map[string]*connectionState),
 		checkInterval: 30 * time.Second, // Check every 30 seconds
 	}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
 }
+
+// NeedsLeaderElection makes the renewal loop leader-gated so only one operator
+// replica renews tokens (mirrors pkg/cleanup and pkg/orphan controllers).
+// Implements sigs.k8s.io/controller-runtime/pkg/manager.LeaderElectionRunnable.
+func (c *lifecycleControllerImpl) NeedsLeaderElection() bool { return true }
 
 // Start begins the background renewal loop.
 func (c *lifecycleControllerImpl) Start(ctx context.Context) error {

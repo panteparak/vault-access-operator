@@ -137,15 +137,6 @@ func (e *NotFoundError) Error() string {
 	return fmt.Sprintf("%s %s not found", e.ResourceType, e.ResourceName)
 }
 
-// NewNotFoundError creates a NotFoundError.
-func NewNotFoundError(resourceType, name, namespace string) *NotFoundError {
-	return &NotFoundError{
-		ResourceType: resourceType,
-		ResourceName: name,
-		Namespace:    namespace,
-	}
-}
-
 // IsNotFoundError returns true if the error is a NotFoundError.
 func IsNotFoundError(err error) bool {
 	var notFoundErr *NotFoundError
@@ -169,15 +160,6 @@ func (e *ConnectionError) Error() string {
 // Unwrap returns the underlying cause for errors.As/Is support.
 func (e *ConnectionError) Unwrap() error {
 	return e.Cause
-}
-
-// NewConnectionError creates a ConnectionError.
-func NewConnectionError(connName, address string, cause error) *ConnectionError {
-	return &ConnectionError{
-		ConnectionName: connName,
-		Address:        address,
-		Cause:          cause,
-	}
 }
 
 // IsConnectionError returns true if the error is a ConnectionError.

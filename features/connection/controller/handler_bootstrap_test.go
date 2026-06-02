@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/go-logr/logr"
@@ -387,5 +388,73 @@ func TestRunBootstrap_SetsBootstrappedCondition(t *testing.T) {
 				t.Errorf("Bootstrapped.Reason = %q, want %q", got.Reason, tc.wantReason)
 			}
 		})
+	}
+}
+
+// TestRunBootstrap_PartialFailure_RecordsSteps pins IMPROVEMENTS §10: when the
+// bootstrap manager fails midway it returns a partially-populated result, and
+// the handler records the completed steps into AuthStatus.BootstrapSteps before
+// surfacing the error — so a failed bootstrap is diagnosable rather than
+// leaving BootstrapSteps empty.
+func TestRunBootstrap_PartialFailure_RecordsSteps(t *testing.T) {
+	scheme := createScheme()
+	conn := &vaultv1alpha1.VaultConnection{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-conn", Namespace: "default", Generation: 1},
+		Spec: vaultv1alpha1.VaultConnectionSpec{
+			Address: "http://vault:8200",
+			Auth: vaultv1alpha1.AuthConfig{
+				Bootstrap: &vaultv1alpha1.BootstrapAuth{
+					SecretRef: vaultv1alpha1.SecretKeySelector{Name: "boot", Namespace: "default", Key: "token"},
+				},
+				Kubernetes: &vaultv1alpha1.KubernetesAuth{Role: "operator-role"},
+			},
+		},
+	}
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "boot", Namespace: "default"},
+		Data:       map[string][]byte{"token": []byte("bootstrap-token-value")},
+	}
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(conn, secret).
+		WithStatusSubresource(conn).
+		Build()
+
+	handler := NewHandler(HandlerConfig{
+		Client:      k8sClient,
+		ClientCache: vault.NewClientCache(),
+		EventBus:    events.NewEventBus(logr.Discard()),
+		Log:         logr.Discard(),
+	})
+	// Mount enabled + configured, but the create-role step failed.
+	handler.bootstrapMgr = &fakeBootstrapManager{
+		result: &bootstrap.Result{
+			AuthPath:          "auth/kubernetes",
+			AuthMethodCreated: true,
+			AuthConfigured:    true,
+		},
+		err: errors.New("failed to create operator role: vault: permission denied"),
+	}
+
+	ctx := logr.NewContext(context.Background(), logr.Discard())
+	err := handler.runBootstrap(ctx, conn)
+	if err == nil {
+		t.Fatal("expected error from a partial bootstrap failure")
+	}
+	if conn.Status.AuthStatus == nil {
+		t.Fatal("AuthStatus should be initialized on the failure path so steps are recorded")
+	}
+	steps := conn.Status.AuthStatus.BootstrapSteps
+	if steps["AuthMountEnabled"] == "" {
+		t.Error("AuthMountEnabled should be recorded — it completed before the failure")
+	}
+	if steps["AuthMountConfigured"] == "" {
+		t.Error("AuthMountConfigured should be recorded — it completed before the failure")
+	}
+	if _, ok := steps["OperatorRoleCreated"]; ok {
+		t.Error("OperatorRoleCreated should NOT be recorded — that step failed")
+	}
+	if conn.Status.AuthStatus.BootstrapComplete {
+		t.Error("BootstrapComplete should be false on a failed bootstrap")
 	}
 }

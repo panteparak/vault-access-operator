@@ -1049,12 +1049,27 @@ func TestClientTimeout(t *testing.T) {
 }
 
 func TestUpdateKubernetesAuthConfig(t *testing.T) {
-	var receivedPath string
-	var receivedBody map[string]interface{}
+	var writePath string
+	var writeBody map[string]interface{}
+	var readCount, writeCount int
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		receivedPath = r.URL.Path
-		if err := json.NewDecoder(r.Body).Decode(&receivedBody); err != nil {
+		if r.Method == http.MethodGet {
+			// Vault returns host + CA on read; token_reviewer_jwt is write-only.
+			readCount++
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"data": map[string]interface{}{
+					"kubernetes_host":      "https://k8s.example.com:6443",
+					"kubernetes_ca_cert":   "ca-cert-data",
+					"disable_local_ca_jwt": true,
+				},
+			})
+			return
+		}
+		writeCount++
+		writePath = r.URL.Path
+		if err := json.NewDecoder(r.Body).Decode(&writeBody); err != nil {
 			t.Errorf("Failed to decode request body: %v", err)
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -1067,24 +1082,32 @@ func TestUpdateKubernetesAuthConfig(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	err = client.UpdateKubernetesAuthConfig(ctx, "kubernetes", "new-jwt-token")
-	if err != nil {
+	if err = client.UpdateKubernetesAuthConfig(ctx, "kubernetes", "new-jwt-token"); err != nil {
 		t.Errorf("UpdateKubernetesAuthConfig() error = %v", err)
 	}
 
-	expectedPath := "/v1/auth/kubernetes/config"
-	if receivedPath != expectedPath {
-		t.Errorf("expected path %q, got %q", expectedPath, receivedPath)
+	if readCount != 1 {
+		t.Errorf("expected 1 read of the existing config, got %d", readCount)
+	}
+	if writeCount != 1 {
+		t.Errorf("expected 1 write, got %d", writeCount)
+	}
+	if writePath != "/v1/auth/kubernetes/config" {
+		t.Errorf("expected write path %q, got %q", "/v1/auth/kubernetes/config", writePath)
+	}
+	if jwt, _ := writeBody["token_reviewer_jwt"].(string); jwt != "new-jwt-token" {
+		t.Errorf("expected token_reviewer_jwt = %q, got %v", "new-jwt-token", writeBody["token_reviewer_jwt"])
 	}
 
-	jwt, ok := receivedBody["token_reviewer_jwt"].(string)
-	if !ok || jwt != "new-jwt-token" {
-		t.Errorf("expected token_reviewer_jwt = %q, got %v", "new-jwt-token", receivedBody["token_reviewer_jwt"])
+	// Regression guard for the bug the e2e auth suite surfaced: Vault's config
+	// write requires kubernetes_host ("no host provided" otherwise), so the
+	// refresh must re-supply the host/CA preserved from the read — it is NOT a
+	// merge-update.
+	if host, _ := writeBody["kubernetes_host"].(string); host != "https://k8s.example.com:6443" {
+		t.Errorf("expected kubernetes_host preserved from read, got %v", writeBody["kubernetes_host"])
 	}
-
-	// Verify only token_reviewer_jwt is sent (merge-update semantics)
-	if len(receivedBody) != 1 {
-		t.Errorf("expected only 1 field in body (token_reviewer_jwt), got %d: %v", len(receivedBody), receivedBody)
+	if ca, _ := writeBody["kubernetes_ca_cert"].(string); ca != "ca-cert-data" {
+		t.Errorf("expected kubernetes_ca_cert preserved from read, got %v", writeBody["kubernetes_ca_cert"])
 	}
 }
 

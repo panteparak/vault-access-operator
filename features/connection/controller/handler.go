@@ -216,6 +216,9 @@ func (h *Handler) Sync(ctx context.Context, conn *vaultv1alpha1.VaultConnection)
 		if renewed {
 			h.trackRenewal(conn)
 		}
+		// IMPROVEMENTS §1: enroll this connection in the leader-gated reviewer
+		// rotator so its token_reviewer_jwt is refreshed before expiry.
+		h.registerTokenReviewer(ctx, conn, vaultClient)
 	}
 
 	// Update status to Active
@@ -482,6 +485,16 @@ func (h *Handler) runBootstrap(ctx context.Context, conn *vaultv1alpha1.VaultCon
 	// Run bootstrap
 	result, err := h.bootstrapMgr.Bootstrap(ctx, vaultClient, bootstrapConfig)
 	if err != nil {
+		// IMPROVEMENTS §10: the manager returns a partially-populated result on
+		// failure. Record the steps that completed so a failed bootstrap is
+		// diagnosable via `kubectl get vaultconnection X -o yaml` instead of
+		// leaving BootstrapSteps empty.
+		if result != nil {
+			if conn.Status.AuthStatus == nil {
+				conn.Status.AuthStatus = &vaultv1alpha1.AuthStatus{}
+			}
+			conn.Status.AuthStatus.BootstrapSteps = bootstrapSteps(result, metav1.Now().UTC().Format(time.RFC3339))
+		}
 		return h.handleSyncError(ctx, conn, fmt.Errorf("bootstrap failed: %w", err))
 	}
 
@@ -510,41 +523,9 @@ func (h *Handler) runBootstrap(ctx context.Context, conn *vaultv1alpha1.VaultCon
 
 	// IMPROVEMENTS §10: record which individual bootstrap steps completed so
 	// operators inspecting `kubectl get vaultconnection X -o yaml` can see
-	// exactly what ran. Values are RFC3339 timestamps matching
-	// BootstrapCompletedAt. Useful for diagnosing partial-failure scenarios
-	// where the error path landed BEFORE the overall BootstrapComplete flag
-	// flipped — the map still records what did succeed.
-	nowStr := now.UTC().Format(time.RFC3339)
-	steps := map[string]string{}
-	if result.AuthMethodCreated {
-		steps["AuthMountEnabled"] = nowStr
-	}
-	// AuthMountConfigured always happens inside the bootstrap manager when
-	// AuthMethodCreated succeeds; treat them as paired.
-	if result.AuthMethodCreated {
-		steps["AuthMountConfigured"] = nowStr
-	}
-	// OperatorPolicyCreated is inside the bootstrap manager; we don't get a
-	// separate flag for it, so we infer success from RoleCreated (which
-	// follows the policy write).
-	if result.RoleCreated {
-		steps["OperatorPolicyCreated"] = nowStr
-		steps["OperatorRoleCreated"] = nowStr
-	}
-	if result.BootstrapRevoked {
-		steps["BootstrapTokenRevoked"] = nowStr
-	}
-	// Surface non-fatal bootstrap errors so they appear in
-	// `kubectl get vaultconnection X -o yaml` instead of being buried in
-	// pod logs. Keys end with "Failed" so they're distinguishable from
-	// timestamp-valued success steps; values are the formatted error.
-	if result.K8sAuthTestError != "" {
-		steps["K8sAuthTestFailed"] = "failed at " + nowStr + ": " + result.K8sAuthTestError
-	}
-	if result.BootstrapRevokeError != "" {
-		steps["BootstrapTokenRevokeFailed"] = "failed at " + nowStr + ": " + result.BootstrapRevokeError
-	}
-	conn.Status.AuthStatus.BootstrapSteps = steps
+	// exactly what ran. Shared with the partial-failure path above so a
+	// bootstrap that fails midway records the same way.
+	conn.Status.AuthStatus.BootstrapSteps = bootstrapSteps(result, now.UTC().Format(time.RFC3339))
 
 	if !result.TokenReviewerExpiration.IsZero() {
 		expTime := metav1.NewTime(result.TokenReviewerExpiration)
@@ -662,6 +643,72 @@ func (h *Handler) updateAuthStatus(conn *vaultv1alpha1.VaultConnection, vaultCli
 			"ManualManagement",
 			"Warning: TokenReviewerRotation is disabled. "+
 				"You must manually update token_reviewer_jwt in Vault before it expires.")
+	}
+}
+
+// registerTokenReviewer enrolls this connection in the leader-gated reviewer
+// rotator (IMPROVEMENTS §1) so the token_reviewer_jwt Vault uses to call the
+// Kubernetes TokenReview API is refreshed before it expires. Without this the
+// JWT expires (~24h after bootstrap configures it) and K8s auth silently breaks
+// on long-running operators.
+//
+// Called every reconcile but careful to register only once: the controller's
+// Register REPLACES per-connection state (resetting the refresh schedule), so
+// calling it each reconcile (every 30s) would keep wiping NextRefresh and the
+// background loop — which only fires when NextRefresh is set — would never run.
+// SetVaultClient is refreshed every reconcile because getOrRenewClient may have
+// produced a new *vault.Client for this connection. No-op when the controller
+// isn't configured (unit tests) or rotation is explicitly disabled.
+func (h *Handler) registerTokenReviewer(
+	ctx context.Context, conn *vaultv1alpha1.VaultConnection, vaultClient *vault.Client,
+) {
+	if h.reviewerCtrl == nil {
+		return
+	}
+	k8sAuth := conn.Spec.Auth.Kubernetes
+	if k8sAuth == nil {
+		return
+	}
+	log := logr.FromContextOrDiscard(ctx)
+
+	// Rotation enabled unless explicitly set false (mirrors the disabled warning
+	// in updateAuthStatus). If toggled off, drop any prior registration.
+	if k8sAuth.TokenReviewerRotation != nil && !*k8sAuth.TokenReviewerRotation {
+		h.reviewerCtrl.Unregister(conn.Name)
+		return
+	}
+
+	firstRegistration := h.reviewerCtrl.GetStatus(conn.Name) == nil
+	if firstRegistration {
+		authPath := k8sAuth.AuthPath
+		if authPath == "" {
+			authPath = defaultKubernetesAuthPath
+		}
+		if err := h.reviewerCtrl.Register(conn.Name, &token.ReviewerConfig{
+			ServiceAccount: token.ServiceAccountRef{
+				Name:      getOperatorServiceAccountName(),
+				Namespace: getOperatorNamespace(),
+			},
+			VaultAuthPath: authPath,
+		}); err != nil {
+			log.Error(err, "failed to register connection for token-reviewer rotation",
+				"connectionName", conn.Name)
+			return
+		}
+	}
+
+	// Always point the rotator at the current client — it may have been renewed
+	// or rebuilt since the previous reconcile.
+	h.reviewerCtrl.SetVaultClient(conn.Name, vaultClient)
+
+	// Prime the refresh schedule once: an initial Refresh sets NextRefresh so the
+	// background loop starts tracking this connection. Best-effort — on failure
+	// the controller still schedules a retry, and the next reconcile re-attempts.
+	if firstRegistration {
+		if err := h.reviewerCtrl.Refresh(ctx, conn.Name); err != nil {
+			log.V(1).Info("initial token_reviewer_jwt refresh failed; rotator will retry",
+				"connectionName", conn.Name, "error", err.Error())
+		}
 	}
 }
 
@@ -933,6 +980,39 @@ func classifyConnectionError(err error) string {
 		return vaultv1alpha1.ReasonNetworkError
 	}
 	return vaultv1alpha1.ReasonFailed
+}
+
+// bootstrapSteps maps a bootstrap.Result into the AuthStatus.BootstrapSteps
+// map (step name → RFC3339 timestamp, or an error string for the *Failed
+// keys). Shared by the success and partial-failure paths (IMPROVEMENTS §10)
+// so a bootstrap that fails midway records exactly the steps it completed
+// rather than leaving the map empty.
+func bootstrapSteps(result *bootstrap.Result, nowStr string) map[string]string {
+	steps := map[string]string{}
+	if result.AuthMethodCreated {
+		steps["AuthMountEnabled"] = nowStr
+	}
+	if result.AuthConfigured {
+		steps["AuthMountConfigured"] = nowStr
+	}
+	// OperatorPolicy is referenced by the role write rather than created as a
+	// distinct step, so RoleCreated implies both.
+	if result.RoleCreated {
+		steps["OperatorPolicyCreated"] = nowStr
+		steps["OperatorRoleCreated"] = nowStr
+	}
+	if result.BootstrapRevoked {
+		steps["BootstrapTokenRevoked"] = nowStr
+	}
+	// *Failed keys carry the error text (not a timestamp) so they're
+	// distinguishable from completed steps.
+	if result.K8sAuthTestError != "" {
+		steps["K8sAuthTestFailed"] = "failed at " + nowStr + ": " + result.K8sAuthTestError
+	}
+	if result.BootstrapRevokeError != "" {
+		steps["BootstrapTokenRevokeFailed"] = "failed at " + nowStr + ": " + result.BootstrapRevokeError
+	}
+	return steps
 }
 
 // buildAndAuthenticateClient creates and authenticates a Vault client.

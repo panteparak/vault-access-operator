@@ -213,7 +213,11 @@ func TestHandle_NotFoundError(t *testing.T) {
 	// NotFoundError also falls through to generic "Failed" case.
 	target := newMockTarget()
 	k8sClient := newFakeClient()
-	notFoundErr := infraerrors.NewNotFoundError("VaultPolicy", "missing-policy", "default")
+	notFoundErr := &infraerrors.NotFoundError{
+		ResourceType: "VaultPolicy",
+		ResourceName: "missing-policy",
+		Namespace:    "default",
+	}
 
 	ctx := context.Background()
 	_ = k8sClient.Create(ctx, target.object.DeepCopyObject().(client.Object))
@@ -238,7 +242,11 @@ func TestHandle_NotFoundError(t *testing.T) {
 func TestHandle_ConnectionError(t *testing.T) {
 	target := newMockTarget()
 	k8sClient := newFakeClient()
-	connErr := infraerrors.NewConnectionError("vault-conn", "https://vault:8200", errors.New("TLS failed"))
+	connErr := &infraerrors.ConnectionError{
+		ConnectionName: "vault-conn",
+		Address:        "https://vault:8200",
+		Cause:          errors.New("TLS failed"),
+	}
 
 	ctx := context.Background()
 	_ = k8sClient.Create(ctx, target.object.DeepCopyObject().(client.Object))

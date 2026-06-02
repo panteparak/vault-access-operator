@@ -44,6 +44,11 @@ import (
 type Reconciler struct {
 	base    *base.BaseReconciler[*vaultv1alpha1.VaultConnection]
 	handler *Handler
+
+	// ReviewerController rotates the K8s-auth token_reviewer_jwt. Exposed so the
+	// feature can register it with the manager (leader-gated). Nil when no
+	// K8sClientset is configured (e.g. some unit tests).
+	ReviewerController token.TokenReviewerController
 }
 
 // ReconcilerConfig contains all configuration for creating a Reconciler.
@@ -64,9 +69,17 @@ func NewReconciler(cfg ReconcilerConfig) *Reconciler {
 	// Create token provider (uses TokenRequest API)
 	var tokenProvider token.TokenProvider
 	var clusterDiscovery bootstrap.K8sClusterDiscovery
+	var reviewerCtrl token.TokenReviewerController
 	if cfg.K8sClientset != nil {
 		tokenProvider = token.NewTokenRequestProvider(cfg.K8sClientset, log.WithName("token-provider"))
 		clusterDiscovery = bootstrap.NewInClusterDiscovery(log)
+		// Reviewer rotator (IMPROVEMENTS §1): keeps the K8s-auth
+		// token_reviewer_jwt fresh so Vault can keep calling the TokenReview API
+		// after the initial JWT expires. The feature registers it with the
+		// manager (leader-gated, see Feature.ReviewerController); the handler
+		// drives it per-connection (Register/SetVaultClient/Refresh).
+		reviewerCtrl = token.NewTokenReviewerController(
+			tokenProvider, eventBusPublisher{bus: cfg.EventBus}, log.WithName("reviewer-controller"))
 	}
 
 	// Create the feature handler with all dependencies
@@ -77,6 +90,7 @@ func NewReconciler(cfg ReconcilerConfig) *Reconciler {
 		K8sClientset:     cfg.K8sClientset,
 		TokenProvider:    tokenProvider,
 		ClusterDiscovery: clusterDiscovery,
+		ReviewerCtrl:     reviewerCtrl,
 		Log:              log.WithName("handler"),
 		Recorder:         cfg.Recorder,
 	})
@@ -97,8 +111,9 @@ func NewReconciler(cfg ReconcilerConfig) *Reconciler {
 		WithRequeueOnError(30 * time.Second)
 
 	return &Reconciler{
-		base:    baseReconciler,
-		handler: handler,
+		base:               baseReconciler,
+		handler:            handler,
+		ReviewerController: reviewerCtrl,
 	}
 }
 

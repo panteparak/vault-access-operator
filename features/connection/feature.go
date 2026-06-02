@@ -32,6 +32,7 @@ import (
 
 	"github.com/panteparak/vault-access-operator/features/connection/controller"
 	"github.com/panteparak/vault-access-operator/pkg/vault"
+	"github.com/panteparak/vault-access-operator/pkg/vault/token"
 	"github.com/panteparak/vault-access-operator/shared/events"
 )
 
@@ -43,6 +44,11 @@ type Feature struct {
 
 	// ClientCache provides cached Vault clients to other features
 	ClientCache *vault.ClientCache
+
+	// ReviewerController rotates the K8s-auth token_reviewer_jwt. Surfaced so
+	// main.go can register it with the manager (leader-gated). May be nil when
+	// no K8sClientset is configured.
+	ReviewerController token.TokenReviewerController
 
 	// EventBus for publishing connection events
 	eventBus *events.EventBus
@@ -80,10 +86,11 @@ func New(cfg Config) *Feature {
 	})
 
 	return &Feature{
-		Reconciler:  reconciler,
-		ClientCache: clientCache,
-		eventBus:    cfg.EventBus,
-		log:         featureLog,
+		Reconciler:         reconciler,
+		ClientCache:        clientCache,
+		ReviewerController: reconciler.ReviewerController,
+		eventBus:           cfg.EventBus,
+		log:                featureLog,
 	}
 }
 

@@ -47,20 +47,44 @@ type reviewerState struct {
 	status      *TokenReviewerStatus
 }
 
+// ReviewerControllerOption configures a TokenReviewerController at construction.
+type ReviewerControllerOption func(*reviewerControllerImpl)
+
+// WithReviewerCheckInterval overrides how often the background loop checks for
+// due refreshes. Primarily for tests that need a sub-second cadence; production
+// uses the 60s default. Non-positive values are ignored.
+func WithReviewerCheckInterval(d time.Duration) ReviewerControllerOption {
+	return func(c *reviewerControllerImpl) {
+		if d > 0 {
+			c.checkInterval = d
+		}
+	}
+}
+
 // NewTokenReviewerController creates a new TokenReviewerController.
 func NewTokenReviewerController(
 	provider TokenProvider,
 	eventBus EventPublisher,
 	log logr.Logger,
+	opts ...ReviewerControllerOption,
 ) TokenReviewerController {
-	return &reviewerControllerImpl{
+	c := &reviewerControllerImpl{
 		provider:      provider,
 		eventBus:      eventBus,
 		log:           log.WithName("reviewer-controller"),
 		connections:   make(map[string]*reviewerState),
 		checkInterval: 60 * time.Second, // Check every minute
 	}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
 }
+
+// NeedsLeaderElection makes the refresh loop leader-gated so only one operator
+// replica rotates the token_reviewer_jwt (mirrors pkg/cleanup and pkg/orphan).
+// Implements sigs.k8s.io/controller-runtime/pkg/manager.LeaderElectionRunnable.
+func (c *reviewerControllerImpl) NeedsLeaderElection() bool { return true }
 
 // Start begins the background refresh loop.
 func (c *reviewerControllerImpl) Start(ctx context.Context) error {

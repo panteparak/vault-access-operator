@@ -125,7 +125,7 @@ func TestClassifyConnectionError(t *testing.T) {
 		},
 		{
 			name: "ConnectionError → NetworkError",
-			err:  infraerrors.NewConnectionError("c", "addr", errors.New("dial timeout")),
+			err:  &infraerrors.ConnectionError{ConnectionName: "c", Address: "addr", Cause: errors.New("dial timeout")},
 			want: vaultv1alpha1.ReasonNetworkError,
 		},
 		{

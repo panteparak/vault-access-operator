@@ -322,6 +322,19 @@ func main() {
 	}
 	setupLog.Info("Setup Connection feature")
 
+	// Register the token reviewer rotator (IMPROVEMENTS §1). It refreshes each
+	// connection's token_reviewer_jwt before it expires so Vault can keep calling
+	// the Kubernetes TokenReview API on long-running deployments (without it,
+	// K8s auth silently breaks ~1h after the mount is configured). Leader-gated
+	// so only one replica rotates. Nil when no K8sClientset is configured.
+	if connFeature.ReviewerController != nil {
+		if err := mgr.Add(connFeature.ReviewerController); err != nil {
+			setupLog.Error(err, "unable to register token reviewer controller with manager")
+			os.Exit(1)
+		}
+		setupLog.Info("Registered token reviewer controller (leader-gated)")
+	}
+
 	// Policy feature manages VaultPolicy and VaultClusterPolicy resources
 	policyFeature := policy.New(
 		eventBus,
