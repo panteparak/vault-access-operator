@@ -851,14 +851,21 @@ func (h *Handler) Cleanup(ctx context.Context, conn *vaultv1alpha1.VaultConnecti
 		}
 	}
 
-	// Revoke operator token before losing the reference (best-effort)
-	if cachedClient, err := h.clientCache.Get(conn.Name); err == nil && cachedClient.IsAuthenticated() {
-		revokeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		defer cancel()
-		if err := cachedClient.RevokeSelf(revokeCtx); err != nil {
-			log.V(1).Info("failed to revoke Vault token (non-fatal)", "error", err)
-		} else {
-			log.Info("revoked Vault token for deleted connection")
+	// Revoke operator token before losing the reference (best-effort).
+	// Skip for TokenAuth: the token is supplied by the user via Secret,
+	// so the user owns its lifecycle. Revoking it would kill every other
+	// VaultConnection (and any non-operator caller) that shares the same
+	// Secret — see e2e flake where TC-EDGE-REC's sidecar VaultConnection
+	// poisoned the shared operator token used by every later suite.
+	if conn.Spec.Auth.Token == nil {
+		if cachedClient, err := h.clientCache.Get(conn.Name); err == nil && cachedClient.IsAuthenticated() {
+			revokeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
+			if err := cachedClient.RevokeSelf(revokeCtx); err != nil {
+				log.V(1).Info("failed to revoke Vault token (non-fatal)", "error", err)
+			} else {
+				log.Info("revoked Vault token for deleted connection")
+			}
 		}
 	}
 
@@ -1058,36 +1065,79 @@ const renewalThreshold = 0.75
 
 // getOrRenewClient tries to reuse a cached Vault client, renewing if needed.
 // Returns the client, whether a renewal occurred, and any error.
+//
+// The function bridges three sources of "the cached client is no longer
+// good":
+//
+//  1. The auth source (referenced Secret content, role name, etc.)
+//     changed since the cache was populated — `computeAuthSourceHash`
+//     detects this and forces a rebuild. This is how Secret rotation
+//     propagates; without it, the TTL-based reuse path keeps serving
+//     the stale credentials until the original TTL elapses.
+//  2. The token TTL is about to elapse — the existing renew/re-auth
+//     branch handles this.
+//  3. The token was revoked Vault-side out of band — `LookupSelf` is
+//     an authenticated round-trip that returns 403 in that case, so
+//     we evict and re-auth instead of returning a client that will
+//     fail on first use in downstream controllers (policy/role).
 func (h *Handler) getOrRenewClient(
 	ctx context.Context,
 	conn *vaultv1alpha1.VaultConnection,
 ) (*vault.Client, bool, error) {
 	log := logr.FromContextOrDiscard(ctx)
 
-	// Try to reuse the cached client
+	// Fingerprint the live auth source. Failure here is fatal — without
+	// the source we can't authenticate at all, and returning a stale
+	// cached client would just defer the same error to a worse caller.
+	currentHash, hashErr := h.computeAuthSourceHash(ctx, conn)
+	if hashErr != nil {
+		return nil, false, fmt.Errorf("compute auth source hash: %w", hashErr)
+	}
+
 	cachedClient, cacheErr := h.clientCache.Get(conn.Name)
-	if cacheErr == nil && cachedClient != nil && cachedClient.IsAuthenticated() {
-		// Verify the cached client points to the same Vault address
-		if cachedClient.Address() == conn.Spec.Address {
-			exp := cachedClient.TokenExpiration()
-			ttl := cachedClient.TokenTTL()
+	hadCached := cacheErr == nil && cachedClient != nil && cachedClient.IsAuthenticated()
 
-			if !exp.IsZero() && ttl > 0 {
-				remaining := time.Until(exp)
+	// Source drift forces a rebuild before any TTL/lookup checks — the
+	// cached token was minted from material we no longer hold.
+	if hadCached && cachedClient.AuthSourceHash() != currentHash {
+		log.Info("auth source changed since cached client was built; evicting",
+			"connectionName", conn.Name)
+		h.clientCache.Delete(conn.Name)
+		hadCached = false
+	}
 
-				if remaining > 0 {
-					// Token hasn't expired yet
-					threshold := time.Duration(float64(ttl) * (1 - renewalThreshold))
+	if hadCached && cachedClient.Address() == conn.Spec.Address {
+		exp := cachedClient.TokenExpiration()
+		ttl := cachedClient.TokenTTL()
 
-					if remaining > threshold {
-						// Token still fresh, reuse without renewal
+		if !exp.IsZero() && ttl > 0 {
+			remaining := time.Until(exp)
+
+			if remaining > 0 {
+				// Token hasn't expired yet
+				threshold := time.Duration(float64(ttl) * (1 - renewalThreshold))
+
+				if remaining > threshold {
+					// Token is fresh by TTL — verify it's still valid
+					// server-side before trusting it. sys/health (used
+					// by Sync's GetVersion) doesn't authenticate, so a
+					// revoked token would only surface in a downstream
+					// controller. lookup-self is the cheapest
+					// authenticated probe and is allowed by default
+					// policy on every token.
+					if lookupErr := cachedClient.LookupSelf(ctx); lookupErr == nil {
 						log.V(1).Info("reusing cached vault client",
 							"connectionName", conn.Name,
 							"remaining", remaining.Round(time.Second),
 						)
 						return cachedClient, false, nil
+					} else {
+						log.Info("cached token failed lookup-self; re-authenticating",
+							"connectionName", conn.Name, "error", lookupErr,
+						)
+						h.clientCache.Delete(conn.Name)
 					}
-
+				} else {
 					// Token approaching expiration, check renewal strategy
 					shouldTryRenew := true
 					if conn.Spec.Auth.Kubernetes != nil &&
@@ -1119,10 +1169,19 @@ func (h *Handler) getOrRenewClient(
 						}
 					}
 				}
-				// Token expired or renewal failed, fall through to re-auth
-			} else {
-				// No expiration info (e.g., static token), just reuse
+			}
+			// Token expired or renewal failed, fall through to re-auth
+		} else {
+			// No expiration info (e.g., a static token whose login
+			// response carried no LeaseDuration). The token can still
+			// be revoked Vault-side, so validate before reusing.
+			if lookupErr := cachedClient.LookupSelf(ctx); lookupErr == nil {
 				return cachedClient, false, nil
+			} else {
+				log.Info("cached static token failed lookup-self; re-authenticating",
+					"connectionName", conn.Name, "error", lookupErr,
+				)
+				h.clientCache.Delete(conn.Name)
 			}
 		}
 	}
@@ -1132,6 +1191,7 @@ func (h *Handler) getOrRenewClient(
 	if err != nil {
 		return nil, false, err
 	}
+	vaultClient.SetAuthSourceHash(currentHash)
 
 	// Count re-auth as renewal if there was a previous cached client
 	wasReauth := cacheErr == nil && cachedClient != nil && cachedClient.IsAuthenticated()
