@@ -240,6 +240,21 @@ func RefreshSharedVaultToken(ctx context.Context) {
 		map[string][]byte{"token": []byte(operatorToken)})
 	Expect(err).NotTo(HaveOccurred())
 
+	// Force an immediate reconcile via the reconcile-now annotation.
+	// Without this we'd wait up to ~30s for the periodic requeue — the
+	// connection reconciler doesn't watch the referenced Secret. The
+	// operator's auth-source-hash check then detects the new token and
+	// rebuilds the cached client; without that operator-side fix the
+	// reconcile would still serve the old cached token even though it
+	// fired.
+	err = utils.UpdateVaultConnectionCR(ctx, sharedVaultConnectionName, func(conn *vaultv1alpha1.VaultConnection) {
+		if conn.Annotations == nil {
+			conn.Annotations = map[string]string{}
+		}
+		conn.Annotations[vaultv1alpha1.AnnotationReconcileNow] = time.Now().UTC().Format(time.RFC3339Nano)
+	})
+	Expect(err).NotTo(HaveOccurred())
+
 	// Wait for the operator to pick up the new token and complete a fresh reconcile.
 	// Just checking "Active" is insufficient — the connection may already be Active
 	// with the old (revoked) token. We must wait for LastHeartbeat to advance,

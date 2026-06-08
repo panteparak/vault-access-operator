@@ -1370,6 +1370,25 @@ func newCachedVaultClient(
 	return c
 }
 
+// pinCachedHash computes the auth-source fingerprint for `conn` and stamps
+// it on `client` so the cache reuse path in getOrRenewClient treats the
+// fixture as up-to-date with the spec. Without this, a freshly-built
+// cached client (empty hash) always mismatches the live source and the
+// reconciler evicts + re-auths — useful for testing eviction, but
+// inverts the intent of cache-hit tests. Call AFTER the Secret is in
+// the fake client so the hash matches what a real authenticate would
+// produce.
+func pinCachedHash(
+	t *testing.T, h *Handler, conn *vaultv1alpha1.VaultConnection, client *vault.Client,
+) {
+	t.Helper()
+	hash, err := h.computeAuthSourceHash(context.Background(), conn)
+	if err != nil {
+		t.Fatalf("compute auth source hash: %v", err)
+	}
+	client.SetAuthSourceHash(hash)
+}
+
 // --- getOrRenewClient tests ---
 
 // TestGetOrRenewClient_CacheHit_FreshToken tests that a cached client with
@@ -1379,10 +1398,11 @@ func TestGetOrRenewClient_CacheHit_FreshToken(t *testing.T) {
 	defer server.Close()
 
 	scheme := createScheme()
+	secret := newTokenSecret(tokenSecretOpts{})
 	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
 
 	k8sClient := newClientBuilderWithConnectionRefIndex(scheme).
-		WithObjects(conn).
+		WithObjects(secret, conn).
 		WithStatusSubresource(conn).
 		Build()
 
@@ -1400,6 +1420,7 @@ func TestGetOrRenewClient_CacheHit_FreshToken(t *testing.T) {
 		ClientCache: cache,
 		Log:         logr.Discard(),
 	})
+	pinCachedHash(t, handler, conn, cachedClient)
 
 	ctx := context.Background()
 	client, renewed, err := handler.getOrRenewClient(ctx, conn)
@@ -1426,10 +1447,11 @@ func TestGetOrRenewClient_CacheHit_RenewalThreshold(t *testing.T) {
 	defer server.Close()
 
 	scheme := createScheme()
+	secret := newTokenSecret(tokenSecretOpts{})
 	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
 
 	k8sClient := newClientBuilderWithConnectionRefIndex(scheme).
-		WithObjects(conn).
+		WithObjects(secret, conn).
 		WithStatusSubresource(conn).
 		Build()
 
@@ -1447,6 +1469,7 @@ func TestGetOrRenewClient_CacheHit_RenewalThreshold(t *testing.T) {
 		ClientCache: cache,
 		Log:         logr.Discard(),
 	})
+	pinCachedHash(t, handler, conn, cachedClient)
 
 	ctx := context.Background()
 	client, renewed, err := handler.getOrRenewClient(ctx, conn)
@@ -1556,12 +1579,18 @@ func TestGetOrRenewClient_CacheHit_TokenExpired_ReAuth(t *testing.T) {
 
 // TestGetOrRenewClient_CacheHit_StaticToken tests that a cached client
 // with no expiration info (e.g., static token) is reused directly.
+// The mock Vault is required even though the token is "static" — the
+// reuse path now probes the token with lookup-self before trusting it.
 func TestGetOrRenewClient_CacheHit_StaticToken(t *testing.T) {
+	server := newMultiEndpointVaultServer(mockVaultServerOpts{version: "1.15.0"})
+	defer server.Close()
+
 	scheme := createScheme()
-	conn := newVaultConnection(vaultConnectionOpts{address: "http://localhost:8200"})
+	secret := newTokenSecret(tokenSecretOpts{})
+	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
 
 	k8sClient := newClientBuilderWithConnectionRefIndex(scheme).
-		WithObjects(conn).
+		WithObjects(secret, conn).
 		WithStatusSubresource(conn).
 		Build()
 
@@ -1569,7 +1598,7 @@ func TestGetOrRenewClient_CacheHit_StaticToken(t *testing.T) {
 
 	// Pre-populate cache: zero expiration and zero TTL = static token
 	cachedClient := newCachedVaultClient(
-		t, "http://localhost:8200", time.Time{}, 0,
+		t, server.URL, time.Time{}, 0,
 	)
 	cache.Set(testConnectionName, cachedClient)
 
@@ -1578,6 +1607,7 @@ func TestGetOrRenewClient_CacheHit_StaticToken(t *testing.T) {
 		ClientCache: cache,
 		Log:         logr.Discard(),
 	})
+	pinCachedHash(t, handler, conn, cachedClient)
 
 	ctx := context.Background()
 	client, renewed, err := handler.getOrRenewClient(ctx, conn)
@@ -2278,6 +2308,7 @@ func TestGetOrRenewClient_RenewalStrategyRenew_Default(t *testing.T) {
 		ClientCache: cache,
 		Log:         logr.Discard(),
 	})
+	pinCachedHash(t, handler, conn, cachedClient)
 
 	ctx := context.Background()
 	client, renewed, err := handler.getOrRenewClient(ctx, conn)
@@ -2304,11 +2335,12 @@ func TestGetOrRenewClient_RenewalStrategyReauth_NilKubernetes(t *testing.T) {
 	defer server.Close()
 
 	scheme := createScheme()
+	secret := newTokenSecret(tokenSecretOpts{})
 	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
 	// Default newVaultConnection uses Token auth, Kubernetes is nil
 
 	k8sClient := newClientBuilderWithConnectionRefIndex(scheme).
-		WithObjects(conn).
+		WithObjects(secret, conn).
 		WithStatusSubresource(conn).
 		Build()
 
@@ -2325,6 +2357,7 @@ func TestGetOrRenewClient_RenewalStrategyReauth_NilKubernetes(t *testing.T) {
 		ClientCache: cache,
 		Log:         logr.Discard(),
 	})
+	pinCachedHash(t, handler, conn, cachedClient)
 
 	ctx := context.Background()
 	client, renewed, err := handler.getOrRenewClient(ctx, conn)
@@ -2447,14 +2480,36 @@ type cleanupCalls struct {
 	disableAuthPath   string
 }
 
-// TestCleanup_RevokesVaultToken tests that Cleanup revokes the operator's Vault token.
+// newKubernetesAuthConnection builds a VaultConnection that uses Kubernetes
+// auth. Use this in tests that pin token-revocation behavior — TokenAuth
+// connections deliberately SKIP revoke (the user owns the token); only
+// operator-minted tokens (Kubernetes, JWT, AppRole, Bootstrap) get revoked.
+func newKubernetesAuthConnection(address string) *vaultv1alpha1.VaultConnection {
+	return &vaultv1alpha1.VaultConnection{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       testConnectionName,
+			Generation: 1,
+		},
+		Spec: vaultv1alpha1.VaultConnectionSpec{
+			Address: address,
+			Auth: vaultv1alpha1.AuthConfig{
+				Kubernetes: &vaultv1alpha1.KubernetesAuth{
+					Role: "test-role",
+				},
+			},
+		},
+	}
+}
+
+// TestCleanup_RevokesVaultToken tests that Cleanup revokes the operator's Vault token
+// when the connection uses an operator-minted token (Kubernetes auth).
 func TestCleanup_RevokesVaultToken(t *testing.T) {
 	calls := &cleanupCalls{}
 	server := newCleanupVaultServer(cleanupVaultServerOpts{}, calls)
 	defer server.Close()
 
 	scheme := createScheme()
-	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
+	conn := newKubernetesAuthConnection(server.URL)
 
 	k8sClient := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn).
@@ -2489,15 +2544,65 @@ func TestCleanup_RevokesVaultToken(t *testing.T) {
 	}
 }
 
+// TestCleanup_TokenAuth_SkipsRevoke pins the fix for cross-suite token poisoning
+// in e2e tests: when auth is TokenAuth (Secret-referenced), the token is owned
+// by the user, not the operator. Revoking it on connection delete would kill
+// every other VaultConnection (and any non-operator caller) that shares the
+// same Secret — exactly what TC-EDGE-REC01 did to TC-VR01 before this fix.
+func TestCleanup_TokenAuth_SkipsRevoke(t *testing.T) {
+	calls := &cleanupCalls{}
+	server := newCleanupVaultServer(cleanupVaultServerOpts{}, calls)
+	defer server.Close()
+
+	scheme := createScheme()
+	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
+
+	k8sClient := newClientBuilderWithConnectionRefIndex(scheme).
+		WithObjects(conn).
+		WithStatusSubresource(conn).
+		Build()
+
+	cache := vault.NewClientCache()
+	vaultClient, _ := vault.NewClient(vault.ClientConfig{Address: server.URL})
+	vaultClient.SetAuthenticated(true)
+	vaultClient.SetToken("s.user-provided-token")
+	cache.Set(testConnectionName, vaultClient)
+
+	bus := events.NewEventBus(logr.Discard())
+	handler := NewHandler(HandlerConfig{
+		Client:      k8sClient,
+		ClientCache: cache,
+		EventBus:    bus,
+		Log:         logr.Discard(),
+	})
+
+	ctx := context.Background()
+	if err := handler.Cleanup(ctx, conn); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	calls.mu.Lock()
+	defer calls.mu.Unlock()
+	if calls.revokeSelfCalled {
+		t.Error("expected revoke-self NOT to be called for TokenAuth — the user owns the token")
+	}
+
+	// Cache eviction MUST still happen, just not the Vault-side revoke.
+	if cache.Has(testConnectionName) {
+		t.Error("expected client to be removed from cache after cleanup")
+	}
+}
+
 // TestCleanup_TokenRevocationFailure_NonFatal tests that cleanup succeeds even
-// when token revocation fails (best-effort).
+// when token revocation fails (best-effort). Uses Kubernetes auth so the
+// revoke is actually attempted (TokenAuth would skip).
 func TestCleanup_TokenRevocationFailure_NonFatal(t *testing.T) {
 	calls := &cleanupCalls{}
 	server := newCleanupVaultServer(cleanupVaultServerOpts{revokeErr: true}, calls)
 	defer server.Close()
 
 	scheme := createScheme()
-	conn := newVaultConnection(vaultConnectionOpts{address: server.URL})
+	conn := newKubernetesAuthConnection(server.URL)
 
 	k8sClient := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn).

@@ -587,7 +587,27 @@ var _ = Describe("Edge Case Tests", Ordered, Label("edge"), func() {
 			policy.Spec.ConnectionRef = connName
 			err := utils.CreateVaultPolicyCR(ctx, policy)
 			Expect(err).NotTo(HaveOccurred())
-			defer CleanupPolicy(ctx, policyName)
+			// Combined cleanup: policy must be deleted BEFORE the
+			// connection (the connection controller blocks deletion
+			// while dependents exist). Separate `defer Cleanup*` calls
+			// in source order LIFO'd into wrong-order at teardown,
+			// causing the connection delete to fire while the policy
+			// still referenced it — the test then exited with a
+			// half-finalized connection lingering for the next suite.
+			defer func() {
+				_ = utils.DeleteVaultPolicyCR(ctx, policyName, testNamespace)
+				_ = utils.WaitForDeletion(
+					ctx, &vaultv1alpha1.VaultPolicy{},
+					policyName, testNamespace,
+					30*time.Second, 2*time.Second,
+				)
+				_ = utils.DeleteVaultConnectionCR(ctx, connName)
+				_ = utils.WaitForDeletion(
+					ctx, &vaultv1alpha1.VaultConnection{},
+					connName, "", // cluster-scoped
+					60*time.Second, 2*time.Second,
+				)
+			}()
 
 			By("verifying policy is not Active (connection missing)")
 			Eventually(func(g Gomega) {
@@ -617,7 +637,6 @@ var _ = Describe("Edge Case Tests", Ordered, Label("edge"), func() {
 			}
 			err = utils.CreateVaultConnectionCR(ctx, conn)
 			Expect(err).NotTo(HaveOccurred())
-			defer func() { _ = utils.DeleteVaultConnectionCR(ctx, connName) }()
 
 			By("waiting for connection to become Active")
 			Eventually(func(g Gomega) {

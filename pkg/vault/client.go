@@ -117,6 +117,12 @@ type Client struct {
 	tokenExpiration time.Time
 	tokenTTL        time.Duration
 	tokenAccessor   string
+	// authSourceHash is a fingerprint of the auth material the client was
+	// built from (Secret content, role name, mount path, etc.). The
+	// connection reconciler recomputes the fingerprint each pass and
+	// evicts this client when the value drifts — that's how Secret
+	// rotation propagates to the cache despite the TTL-based reuse path.
+	authSourceHash string
 }
 
 // ClientConfig holds configuration for creating a Vault client
@@ -360,6 +366,40 @@ func (c *Client) TokenAccessor() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.tokenAccessor
+}
+
+// AuthSourceHash returns the fingerprint of the auth material this client
+// was built from. Empty means "not set" — callers should treat that as a
+// mismatch and re-authenticate.
+func (c *Client) AuthSourceHash() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.authSourceHash
+}
+
+// SetAuthSourceHash records the fingerprint of the auth material this
+// client was built from. The connection reconciler sets this right after
+// a successful authenticate so a later reconcile can detect drift.
+func (c *Client) SetAuthSourceHash(hash string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.authSourceHash = hash
+}
+
+// LookupSelf calls auth/token/lookup-self to verify the current token is
+// still valid server-side. Returns an error on transport failure or when
+// Vault rejects the token (typically 403 permission denied for revoked or
+// expired tokens). Lightweight — every token has self-lookup capability
+// by default, so no policy plumbing required.
+//
+// Use this when "is my cached token actually still good?" matters — for
+// example, before relying on a cached client whose local IsAuthenticated()
+// flag only reflects the format of the token, not server-side validity.
+func (c *Client) LookupSelf(ctx context.Context) error {
+	if _, err := c.Auth().Token().LookupSelfWithContext(ctx); err != nil {
+		return fmt.Errorf("token lookup-self failed: %w", err)
+	}
+	return nil
 }
 
 func (c *Client) authenticateWithLoginPayload(
