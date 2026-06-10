@@ -2093,6 +2093,7 @@ func TestIsJWTAuthPath(t *testing.T) {
 func TestValidateJWTSpec(t *testing.T) {
 	cases := []struct {
 		name                 string
+		authType             string
 		authPath             string
 		jwt                  *vaultv1alpha1.VaultRoleJWTSpec
 		serviceAccountCount  int
@@ -2105,6 +2106,31 @@ func TestValidateJWTSpec(t *testing.T) {
 			authPath:            "auth/kubernetes",
 			serviceAccountCount: 1,
 			wantNoWarning:       true,
+		},
+		// authType override (§7): a custom-named mount declared as JWT accepts
+		// spec.jwt even though the path name isn't `auth/jwt`.
+		{
+			name:                "authType jwt on custom path accepts spec.jwt",
+			authType:            "jwt",
+			authPath:            "auth/custom-oidc",
+			jwt:                 &vaultv1alpha1.VaultRoleJWTSpec{BoundSubject: "system:serviceaccount:ns:sa"},
+			serviceAccountCount: 1,
+			wantNoWarning:       true,
+		},
+		{
+			name:                "authType jwt on custom path, single SA, no override",
+			authType:            "jwt",
+			authPath:            "auth/custom-oidc",
+			serviceAccountCount: 1,
+			wantNoWarning:       true,
+		},
+		{
+			name:                "authType kubernetes forces k8s, jwt spec rejected on custom path",
+			authType:            "kubernetes",
+			authPath:            "auth/custom-oidc",
+			jwt:                 &vaultv1alpha1.VaultRoleJWTSpec{BoundSubject: "x"},
+			serviceAccountCount: 1,
+			wantErrSubstring:    "may only be used when the role targets a JWT auth mount",
 		},
 		{
 			name:                "jwt path with single SA, no override",
@@ -2144,7 +2170,7 @@ func TestValidateJWTSpec(t *testing.T) {
 			authPath:            "auth/kubernetes",
 			jwt:                 &vaultv1alpha1.VaultRoleJWTSpec{BoundSubject: "x"},
 			serviceAccountCount: 1,
-			wantErrSubstring:    "may only be used when authPath targets a JWT auth mount",
+			wantErrSubstring:    "may only be used when the role targets a JWT auth mount",
 		},
 		{
 			name:                "boundSubject and boundClaims mutually exclusive",
@@ -2232,7 +2258,7 @@ func TestValidateJWTSpec(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			warnings, errs := validateJWTSpec(tc.authPath, tc.jwt, tc.serviceAccountCount)
+			warnings, errs := validateJWTSpec(tc.authType, tc.authPath, tc.jwt, tc.serviceAccountCount)
 			if tc.wantErrSubstring == "" {
 				if len(errs) > 0 {
 					t.Errorf("expected no errors, got %v", errs)
@@ -2312,7 +2338,7 @@ func TestVaultRoleValidator_ValidateCreate_JWT(t *testing.T) {
 				},
 			},
 			wantErr:     true,
-			errContains: "may only be used when authPath",
+			errContains: "may only be used when the role targets a JWT auth mount",
 		},
 	}
 	for _, tc := range cases {
@@ -2346,6 +2372,7 @@ func TestValidateAuthPathSupported(t *testing.T) {
 	cases := []struct {
 		name             string
 		authPath         string
+		authType         string
 		wantErrSubstring string // empty means expect accept
 	}{
 		{name: "empty defaults to kubernetes", authPath: ""},
@@ -2356,6 +2383,22 @@ func TestValidateAuthPathSupported(t *testing.T) {
 		{name: "kubernetes submount", authPath: "auth/kubernetes-prod"},
 		{name: "jwt submount", authPath: "auth/jwt/gitlab"},
 		{name: "jwt path with trailing slash", authPath: "auth/jwt/"},
+		// authType override (§7): custom-named mounts are accepted when the
+		// backend family is declared explicitly.
+		{name: "authType jwt accepts custom path", authPath: "auth/custom-oidc", authType: "jwt"},
+		{name: "authType jwt accepts bare custom path", authPath: "custom-oidc", authType: "jwt"},
+		{name: "authType kubernetes accepts custom path", authPath: "auth/corp-k8s", authType: "kubernetes"},
+		{
+			name:             "authType jwt requires authPath",
+			authPath:         "",
+			authType:         "jwt",
+			wantErrSubstring: "spec.authPath is required when spec.authType is jwt",
+		},
+		{
+			name:             "custom path without authType still rejected",
+			authPath:         "auth/custom-oidc",
+			wantErrSubstring: "unsupported Vault auth backend",
+		},
 		{
 			name:             "aws backend rejected",
 			authPath:         "auth/aws",
@@ -2390,16 +2433,16 @@ func TestValidateAuthPathSupported(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got := validateAuthPathSupported(tc.authPath)
+			got := validateAuthPathSupported(tc.authPath, tc.authType)
 			if tc.wantErrSubstring == "" {
 				if got != "" {
-					t.Errorf("validateAuthPathSupported(%q) = %q, want accept", tc.authPath, got)
+					t.Errorf("validateAuthPathSupported(%q, %q) = %q, want accept", tc.authPath, tc.authType, got)
 				}
 				return
 			}
 			if !strings.Contains(got, tc.wantErrSubstring) {
-				t.Errorf("validateAuthPathSupported(%q) = %q, want error containing %q",
-					tc.authPath, got, tc.wantErrSubstring)
+				t.Errorf("validateAuthPathSupported(%q, %q) = %q, want error containing %q",
+					tc.authPath, tc.authType, got, tc.wantErrSubstring)
 			}
 		})
 	}

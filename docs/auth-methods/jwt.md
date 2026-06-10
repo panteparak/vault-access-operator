@@ -42,6 +42,14 @@ This guide assumes:
 vault auth enable jwt
 ```
 
+!!! tip "Custom mount paths"
+    If your JWT/OIDC method is mounted at a non-standard path (one that does **not**
+    start with `jwt`, e.g. `vault auth enable -path=custom-oidc jwt`), set
+    `spec.authType: jwt` on the `VaultRole`/`VaultClusterRole` alongside
+    `authPath: auth/custom-oidc`. Without `authType`, the operator infers the backend
+    from the path name and rejects unrecognized names. See the
+    [API reference](../api-reference.md#spec-fields).
+
 ### Step 2: Configure JWT Validation
 
 === "Using JWKS URI"

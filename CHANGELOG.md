@@ -9,6 +9,18 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ### Added
 
+- **`spec.authType` override for custom-named auth mounts (VaultRole / VaultClusterRole).**
+  - New optional `spec.authType` field (`kubernetes` | `jwt`) declares the auth
+    backend family explicitly, overriding inference from the mount-path name. This
+    lets a role target a JWT/OIDC (or Kubernetes) auth method mounted at an
+    **arbitrary path** — e.g. `authPath: auth/custom-oidc`, `authType: jwt` —
+    instead of requiring the path to start with `kubernetes`/`jwt`.
+  - When `authType` is unset, behavior is unchanged (family inferred from the path).
+  - When `authType: jwt`, `spec.jwt` is accepted on the custom path and a non-empty
+    `authPath` is required. Honored consistently at admission (webhook) and reconcile
+    (`pkg/vault.ResolveAuthBackend`). Resolves the role-write half of
+    [IMPROVEMENTS.md §7](docs/internal/IMPROVEMENTS.md).
+
 - **Multi-value and glob claim matching for JWT VaultRoles.**
   - New `spec.jwt.boundClaimsList` (`map[string][]string`) allows binding a
     single claim to multiple values — e.g. `ref: ["main", "develop"]` — and

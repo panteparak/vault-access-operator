@@ -769,6 +769,47 @@ func TestBuildRoleData_UnknownAuthBackendRejected(t *testing.T) {
 	}
 }
 
+// TestBuildRoleData_AuthTypeOverride pins IMPROVEMENTS §7: an explicit
+// spec.authType makes buildRoleData route by the declared backend family even
+// when the mount path name (e.g. "custom-oidc") wouldn't otherwise classify.
+func TestBuildRoleData_AuthTypeOverride(t *testing.T) {
+	t.Run("authType jwt on custom path builds JWT role data", func(t *testing.T) {
+		role := newVaultRole("test-role", "default")
+		role.Spec.AuthPath = "auth/custom-oidc"
+		role.Spec.AuthType = vaultv1alpha1.AuthBackendTypeJWT
+		role.Spec.ServiceAccounts = []string{"default"} // single SA → bound_subject derivable
+
+		handler := NewHandler(newFakeClient(role), vault.NewClientCache(), nil, logr.Discard())
+		adapter := domain.NewVaultRoleAdapter(role)
+		data, err := handler.buildRoleData(adapter, []string{"p"}, adapter.GetServiceAccountBindings(), nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if data["role_type"] != string(vault.AuthBackendJWT) {
+			t.Errorf("expected JWT role data (role_type=jwt), got role_type=%v", data["role_type"])
+		}
+	})
+
+	t.Run("authType kubernetes on custom path builds k8s role data", func(t *testing.T) {
+		role := newVaultRole("test-role", "default")
+		role.Spec.AuthPath = "auth/corp-k8s"
+		role.Spec.AuthType = vaultv1alpha1.AuthBackendTypeKubernetes
+
+		handler := NewHandler(newFakeClient(role), vault.NewClientCache(), nil, logr.Discard())
+		adapter := domain.NewVaultRoleAdapter(role)
+		data, err := handler.buildRoleData(adapter, []string{"p"}, adapter.GetServiceAccountBindings(), nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if _, isJWT := data["role_type"]; isJWT {
+			t.Errorf("expected kubernetes role data (no role_type), got %v", data)
+		}
+		if _, ok := data["bound_service_account_names"]; !ok {
+			t.Errorf("expected kubernetes role data with bound_service_account_names, got %v", data)
+		}
+	})
+}
+
 func TestResolveJWTBoundSubject_ServiceAccountBindingMalformed(t *testing.T) {
 	role := newVaultRole("test-role", "bar")
 	adapter := domain.NewVaultRoleAdapter(role)

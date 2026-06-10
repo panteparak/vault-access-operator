@@ -6,4 +6,5 @@ resources:
 - vault_v1alpha1_vaultclusterrole.yaml
 - vault_v1alpha1_vaultrole.yaml
 - vault_v1alpha1_vaultrole_gitlab.yaml
+- vault_v1alpha1_vaultclusterrole_custom_jwt.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples

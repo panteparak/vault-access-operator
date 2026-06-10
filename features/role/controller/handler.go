@@ -199,6 +199,7 @@ func (h *Handler) shouldAdopt(adapter domain.RoleAdapter) bool {
 func (h *Handler) detectRoleDrift(
 	ctx context.Context,
 	vaultClient workflow.VaultOpsClient,
+	backend vault.AuthBackend,
 	authPath, roleName string,
 	expectedData map[string]interface{},
 ) (bool, string) {
@@ -223,7 +224,7 @@ func (h *Handler) detectRoleDrift(
 
 	comparator := drift.NewComparator()
 
-	switch vault.AuthBackendForPath(authPath) {
+	switch backend {
 	case vault.AuthBackendJWT:
 		compareJWTRoleFields(comparator, expectedData, currentData)
 	default:
@@ -437,7 +438,7 @@ func (h *Handler) buildRoleData(
 	serviceAccountBindings []string,
 	connection *vaultv1alpha1.VaultConnection,
 ) (map[string]interface{}, error) {
-	backend := vault.AuthBackendForPath(adapter.GetAuthPath())
+	backend := vault.ResolveAuthBackend(string(adapter.GetAuthType()), adapter.GetAuthPath())
 	switch backend {
 	case vault.AuthBackendKubernetes:
 		return h.buildKubernetesRoleData(adapter, policyNames, serviceAccountBindings), nil
@@ -446,7 +447,8 @@ func (h *Handler) buildRoleData(
 	default:
 		return nil, infraerrors.NewValidationError(
 			"authPath", adapter.GetAuthPath(),
-			"unsupported auth backend: only auth/kubernetes and auth/jwt are implemented",
+			"unsupported auth backend: only kubernetes and jwt are implemented "+
+				"(set spec.authType to use a custom mount path)",
 		)
 	}
 }

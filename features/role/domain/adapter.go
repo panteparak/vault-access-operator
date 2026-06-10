@@ -40,8 +40,12 @@ type RoleAdapter interface {
 	// GetConnectionRef returns the name of the VaultConnection to use.
 	GetConnectionRef() string
 
-	// GetAuthPath returns the mount path of the Kubernetes auth method in Vault.
+	// GetAuthPath returns the mount path of the auth method in Vault.
 	GetAuthPath() string
+
+	// GetAuthType returns the explicit auth backend family override (empty when
+	// the family should be inferred from the auth path name).
+	GetAuthType() vaultv1alpha1.AuthBackendType
 
 	// GetConflictPolicy returns the conflict handling policy.
 	GetConflictPolicy() vaultv1alpha1.ConflictPolicy
@@ -105,6 +109,9 @@ func NewVaultRoleAdapter(r *vaultv1alpha1.VaultRole) *VaultRoleAdapter {
 func (a *VaultRoleAdapter) GetObject() client.Object { return a.VaultRole }
 func (a *VaultRoleAdapter) GetConnectionRef() string { return a.Spec.ConnectionRef }
 func (a *VaultRoleAdapter) GetAuthPath() string      { return a.Spec.AuthPath }
+func (a *VaultRoleAdapter) GetAuthType() vaultv1alpha1.AuthBackendType {
+	return a.Spec.AuthType
+}
 func (a *VaultRoleAdapter) GetConflictPolicy() vaultv1alpha1.ConflictPolicy {
 	return a.Spec.ConflictPolicy
 }
@@ -161,6 +168,9 @@ func NewVaultClusterRoleAdapter(r *vaultv1alpha1.VaultClusterRole) *VaultCluster
 func (a *VaultClusterRoleAdapter) GetObject() client.Object { return a.VaultClusterRole }
 func (a *VaultClusterRoleAdapter) GetConnectionRef() string { return a.Spec.ConnectionRef }
 func (a *VaultClusterRoleAdapter) GetAuthPath() string      { return a.Spec.AuthPath }
+func (a *VaultClusterRoleAdapter) GetAuthType() vaultv1alpha1.AuthBackendType {
+	return a.Spec.AuthType
+}
 func (a *VaultClusterRoleAdapter) GetConflictPolicy() vaultv1alpha1.ConflictPolicy {
 	return a.Spec.ConflictPolicy
 }

@@ -4,7 +4,7 @@
 
 Roles bind a set of Kubernetes service accounts (or JWT identities) to a list of Vault policies. The operator resolves `PolicyReference` objects (which point at `VaultPolicy` / `VaultClusterPolicy` CRs) into concrete Vault policy names, builds a role data payload appropriate for the **auth backend** (Kubernetes or JWT), and writes it to `auth/{mount}/role/{name}`.
 
-Like policy, role uses the shared `workflow.SyncWorkflow`. Unlike policy, role branches on the **auth backend** at several points — backend selection is driven by `adapter.GetAuthPath()` via [`vault.AuthBackendForPath`](../../pkg/vault/client.go).
+Like policy, role uses the shared `workflow.SyncWorkflow`. Unlike policy, role branches on the **auth backend** at several points — backend selection is driven by [`vault.ResolveAuthBackend(spec.authType, spec.authPath)`](../../pkg/vault/client.go): an explicit `spec.authType` (`kubernetes`/`jwt`) wins, otherwise the family is inferred from the mount-path name via `AuthBackendForPath`. The explicit override (IMPROVEMENTS §7) lets a role target a JWT/Kubernetes method mounted at an arbitrary path (e.g. `auth/custom-oidc`).
 
 ## Participants
 
@@ -69,7 +69,7 @@ sequenceDiagram
     Ops->>Ops: resolveConnection — for default JWT audiences
 
     Ops->>H: buildRoleData
-    Note over H: backend = AuthBackendForPath(authPath)
+    Note over H: backend = ResolveAuthBackend(authType, authPath)
     alt backend = Kubernetes
         H->>H: buildKubernetesRoleData<br/>- split "ns/name" → names[] + namespaces[] (deduped)<br/>- sort both for deterministic hash<br/>- policies = policyNames<br/>- token_ttl, token_max_ttl (optional)
     else backend = JWT

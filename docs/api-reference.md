@@ -404,7 +404,9 @@ Manages namespace-scoped Kubernetes authentication roles in Vault.
 - **Vault Role Name Format:** `{namespace}-{name}`
 
 !!! warning "Supported auth backends"
-    `VaultRole` currently writes role data to **Kubernetes auth** (`auth/kubernetes/*`) and **JWT auth** (`auth/jwt/*`) mounts only. Mounts of other backends (AWS IAM, GCP IAM, AppRole, OIDC, LDAP, etc.) are rejected by the admission webhook with a clear error — even though the operator itself can still *authenticate* to Vault via those methods (see [VaultConnection](#vaultconnection)). Tracked as [IMPROVEMENTS.md §7](internal/IMPROVEMENTS.md#7-role-backend-coverage-gap).
+    `VaultRole` currently writes role data to **Kubernetes auth** and **JWT auth** mounts only. Mounts of other backends (AWS IAM, GCP IAM, AppRole, OIDC, LDAP, etc.) are rejected by the admission webhook with a clear error — even though the operator itself can still *authenticate* to Vault via those methods (see [VaultConnection](#vaultconnection)). Tracked as [IMPROVEMENTS.md §7](internal/IMPROVEMENTS.md#7-role-backend-coverage-gap).
+
+    By default the backend family is inferred from the mount-path name (`auth/kubernetes*` or `auth/jwt*`). To target a method mounted at a **custom path** (e.g. an org JWT/OIDC mount named `custom-oidc`), set [`authType`](#spec-fields) explicitly — the path name is then ignored.
 
 ### Example
 
@@ -431,16 +433,17 @@ spec:
 | `connectionRef` | string | Yes | - | Name of VaultConnection to use |
 | `serviceAccounts` | []string | Yes | - | Service account names (same namespace) |
 | `policies` | []PolicyReference | Yes | - | Policies to attach (min 1) |
-| `authPath` | string | No | From connection | Vault auth mount path (`auth/kubernetes/*` or `auth/jwt/*`) |
+| `authPath` | string | No | From connection | Vault auth mount path. Any path when `authType` is set; otherwise must resolve to `auth/kubernetes*` or `auth/jwt*` |
+| `authType` | string | No | inferred from `authPath` | Explicit backend family: `kubernetes` or `jwt`. Overrides path-name inference so a custom-named mount works. Required to be paired with a non-empty `authPath` when set to `jwt` |
 | `conflictPolicy` | string | No | `Fail` | `Fail` or `Adopt` |
 | `deletionPolicy` | string | No | `Delete` | `Delete` or `Retain` |
 | `tokenTTL` | duration | No | Vault default | Default token TTL |
 | `tokenMaxTTL` | duration | No | Vault default | Maximum token TTL |
-| `jwt` | VaultRoleJWTSpec | No | - | JWT-auth-specific overrides (only when `authPath` targets `auth/jwt/*`) |
+| `jwt` | VaultRoleJWTSpec | No | - | JWT-auth-specific overrides (only when the role targets a JWT mount — `authType: jwt` or an `auth/jwt*` path) |
 
 ### VaultRoleJWTSpec
 
-Optional sub-object on `VaultRole` / `VaultClusterRole`. Used when `authPath` targets a JWT auth mount (e.g. `auth/jwt`, `auth/jwt-gitlab`). All fields are optional — defaults are derived from `serviceAccounts` and the referenced `VaultConnection`.
+Optional sub-object on `VaultRole` / `VaultClusterRole`. Used when the role targets a JWT auth mount — either `authType: jwt`, or an `authPath` under `auth/jwt` (e.g. `auth/jwt`, `auth/jwt-gitlab`). All fields are optional — defaults are derived from `serviceAccounts` and the referenced `VaultConnection`.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -516,7 +519,8 @@ spec:
 | `connectionRef` | string | Yes | - | Name of VaultConnection to use |
 | `serviceAccounts` | []ServiceAccountRef | Yes | - | Service accounts with namespace |
 | `policies` | []PolicyReference | Yes | - | Policies to attach (min 1) |
-| `authPath` | string | No | From connection | Vault auth mount path (`auth/kubernetes/*` or `auth/jwt/*`) |
+| `authPath` | string | No | From connection | Vault auth mount path. Any path when `authType` is set; otherwise must resolve to `auth/kubernetes*` or `auth/jwt*` |
+| `authType` | string | No | inferred from `authPath` | Explicit backend family: `kubernetes` or `jwt`. Overrides path-name inference so a custom-named mount works. Required to be paired with a non-empty `authPath` when set to `jwt` |
 | `conflictPolicy` | string | No | `Fail` | `Fail` or `Adopt` |
 | `deletionPolicy` | string | No | `Delete` | `Delete` or `Retain` |
 | `tokenTTL` | duration | No | Vault default | Default token TTL |

@@ -31,6 +31,24 @@ const (
 	AuthBackendUnknown AuthBackend = ""
 )
 
+// ResolveAuthBackend returns the auth backend family for a role, honoring an
+// explicit authType when set and otherwise inferring it from the mount path.
+//
+// authType is the lowercase family declared on the CR (`kubernetes` / `jwt`,
+// i.e. v1alpha1.AuthBackendType) or "" to infer. An explicit family makes the
+// mount-path name irrelevant, so a JWT/OIDC method mounted at an arbitrary path
+// (e.g. `auth/custom-oidc`) routes correctly. See IMPROVEMENTS §7.
+func ResolveAuthBackend(authType, authPath string) AuthBackend {
+	switch authType {
+	case string(AuthBackendKubernetes):
+		return AuthBackendKubernetes
+	case string(AuthBackendJWT):
+		return AuthBackendJWT
+	default:
+		return AuthBackendForPath(authPath)
+	}
+}
+
 // AuthBackendForPath returns the backend family for an auth mount path.
 // Matches the first path segment after a leading `auth/` (or implicit
 // `auth/` for bare names) so submounts like `auth/kubernetes-prod` or

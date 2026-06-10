@@ -1604,6 +1604,35 @@ func TestAuthBackendForPath(t *testing.T) {
 	}
 }
 
+func TestResolveAuthBackend(t *testing.T) {
+	cases := []struct {
+		name     string
+		authType string
+		path     string
+		want     AuthBackend
+	}{
+		// Explicit authType is authoritative — the path name is irrelevant,
+		// so custom mounts route correctly (the whole point of §7's override).
+		{"explicit jwt, custom path", "jwt", "auth/custom-oidc", AuthBackendJWT},
+		{"explicit jwt, bare custom", "jwt", "custom-oidc", AuthBackendJWT},
+		{"explicit kubernetes, custom path", "kubernetes", "auth/corp-k8s", AuthBackendKubernetes},
+		{"explicit jwt overrides k8s-looking path", "jwt", "auth/kubernetes", AuthBackendJWT},
+		{"explicit kubernetes overrides jwt-looking path", "kubernetes", "auth/jwt", AuthBackendKubernetes},
+		// Empty authType falls back to path inference (unchanged behavior).
+		{"infer from path: jwt", "", "auth/jwt", AuthBackendJWT},
+		{"infer from path: kubernetes", "", "auth/kubernetes", AuthBackendKubernetes},
+		{"infer from path: custom is unknown", "", "auth/custom-oidc", AuthBackendUnknown},
+		{"infer from empty path defaults k8s", "", "", AuthBackendKubernetes},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ResolveAuthBackend(tc.authType, tc.path); got != tc.want {
+				t.Errorf("ResolveAuthBackend(%q, %q) = %q, want %q", tc.authType, tc.path, got, tc.want)
+			}
+		})
+	}
+}
+
 // TestClient_ConnectionName_Concurrent pins the fix for the data race
 // on Client.connectionName — earlier versions had Set/Get with no lock
 // while the renewal background loop and reconciler goroutines could
