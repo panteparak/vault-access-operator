@@ -68,6 +68,22 @@ const (
 // DefaultDriftMode is the default drift mode when not specified
 const DefaultDriftMode = DriftModeDetect
 
+// AuthBackendType explicitly declares which Vault auth backend family a role
+// targets, overriding the family that would otherwise be inferred from the
+// auth mount path's name. Set this when the auth method is mounted at a custom
+// path that the name heuristic cannot classify (e.g. a JWT/OIDC method mounted
+// at "custom-oidc" rather than under "auth/jwt"). When unset, the backend is
+// inferred from AuthPath. Values match pkg/vault.AuthBackend.
+// +kubebuilder:validation:Enum=kubernetes;jwt
+type AuthBackendType string
+
+const (
+	// AuthBackendTypeKubernetes routes role writes through the Kubernetes auth path.
+	AuthBackendTypeKubernetes AuthBackendType = "kubernetes"
+	// AuthBackendTypeJWT routes role writes through the JWT auth path.
+	AuthBackendTypeJWT AuthBackendType = "jwt"
+)
+
 // RenewalStrategy defines how Vault tokens are refreshed when approaching expiration
 // +kubebuilder:validation:Enum=renew;reauth
 type RenewalStrategy string

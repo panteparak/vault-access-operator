@@ -27,10 +27,19 @@ type VaultRoleSpec struct {
 	ConnectionRef string `json:"connectionRef"`
 
 	// AuthPath is the mount path of the Vault auth method to manage this role in
-	// (e.g. `auth/kubernetes`, `auth/jwt`). Must include the `auth/` prefix.
-	// Defaults to `auth/kubernetes` when unset.
+	// (e.g. `auth/kubernetes`, `auth/jwt`, or a custom mount like `auth/custom-oidc`).
+	// Defaults to `auth/kubernetes` when unset. When AuthType is unset the backend
+	// family is inferred from this path's name (which then must start with
+	// `kubernetes` or `jwt`); set AuthType to use an arbitrarily named mount.
 	// +optional
 	AuthPath string `json:"authPath,omitempty"`
+
+	// AuthType explicitly declares the auth backend family (`kubernetes` or `jwt`),
+	// overriding inference from AuthPath's name. Set this when the auth method is
+	// mounted at a custom path the name heuristic cannot classify (e.g. a JWT/OIDC
+	// mount named `custom-oidc`). When set to `jwt`, AuthPath is required.
+	// +optional
+	AuthType AuthBackendType `json:"authType,omitempty"`
 
 	// ConflictPolicy defines how to handle conflicts with existing roles
 	// +kubebuilder:default=Fail
@@ -66,10 +75,10 @@ type VaultRoleSpec struct {
 	// +optional
 	DriftMode DriftMode `json:"driftMode,omitempty"`
 
-	// JWT contains optional overrides when AuthPath targets a JWT auth mount.
-	// If omitted and AuthPath starts with "auth/jwt", defaults are derived
-	// from ServiceAccounts and the referenced VaultConnection. Must be unset
-	// for non-JWT auth paths.
+	// JWT contains optional overrides when the role targets a JWT auth mount
+	// (AuthType is `jwt`, or AuthPath starts with "auth/jwt"). If omitted, defaults
+	// are derived from ServiceAccounts and the referenced VaultConnection. Must be
+	// unset for non-JWT roles.
 	// +optional
 	JWT *VaultRoleJWTSpec `json:"jwt,omitempty"`
 }

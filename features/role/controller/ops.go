@@ -146,9 +146,17 @@ func (o *RoleOps) resolveConnection(ctx context.Context) *vaultv1alpha1.VaultCon
 	return nil
 }
 
+// authBackend resolves the role's auth backend family, honoring an explicit
+// spec.authType and falling back to inference from the auth path name.
+func (o *RoleOps) authBackend() vault.AuthBackend {
+	return vault.ResolveAuthBackend(string(o.adapter.GetAuthType()), o.authPath)
+}
+
 // DetectDrift compares expected vs actual role data in Vault.
 func (o *RoleOps) DetectDrift(ctx context.Context, vaultClient workflow.VaultOpsClient) (bool, string) {
-	return o.handler.detectRoleDrift(ctx, vaultClient, o.authPath, o.adapter.GetVaultRoleName(), o.roleData)
+	return o.handler.detectRoleDrift(
+		ctx, vaultClient, o.authBackend(), o.authPath, o.adapter.GetVaultRoleName(), o.roleData,
+	)
 }
 
 // WriteToVault creates/updates the Kubernetes auth role in Vault. Skipped under:
@@ -185,7 +193,7 @@ func (o *RoleOps) ReadbackVerify(ctx context.Context, vaultClient workflow.Vault
 		return nil
 	}
 	hasDrift, summary := o.handler.detectRoleDrift(
-		ctx, vaultClient, o.authPath, o.adapter.GetVaultRoleName(), o.roleData,
+		ctx, vaultClient, o.authBackend(), o.authPath, o.adapter.GetVaultRoleName(), o.roleData,
 	)
 	if hasDrift {
 		return infraerrors.NewTransientError(

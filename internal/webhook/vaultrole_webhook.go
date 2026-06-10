@@ -153,7 +153,8 @@ func (v *VaultRoleValidator) validate(role *vaultv1alpha1.VaultRole) (admission.
 	}
 
 	// Validate JWT-specific constraints (warnings non-blocking; errors block).
-	jwtWarnings, jwtErrs := validateJWTSpec(role.Spec.AuthPath, role.Spec.JWT, len(role.Spec.ServiceAccounts))
+	jwtWarnings, jwtErrs := validateJWTSpec(
+		string(role.Spec.AuthType), role.Spec.AuthPath, role.Spec.JWT, len(role.Spec.ServiceAccounts))
 	warnings = append(warnings, jwtWarnings...)
 	errs = append(errs, jwtErrs...)
 
@@ -161,10 +162,11 @@ func (v *VaultRoleValidator) validate(role *vaultv1alpha1.VaultRole) (admission.
 	// backend the operator doesn't yet implement at the *role-write* level.
 	// Operators can still authenticate *themselves* via AWS/GCP/OIDC/AppRole
 	// (see VaultConnection.spec.auth), but the VaultRole CR can only write
-	// role data to `auth/kubernetes/*` or `auth/jwt/*` mounts for now.
+	// role data to kubernetes or jwt mounts for now. An explicit spec.authType
+	// lets a custom-named mount opt in to the jwt/kubernetes write path.
 	// Catching this at admission time is clearer than waiting for the
 	// reconcile-time ValidationError to surface in status.
-	if authErr := validateAuthPathSupported(role.Spec.AuthPath); authErr != "" {
+	if authErr := validateAuthPathSupported(role.Spec.AuthPath, string(role.Spec.AuthType)); authErr != "" {
 		errs = append(errs, authErr)
 	}
 
@@ -365,7 +367,8 @@ func (v *VaultClusterRoleValidator) validate(role *vaultv1alpha1.VaultClusterRol
 	}
 
 	// Validate JWT-specific constraints (warnings non-blocking; errors block).
-	jwtWarnings, jwtErrs := validateJWTSpec(role.Spec.AuthPath, role.Spec.JWT, len(role.Spec.ServiceAccounts))
+	jwtWarnings, jwtErrs := validateJWTSpec(
+		string(role.Spec.AuthType), role.Spec.AuthPath, role.Spec.JWT, len(role.Spec.ServiceAccounts))
 	warnings = append(warnings, jwtWarnings...)
 	errs = append(errs, jwtErrs...)
 
@@ -373,10 +376,11 @@ func (v *VaultClusterRoleValidator) validate(role *vaultv1alpha1.VaultClusterRol
 	// backend the operator doesn't yet implement at the *role-write* level.
 	// Operators can still authenticate *themselves* via AWS/GCP/OIDC/AppRole
 	// (see VaultConnection.spec.auth), but the VaultRole CR can only write
-	// role data to `auth/kubernetes/*` or `auth/jwt/*` mounts for now.
+	// role data to kubernetes or jwt mounts for now. An explicit spec.authType
+	// lets a custom-named mount opt in to the jwt/kubernetes write path.
 	// Catching this at admission time is clearer than waiting for the
 	// reconcile-time ValidationError to surface in status.
-	if authErr := validateAuthPathSupported(role.Spec.AuthPath); authErr != "" {
+	if authErr := validateAuthPathSupported(role.Spec.AuthPath, string(role.Spec.AuthType)); authErr != "" {
 		errs = append(errs, authErr)
 	}
 
@@ -413,7 +417,24 @@ func (v *VaultClusterRoleValidator) validate(role *vaultv1alpha1.VaultClusterRol
 // which meant an unsupported authPath could be accepted into etcd and only
 // surface in status after reconcile. Admission-time rejection gives the
 // user immediate feedback.
-func validateAuthPathSupported(authPath string) string {
+func validateAuthPathSupported(authPath, authType string) string {
+	// An explicit spec.authType is authoritative: it declares the backend
+	// family directly, so the mount-path name no longer has to match a
+	// naming convention. A custom mount like `auth/custom-oidc` is then
+	// accepted. The CRD enum restricts authType to kubernetes/jwt.
+	switch authType {
+	case string(vaultv1alpha1.AuthBackendTypeJWT):
+		// JWT writes need a concrete mount path; an empty authPath would
+		// normalize to auth/kubernetes, contradicting the declared family.
+		if strings.TrimRight(strings.TrimPrefix(authPath, "auth/"), "/") == "" {
+			return "spec.authPath is required when spec.authType is jwt"
+		}
+		return ""
+	case string(vaultv1alpha1.AuthBackendTypeKubernetes):
+		return ""
+	}
+
+	// No explicit authType — infer the family from the path name.
 	// Empty is the default — resolves to Kubernetes at sync time.
 	if authPath == "" {
 		return ""
@@ -433,7 +454,8 @@ func validateAuthPathSupported(authPath string) string {
 	}
 	return fmt.Sprintf(
 		"spec.authPath %q targets an unsupported Vault auth backend "+
-			"(only auth/kubernetes/* and auth/jwt/* are implemented for role writes). "+
+			"(only auth/kubernetes/* and auth/jwt/* are implemented for role writes; "+
+			"set spec.authType to use a custom mount path). "+
 			"See IMPROVEMENTS.md §7 for the backend coverage roadmap",
 		authPath,
 	)
@@ -456,12 +478,14 @@ func validateAuthPathSupported(authPath string) string {
 // with `ref_type` and `ref_protected` to avoid tag-spoof and unprotected-branch
 // bypass.
 func validateJWTSpec(
-	authPath string, jwt *vaultv1alpha1.VaultRoleJWTSpec, serviceAccountCount int,
+	authType, authPath string, jwt *vaultv1alpha1.VaultRoleJWTSpec, serviceAccountCount int,
 ) (warnings, errs []string) {
-	isJWT := isJWTAuthPath(authPath)
+	isJWT := resolveIsJWT(authType, authPath)
 
 	if jwt != nil && !isJWT {
-		errs = append(errs, "spec.jwt may only be used when authPath targets a JWT auth mount (e.g. auth/jwt)")
+		errs = append(errs,
+			"spec.jwt may only be used when the role targets a JWT auth mount "+
+				"(set spec.authType: jwt, or use an authPath under auth/jwt)")
 		return warnings, errs
 	}
 
@@ -544,6 +568,20 @@ func jwtClaimIsBound(jwt *vaultv1alpha1.VaultRoleJWTSpec, key string) bool {
 // isJWTAuthPath returns true if the given authPath identifies a JWT auth mount.
 // Mirrors vault.AuthBackendForPath without taking a dependency on pkg/vault
 // from the webhook package.
+// resolveIsJWT reports whether a role targets a JWT auth mount, honoring an
+// explicit authType override and otherwise inferring from the path name.
+// Mirrors pkg/vault.ResolveAuthBackend so admission and reconcile agree.
+func resolveIsJWT(authType, authPath string) bool {
+	switch authType {
+	case string(vaultv1alpha1.AuthBackendTypeJWT):
+		return true
+	case string(vaultv1alpha1.AuthBackendTypeKubernetes):
+		return false
+	default:
+		return isJWTAuthPath(authPath)
+	}
+}
+
 func isJWTAuthPath(authPath string) bool {
 	p := strings.TrimRight(authPath, "/")
 	const prefix = "auth/"

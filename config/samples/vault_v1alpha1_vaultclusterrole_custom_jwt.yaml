@@ -1,0 +1,44 @@
+# Example VaultClusterRole targeting a JWT/OIDC auth method mounted at a CUSTOM
+# path whose name does NOT start with "jwt". The explicit spec.authType makes the
+# operator treat it as JWT regardless of the mount name — see IMPROVEMENTS.md §7
+# and docs/auth-methods/jwt.md.
+#
+# Assumes the operator admin has already enabled + configured the mount, e.g.:
+#   vault auth enable -path=custom-oidc jwt
+#   vault write auth/custom-oidc/config \
+#       oidc_discovery_url=https://idp.example.com \
+#       bound_issuer=https://idp.example.com
+apiVersion: vault.platform.io/v1alpha1
+kind: VaultClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/name: vault-access-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: custom-oidc-role
+spec:
+  connectionRef: vault-primary
+  conflictPolicy: Fail
+  deletionPolicy: Delete
+
+  # Custom mount path — accepted because authType is declared explicitly.
+  authPath: auth/custom-oidc
+  authType: jwt
+
+  # Placeholder — bypassed for JWT roles bound via spec.jwt.boundClaims*.
+  serviceAccounts:
+    - name: platform-controller
+      namespace: platform-system
+
+  policies:
+    - kind: VaultClusterPolicy
+      name: shared-secrets-reader
+
+  tokenTTL: 10m
+  tokenMaxTTL: 15m
+
+  jwt:
+    userClaim: sub
+    boundAudiences:
+      - https://vault.example.com
+    boundClaims:
+      project: custom-oidc

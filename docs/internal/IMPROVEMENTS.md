@@ -289,8 +289,20 @@ Keeps each method self-contained, testable in isolation, registration-driven.
 
 ---
 
-## 🟠 7. Role backend coverage gap — PARTIALLY RESOLVED (validation + doc; backend impl deferred)
+## 🟠 7. Role backend coverage gap — PARTIALLY RESOLVED (validation + doc + custom-mount override; non-k8s/jwt backend impl deferred)
 
+> **Update (custom-mount override)**: the supported families (kubernetes, jwt) can now
+> be used on **arbitrarily named mounts** via an explicit `spec.authType` field
+> (`kubernetes` | `jwt`) on `VaultRole`/`VaultClusterRole`. Previously the backend was
+> inferred purely from the mount-path name, so a JWT/OIDC method mounted at e.g.
+> `auth/custom-oidc` was rejected as "unsupported". `authType` overrides that inference
+> and is honored at both admission and reconcile via
+> [`pkg/vault.ResolveAuthBackend`](../../pkg/vault/client.go); the webhook accepts any
+> `authPath` when `authType` is set (and requires a non-empty `authPath` for `jwt`).
+> Backward compatible: when `authType` is unset, path-name inference is unchanged.
+> Tests: `TestResolveAuthBackend`, `TestBuildRoleData_AuthTypeOverride`, and new
+> `authType` cases in `TestValidateAuthPathSupported`/`validateJWTSpec`.
+>
 > **Status**: Items 1 and 2 of the original fix plan are done. Item 3 (actual backend support for AWS/GCP/OIDC/AppRole) is genuine feature work and remains deferred as Tier 5.
 >
 > **Item 1 — user-facing doc**: [docs/api-reference.md](../api-reference.md) under the `VaultRole` section now has a prominent admonition listing the supported (`auth/kubernetes/*`, `auth/jwt/*`) and unsupported (AWS/GCP/AppRole/OIDC/LDAP) backends, with a link back to this finding for the roadmap.
