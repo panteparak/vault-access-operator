@@ -1,0 +1,1795 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Contributor-facing documentation for vault-access-operator internals.">
+      
+      
+      
+        <link rel="canonical" href="https://panteparak.github.io/vault-access-operator/internal/FLOW_METRICS/">
+      
+      
+        <link rel="prev" href="../FLOW_EVENTS/">
+      
+      
+        <link rel="next" href="../INSTRUCTIONS/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Metrics - Vault Access Operator — Internal Docs</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#flow-metrics-emission-scraping" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Vault Access Operator — Internal Docs" class="md-header__button md-logo" aria-label="Vault Access Operator — Internal Docs" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Vault Access Operator — Internal Docs
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Metrics
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/panteparak/vault-access-operator" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    panteparak/vault-access-operator
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Vault Access Operator — Internal Docs" class="md-nav__button md-logo" aria-label="Vault Access Operator — Internal Docs" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Vault Access Operator — Internal Docs
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/panteparak/vault-access-operator" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    panteparak/vault-access-operator
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../PROJECT_OVERVIEW/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ARCHITECTURE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_OVERVIEW/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Flow Foundations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Flows
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Flows
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_LIFECYCLE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Manager Lifecycle
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_CONNECTION/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Connection
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_POLICY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_ROLE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Role
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_DISCOVERY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Discovery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_DELETION/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deletion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_AUTH/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Authentication
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_WEBHOOK/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Admission Webhooks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_EVENTS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Event Bus
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Metrics
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Summary
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#metrics-server-lifecycle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Metrics Server Lifecycle
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#full-metrics-catalogue" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Full Metrics Catalogue
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#emission-flow-per-reconcile" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Emission Flow (per reconcile)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#whats-not-measured-today" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What's NOT Measured Today
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#labels-cardinality" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Labels &amp; Cardinality
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#prometheus-scrape-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prometheus Scrape Configuration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Prometheus Scrape Configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#servicemonitor-helm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ServiceMonitor (Helm)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#standalone-scrape" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Standalone scrape
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#recommended-dashboards-conceptual" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recommended Dashboards (conceptual)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#concurrency-consistency" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Concurrency &amp; Consistency
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dead-metric-risk" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dead-Metric Risk
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-to-wire-to-close-the-gaps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What to wire to close the gaps
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cross-references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cross-References
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../INSTRUCTIONS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Instructions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../IMPROVEMENTS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Improvements & Gaps
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Knowledge
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Knowledge
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../CONTEXT/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Domain Glossary
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../SKILLS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Skills Cheat-Sheet
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../WORKFLOWS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    End-to-End Workflows
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../REQUIREMENTS-TEMPLATE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Requirements Template
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Audits
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Audits
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../AUDIT-2026-05/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Audit 2026-05-28
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="https://panteparak.github.io/vault-access-operator/adr/README/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decisions (ADRs)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/panteparak/vault-access-operator/edit/main/docs/internal/FLOW_METRICS.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="flow-metrics-emission-scraping">FLOW: Metrics Emission &amp; Scraping<a class="headerlink" href="#flow-metrics-emission-scraping" title="Permanent link">&para;</a></h1>
+<h2 id="summary">Summary<a class="headerlink" href="#summary" title="Permanent link">&para;</a></h2>
+<p>The operator exposes 14 Prometheus metrics under the <code>vault_access_operator_*</code> namespace. All are registered in <a href="../../pkg/metrics/metrics.go">pkg/metrics/metrics.go</a> during package <code>init</code>. Helper functions (<code>SetX</code>, <code>IncrementX</code>) are the only sanctioned way to update them — <strong>no caller accesses the metrics directly</strong>, so emission sites are discoverable by grepping for the helper function names.</p>
+<p>Findings from that grep (verified 2026-04-18):
+- <strong>8 metrics are actively emitted</strong> from production code paths.
+- <strong>3 metrics are defined and have helper functions but are never called</strong> outside test files: <code>PolicyReconcileTotal</code>, <code>RoleReconcileTotal</code>, <code>AdoptionTotal</code>. These are dead metrics — see <a href="../IMPROVEMENTS/#31-dead-metrics">IMPROVEMENTS.md §31</a>.
+- <strong>3 metrics are emitted only from code paths that aren't wired to the manager</strong>: <code>OrphanedResourcesGauge</code> (only from <code>pkg/orphan</code>, unwired), <code>CleanupQueueSizeGauge</code> and <code>CleanupRetriesTotal</code> (only from <code>pkg/cleanup</code>, unwired). They'll always report <code>0</code> in production. See <a href="../IMPROVEMENTS/#1-unwired-controllers">IMPROVEMENTS.md §1</a>.</p>
+<p>The metrics server is part of controller-runtime's manager. Exposure is gated by <code>--metrics-bind-address</code> and protected by authn/authz when <code>--metrics-secure=true</code>.</p>
+<h2 id="metrics-server-lifecycle">Metrics Server Lifecycle<a class="headerlink" href="#metrics-server-lifecycle" title="Permanent link">&para;</a></h2>
+<pre class="mermaid"><code>sequenceDiagram
+    participant Main as cmd/main.go
+    participant Opts as metricsServerOptions
+    participant Filter as filters.WithAuthenticationAndAuthorization
+    participant CW as metricsCertWatcher
+    participant Mgr as Manager
+    participant MS as metrics.Server
+
+    Main-&gt;&gt;Opts: BindAddress=:8443, SecureServing=true, TLSOpts
+    alt --metrics-secure
+        Main-&gt;&gt;Filter: attach as FilterProvider
+        Note over Filter: require TokenReview + SubjectAccessReview&lt;br/&gt;on every scrape
+    end
+    alt --metrics-cert-path set
+        Main-&gt;&gt;CW: certwatcher.New
+        Main-&gt;&gt;Opts: append TLSOpts.GetCertificate = CW.GetCertificate
+    end
+    Main-&gt;&gt;Mgr: Options.Metrics = metricsServerOptions
+    Mgr-&gt;&gt;MS: start HTTPS server (on mgr.Start)
+    Main-&gt;&gt;Mgr: mgr.Add(metricsCertWatcher) — hot reload</code></pre>
+<ul>
+<li><strong>Default address</strong>: <code>0</code> (disabled). Production Helm values set <code>:8443</code>.</li>
+<li><strong>TLS required</strong> by default (<code>--metrics-secure=true</code>). <code>--metrics-secure=false</code> falls back to HTTP — dev only.</li>
+<li><strong>HTTP/2 disabled</strong> by <code>--enable-http2=false</code> (default) for CVE-2023-44487 mitigation — same rationale as webhooks.</li>
+<li><strong>Auth/authz</strong>: when secure, every scrape goes through <code>TokenReview</code> (is this a valid SA?) and <code>SubjectAccessReview</code> (is it allowed to <code>/metrics</code>?). RBAC for this is in <a href="../../config/rbac/metrics_auth_role.yaml">config/rbac/metrics_auth_role.yaml</a> — grants <code>metrics-reader</code> <code>nonResourceURL=/metrics</code> via <code>get</code>.</li>
+</ul>
+<h2 id="full-metrics-catalogue">Full Metrics Catalogue<a class="headerlink" href="#full-metrics-catalogue" title="Permanent link">&para;</a></h2>
+<p>All metrics live under <code>vault_access_operator_*</code>. Subsystem groups segment the namespace:
+- <code>connection_*</code> — Vault connection health + checks
+- <code>policy_*</code> / <code>role_*</code> — reconcile counters
+- <code>vault_*</code> — drift, orphaned resources
+- <code>safety_*</code> — destructive-operation blocks
+- <code>discovery_*</code> — scan results, adoptions
+- <code>cleanup_*</code> — cleanup queue (unwired)</p>
+<p>Legend: <strong>✅ emitted</strong> from production, <strong>⚠️ unwired</strong> (emitted only from unwired <code>pkg/*</code> controllers), <strong>❌ dead</strong> (no production emission site at all).</p>
+<table>
+<thead>
+<tr>
+<th>Status</th>
+<th>Full name</th>
+<th>Type</th>
+<th>Labels</th>
+<th>Helper</th>
+<th>Emission site(s)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>✅</td>
+<td><code>connection_healthy</code></td>
+<td>Gauge</td>
+<td><code>connection</code></td>
+<td><code>SetConnectionHealth</code></td>
+<td><a href="../../features/connection/controller/handler.go:698">handler.go:698</a></td>
+</tr>
+<tr>
+<td>✅</td>
+<td><code>connection_health_checks_total</code></td>
+<td>Counter</td>
+<td><code>connection, result</code></td>
+<td><code>IncrementHealthCheck</code></td>
+<td><a href="../../features/connection/controller/handler.go:699">handler.go:699</a></td>
+</tr>
+<tr>
+<td>✅</td>
+<td><code>connection_consecutive_fails</code></td>
+<td>Gauge</td>
+<td><code>connection</code></td>
+<td><code>SetConsecutiveFails</code></td>
+<td><a href="../../features/connection/controller/handler.go:700">handler.go:700</a></td>
+</tr>
+<tr>
+<td>❌</td>
+<td><code>policy_reconcile_total</code></td>
+<td>Counter</td>
+<td><code>kind, namespace, result</code></td>
+<td><code>IncrementPolicyReconcile</code></td>
+<td><strong>none</strong> (defined at <a href="../../pkg/metrics/metrics.go:232">metrics.go:232</a>; never called outside tests)</td>
+</tr>
+<tr>
+<td>❌</td>
+<td><code>role_reconcile_total</code></td>
+<td>Counter</td>
+<td><code>kind, namespace, result</code></td>
+<td><code>IncrementRoleReconcile</code></td>
+<td><strong>none</strong> (defined at <a href="../../pkg/metrics/metrics.go:241">metrics.go:241</a>; never called outside tests)</td>
+</tr>
+<tr>
+<td>⚠️</td>
+<td><code>vault_orphaned_resources</code></td>
+<td>Gauge</td>
+<td><code>connection, type</code></td>
+<td><code>SetOrphanedResources</code></td>
+<td><a href="../../pkg/orphan/controller.go:158">pkg/orphan/controller.go:158, 171</a> — unwired</td>
+</tr>
+<tr>
+<td>✅</td>
+<td><code>vault_drift_detected</code></td>
+<td>Gauge</td>
+<td><code>kind, namespace, name</code></td>
+<td><code>SetDriftDetected</code></td>
+<td><a href="../../shared/controller/workflow/sync.go:200">workflow/sync.go:200</a></td>
+</tr>
+<tr>
+<td>⚠️</td>
+<td><code>cleanup_queue_size</code></td>
+<td>Gauge</td>
+<td>—</td>
+<td><code>SetCleanupQueueSize</code></td>
+<td><a href="../../pkg/cleanup/controller.go:132">pkg/cleanup/controller.go:132, 186</a> — unwired</td>
+</tr>
+<tr>
+<td>⚠️</td>
+<td><code>cleanup_retries_total</code></td>
+<td>Counter</td>
+<td><code>resource_type, result</code></td>
+<td><code>IncrementCleanupRetry</code></td>
+<td><a href="../../pkg/cleanup/controller.go:169">pkg/cleanup/controller.go:169, 180</a> — unwired</td>
+</tr>
+<tr>
+<td>✅</td>
+<td><code>vault_drift_corrected_total</code></td>
+<td>Counter</td>
+<td><code>kind, namespace</code></td>
+<td><code>IncrementDriftCorrected</code></td>
+<td><a href="../../shared/controller/workflow/sync.go:299">workflow/sync.go:299</a></td>
+</tr>
+<tr>
+<td>✅</td>
+<td><code>safety_destructive_blocked_total</code></td>
+<td>Counter</td>
+<td><code>kind, namespace</code></td>
+<td><code>IncrementDestructiveBlocked</code></td>
+<td><a href="../../shared/controller/workflow/sync.go:258">workflow/sync.go:258</a></td>
+</tr>
+<tr>
+<td>❌</td>
+<td><code>discovery_adoptions_total</code></td>
+<td>Counter</td>
+<td><code>kind, namespace, result</code></td>
+<td><code>IncrementAdoption</code></td>
+<td><strong>none</strong> (defined at <a href="../../pkg/metrics/metrics.go:288">metrics.go:288</a>; never called)</td>
+</tr>
+<tr>
+<td>✅</td>
+<td><code>discovery_unmanaged_resources</code></td>
+<td>Gauge</td>
+<td><code>connection, type</code></td>
+<td><code>SetDiscoveredResources</code></td>
+<td><a href="../../features/discovery/controller/scanner.go:323">scanner.go:323, 324</a></td>
+</tr>
+<tr>
+<td>✅</td>
+<td><code>discovery_scans_total</code></td>
+<td>Counter</td>
+<td><code>connection, result</code></td>
+<td><code>IncrementDiscoveryScan</code></td>
+<td><a href="../../features/discovery/controller/scanner.go:325">scanner.go:325</a></td>
+</tr>
+</tbody>
+</table>
+<h2 id="emission-flow-per-reconcile">Emission Flow (per reconcile)<a class="headerlink" href="#emission-flow-per-reconcile" title="Permanent link">&para;</a></h2>
+<p>Typical reconcile of a VaultPolicy or VaultRole fires at most 3 metrics:</p>
+<pre class="mermaid"><code>sequenceDiagram
+    participant R as Reconciler
+    participant WF as SyncWorkflow
+    participant M as metrics
+
+    R-&gt;&gt;WF: Execute
+    WF-&gt;&gt;WF: handleDriftDetection
+    WF-&gt;&gt;M: SetDriftDetected(kind, ns, detected)
+    alt drift=true &amp; mode=correct &amp; annotation present
+        WF-&gt;&gt;M: IncrementDriftCorrected(kind, ns)
+    else drift=true &amp; mode=correct &amp; no annotation
+        WF-&gt;&gt;M: IncrementDestructiveBlocked(kind, ns)
+    end</code></pre>
+<p>Connection reconcile fires 3 metrics at the end of every successful check:</p>
+<pre class="mermaid"><code>sequenceDiagram
+    participant H as connection.Handler
+    participant M as metrics
+
+    H-&gt;&gt;H: healthz probe to Vault
+    H-&gt;&gt;M: SetConnectionHealth(name, healthy)
+    H-&gt;&gt;M: IncrementHealthCheck(name, healthy)
+    H-&gt;&gt;M: SetConsecutiveFails(name, status.ConsecutiveFails)</code></pre>
+<p>Discovery fires 3 metrics at the end of every scan:</p>
+<pre class="mermaid"><code>sequenceDiagram
+    participant S as Scanner
+    participant M as metrics
+
+    S-&gt;&gt;S: scan policies + roles
+    S-&gt;&gt;M: SetDiscoveredResources(conn, "policy", count)
+    S-&gt;&gt;M: SetDiscoveredResources(conn, "role", count)
+    S-&gt;&gt;M: IncrementDiscoveryScan(conn, err == nil)</code></pre>
+<h2 id="whats-not-measured-today">What's NOT Measured Today<a class="headerlink" href="#whats-not-measured-today" title="Permanent link">&para;</a></h2>
+<p>The absence of these is explanatory: it tells you what <em>can't</em> be alerted on without additional instrumentation.</p>
+<table>
+<thead>
+<tr>
+<th>Signal</th>
+<th>Closest proxy</th>
+<th>Gap</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Reconcile <strong>latency</strong></td>
+<td>none</td>
+<td>no histogram for <code>time.Since(start)</code> on reconcile. See <a href="../IMPROVEMENTS/#k-metrics-no-latency-histograms">IMPROVEMENTS.md §K</a>.</td>
+</tr>
+<tr>
+<td>Vault API <strong>latency</strong></td>
+<td>none</td>
+<td>no histogram for Vault client calls</td>
+</tr>
+<tr>
+<td>Token <strong>renewal</strong> events</td>
+<td>none (token events aren't published to bus or counter)</td>
+<td>add <code>token_renewals_total</code>, <code>token_renewal_failures_total</code></td>
+</tr>
+<tr>
+<td>Bootstrap <strong>duration</strong></td>
+<td>none</td>
+<td>add <code>bootstrap_duration_seconds</code> histogram</td>
+</tr>
+<tr>
+<td>Webhook <strong>validation</strong> rate</td>
+<td>none</td>
+<td>controller-runtime exposes <code>controller_runtime_webhook_*</code> but operator doesn't surface a business-level counter (e.g., "how often are VaultPolicy creates rejected?")</td>
+</tr>
+<tr>
+<td>Policy <strong>resolution</strong> failures</td>
+<td>status condition <code>PoliciesResolved=False</code> only</td>
+<td>add <code>policy_binding_resolution_failures_total</code></td>
+</tr>
+<tr>
+<td>Queue <strong>depth</strong> (reconciler work queue)</td>
+<td>—</td>
+<td>controller-runtime provides <code>controller_runtime_active_workers</code> / <code>workqueue_depth</code> globally; operator could still benefit from explicit per-feature saturation metrics</td>
+</tr>
+</tbody>
+</table>
+<h2 id="labels-cardinality">Labels &amp; Cardinality<a class="headerlink" href="#labels-cardinality" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Labels</th>
+<th>Cardinality risk</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>connection_*</code></td>
+<td><code>connection</code></td>
+<td>low — one per VaultConnection</td>
+</tr>
+<tr>
+<td><code>policy_reconcile_total</code> / <code>role_reconcile_total</code></td>
+<td><code>kind, namespace, result</code></td>
+<td>medium — grows with namespace count (but dead, so moot)</td>
+</tr>
+<tr>
+<td><code>vault_drift_detected</code></td>
+<td><code>kind, namespace, name</code></td>
+<td>medium — labeled by resource name (was kind+namespace only, but multiple resources in the same namespace overwrote each other's signal). Cleanup workflow calls <code>DeleteDriftDetected</code> to prevent series leak on resource deletion.</td>
+</tr>
+<tr>
+<td><code>vault_drift_corrected_total</code></td>
+<td><code>kind, namespace</code></td>
+<td>same</td>
+</tr>
+<tr>
+<td><code>safety_destructive_blocked_total</code></td>
+<td><code>kind, namespace</code></td>
+<td>same</td>
+</tr>
+<tr>
+<td><code>vault_orphaned_resources</code> / <code>discovery_unmanaged_resources</code></td>
+<td><code>connection, type</code></td>
+<td>low — type ∈ {policy, role}</td>
+</tr>
+<tr>
+<td><code>discovery_scans_total</code> / <code>connection_health_checks_total</code></td>
+<td><code>connection, result</code></td>
+<td>low</td>
+</tr>
+</tbody>
+</table>
+<p>The "kind, namespace" choice (instead of "kind, namespace, name") is an explicit cardinality trade-off per the comment at <a href="../../pkg/metrics/metrics.go:100">metrics.go:100</a>. Users wanting per-resource drift insight should look at <code>Conditions[type=Drifted]</code> on each CR.</p>
+<h2 id="prometheus-scrape-configuration">Prometheus Scrape Configuration<a class="headerlink" href="#prometheus-scrape-configuration" title="Permanent link">&para;</a></h2>
+<h3 id="servicemonitor-helm">ServiceMonitor (Helm)<a class="headerlink" href="#servicemonitor-helm" title="Permanent link">&para;</a></h3>
+<p><a href="../../charts/vault-access-operator/templates/servicemonitor.yaml">charts/vault-access-operator/templates/servicemonitor.yaml</a> exists but is gated by <code>metrics.enabled=true</code> in values. It points at the operator's <code>Service</code> (port <code>https-metrics</code>) and uses TLS + bearer token auth.</p>
+<h3 id="standalone-scrape">Standalone scrape<a class="headerlink" href="#standalone-scrape" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">job_name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-access-operator</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">scheme</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span><span class="nt">tls_config</span><span class="p">:</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">    </span><span class="nt">ca_file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/path/to/ca.crt</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">    </span><span class="nt">insecure_skip_verify</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">  </span><span class="nt">bearer_token_file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/var/run/secrets/kubernetes.io/serviceaccount/token</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">  </span><span class="nt">static_configs</span><span class="p">:</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">targets</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&#39;vault-access-operator-metrics-service.vault-access-operator-system.svc:8443&#39;</span><span class="p p-Indicator">]</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">  </span><span class="nt">metrics_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/metrics</span>
+</code></pre></div>
+<p>The scraper's bearer token must belong to an SA bound to the <code>metrics-reader</code> ClusterRole; otherwise the filter chain rejects with 401/403.</p>
+<h2 id="recommended-dashboards-conceptual">Recommended Dashboards (conceptual)<a class="headerlink" href="#recommended-dashboards-conceptual" title="Permanent link">&para;</a></h2>
+<p>No PromQL here — just the shape of what's worth charting:</p>
+<table>
+<thead>
+<tr>
+<th>Panel</th>
+<th>Source metrics</th>
+<th>Alert condition</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Connections health</td>
+<td><code>connection_healthy</code></td>
+<td>alert if =0 for &gt;5m</td>
+</tr>
+<tr>
+<td>Consecutive failures</td>
+<td><code>connection_consecutive_fails</code></td>
+<td>alert if &gt;3 for &gt;5m</td>
+</tr>
+<tr>
+<td>Reconcile error rate</td>
+<td>(dead — would need <code>*_reconcile_total{result=failure}</code>)</td>
+<td>—</td>
+</tr>
+<tr>
+<td>Drift prevalence</td>
+<td><code>vault_drift_detected</code></td>
+<td>alert if sum &gt;0 per cluster</td>
+</tr>
+<tr>
+<td>Blocked destructive ops</td>
+<td><code>rate(safety_destructive_blocked_total[5m])</code></td>
+<td>info</td>
+</tr>
+<tr>
+<td>Discovery scan failures</td>
+<td><code>rate(discovery_scans_total{result=failure}[1h])</code></td>
+<td>alert if any</td>
+</tr>
+<tr>
+<td>Unmanaged-resource count</td>
+<td><code>discovery_unmanaged_resources</code></td>
+<td>cap-based alert</td>
+</tr>
+</tbody>
+</table>
+<h2 id="concurrency-consistency">Concurrency &amp; Consistency<a class="headerlink" href="#concurrency-consistency" title="Permanent link">&para;</a></h2>
+<ul>
+<li>All metrics come from <code>prometheus.NewCounterVec</code> / <code>NewGaugeVec</code>. The underlying library is thread-safe; concurrent updates are fine.</li>
+<li>Gauges are set, not incremented. <code>SetDriftDetected</code> replaces the value — two reconciles flipping drift state in quick succession compose correctly.</li>
+<li><code>Inc</code> is atomic.</li>
+<li>No transactional semantics: if a reconcile panics between two metric calls, the first landed but the second didn't. Usually acceptable for observability.</li>
+</ul>
+<h2 id="dead-metric-risk">Dead-Metric Risk<a class="headerlink" href="#dead-metric-risk" title="Permanent link">&para;</a></h2>
+<p>Registered-but-unused metrics have a non-zero ops cost:
+- They show up in <code>/metrics</code> scrapes (label-less, value 0 — but the series still exists).
+- Dashboards built against them quietly show flat lines instead of surfacing "this isn't instrumented".
+- Future developers might assume the metric is maintained and write alerts against it.</p>
+<p>Either wire the missing emission points (see below) or deregister. See <a href="../IMPROVEMENTS/#31-dead-metrics">IMPROVEMENTS.md §31</a>.</p>
+<h2 id="what-to-wire-to-close-the-gaps">What to wire to close the gaps<a class="headerlink" href="#what-to-wire-to-close-the-gaps" title="Permanent link">&para;</a></h2>
+<ol>
+<li>
+<p><strong><code>policy_reconcile_total</code> / <code>role_reconcile_total</code></strong>: call <code>metrics.IncrementPolicyReconcile(kind, ns, err==nil)</code> in <code>BaseReconciler.handleSync</code> after success/failure detection. One line each in <a href="../../features/policy/controller/policy_reconciler.go">features/policy/controller/policy_reconciler.go</a> and its cluster variant.</p>
+</li>
+<li>
+<p><strong><code>discovery_adoptions_total</code></strong>: call <code>metrics.IncrementAdoption(kind, ns, success)</code> at the point in <code>PolicyOps.CheckConflict</code> / <code>RoleOps.CheckConflict</code> where <code>shouldAdopt</code> is honored and a previously-unmanaged Vault resource gets a managed-marker written.</p>
+</li>
+<li>
+<p><strong>Orphan + cleanup metrics</strong>: wire their controllers via <code>mgr.Add</code> (<a href="../IMPROVEMENTS/#1-unwired-controllers">IMPROVEMENTS.md §1</a>). Metrics will start flowing automatically.</p>
+</li>
+</ol>
+<h2 id="cross-references">Cross-References<a class="headerlink" href="#cross-references" title="Permanent link">&para;</a></h2>
+<ul>
+<li><a href="../ARCHITECTURE/">ARCHITECTURE.md</a> — metric listing in static-view table</li>
+<li><a href="../FLOW_LIFECYCLE/">FLOW_LIFECYCLE.md</a> — metrics server startup</li>
+<li><a href="../FLOW_CONNECTION/">FLOW_CONNECTION.md</a> — connection health metrics are emitted from here</li>
+<li><a href="../FLOW_DISCOVERY/">FLOW_DISCOVERY.md</a> — scanner metrics</li>
+<li><a href="../IMPROVEMENTS/#k-metrics-no-latency-histograms">IMPROVEMENTS.md §K</a>, <a href="../IMPROVEMENTS/#1-unwired-controllers">§1</a>, <a href="../IMPROVEMENTS/#31-dead-metrics">§31</a></li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2024-2026 Vault Access Operator Contributors
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/panteparak/vault-access-operator" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.instant", "navigation.top", "navigation.sections", "navigation.expand", "navigation.indexes", "search.highlight", "content.code.copy", "content.action.edit", "toc.integrate"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
