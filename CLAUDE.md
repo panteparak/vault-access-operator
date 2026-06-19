@@ -133,3 +133,8 @@ before committing. CI auto-commits these on `main` but **fails PRs** with stale 
 - End-to-end workflows: [`docs/internal/WORKFLOWS.md`](docs/internal/WORKFLOWS.md)
 - Requirements template: [`docs/internal/REQUIREMENTS-TEMPLATE.md`](docs/internal/REQUIREMENTS-TEMPLATE.md)
 - Known improvements backlog: [`docs/internal/IMPROVEMENTS.md`](docs/internal/IMPROVEMENTS.md)
+
+<!-- SPECKIT START -->
+For additional context about technologies to be used, project structure,
+shell commands, and other important information, read the current plan
+<!-- SPECKIT END -->
