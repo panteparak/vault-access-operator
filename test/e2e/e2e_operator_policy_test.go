@@ -117,4 +117,17 @@ path "secret/data/vault-access-operator/managed/*" {
 path "secret/metadata/vault-access-operator/managed/*" {
   capabilities = ["list", "read", "delete"]
 }
+
+# KV v2 secret seeding (VaultKVSecret). CREATE-ONLY on the data path — the
+# operator only ever creates new secrets, never overwrites or reads values.
+# Existence checks, the ownership custom_metadata stamp, the untouched-check,
+# and DeleteMetadata cleanup all run through the metadata path. The more
+# specific managed-marker rules above still win for those paths. Mirrors
+# test/e2e/fixtures/policies/e2e-operator-bootstrap.hcl.
+path "secret/data/*" {
+  capabilities = ["create"]
+}
+path "secret/metadata/*" {
+  capabilities = ["create", "read", "update", "patch", "delete", "list"]
+}
 `
