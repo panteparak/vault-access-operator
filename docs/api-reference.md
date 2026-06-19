@@ -11,6 +11,7 @@ This page documents all Custom Resource Definitions (CRDs) provided by the Vault
 | [VaultClusterPolicy](#vaultclusterpolicy) | Cluster | Manages cluster-wide Vault policies |
 | [VaultRole](#vaultrole) | Namespaced | Manages namespace-scoped Kubernetes auth roles |
 | [VaultClusterRole](#vaultclusterrole) | Cluster | Manages cluster-wide Kubernetes auth roles |
+| [VaultKVSecret](#vaultkvsecret) | Namespaced | Seeds (pre-creates) a KV v2 secret path for External Secrets Operator |
 
 All CRDs belong to the `vault.platform.io` API group with version `v1alpha1`.
 
@@ -548,6 +549,94 @@ spec:
 $ kubectl get vaultclusterrole
 NAME                VAULT ROLE          PHASE    POLICIES                    AGE
 platform-services   platform-services   Active   ["shared-secrets-reader"]   5d
+```
+
+---
+
+## VaultKVSecret
+
+Pre-creates ("seeds") a Vault KV v2 secret path so consumers such as External Secrets Operator (ESO) don't fail when the source path is missing on a fresh deployment.
+
+- **Scope:** Namespaced
+- **Short Name:** `vks`
+
+The operator follows a strict **create-only-if-absent** model: it writes the path **only when it does not already exist**, and it **never overwrites or reads** the values stored there. Real data written later by ESO or a human is always preserved. On deletion, the operator runs a **delete-if-untouched** check — it removes the seeded secret only if it is still operator-owned and unmodified since seeding; otherwise it retains it.
+
+!!! warning "ESO `.property` references need explicit placeholder keys"
+    A literally empty `data: {}` secret unblocks ESO whole-secret references (`spec.dataFrom`), but an ESO `spec.data[].remoteRef.property` reference against a **zero-key** secret still reports a *missing property*. For `.property` refs, seed explicit placeholder keys with empty-string values:
+
+    ```yaml
+    data:
+      username: ""
+      password: ""
+    ```
+
+### Example
+
+```yaml
+apiVersion: vault.platform.io/v1alpha1
+kind: VaultKVSecret
+metadata:
+  name: app-config
+  namespace: my-app
+spec:
+  connectionRef: vault-primary
+  # Full KV v2 data path; must contain a "/data/" segment and is immutable.
+  path: "secret/data/apps/my-app/config"
+  # Placeholder content, written ONLY if the path is absent — never overwrites.
+  # Omit `data` entirely for a truly empty {} (fine for whole-secret reads).
+  data:
+    username: ""
+    password: ""
+  deletionPolicy: Delete
+```
+
+### Spec Fields
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `connectionRef` | string | Yes | - | Name of VaultConnection to use |
+| `path` | string | Yes | - | Full KV v2 data path, e.g. `secret/data/apps/myapp/config`. **Must** contain a `/data/` segment. **Immutable** after creation (enforced by a CEL validation rule) |
+| `data` | map[string]string | No | `{}` | Initial placeholder content, written **only** when the path is absent. Never overwrites an existing secret. Use empty-string placeholder keys for ESO `remoteRef.property` references |
+| `deletionPolicy` | string | No | `Delete` | `Delete` (delete-if-untouched) or `Retain` (never delete) — see below |
+
+### Deletion Behavior
+
+For `VaultKVSecret`, the standard `Delete`/`Retain` enum has secret-seeding-specific semantics:
+
+| Policy | Behavior |
+|--------|----------|
+| `Delete` (default) | **Delete-if-untouched.** On CR deletion, the seeded secret is removed **only if** it is still operator-owned (`custom_metadata.managed-by == vault-access-operator`) **and** its current KV v2 version equals `status.seededVersion` (no writes since seeding). A secret written to since seeding, or owned by someone else, is **retained**. |
+| `Retain` | Never delete the seeded secret. |
+
+When the operator seeds a path it stamps the secret's KV v2 `custom_metadata` with `{managed-by: vault-access-operator, k8s-resource: <namespace/name>}` — this ownership marker, plus `status.seededVersion`, drives the delete-if-untouched check. The operator never destroys data it didn't seed or that has been modified since seeding.
+
+!!! note "Operator Vault policy requirement"
+    To seed, the operator's own Vault policy needs **`create`-only** on the target `secret/data/*` (NOT `update`, `read`, or `delete`) plus `create`/`read`/`update`/`patch`/`delete`/`list` on `secret/metadata/*`. This is deliberate least-privilege — the operator only ever CREATES secrets, so Vault itself enforces the never-clobber guarantee. In production, scope the `secret/data/*` prefix to the paths you actually seed (e.g. `secret/data/apps/*`). See [Bootstrap Authentication](auth-methods/bootstrap.md) and [Configuration](configuration.md).
+
+### Status Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `phase` | string | `Pending`, `Syncing`, `Active`, `Conflict`, `Error`, `Deleting` |
+| `vaultPath` | string | Resolved KV v2 data path that was seeded |
+| `seeded` | bool | `true` if the operator created this path; `false` if it already existed when first reconciled |
+| `seededVersion` | int | KV v2 version the operator created — the baseline for the delete-if-untouched check. Zero when the path pre-existed |
+| `message` | string | Additional status information (e.g. "seeded empty secret at … (version 1)" or "already exists; left untouched") |
+| `conditions` | []Condition | Detailed state conditions (`Ready`, `Synced`, and `DryRun` when the dry-run annotation is set) |
+| `lastSyncedAt` | time | Time of last successful sync |
+| `binding` | VaultResourceBinding | Binding to the seeded Vault path |
+
+### Dry Run
+
+Annotate the resource with `vault.platform.io/dry-run=true` to skip the Vault write: the operator surfaces a `DryRun` status condition and a "dry-run: would seed `<path>`" message without creating the secret. Cleanup also skips the delete-if-untouched check while dry-run is active.
+
+### kubectl Output
+
+```bash
+$ kubectl get vaultkvsecret -n my-app
+NAME         PATH                              PHASE    SEEDED   AGE
+app-config   secret/data/apps/my-app/config    Active   true     1h
 ```
 
 ---

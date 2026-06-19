@@ -190,6 +190,28 @@ helm install vault-access-operator \
 | `vaultConnection.tls.caSecretName` | Secret name containing CA certificate | `""` |
 | `vaultConnection.tls.caSecretKey` | Key in secret containing CA certificate | `ca.crt` |
 
+### Operator Vault Policy (KV secret seeding)
+
+The capabilities the operator needs **inside Vault** are governed by the Vault
+policy attached to its auth role (configured during [bootstrap](auth-methods/bootstrap.md),
+not by a Helm value). If you use the [`VaultKVSecret`](api-reference.md#vaultkvsecret)
+CRD to pre-seed KV v2 paths for External Secrets Operator, grant the operator
+policy **`create`-only** on the target `secret/data/*` (NOT `update`, `read`, or
+`delete`) plus full capabilities on `secret/metadata/*`:
+
+```hcl
+# Create-only on the data path: the operator only ever creates new secrets — it
+# never reads or overwrites stored values, so Vault enforces never-clobber. All
+# lifecycle/ownership runs through the metadata path; no `read` on data is needed.
+path "secret/data/*"     { capabilities = ["create"] }
+path "secret/metadata/*" { capabilities = ["create", "read", "update", "patch", "delete", "list"] }
+```
+
+**Least privilege:** scope the data prefix to the paths you actually seed (e.g.
+`secret/data/apps/*`) rather than the broad `secret/data/*`. Omit these grants
+entirely if you don't use `VaultKVSecret`. See [Bootstrap Authentication](auth-methods/bootstrap.md)
+for where this fits in the operator policy.
+
 ### Extensibility
 
 | Parameter | Description | Default |

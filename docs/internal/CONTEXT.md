@@ -54,6 +54,12 @@ A binding inside a Vault auth backend (e.g., `auth/kubernetes/role/<name>`) that
 
 > See [`FLOW_ROLE.md`](FLOW_ROLE.md).
 
+### Secret seeding
+
+Pre-creating ("seeding") a Vault KV v2 secret path so a consumer — typically External Secrets Operator (ESO) — doesn't 404 when the source path is missing on a fresh deployment. Managed through `VaultKVSecret`. The model is strictly **create-only-if-absent**: the operator writes the path only when absent and **never overwrites or reads** the values stored there, so real data written later by ESO or a human is never clobbered. When it seeds, the operator stamps the secret's KV v2 `custom_metadata` (`managed-by: vault-access-operator`, `k8s-resource: <ns>/<name>`) as the ownership marker. On CR deletion it runs **delete-if-untouched** — removing the secret only if still operator-owned and at the same KV v2 version it seeded (`status.seededVersion`), otherwise retaining it. This stamp is the *same intent* as the [Managed marker](#managed-marker) but uses the seeded secret's own native KV v2 metadata rather than a separate marker path. Seeding requires `create`-only on `secret/data/*` and full caps on `secret/metadata/*` in the operator's Vault policy — notably **no `read` on `secret/data/*`**.
+
+> See [`FLOW_KVSECRET.md`](FLOW_KVSECRET.md), [`prd/vaultkvsecret.md`](prd/vaultkvsecret.md). Code: [`pkg/vault/kvsecret.go`](../../pkg/vault/kvsecret.go), [`features/kvsecret/`](../../features/kvsecret/).
+
 ### Token
 
 A short-lived Vault credential. The operator issues tokens via its configured auth method and caches them; expiry triggers re-auth. Tokens are never persisted to K8s. See `FLOW_AUTH.md` for the lease/refresh logic.
@@ -116,11 +122,11 @@ In-process pub-sub (`shared/events/`) for cross-feature signaling. Type-safe via
 
 ### Feature
 
-A self-contained domain area under `features/<name>/`. Current features: `connection`, `policy`, `role`, `discovery`. Each owns its controllers, handler, ops, and domain types. Features depend on `shared/` and `api/`, not on each other.
+A self-contained domain area under `features/<name>/`. Current features: `connection`, `policy`, `role`, `discovery`, `kvsecret`. Each owns its controllers, handler, ops, and domain types. Features depend on `shared/` and `api/`, not on each other. (`kvsecret` is the exception that uses a trimmed reconcile with no `ResourceOps` — see [`FLOW_KVSECRET.md`](FLOW_KVSECRET.md).)
 
 ### Finalizer
 
-A K8s metadata field that blocks deletion of an object until cleared. The operator adds finalizers to `VaultPolicy`/`VaultRole`/`VaultClusterPolicy`/`VaultClusterRole` so it can clean up Vault state before K8s removes the object. Finalizer string is `vault.platform.io/finalizer`.
+A K8s metadata field that blocks deletion of an object until cleared. The operator adds finalizers to `VaultPolicy`/`VaultRole`/`VaultClusterPolicy`/`VaultClusterRole`/`VaultKVSecret` so it can clean up Vault state before K8s removes the object (for `VaultKVSecret`, the finalizer runs the delete-if-untouched check). Finalizer string is `vault.platform.io/finalizer`.
 
 ### Handler
 
@@ -160,7 +166,7 @@ The 9-step state machine in [`shared/controller/workflow/sync.go`](../../shared/
 
 ### CRD (Custom Resource Definition)
 
-The schema for a custom K8s resource. This operator owns 5: `VaultConnection`, `VaultPolicy`, `VaultClusterPolicy`, `VaultRole`, `VaultClusterRole`. Generated from kubebuilder markers in `api/v1alpha1/*_types.go` → `make manifests` → `config/crd/bases/`.
+The schema for a custom K8s resource. This operator owns 6: `VaultConnection`, `VaultPolicy`, `VaultClusterPolicy`, `VaultRole`, `VaultClusterRole`, `VaultKVSecret`. Generated from kubebuilder markers in `api/v1alpha1/*_types.go` → `make manifests` → `config/crd/bases/`. `VaultKVSecret` is the first to validate via CEL (`x-kubernetes-validations`) rather than the admission webhook.
 
 ### Generation vs ObservedGeneration
 
@@ -198,7 +204,7 @@ An admission-time HTTP endpoint (the operator's `internal/webhook/`) that valida
 
 ## Cross-references
 
-- The 10 [`FLOW_*.md`](.) files are the runtime-behavior source of truth. CONTEXT.md is the vocabulary they share.
+- The 11 [`FLOW_*.md`](.) files are the runtime-behavior source of truth. CONTEXT.md is the vocabulary they share.
 - The [`docs/adr/`](../adr/) directory holds the *why* for non-obvious decisions.
 - [`IMPROVEMENTS.md`](IMPROVEMENTS.md) tracks known gaps; ADRs reference its sections where relevant.
 

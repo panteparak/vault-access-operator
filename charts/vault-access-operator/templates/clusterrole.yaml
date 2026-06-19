@@ -16,6 +16,7 @@ rules:
   - vaultclusterpolicies
   - vaultroles
   - vaultclusterroles
+  - vaultkvsecrets
   verbs:
   - create
   - delete
@@ -33,6 +34,7 @@ rules:
   - vaultclusterpolicies/finalizers
   - vaultroles/finalizers
   - vaultclusterroles/finalizers
+  - vaultkvsecrets/finalizers
   verbs:
   - update
 # Status subresources
@@ -44,6 +46,7 @@ rules:
   - vaultclusterpolicies/status
   - vaultroles/status
   - vaultclusterroles/status
+  - vaultkvsecrets/status
   verbs:
   - get
   - patch

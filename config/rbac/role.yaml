@@ -30,6 +30,7 @@ rules:
   - vaultclusterpolicies
   - vaultclusterroles
   - vaultconnections
+  - vaultkvsecrets
   - vaultpolicies
   - vaultroles
   verbs:
@@ -46,6 +47,7 @@ rules:
   - vaultclusterpolicies/finalizers
   - vaultclusterroles/finalizers
   - vaultconnections/finalizers
+  - vaultkvsecrets/finalizers
   - vaultpolicies/finalizers
   - vaultroles/finalizers
   verbs:
@@ -56,6 +58,7 @@ rules:
   - vaultclusterpolicies/status
   - vaultclusterroles/status
   - vaultconnections/status
+  - vaultkvsecrets/status
   - vaultpolicies/status
   - vaultroles/status
   verbs:

@@ -33,3 +33,11 @@ path "sys/health" { capabilities = ["read"] }
 # KV v2 secrets for operator-managed data
 path "secret/data/vault-access-operator/managed/*" { capabilities = ["create", "read", "update", "delete"] }
 path "secret/metadata/vault-access-operator/managed/*" { capabilities = ["list", "read", "delete"] }
+
+# KV v2 secret seeding (VaultKVSecret). CREATE-ONLY on the data path: the operator
+# only ever creates new secrets — never overwrites or reads values — so Vault itself
+# enforces the never-clobber guarantee. All lifecycle/ownership (custom_metadata
+# stamp, untouched-check, DeleteMetadata) runs through the metadata path. The broad
+# secret/data/* / secret/metadata/* is fine for the e2e dev stack; scope it in prod.
+path "secret/data/*" { capabilities = ["create"] }
+path "secret/metadata/*" { capabilities = ["create", "read", "update", "patch", "delete", "list"] }

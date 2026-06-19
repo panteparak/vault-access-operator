@@ -49,6 +49,7 @@ import (
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/features/connection"
 	"github.com/panteparak/vault-access-operator/features/discovery"
+	"github.com/panteparak/vault-access-operator/features/kvsecret"
 	"github.com/panteparak/vault-access-operator/features/policy"
 	"github.com/panteparak/vault-access-operator/features/role"
 	vaultwebhook "github.com/panteparak/vault-access-operator/internal/webhook"
@@ -364,6 +365,21 @@ func main() {
 		os.Exit(1)
 	}
 	setupLog.Info("Setup Role feature")
+
+	// KVSecret feature seeds empty KV v2 secret paths (VaultKVSecret) so consumers
+	// like External Secrets Operator don't fail on a missing source path.
+	kvSecretFeature := kvsecret.New(
+		connFeature.ClientCache,
+		mgr.GetClient(),
+		mgr.GetScheme(),
+		setupLog,
+		mgr.GetEventRecorderFor("vaultkvsecret-controller"), //nolint:staticcheck
+	)
+	if err := kvSecretFeature.SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to setup feature", "feature", "KVSecret")
+		os.Exit(1)
+	}
+	setupLog.Info("Setup KVSecret feature")
 
 	// Discovery feature scans Vault for unmanaged resources
 	discoveryFeature := discovery.New(discovery.Config{

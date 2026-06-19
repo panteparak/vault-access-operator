@@ -21,6 +21,48 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
     (`pkg/vault.ResolveAuthBackend`). Resolves the role-write half of
     [IMPROVEMENTS.md §7](docs/internal/IMPROVEMENTS.md).
 
+- **New `VaultKVSecret` CRD — seed Vault KV v2 paths for External Secrets
+  Operator (ESO).** A namespaced CRD (shortName `vks`) that pre-creates
+  ("seeds") a KV v2 secret path so ESO's first sync resolves instead of 404-ing
+  on a fresh deployment. The operator only ever CREATES the path — it never
+  overwrites or reads the values stored there, so real data written later by ESO
+  or a human is preserved.
+  - **Create-only-if-absent.** On every reconcile, an existing path is skipped
+    (`status.seeded=false`) and never overwritten; only an absent path is seeded
+    (`status.seeded=true`, `status.seededVersion=1`). The write uses KV v2
+    check-and-set (`cas=0`) as a race backstop.
+  - **Delete-if-untouched.** On CR deletion with `deletionPolicy: Delete`
+    (default), the seeded secret is removed only if it is still operator-owned
+    (`custom_metadata.managed-by == vault-access-operator`) AND unmodified since
+    seeding (`current_version == status.seededVersion`). A secret written to
+    since seeding, or owned by someone else, is retained. `deletionPolicy:
+    Retain` never deletes.
+  - `spec.path` is the full KV v2 data path (must contain a `/data/` segment)
+    and is **immutable** after creation, enforced by a CEL
+    `x-kubernetes-validations` rule — the first CRD in the repo to validate via
+    CEL rather than the admission webhook.
+  - `spec.data` (`map[string]string`, default `{}`) is initial placeholder
+    content written only when the path is absent. Seed explicit empty-string
+    placeholder keys (`data: {username: "", password: ""}`) for ESO
+    `remoteRef.property` references — a literally empty `{}` secret unblocks
+    whole-secret (`dataFrom`) reads but a `.property` ref against a zero-key
+    secret still reports a missing property.
+  - **Dry-run support.** The `vault.platform.io/dry-run=true` annotation skips
+    the Vault write and surfaces a `DryRun` status condition.
+  - **New operator Vault policy requirement.** To seed, the operator's Vault
+    policy needs **`create`-ONLY** on the target `secret/data/*` (NOT `update`,
+    `read`, or `delete`) plus `create`/`read`/`update`/`patch`/`delete`/`list`
+    on `secret/metadata/*`. This is deliberate least-privilege — the operator
+    only ever creates secrets and reads metadata, so Vault itself enforces the
+    never-clobber guarantee. Notably it needs **no `read` on `secret/data/*`**.
+    Scope the `secret/data/*` prefix to the paths you actually seed (e.g.
+    `secret/data/apps/*`) in production. The fixtures
+    `test/e2e/fixtures/policies/operator-bootstrap.hcl` and
+    `e2e-operator-bootstrap.hcl` carry the updated grants.
+  - Implemented as a trimmed reconcile on `base.BaseReconciler` (not the shared
+    `SyncWorkflow`), since create-only-if-absent deliberately abandons drift
+    management. See [FLOW_KVSECRET.md](docs/internal/FLOW_KVSECRET.md) and the
+    PRD [prd/vaultkvsecret.md](docs/internal/prd/vaultkvsecret.md).
 - **Multi-value and glob claim matching for JWT VaultRoles.**
   - New `spec.jwt.boundClaimsList` (`map[string][]string`) allows binding a
     single claim to multiple values — e.g. `ref: ["main", "develop"]` — and
