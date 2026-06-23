@@ -40,4 +40,4 @@ path "secret/metadata/vault-access-operator/managed/*" { capabilities = ["list",
 # stamp, untouched-check, DeleteMetadata) runs through the metadata path. The broad
 # secret/data/* / secret/metadata/* is fine for the e2e dev stack; scope it in prod.
 path "secret/data/*" { capabilities = ["create"] }
-path "secret/metadata/*" { capabilities = ["create", "read", "update", "patch", "delete", "list"] }
+path "secret/metadata/*" { capabilities = ["read", "patch", "delete"] }

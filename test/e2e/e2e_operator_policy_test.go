@@ -128,6 +128,6 @@ path "secret/data/*" {
   capabilities = ["create"]
 }
 path "secret/metadata/*" {
-  capabilities = ["create", "read", "update", "patch", "delete", "list"]
+  capabilities = ["read", "patch", "delete"]
 }
 `
