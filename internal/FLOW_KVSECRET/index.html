@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://panteparak.github.io/vault-access-operator/internal/FLOW_EVENTS/">
+        <link rel="canonical" href="https://panteparak.github.io/vault-access-operator/internal/FLOW_KVSECRET/">
       
       
-        <link rel="prev" href="../FLOW_WEBHOOK/">
+        <link rel="prev" href="../FLOW_ROLE/">
       
       
-        <link rel="next" href="../FLOW_METRICS/">
+        <link rel="next" href="../FLOW_DISCOVERY/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>Event Bus - Vault Access Operator — Internal Docs</title>
+        <title>KV Secret Seeding - Vault Access Operator — Internal Docs</title>
       
     
     
@@ -78,7 +78,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#flow-event-bus-inter-feature-communication" class="md-skip">
+        <a href="#flow-vaultkvsecret-seeding" class="md-skip">
           Skip to content
         </a>
       
@@ -114,7 +114,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Event Bus
+              KV Secret Seeding
             
           </span>
         </div>
@@ -557,10 +557,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../FLOW_KVSECRET/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    KV Secret Seeding
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -576,6 +603,258 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Summary
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#participants" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Participants
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#watches-triggers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Watches / Triggers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#full-sync-interaction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Full Sync Interaction
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#step-by-step-narrative" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step-by-Step Narrative
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Step-by-Step Narrative">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#step-1-split-the-path" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 1: Split the path
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-2-resolve-vault-client" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 2: Resolve Vault client
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-3-dry-run-branch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 3: Dry-run branch
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-4-create-only-if-absent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 4: Create-only-if-absent
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-5-stamp-ownership-only-when-seeded" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 5: Stamp ownership (only when seeded)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-6-finalize-status-binding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 6: Finalize status + binding
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#branching-points" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Branching Points
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cleanup-flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cleanup Flow
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Cleanup Flow">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#delete-if-untouched-step-by-step" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Delete-if-untouched, step by step
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-create-only-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The create-only model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#divergences-from-the-policyrole-syncworkflow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Divergences from the Policy/Role SyncWorkflow
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#interface-boundary-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Interface Boundary Summary
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#error-scenarios" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Error Scenarios
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#files-read-written" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Files Read / Written
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cross-references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cross-References
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -697,37 +976,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Event Bus
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../FLOW_EVENTS/" class="md-nav__link">
         
   
   
@@ -743,258 +995,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#summary" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Summary
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#participants" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Participants
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#event-type-catalog" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Event Type Catalog
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Event Type Catalog">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#connection-events-sharedeventsconnectiongo" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Connection events (shared/events/connection.go)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#policy-events-sharedeventspolicygo" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Policy events (shared/events/policy.go)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#role-events-sharedeventsrolego" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Role events (shared/events/role.go)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#token-events-sharedeventstokengo" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Token events (shared/events/token.go)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#summary-publishers-vs-types" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Summary: publishers vs types
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#bus-mechanics" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Bus Mechanics
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Bus Mechanics">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#subscribe-semantics" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Subscribe semantics
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#publish-semantics" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Publish semantics
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#publishasync" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        PublishAsync
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#lifecycle-within-the-operator" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Lifecycle Within the Operator
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#publisher-subscriber-matrix-production-code" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Publisher → Subscriber Matrix (production code)
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#why-publish-into-the-void-isnt-yet-a-bug" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Why "publish into the void" isn't (yet) a bug
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#concurrency-notes" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Concurrency Notes
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#gotchas" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Gotchas
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#files-read-written" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Files Read / Written
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#error-scenarios" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Error Scenarios
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#cross-references" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Cross-References
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -1502,7 +1502,7 @@
 
 
   
-    <a href="https://github.com/panteparak/vault-access-operator/edit/main/docs/internal/FLOW_EVENTS.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/panteparak/vault-access-operator/edit/main/docs/internal/FLOW_KVSECRET.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -1510,11 +1510,10 @@
   
 
 
-<h1 id="flow-event-bus-inter-feature-communication">FLOW: Event Bus (Inter-Feature Communication)<a class="headerlink" href="#flow-event-bus-inter-feature-communication" title="Permanent link">&para;</a></h1>
+<h1 id="flow-vaultkvsecret-seeding">FLOW: VaultKVSecret Seeding<a class="headerlink" href="#flow-vaultkvsecret-seeding" title="Permanent link">&para;</a></h1>
 <h2 id="summary">Summary<a class="headerlink" href="#summary" title="Permanent link">&para;</a></h2>
-<p><code>shared/events.EventBus</code> is an in-process, typed publish/subscribe bus meant for inter-feature communication in the Feature-Driven Design (FDD) architecture. The intent (captured in the package doc) is: the <strong>connection</strong> feature publishes <code>ConnectionReady</code> when it finishes authenticating, and <strong>policy</strong>/<strong>role</strong> features subscribe to react — e.g., trigger immediate re-sync of resources that were blocked on a dependency.</p>
-<p><strong>In reality, there are zero production subscribers today.</strong> Every feature's <code>PublishAsync</code> call writes into a bus that nobody reads, and re-sync on connection recovery is handled by the <code>ConnectionPhaseChangedPredicate</code> (<a href="../../shared/controller/watches/predicates.go">shared/controller/watches/predicates.go</a>) instead. See <a href="../IMPROVEMENTS/#27-event-bus-has-no-production-subscribers">IMPROVEMENTS.md §27</a>.</p>
-<p>The bus is still exercised in test code (handler tests subscribe to confirm events are emitted), so it's not dead — it's scaffold that was built for a future use case.</p>
+<p>A <code>VaultKVSecret</code> pre-creates ("seeds") a Vault KV v2 secret path so consumers such as External Secrets Operator (ESO) don't fail when the source path is missing on a fresh deployment. The model is <strong>create-only-if-absent</strong>: on every reconcile, if the path already exists the operator skips it and never overwrites; only an absent path is seeded. When it seeds, the operator stamps the secret's KV v2 <code>custom_metadata</code> with an ownership marker. On CR deletion the operator runs a <strong>delete-if-untouched</strong> check — it removes the secret only if it is still operator-owned and unmodified since seeding, otherwise it retains it. The operator never reads or overwrites the real values stored at the path, so data written later by ESO or a human is never clobbered.</p>
+<p><strong>Unlike policy and role, this feature does NOT route through <code>workflow.SyncWorkflow</code>.</strong> Seeding deliberately abandons ownership of the secret's <em>data</em> after creation, so the workflow's drift-detect-and-correct machinery (built around "operator owns and reconciles the artifact to spec") does not apply. Instead a thin <code>Handler</code> implements <code>Sync</code>/<code>Cleanup</code> directly on top of <a href="../../shared/controller/base/reconciler.go"><code>base.BaseReconciler</code></a> — a <strong>trimmed reconcile</strong>. See <a href="#divergences-from-the-policyrole-syncworkflow">Divergences from the Policy/Role SyncWorkflow</a>.</p>
 <h2 id="participants">Participants<a class="headerlink" href="#participants" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -1529,485 +1528,429 @@
 <tbody>
 <tr>
 <td>1</td>
-<td><code>events.EventBus</code></td>
-<td>shared</td>
-<td><a href="../../shared/events/bus.go:38">shared/events/bus.go:38</a></td>
-<td>stateful registry; <code>map[string][]handlerFunc</code></td>
+<td><code>KVSecretReconciler</code></td>
+<td>transport</td>
+<td><a href="../../features/kvsecret/controller/kvsecret_reconciler.go">kvsecret_reconciler.go</a></td>
+<td>watches VaultKVSecret + VaultConnection phase</td>
 </tr>
 <tr>
 <td>2</td>
-<td><code>Subscribe[T]</code></td>
-<td>shared</td>
-<td><a href="../../shared/events/bus.go:59">bus.go:59</a></td>
-<td>generic registration; captures <code>T</code> in a closure</td>
+<td><code>kvsecret.Handler</code></td>
+<td>feature</td>
+<td><a href="../../features/kvsecret/controller/handler.go">handler.go</a></td>
+<td><code>Sync</code>, <code>Cleanup</code>, <code>updateStatus</code> — implements <code>FeatureHandler[*VaultKVSecret]</code> directly</td>
 </tr>
 <tr>
 <td>3</td>
-<td><code>Publish</code></td>
+<td><code>base.BaseReconciler</code></td>
 <td>shared</td>
-<td><a href="../../shared/events/bus.go:91">bus.go:91</a></td>
-<td>synchronous fan-out</td>
+<td><a href="../../shared/controller/base/reconciler.go">base/reconciler.go</a></td>
+<td>fetch, finalizer, status, events, reconcileID, requeue</td>
 </tr>
 <tr>
 <td>4</td>
-<td><code>PublishAsync</code></td>
+<td><code>vaultclient.Resolve</code></td>
 <td>shared</td>
-<td><a href="../../shared/events/bus.go:142">bus.go:142</a></td>
-<td><code>go Publish(...)</code>; fire-and-forget</td>
+<td><a href="../../shared/controller/vaultclient/resolver.go">vaultclient/resolver.go</a></td>
+<td>connRef → <code>*vault.Client</code> via cache (gates on connection Active)</td>
 </tr>
 <tr>
 <td>5</td>
-<td>Connection feature</td>
-<td>publisher</td>
-<td><a href="../../features/connection/controller/handler.go">features/connection/controller/handler.go</a></td>
-<td>emits 4 event types</td>
+<td><code>dryrun.IsActive</code></td>
+<td>shared</td>
+<td><a href="../../shared/controller/dryrun/">dryrun/</a></td>
+<td>reads the <code>vault.platform.io/dry-run=true</code> annotation</td>
 </tr>
 <tr>
 <td>6</td>
-<td>Policy feature</td>
-<td>publisher</td>
-<td><a href="../../features/policy/controller/ops.go">features/policy/controller/ops.go</a></td>
-<td>emits <code>PolicyCreated</code>, <code>PolicyDeleted</code></td>
+<td><code>vault.Client</code> (KV surface)</td>
+<td>pkg</td>
+<td><a href="../../pkg/vault/kvsecret.go">pkg/vault/kvsecret.go</a></td>
+<td><code>SplitKVv2Path</code>, <code>CreateKVSecretIfAbsent</code>, <code>ReadKVMetadata</code>, <code>StampKVOwnership</code>, <code>IsOwnedBy</code>, <code>DeleteKVSecret</code></td>
 </tr>
 <tr>
 <td>7</td>
-<td>Role feature</td>
-<td>publisher</td>
-<td><a href="../../features/role/controller/ops.go">features/role/controller/ops.go</a></td>
-<td>emits <code>RoleCreated</code>, <code>RoleDeleted</code></td>
+<td><code>watches.KVSecretRequestsForConnection</code></td>
+<td>shared</td>
+<td><a href="../../shared/controller/watches/">shared/controller/watches/</a></td>
+<td>fans connection-phase changes out to dependent seeds</td>
+</tr>
+</tbody>
+</table>
+<p>There is <strong>no</strong> <code>ResourceOps</code>, no adapter, and no <code>PolicyOps</code>/<code>RoleOps</code> analog — the Handler talks to the concrete <code>*vault.Client</code> directly.</p>
+<h2 id="watches-triggers">Watches / Triggers<a class="headerlink" href="#watches-triggers" title="Permanent link">&para;</a></h2>
+<p>From <a href="../../features/kvsecret/controller/kvsecret_reconciler.go">kvsecret_reconciler.go</a>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nx">For</span><span class="p">(</span><span class="o">&amp;</span><span class="nx">VaultKVSecret</span><span class="p">{},</span><span class="w"> </span><span class="nx">WithPredicates</span><span class="p">(</span><span class="nx">Or</span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">    </span><span class="nx">GenerationChangedPredicate</span><span class="p">{},</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">    </span><span class="nx">ReconcileNowAnnotationPredicate</span><span class="p">{})))</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="nx">Watches</span><span class="p">(</span><span class="o">&amp;</span><span class="nx">VaultConnection</span><span class="p">{},</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">    </span><span class="nx">EnqueueRequestsFromMapFunc</span><span class="p">(</span><span class="nx">KVSecretRequestsForConnection</span><span class="p">(</span><span class="nx">client</span><span class="p">)),</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">    </span><span class="nx">ConnectionPhaseChangedPredicate</span><span class="p">{})</span>
+</code></pre></div>
+<ul>
+<li><strong>Spec changes</strong> trigger reconciliation (<code>GenerationChangedPredicate</code>); the <code>vault.platform.io/reconcile-now</code> annotation forces an out-of-band requeue.</li>
+<li><strong>Connection phase changes</strong> fan out to every <code>VaultKVSecret</code> that references that connection — so a seed blocked on a not-yet-Active <code>VaultConnection</code> requeues the moment the connection flips to <code>Active</code>.</li>
+</ul>
+<h2 id="full-sync-interaction">Full Sync Interaction<a class="headerlink" href="#full-sync-interaction" title="Permanent link">&para;</a></h2>
+<pre class="mermaid"><code>sequenceDiagram
+    participant RT as controller-runtime
+    participant Base as BaseReconciler
+    participant H as kvsecret.Handler
+    participant VCR as vaultclient.Resolve
+    participant DR as dryrun.IsActive
+    participant VC as vault.Client
+    participant K8s as K8s API
+    participant V as Vault
+
+    RT-&gt;&gt;Base: Reconcile(req)
+    Base-&gt;&gt;K8s: Get(VaultKVSecret)
+    K8s--&gt;&gt;Base: kvs
+    Base-&gt;&gt;Base: ensure finalizer
+    Base-&gt;&gt;H: Sync(kvs)
+
+    H-&gt;&gt;VC: SplitKVv2Path(spec.path)
+    alt no /data/ segment
+        VC--&gt;&gt;H: ok=false
+        H--&gt;&gt;Base: ValidationError (spec.path)
+    end
+    H-&gt;&gt;H: status.vaultPath = spec.path
+
+    H-&gt;&gt;VCR: Resolve(connRef, resourceID)
+    VCR-&gt;&gt;K8s: Get(VaultConnection)
+    alt connection not Active
+        VCR--&gt;&gt;H: DependencyError
+        H--&gt;&gt;Base: err (Phase=Error, ConnectionNotReady)
+    else active
+        VCR--&gt;&gt;H: *vault.Client
+    end
+
+    H-&gt;&gt;DR: IsActive(kvs)
+    alt dry-run annotation present
+        Note over H: set DryRun=True, Phase=Active,&lt;br/&gt;message "would seed &lt;path&gt;"
+        H--&gt;&gt;Base: nil (no Vault write)
+    else not dry-run
+        H-&gt;&gt;H: set DryRun=False
+    end
+
+    H-&gt;&gt;VC: CreateKVSecretIfAbsent(mount, rel, spec.data)
+    VC-&gt;&gt;V: GET &lt;mount&gt;/metadata/&lt;rel&gt; (existence)
+    alt path present
+        V--&gt;&gt;VC: metadata (currentVersion)
+        VC--&gt;&gt;H: (created=false, version, nil)
+        Note over H: status.seeded=false,&lt;br/&gt;seededVersion=0,&lt;br/&gt;"already exists; left untouched"
+    else path absent
+        VC-&gt;&gt;V: PUT &lt;mount&gt;/data/&lt;rel&gt; (cas=0)
+        alt cas mismatch (lost create race)
+            V--&gt;&gt;VC: 400 check-and-set
+            VC--&gt;&gt;H: (created=false, 0, nil)
+        else created
+            V--&gt;&gt;VC: versionMetadata
+            VC--&gt;&gt;H: (created=true, version, nil)
+            H-&gt;&gt;VC: StampKVOwnership(mount, rel, {k8s-resource})
+            VC-&gt;&gt;V: PATCH &lt;mount&gt;/metadata/&lt;rel&gt; (custom_metadata)
+            Note over H: status.seeded=true,&lt;br/&gt;seededVersion=version
+        end
+    end
+
+    H-&gt;&gt;H: Phase=Active, Managed=true, set Binding
+    H--&gt;&gt;Base: nil
+    Base-&gt;&gt;H: updateStatus(kvs, nil)
+    H-&gt;&gt;H: Ready=True, Synced=True, lastSyncedAt
+    H-&gt;&gt;K8s: Status.Update
+    Base--&gt;&gt;RT: Result{RequeueAfter: success}</code></pre>
+<h2 id="step-by-step-narrative">Step-by-Step Narrative<a class="headerlink" href="#step-by-step-narrative" title="Permanent link">&para;</a></h2>
+<h3 id="step-1-split-the-path">Step 1: Split the path<a class="headerlink" href="#step-1-split-the-path" title="Permanent link">&para;</a></h3>
+<p><a href="../../pkg/vault/kvsecret.go"><code>SplitKVv2Path</code></a> splits the full <code>&lt;mount&gt;/data/&lt;rel&gt;</code> form (<code>secret/data/apps/foo</code>) into mount (<code>secret</code>) and relative path (<code>apps/foo</code>) on the <strong>first</strong> <code>/data/</code> segment, so non-default mounts (<code>kv/data/x</code>) work. A path with no <code>/data/</code> segment returns a <code>ValidationError</code> (CEL already rejects this at admission, but the handler re-validates defensively). <code>status.vaultPath</code> is set to the full path.</p>
+<h3 id="step-2-resolve-vault-client">Step 2: Resolve Vault client<a class="headerlink" href="#step-2-resolve-vault-client" title="Permanent link">&para;</a></h3>
+<p><a href="../../shared/controller/vaultclient/resolver.go"><code>vaultclient.Resolve</code></a> fetches the <code>VaultConnection</code> by <code>connRef</code> and returns a <code>DependencyError</code> if it is not found or <code>Phase != Active</code>. That maps to <code>Phase=Error</code>, reason <code>ConnectionNotReady</code>; the <strong>connection-phase predicate</strong> re-requeues the seed the moment the connection flips to Active.</p>
+<h3 id="step-3-dry-run-branch">Step 3: Dry-run branch<a class="headerlink" href="#step-3-dry-run-branch" title="Permanent link">&para;</a></h3>
+<p>If the <code>vault.platform.io/dry-run=true</code> annotation is present (<a href="../../shared/controller/dryrun/"><code>dryrun.IsActive</code></a>): set <code>Phase=Active</code>, <code>Managed=true</code>, a <code>DryRun=True</code> condition (reason <code>DryRunSkipped</code>), a "dry-run: would seed <code>&lt;path&gt;</code> if absent" message, and <strong>return without writing to Vault</strong>. If the annotation is absent, an explicit <code>DryRun=False</code> condition is set so removing the annotation after a prior dry-run reflects that it is off now.</p>
+<h3 id="step-4-create-only-if-absent">Step 4: Create-only-if-absent<a class="headerlink" href="#step-4-create-only-if-absent" title="Permanent link">&para;</a></h3>
+<p><a href="../../pkg/vault/kvsecret.go"><code>CreateKVSecretIfAbsent</code></a> first reads <code>&lt;mount&gt;/metadata/&lt;rel&gt;</code>:
+- <strong>Path present</strong> → returns <code>(created=false, currentVersion, nil)</code>. The handler sets <code>status.seeded=false</code>, <code>status.seededVersion=0</code>, message "already exists; left untouched (create-only)" — <strong>no write, no stamp</strong>.
+- <strong>Path absent</strong> → writes <code>&lt;mount&gt;/data/&lt;rel&gt;</code> with check-and-set <code>cas=0</code> (succeeds only if the secret was never created). On success returns <code>(created=true, version, nil)</code>. If the write loses a concurrent create race, <code>cas=0</code> fails with a 400 check-and-set error, which is treated as "already present" <code>(created=false, 0, nil)</code> rather than surfaced — the race winner is never clobbered.</p>
+<h3 id="step-5-stamp-ownership-only-when-seeded">Step 5: Stamp ownership (only when seeded)<a class="headerlink" href="#step-5-stamp-ownership-only-when-seeded" title="Permanent link">&para;</a></h3>
+<p>When <code>created==true</code>, <a href="../../pkg/vault/kvsecret.go"><code>StampKVOwnership</code></a> writes the secret's KV v2 <code>custom_metadata</code> via a non-destructive merge patch: <code>{managed-by: vault-access-operator, k8s-resource: &lt;namespace/name&gt;}</code>. This is the basis of the delete-if-untouched check. <code>status.seeded=true</code>, <code>status.seededVersion=version</code> (the baseline for the untouched check).</p>
+<h3 id="step-6-finalize-status-binding">Step 6: Finalize status + binding<a class="headerlink" href="#step-6-finalize-status-binding" title="Permanent link">&para;</a></h3>
+<p><code>Phase=Active</code>, <code>Managed=true</code>, and a <code>Binding</code> is set (<code>vaultPath=spec.path</code>, <code>vaultResourceName=&lt;rel&gt;</code>, <code>boundAt</code>/<code>lastVerifiedAt=now</code>, <code>bindingVerified=true</code>). The base then calls <code>updateStatus</code>, which sets <code>Ready=True</code> / <code>Synced=True</code> and <code>lastSyncedAt</code>, and persists status. The operator does NOT publish an event (no event bus integration for this feature) and does NOT write a managed-marker at <code>secret/data/vault-access-operator/managed/*</code> — ownership lives in the seeded secret's own <code>custom_metadata</code> instead.</p>
+<h2 id="branching-points">Branching Points<a class="headerlink" href="#branching-points" title="Permanent link">&para;</a></h2>
+<pre class="mermaid"><code>flowchart TD
+    Start[Sync] --&gt; Split{path has&lt;br/&gt;/data/ segment?}
+    Split --&gt;|no| ValErr[ValidationError]
+    Split --&gt;|yes| Resolve{connection&lt;br/&gt;Active?}
+    Resolve --&gt;|no| DepErr[DependencyError&lt;br/&gt;Phase=Error]
+    Resolve --&gt;|yes| Dry{dry-run&lt;br/&gt;annotation?}
+    Dry --&gt;|yes| DryExit[DryRun=True,&lt;br/&gt;Phase=Active,&lt;br/&gt;no write]
+    Dry --&gt;|no| Create{path exists?}
+    Create --&gt;|yes| Skip[seeded=false,&lt;br/&gt;left untouched,&lt;br/&gt;no stamp]
+    Create --&gt;|no| Cas{cas=0 write&lt;br/&gt;wins?}
+    Cas --&gt;|no race-lost| Skip
+    Cas --&gt;|yes| Stamp[StampKVOwnership&lt;br/&gt;seeded=true,&lt;br/&gt;seededVersion=v]
+    Skip --&gt; Done[Phase=Active,&lt;br/&gt;Ready/Synced True]
+    Stamp --&gt; Done</code></pre>
+<h2 id="cleanup-flow">Cleanup Flow<a class="headerlink" href="#cleanup-flow" title="Permanent link">&para;</a></h2>
+<p>The handler owns <code>Cleanup</code> directly — there is no <code>workflow.CleanupWorkflow</code>. The base sets the deletion phase and removes the finalizer once <code>Cleanup</code> returns nil.</p>
+<pre class="mermaid"><code>sequenceDiagram
+    participant Base as BaseReconciler
+    participant H as kvsecret.Handler
+    participant VCR as vaultclient.Resolve
+    participant VC as vault.Client
+    participant V as Vault
+
+    Base-&gt;&gt;H: Cleanup(kvs)
+    alt DeletionPolicy = Retain
+        Note over H: leave secret in Vault
+        H--&gt;&gt;Base: nil
+    else dry-run annotation
+        Note over H: skip delete-if-untouched
+        H--&gt;&gt;Base: nil
+    else !status.seeded
+        Note over H: operator never created it
+        H--&gt;&gt;Base: nil
+    else
+        H-&gt;&gt;VCR: Resolve(connRef)
+        VCR--&gt;&gt;H: *vault.Client
+        H-&gt;&gt;VC: ReadKVMetadata(mount, rel)
+        VC-&gt;&gt;V: GET &lt;mount&gt;/metadata/&lt;rel&gt;
+        alt md == nil (already gone)
+            H--&gt;&gt;Base: nil
+        else !IsOwnedBy(md)
+            Note over H: retain — not ours / stamp wiped
+            H--&gt;&gt;Base: nil
+        else md.CurrentVersion != status.seededVersion
+            Note over H: retain — written since seeding
+            H--&gt;&gt;Base: nil
+        else owned &amp; version unchanged
+            H-&gt;&gt;VC: DeleteKVSecret(mount, rel)
+            VC-&gt;&gt;V: DELETE &lt;mount&gt;/metadata/&lt;rel&gt; (all versions)
+            H--&gt;&gt;Base: nil
+        end
+    end
+    Base-&gt;&gt;Base: remove finalizer</code></pre>
+<h3 id="delete-if-untouched-step-by-step">Delete-if-untouched, step by step<a class="headerlink" href="#delete-if-untouched-step-by-step" title="Permanent link">&para;</a></h3>
+<p><a href="../../features/kvsecret/controller/handler.go"><code>Cleanup</code></a> retains (returns early, deletes nothing) in four cases, then deletes only when all guards pass:</p>
+<ol>
+<li><strong><code>DeletionPolicy: Retain</code></strong> → never delete; the base removes the finalizer and nothing happens in Vault.</li>
+<li><strong>Dry-run</strong> → skip the untouched check entirely.</li>
+<li><strong><code>!status.seeded</code></strong> → the operator never created this path, so it is not ours to delete.</li>
+<li>Resolve the client and <code>ReadKVMetadata</code>:</li>
+<li><code>md == nil</code> → already gone; nothing to do.</li>
+<li><code>!IsOwnedBy(md)</code> (<code>custom_metadata.managed-by != vault-access-operator</code>) → <strong>retain</strong> (not ours, or the stamp was wiped).</li>
+<li><code>md.CurrentVersion != status.seededVersion</code> → <strong>retain</strong> (the secret has been written to since seeding — real data lives there now).</li>
+<li><strong>Owned AND version unchanged</strong> → <a href="../../pkg/vault/kvsecret.go"><code>DeleteKVSecret</code></a>, which calls <code>DeleteMetadata</code> to remove the secret and ALL its versions.</li>
+</ol>
+<p>This is the core safety property: <strong>the operator never destroys data it didn't seed or that has been modified since seeding.</strong></p>
+<h2 id="the-create-only-model">The create-only model<a class="headerlink" href="#the-create-only-model" title="Permanent link">&para;</a></h2>
+<p>Two layers enforce never-clobber:</p>
+<ol>
+<li><strong>Code (<code>cas=0</code>).</strong> <code>CreateKVSecretIfAbsent</code> checks existence via metadata first, then writes with check-and-set <code>cas=0</code> as a race backstop. A create that loses a concurrent race is reported as "already present", never an overwrite.</li>
+<li><strong>Vault policy (<code>create</code>-only).</strong> The operator's Vault policy grants <code>create</code>-only on <code>secret/data/*</code> — no <code>update</code>, <code>read</code>, or <code>delete</code>. Even if the code had a bug, Vault itself rejects any overwrite or read of secret data. All lifecycle/ownership (existence, stamp, untouched-check, deletion) runs through <code>secret/metadata/*</code>. See <a href="../prd/vaultkvsecret/#security-considerations">the PRD's Security considerations</a> and the policy fixtures <a href="../../test/e2e/fixtures/policies/operator-bootstrap.hcl"><code>operator-bootstrap.hcl</code></a> / <a href="../../test/e2e/fixtures/policies/e2e-operator-bootstrap.hcl"><code>e2e-operator-bootstrap.hcl</code></a>.</li>
+</ol>
+<p>Because the operator never reads secret data values (existence is determined from metadata), it needs <strong>no <code>read</code> on <code>secret/data/*</code></strong> — an early assumption that <code>read</code> would be needed "to see" the secret was dropped by this metadata-driven design.</p>
+<h2 id="divergences-from-the-policyrole-syncworkflow">Divergences from the Policy/Role SyncWorkflow<a class="headerlink" href="#divergences-from-the-policyrole-syncworkflow" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Aspect</th>
+<th>Policy / Role (<code>SyncWorkflow</code>)</th>
+<th>VaultKVSecret (trimmed reconcile)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>Orchestration</td>
+<td>9-step <code>workflow.SyncWorkflow</code> via <code>ResourceOps</code></td>
+<td>Handler implements <code>Sync</code>/<code>Cleanup</code> on <code>base.BaseReconciler</code> directly; no <code>ResourceOps</code></td>
+</tr>
+<tr>
+<td>2</td>
+<td>Ownership model</td>
+<td>Operator owns the artifact and reconciles it to spec on every pass</td>
+<td>Operator owns only <em>creation</em>; the secret's data is abandoned after seeding</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Drift</td>
+<td>Detect + (optionally) correct, gated by drift mode</td>
+<td><strong>None</strong> — create-only-if-absent deliberately has no drift management</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Write semantics</td>
+<td>Always (re)writes to match spec</td>
+<td>Writes <strong>only</strong> when the path is absent; never overwrites</td>
+</tr>
+<tr>
+<td>5</td>
+<td>Managed marker</td>
+<td>Separate KV path <code>secret/data/vault-access-operator/managed/{policies,roles}/{name}</code></td>
+<td>Native KV v2 <code>custom_metadata</code> on the seeded secret itself</td>
+</tr>
+<tr>
+<td>6</td>
+<td>Conflict policy / adopt</td>
+<td><code>Fail</code> / <code>Adopt</code> + <code>vault.platform.io/adopt</code> annotation</td>
+<td>N/A — a pre-existing path is simply skipped, never adopted or conflicted</td>
+</tr>
+<tr>
+<td>7</td>
+<td>Cleanup</td>
+<td><code>workflow.CleanupWorkflow</code>, deletes unconditionally on <code>Delete</code></td>
+<td>Handler-owned <strong>delete-if-untouched</strong> (owned + unmodified-since-seed guard)</td>
 </tr>
 <tr>
 <td>8</td>
-<td>Test handlers</td>
-<td>consumer</td>
-<td><code>*_test.go</code></td>
-<td>only place <code>Subscribe</code> is called today</td>
+<td>Validation</td>
+<td>Admission webhook</td>
+<td>CEL <code>x-kubernetes-validations</code> (path immutability + <code>/data/</code> segment); no webhook</td>
+</tr>
+<tr>
+<td>9</td>
+<td>Events</td>
+<td>Publishes <code>PolicyCreated</code>/<code>RoleCreated</code> etc.</td>
+<td>No event bus integration</td>
+</tr>
+<tr>
+<td>10</td>
+<td>Adapter</td>
+<td><code>PolicyAdapter</code> / <code>RoleAdapter</code> unify namespaced + cluster</td>
+<td>Single concrete type (namespaced only); no adapter</td>
 </tr>
 </tbody>
 </table>
-<h2 id="event-type-catalog">Event Type Catalog<a class="headerlink" href="#event-type-catalog" title="Permanent link">&para;</a></h2>
-<p>All events embed <code>BaseEvent</code> (<a href="../../shared/events/types.go:36">shared/events/types.go:36</a>) providing <code>Type() string</code> and <code>Timestamp() time.Time</code>. Most include a <code>ResourceInfo{Name, Namespace, ClusterScoped, ConnectionName}</code> sub-struct for K8s-resource attribution.</p>
-<h3 id="connection-events-sharedeventsconnectiongo">Connection events (<a href="../../shared/events/connection.go">shared/events/connection.go</a>)<a class="headerlink" href="#connection-events-sharedeventsconnectiongo" title="Permanent link">&para;</a></h3>
+<h2 id="interface-boundary-summary">Interface Boundary Summary<a class="headerlink" href="#interface-boundary-summary" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
 <tr>
-<th>Type</th>
-<th>Payload</th>
-<th>Published By</th>
-<th>Meaning</th>
+<th>#</th>
+<th>Crossing</th>
+<th>Port</th>
+<th>Method</th>
+<th>Data</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>connection.ready</code></td>
-<td><code>{ConnectionName, VaultAddress, VaultVersion}</code></td>
-<td><code>connection.Handler.Sync</code> success path</td>
-<td>Vault authenticated + healthy</td>
+<td>1</td>
+<td>Reconciler → Handler</td>
+<td><code>FeatureHandler[*VaultKVSecret]</code></td>
+<td><code>Sync</code>, <code>Cleanup</code></td>
+<td>CR</td>
 </tr>
 <tr>
-<td><code>connection.disconnected</code></td>
-<td><code>{ConnectionName, Reason}</code></td>
-<td><code>connection.Handler.Cleanup</code></td>
-<td>CR deleted; don't reuse cached client</td>
+<td>2</td>
+<td>Handler → vaultclient</td>
+<td>func</td>
+<td><code>Resolve(ctx, client, cache, connRef, resID)</code></td>
+<td><code>*vault.Client</code></td>
 </tr>
 <tr>
-<td><code>connection.health_changed</code></td>
-<td><code>{ConnectionName, Healthy, Reason}</code></td>
-<td>—</td>
-<td><strong>declared but NEVER published</strong> (see §27)</td>
+<td>3</td>
+<td>Handler → dryrun</td>
+<td>func</td>
+<td><code>IsActive(obj)</code></td>
+<td>bool</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Handler → vault.Client</td>
+<td>concrete</td>
+<td><code>SplitKVv2Path</code>, <code>CreateKVSecretIfAbsent</code>, <code>ReadKVMetadata</code>, <code>StampKVOwnership</code>, <code>IsOwnedBy</code>, <code>DeleteKVSecret</code></td>
+<td>mount/rel, <code>map[string]string</code>, <code>*api.KVMetadata</code></td>
 </tr>
 </tbody>
 </table>
-<h3 id="policy-events-sharedeventspolicygo">Policy events (<a href="../../shared/events/policy.go">shared/events/policy.go</a>)<a class="headerlink" href="#policy-events-sharedeventspolicygo" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>Type</th>
-<th>Payload</th>
-<th>Published By</th>
-<th>Meaning</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>policy.created</code></td>
-<td><code>{PolicyName, Resource}</code></td>
-<td><code>PolicyOps.PublishSyncEvent</code></td>
-<td>wrote new/updated policy to Vault</td>
-</tr>
-<tr>
-<td><code>policy.updated</code></td>
-<td><code>{PolicyName, Resource, RulesChanged}</code></td>
-<td>—</td>
-<td><strong>declared but NEVER published</strong> — policy sync always fires <code>PolicyCreated</code>, even on updates</td>
-</tr>
-<tr>
-<td><code>policy.deleted</code></td>
-<td><code>{PolicyName, Resource}</code></td>
-<td><code>PolicyOps.PublishDeleteEvent</code></td>
-<td>deleted policy from Vault</td>
-</tr>
-</tbody>
-</table>
-<h3 id="role-events-sharedeventsrolego">Role events (<a href="../../shared/events/role.go">shared/events/role.go</a>)<a class="headerlink" href="#role-events-sharedeventsrolego" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>Type</th>
-<th>Payload</th>
-<th>Published By</th>
-<th>Meaning</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>role.created</code></td>
-<td><code>{RoleName, AuthPath, Resource, Policies, BoundServiceAccounts}</code></td>
-<td><code>RoleOps.PublishSyncEvent</code></td>
-<td>wrote role to Vault</td>
-</tr>
-<tr>
-<td><code>role.updated</code></td>
-<td><code>{RoleName, AuthPath, Resource, Policies, BoundServiceAccounts, PoliciesChanged, BindingsChanged}</code></td>
-<td>—</td>
-<td><strong>declared but NEVER published</strong></td>
-</tr>
-<tr>
-<td><code>role.deleted</code></td>
-<td><code>{RoleName, AuthPath, Resource}</code></td>
-<td><code>RoleOps.PublishDeleteEvent</code></td>
-<td>deleted role</td>
-</tr>
-</tbody>
-</table>
-<h3 id="token-events-sharedeventstokengo">Token events (<a href="../../shared/events/token.go">shared/events/token.go</a>)<a class="headerlink" href="#token-events-sharedeventstokengo" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>Type</th>
-<th>Payload</th>
-<th>Published By</th>
-<th>Meaning</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>token.renewed</code></td>
-<td><code>{ConnectionName, NewExpiration, RenewalCount, Method}</code></td>
-<td>—</td>
-<td><strong>declared but NEVER published</strong> — intended for <code>LifecycleController</code>, which is unwired (<a href="../IMPROVEMENTS/#1-unwired-controllers">IMPROVEMENTS.md §1</a>)</td>
-</tr>
-<tr>
-<td><code>token.renewal_failed</code></td>
-<td><code>{ConnectionName, Error, RetryCount, WillRetry}</code></td>
-<td>—</td>
-<td><strong>not published</strong></td>
-</tr>
-<tr>
-<td><code>token.reviewer_refreshed</code></td>
-<td><code>{ConnectionName, NextRefresh, Expiration}</code></td>
-<td>—</td>
-<td><strong>not published</strong> — intended for <code>TokenReviewerController</code>, also unwired</td>
-</tr>
-<tr>
-<td><code>bootstrap.completed</code></td>
-<td><code>{ConnectionName, AuthPath, BootstrapRevoked, TransitionedToK8s}</code></td>
-<td><code>connection.Handler.runBootstrap</code></td>
-<td>bootstrap succeeded</td>
-</tr>
-</tbody>
-</table>
-<h3 id="summary-publishers-vs-types">Summary: publishers vs types<a class="headerlink" href="#summary-publishers-vs-types" title="Permanent link">&para;</a></h3>
-<p>13 event types declared; 5 actually published in production code (<code>connection.ready</code>, <code>connection.disconnected</code>, <code>policy.created</code>, <code>policy.deleted</code>, <code>role.created</code>, <code>role.deleted</code>, <code>bootstrap.completed</code> — 7 when you count <code>bootstrap.completed</code>). The <code>*.updated</code> and <code>connection.health_changed</code> types and all <code>token.*</code> types exist as scaffolding.</p>
-<h2 id="bus-mechanics">Bus Mechanics<a class="headerlink" href="#bus-mechanics" title="Permanent link">&para;</a></h2>
-<pre class="mermaid"><code>classDiagram
-    class Event {
-        &lt;&lt;interface&gt;&gt;
-        +Type() string
-        +Timestamp() time.Time
-    }
-    class BaseEvent {
-        +EventType string
-        +OccurredAt time.Time
-    }
-    class EventBus {
-        -mu sync.RWMutex
-        -handlers map[string][]handlerFunc
-        -logger logr.Logger
-        +Subscribe[T](bus, handler)
-        +Unsubscribe(eventType)
-        +Publish(ctx, event) error
-        +PublishAsync(ctx, event)
-        +HandlerCount(type) int
-        +EventTypes() []string
-    }
-    Event &lt;|.. BaseEvent
-    BaseEvent &lt;|-- ConnectionReady
-    BaseEvent &lt;|-- ConnectionDisconnected
-    BaseEvent &lt;|-- PolicyCreated
-    BaseEvent &lt;|-- PolicyDeleted
-    BaseEvent &lt;|-- RoleCreated
-    BaseEvent &lt;|-- RoleDeleted
-    BaseEvent &lt;|-- BootstrapCompleted
-    BaseEvent &lt;|-- TokenRenewed
-    BaseEvent &lt;|-- TokenRenewalFailed
-    BaseEvent &lt;|-- TokenReviewerRefreshed
-    EventBus ..&gt; Event : dispatches</code></pre>
-<h3 id="subscribe-semantics">Subscribe semantics<a class="headerlink" href="#subscribe-semantics" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nx">Subscribe</span><span class="p">[</span><span class="nx">ConnectionReady</span><span class="p">](</span><span class="nx">bus</span><span class="p">,</span><span class="w"> </span><span class="kd">func</span><span class="p">(</span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="nx">e</span><span class="w"> </span><span class="nx">ConnectionReady</span><span class="p">)</span><span class="w"> </span><span class="kt">error</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="o">...</span><span class="w"> </span><span class="p">})</span>
-</code></pre></div>
-<ul>
-<li>Subscription is <strong>typed</strong>: <code>T</code> must implement <code>Event</code>.</li>
-<li>The type assertion is baked into the stored closure (<a href="../../shared/events/bus.go:66">bus.go:66</a>), so dispatch is O(1) — no type switch.</li>
-<li>Multiple handlers per type: they run <strong>sequentially</strong> in registration order.</li>
-<li><code>Unsubscribe(eventType)</code> clears <strong>all</strong> handlers for that type; there's no way to deregister a single closure.</li>
-</ul>
-<h3 id="publish-semantics">Publish semantics<a class="headerlink" href="#publish-semantics" title="Permanent link">&para;</a></h3>
-<pre class="mermaid"><code>sequenceDiagram
-    participant P as Publisher
-    participant B as EventBus
-    participant H1 as Handler 1
-    participant H2 as Handler 2
-
-    P-&gt;&gt;B: Publish(ctx, event)
-    B-&gt;&gt;B: RLock; copy handlers slice
-    B-&gt;&gt;H1: safeInvoke(handler, event)
-    activate H1
-    alt handler returns err
-        H1--&gt;&gt;B: err (logged, lastErr = err)
-    else handler panics
-        Note over B,H1: recover() → err = "handler panicked"
-    else handler ok
-        H1--&gt;&gt;B: nil
-    end
-    deactivate H1
-    B-&gt;&gt;H2: safeInvoke
-    H2--&gt;&gt;B: ok
-    B--&gt;&gt;P: lastErr (or nil)</code></pre>
-<p>Key properties:
-- <strong>Synchronous</strong> — <code>Publish</code> blocks until every handler completes.
-- <strong>Error isolation</strong> — one handler's error (or panic, via <code>safeInvoke</code>'s <code>recover()</code>) doesn't prevent others from firing. The bus returns the <strong>last</strong> error observed.
-- <strong>No buffering</strong> — if handlers are slow, <code>Publish</code> is slow.
-- <strong>No backpressure</strong> — <code>PublishAsync</code> spawns a goroutine unconditionally. Under high publish rates, goroutines pile up.
-- <strong>Panic-safe</strong> — handler panics are recovered at the bus level.</p>
-<h3 id="publishasync">PublishAsync<a class="headerlink" href="#publishasync" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">b</span><span class="w"> </span><span class="o">*</span><span class="nx">EventBus</span><span class="p">)</span><span class="w"> </span><span class="nx">PublishAsync</span><span class="p">(</span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="nx">event</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">    </span><span class="k">go</span><span class="w"> </span><span class="kd">func</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">_</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">b</span><span class="p">.</span><span class="nx">Publish</span><span class="p">(</span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="nx">event</span><span class="p">)</span><span class="w"> </span><span class="p">}()</span>
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="p">}</span>
-</code></pre></div>
-<ul>
-<li>Returns immediately.</li>
-<li>Errors are swallowed (<code>_ =</code>).</li>
-<li>Features use this for fire-and-forget notifications that aren't on the reconcile critical path.</li>
-</ul>
-<h2 id="lifecycle-within-the-operator">Lifecycle Within the Operator<a class="headerlink" href="#lifecycle-within-the-operator" title="Permanent link">&para;</a></h2>
-<pre class="mermaid"><code>sequenceDiagram
-    participant Main as cmd/main.go
-    participant Bus as events.EventBus
-    participant CF as Connection Feature
-    participant PF as Policy Feature
-    participant RF as Role Feature
-
-    Main-&gt;&gt;Bus: NewEventBus(logger)
-    Main-&gt;&gt;CF: connection.New(Config{EventBus: bus, ...})
-    Main-&gt;&gt;PF: policy.New(bus, clientCache, ...)
-    Main-&gt;&gt;RF: role.New(bus, clientCache, ...)
-    Note over PF,RF: features store bus reference&lt;br/&gt;no Subscribe call today
-    Main-&gt;&gt;Main: mgr.Start(ctx)
-
-    rect rgb(240,240,255)
-        Note over CF,Bus: Runtime publish paths (7 total)
-        CF-&gt;&gt;Bus: PublishAsync(ConnectionReady) on Sync success
-        CF-&gt;&gt;Bus: PublishAsync(ConnectionDisconnected) on Cleanup
-        CF-&gt;&gt;Bus: PublishAsync(BootstrapCompleted) on bootstrap
-        PF-&gt;&gt;Bus: PublishAsync(PolicyCreated) on sync success
-        PF-&gt;&gt;Bus: PublishAsync(PolicyDeleted) on cleanup
-        RF-&gt;&gt;Bus: PublishAsync(RoleCreated) on sync success
-        RF-&gt;&gt;Bus: PublishAsync(RoleDeleted) on cleanup
-    end
-
-    rect rgb(255,240,240)
-        Note over Bus: No production subscribers.&lt;br/&gt;All publishes fan out to zero handlers&lt;br/&gt;→ Publish returns immediately with no-op log at V(2)
-    end</code></pre>
-<h2 id="publisher-subscriber-matrix-production-code">Publisher → Subscriber Matrix (production code)<a class="headerlink" href="#publisher-subscriber-matrix-production-code" title="Permanent link">&para;</a></h2>
-<table>
-<thead>
-<tr>
-<th>Event Type</th>
-<th>Publishers</th>
-<th>Subscribers</th>
-<th>Actual Dispatch</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>connection.ready</code></td>
-<td><code>connection.Handler</code></td>
-<td>—</td>
-<td>no-op</td>
-</tr>
-<tr>
-<td><code>connection.disconnected</code></td>
-<td><code>connection.Handler</code></td>
-<td>—</td>
-<td>no-op</td>
-</tr>
-<tr>
-<td><code>bootstrap.completed</code></td>
-<td><code>connection.Handler</code> (bootstrap path)</td>
-<td>—</td>
-<td>no-op</td>
-</tr>
-<tr>
-<td><code>connection.health_changed</code></td>
-<td><strong>none</strong></td>
-<td>—</td>
-<td>—</td>
-</tr>
-<tr>
-<td><code>policy.created</code></td>
-<td><code>PolicyOps.PublishSyncEvent</code></td>
-<td>—</td>
-<td>no-op</td>
-</tr>
-<tr>
-<td><code>policy.updated</code></td>
-<td><strong>none</strong></td>
-<td>—</td>
-<td>—</td>
-</tr>
-<tr>
-<td><code>policy.deleted</code></td>
-<td><code>PolicyOps.PublishDeleteEvent</code></td>
-<td>—</td>
-<td>no-op</td>
-</tr>
-<tr>
-<td><code>role.created</code></td>
-<td><code>RoleOps.PublishSyncEvent</code></td>
-<td>—</td>
-<td>no-op</td>
-</tr>
-<tr>
-<td><code>role.updated</code></td>
-<td><strong>none</strong></td>
-<td>—</td>
-<td>—</td>
-</tr>
-<tr>
-<td><code>role.deleted</code></td>
-<td><code>RoleOps.PublishDeleteEvent</code></td>
-<td>—</td>
-<td>no-op</td>
-</tr>
-<tr>
-<td><code>token.renewed</code></td>
-<td><strong>none</strong></td>
-<td>—</td>
-<td>—</td>
-</tr>
-<tr>
-<td><code>token.renewal_failed</code></td>
-<td><strong>none</strong></td>
-<td>—</td>
-<td>—</td>
-</tr>
-<tr>
-<td><code>token.reviewer_refreshed</code></td>
-<td><strong>none</strong></td>
-<td>—</td>
-<td>—</td>
-</tr>
-</tbody>
-</table>
-<p>Test subscribers exist in <code>features/{policy,role,connection}/controller/*_test.go</code> — they confirm publishers emit the right shape, not that anyone downstream consumes them.</p>
-<h2 id="why-publish-into-the-void-isnt-yet-a-bug">Why "publish into the void" isn't (yet) a bug<a class="headerlink" href="#why-publish-into-the-void-isnt-yet-a-bug" title="Permanent link">&para;</a></h2>
-<p>Feature synchronization that would logically use the bus is handled through controller-runtime primitives instead:</p>
-<ul>
-<li><strong>Re-sync when a connection recovers</strong>: <code>ConnectionPhaseChangedPredicate</code> (<a href="../../shared/controller/watches/predicates.go">shared/controller/watches/predicates.go</a>) watches <code>VaultConnection</code> phase transitions and the policy/role reconcilers install <code>watches.PolicyRequestsForConnection</code> / <code>RoleRequestsForConnection</code> map functions that enqueue every dependent resource. No bus involved.</li>
-<li><strong>Propagate role-policy dependency updates</strong>: the role reconciler re-checks <code>PolicyExists</code> in Vault on every sync, so a missing-policy warning naturally flips when the policy appears. No bus involved.</li>
-<li><strong>React to bootstrap completion</strong>: the connection handler returns early after persisting <code>BootstrapComplete=true</code> — the next reconcile (30s later, or sooner if generation bumps) re-fetches and proceeds on the K8s auth path. No bus involved.</li>
-</ul>
-<p>The bus is a scaffold for use cases that haven't materialized:
-- Updating <code>status.PolicyBindings[].Resolved=true</code> on a role when its referenced policy is created (today it's a warning condition; a <code>PolicyCreated</code> subscriber could flip the condition immediately instead of waiting for the next 30s requeue).
-- Metric emission from <code>TokenRenewed</code> / <code>TokenRenewalFailed</code> (today there are no such metrics).
-- Audit trail publication (ship events to a SIEM).</p>
-<h2 id="concurrency-notes">Concurrency Notes<a class="headerlink" href="#concurrency-notes" title="Permanent link">&para;</a></h2>
-<ul>
-<li><code>handlers</code> map is guarded by <code>sync.RWMutex</code>.</li>
-<li><code>Subscribe</code> takes the write lock.</li>
-<li><code>Publish</code> takes the read lock <em>briefly</em> to snapshot the handler slice, then releases before invoking handlers — so a handler that calls <code>Subscribe</code> doesn't deadlock, but the new subscription won't see the currently-in-flight publish.</li>
-<li><code>PublishAsync</code> spawns one goroutine per publish. Under sustained high load this could leak goroutines if handlers block indefinitely.</li>
-</ul>
-<h2 id="gotchas">Gotchas<a class="headerlink" href="#gotchas" title="Permanent link">&para;</a></h2>
-<table>
-<thead>
-<tr>
-<th>Issue</th>
-<th>Why</th>
-<th>Mitigation</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Goroutine leak under slow handlers</td>
-<td><code>PublishAsync</code> has no timeout or cancellation propagation beyond <code>ctx</code></td>
-<td>enforce handler timeouts via <code>context.WithTimeout</code> inside handlers</td>
-</tr>
-<tr>
-<td>Lost updates on <code>Unsubscribe</code></td>
-<td>clears <strong>all</strong> handlers for a type</td>
-<td>add an <code>Unsubscribe[T](id)</code> API if needed (not a problem today)</td>
-</tr>
-<tr>
-<td>Silent swallowing</td>
-<td><code>PublishAsync</code> discards error return</td>
-<td>if you care, use sync <code>Publish</code></td>
-</tr>
-<tr>
-<td>No cross-operator delivery</td>
-<td>in-process only; doesn't survive restart</td>
-<td>K8s events or persistent queue for cross-restart delivery</td>
-</tr>
-</tbody>
-</table>
-<h2 id="files-read-written">Files Read / Written<a class="headerlink" href="#files-read-written" title="Permanent link">&para;</a></h2>
-<p>Nothing. The bus is pure in-memory state; no persistence.</p>
 <h2 id="error-scenarios">Error Scenarios<a class="headerlink" href="#error-scenarios" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
 <tr>
 <th>Error</th>
-<th>Origin</th>
-<th>Handling</th>
+<th>Step</th>
+<th>Trigger</th>
+<th>Recovery</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>Handler returns error</td>
-<td>handler body</td>
-<td>logged; last error returned from <code>Publish</code>; other handlers continue</td>
+<td><code>ValidationError</code> (spec.path)</td>
+<td>SplitKVv2Path</td>
+<td>path has no <code>/data/</code> segment</td>
+<td>user fixes spec (CEL normally blocks this at admission)</td>
 </tr>
 <tr>
-<td>Handler panics</td>
-<td>handler body</td>
-<td><code>recover()</code> in <code>safeInvoke</code> converts to error; same treatment as returned error</td>
+<td><code>DependencyError</code> (connection not Active)</td>
+<td>resolve client</td>
+<td>connection absent / bootstrap failing / auth failed</td>
+<td>connection recovery → phase predicate requeues</td>
 </tr>
 <tr>
-<td>No handlers for type</td>
-<td>normal</td>
-<td><code>Publish</code> logs at V(2) and returns nil</td>
+<td><code>TransientError</code> (seed KV secret)</td>
+<td>CreateKVSecretIfAbsent</td>
+<td>Vault API error on metadata read / write (not a cas mismatch)</td>
+<td>retry after requeue</td>
+</tr>
+<tr>
+<td><code>TransientError</code> (stamp KV ownership)</td>
+<td>StampKVOwnership</td>
+<td>Vault API error patching <code>custom_metadata</code></td>
+<td>retry after requeue</td>
+</tr>
+<tr>
+<td><code>TransientError</code> (read KV metadata for cleanup)</td>
+<td>Cleanup → ReadKVMetadata</td>
+<td>Vault API error during delete-if-untouched</td>
+<td>retry; finalizer stays until it succeeds</td>
+</tr>
+<tr>
+<td><code>TransientError</code> (delete KV secret)</td>
+<td>Cleanup → DeleteKVSecret</td>
+<td>Vault API error on <code>DeleteMetadata</code></td>
+<td>retry; finalizer stays until it succeeds</td>
+</tr>
+</tbody>
+</table>
+<h2 id="files-read-written">Files Read / Written<a class="headerlink" href="#files-read-written" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Resource</th>
+<th>Op</th>
+<th>Step</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>VaultKVSecret CR</td>
+<td>R + status W</td>
+<td>every reconcile</td>
+</tr>
+<tr>
+<td>VaultConnection CR</td>
+<td>R</td>
+<td>dependency resolution</td>
+</tr>
+<tr>
+<td>Vault <code>&lt;mount&gt;/metadata/&lt;rel&gt;</code></td>
+<td>R (existence + untouched-check) + W (<code>custom_metadata</code> stamp) + DELETE (cleanup)</td>
+<td>CreateKVSecretIfAbsent, StampKVOwnership, Cleanup</td>
+</tr>
+<tr>
+<td>Vault <code>&lt;mount&gt;/data/&lt;rel&gt;</code></td>
+<td>W only (<code>cas=0</code> create, never read/overwrite)</td>
+<td>CreateKVSecretIfAbsent</td>
 </tr>
 </tbody>
 </table>
 <h2 id="cross-references">Cross-References<a class="headerlink" href="#cross-references" title="Permanent link">&para;</a></h2>
 <ul>
-<li><a href="../ARCHITECTURE/">ARCHITECTURE.md</a> — pub/sub pattern row</li>
-<li><a href="../FLOW_CONNECTION/">FLOW_CONNECTION.md</a> — where <code>ConnectionReady</code> / <code>BootstrapCompleted</code> / <code>ConnectionDisconnected</code> are emitted</li>
-<li><a href="../FLOW_POLICY/">FLOW_POLICY.md</a> — <code>PolicyCreated</code> / <code>PolicyDeleted</code> emission</li>
-<li><a href="../FLOW_ROLE/">FLOW_ROLE.md</a> — <code>RoleCreated</code> / <code>RoleDeleted</code> emission</li>
-<li><a href="../FLOW_AUTH/">FLOW_AUTH.md</a> — token events that are declared but unused</li>
-<li><a href="../IMPROVEMENTS/#27-event-bus-has-no-production-subscribers">IMPROVEMENTS.md §27</a></li>
+<li><a href="../FLOW_OVERVIEW/">FLOW_OVERVIEW.md</a> — shared reconcile foundations</li>
+<li><a href="../FLOW_POLICY/">FLOW_POLICY.md</a> — the canonical <code>SyncWorkflow</code> this feature deliberately diverges from</li>
+<li><a href="../FLOW_DELETION/">FLOW_DELETION.md</a> — finalizer + cleanup foundations</li>
+<li><a href="../prd/vaultkvsecret/">prd/vaultkvsecret.md</a> — requirements, acceptance criteria, security considerations</li>
+<li><a href="../CONTEXT/">CONTEXT.md</a> — <em>Secret seeding</em>, <em>VaultKVSecret</em>, <em>Managed marker</em>, <em>KV v2</em></li>
+<li><a href="../api-reference.md#vaultkvsecret">docs/api-reference.md</a> — user-facing field docs</li>
 </ul>
 
 

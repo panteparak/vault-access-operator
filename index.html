@@ -1735,7 +1735,7 @@
 </div>
 <p>For detailed installation instructions, see the <a href="getting-started/">Getting Started</a> guide.</p>
 <h2 id="custom-resource-definitions">Custom Resource Definitions<a class="headerlink" href="#custom-resource-definitions" title="Permanent link">&para;</a></h2>
-<p>The operator provides five CRDs for managing Vault access:</p>
+<p>The operator provides six CRDs for managing Vault access:</p>
 <table>
 <thead>
 <tr>
@@ -1769,6 +1769,11 @@
 <td><a href="api-reference/#vaultrole">VaultRole</a></td>
 <td>Namespaced</td>
 <td>Manages namespace-scoped Kubernetes auth roles</td>
+</tr>
+<tr>
+<td><a href="api-reference/#vaultkvsecret">VaultKVSecret</a></td>
+<td>Namespaced</td>
+<td>Seeds KV v2 secret paths for External Secrets Operator</td>
 </tr>
 </tbody>
 </table>

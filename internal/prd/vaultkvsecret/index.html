@@ -10,31 +10,31 @@
       
       
       
-        <link rel="canonical" href="https://panteparak.github.io/vault-access-operator/internal/WORKFLOWS/">
+        <link rel="canonical" href="https://panteparak.github.io/vault-access-operator/internal/prd/vaultkvsecret/">
       
       
-        <link rel="prev" href="../SKILLS/">
+        <link rel="prev" href="../../REQUIREMENTS-TEMPLATE/">
       
       
-        <link rel="next" href="../REQUIREMENTS-TEMPLATE/">
+        <link rel="next" href="../../AUDIT-2026-05/">
       
       
         
       
       
-      <link rel="icon" href="../assets/images/favicon.png">
+      <link rel="icon" href="../../assets/images/favicon.png">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
     
     
       
-        <title>End-to-End Workflows - Vault Access Operator — Internal Docs</title>
+        <title>VaultKVSecret - Vault Access Operator — Internal Docs</title>
       
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
       
         
-        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -53,7 +53,7 @@
       
     
     
-    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -78,7 +78,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#end-to-end-workflows" class="md-skip">
+        <a href="#seed-vault-kv-v2-paths-for-external-secrets-operator-vaultkvsecret" class="md-skip">
           Skip to content
         </a>
       
@@ -94,7 +94,7 @@
 
 <header class="md-header md-header--shadow" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href=".." title="Vault Access Operator — Internal Docs" class="md-header__button md-logo" aria-label="Vault Access Operator — Internal Docs" data-md-component="logo">
+    <a href="../.." title="Vault Access Operator — Internal Docs" class="md-header__button md-logo" aria-label="Vault Access Operator — Internal Docs" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -114,7 +114,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              End-to-End Workflows
+              VaultKVSecret
             
           </span>
         </div>
@@ -232,7 +232,7 @@
 
 <nav class="md-nav md-nav--primary md-nav--integrated" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href=".." title="Vault Access Operator — Internal Docs" class="md-nav__button md-logo" aria-label="Vault Access Operator — Internal Docs" data-md-component="logo">
+    <a href="../.." title="Vault Access Operator — Internal Docs" class="md-nav__button md-logo" aria-label="Vault Access Operator — Internal Docs" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -262,7 +262,7 @@
   
   
     <li class="md-nav__item">
-      <a href=".." class="md-nav__link">
+      <a href="../.." class="md-nav__link">
         
   
   
@@ -289,7 +289,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../PROJECT_OVERVIEW/" class="md-nav__link">
+      <a href="../../PROJECT_OVERVIEW/" class="md-nav__link">
         
   
   
@@ -316,7 +316,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../ARCHITECTURE/" class="md-nav__link">
+      <a href="../../ARCHITECTURE/" class="md-nav__link">
         
   
   
@@ -343,7 +343,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../FLOW_OVERVIEW/" class="md-nav__link">
+      <a href="../../FLOW_OVERVIEW/" class="md-nav__link">
         
   
   
@@ -448,7 +448,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../FLOW_LIFECYCLE/" class="md-nav__link">
+      <a href="../../FLOW_LIFECYCLE/" class="md-nav__link">
         
   
   
@@ -476,7 +476,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../FLOW_CONNECTION/" class="md-nav__link">
+      <a href="../../FLOW_CONNECTION/" class="md-nav__link">
         
   
   
@@ -504,7 +504,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../FLOW_POLICY/" class="md-nav__link">
+      <a href="../../FLOW_POLICY/" class="md-nav__link">
         
   
   
@@ -532,7 +532,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../FLOW_ROLE/" class="md-nav__link">
+      <a href="../../FLOW_ROLE/" class="md-nav__link">
         
   
   
@@ -560,7 +560,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../FLOW_KVSECRET/" class="md-nav__link">
+      <a href="../../FLOW_KVSECRET/" class="md-nav__link">
         
   
   
@@ -588,7 +588,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../FLOW_DISCOVERY/" class="md-nav__link">
+      <a href="../../FLOW_DISCOVERY/" class="md-nav__link">
         
   
   
@@ -616,7 +616,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../FLOW_DELETION/" class="md-nav__link">
+      <a href="../../FLOW_DELETION/" class="md-nav__link">
         
   
   
@@ -644,7 +644,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../FLOW_AUTH/" class="md-nav__link">
+      <a href="../../FLOW_AUTH/" class="md-nav__link">
         
   
   
@@ -672,7 +672,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../FLOW_WEBHOOK/" class="md-nav__link">
+      <a href="../../FLOW_WEBHOOK/" class="md-nav__link">
         
   
   
@@ -700,7 +700,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../FLOW_EVENTS/" class="md-nav__link">
+      <a href="../../FLOW_EVENTS/" class="md-nav__link">
         
   
   
@@ -728,7 +728,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../FLOW_METRICS/" class="md-nav__link">
+      <a href="../../FLOW_METRICS/" class="md-nav__link">
         
   
   
@@ -763,7 +763,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../INSTRUCTIONS/" class="md-nav__link">
+      <a href="../../INSTRUCTIONS/" class="md-nav__link">
         
   
   
@@ -790,7 +790,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../IMPROVEMENTS/" class="md-nav__link">
+      <a href="../../IMPROVEMENTS/" class="md-nav__link">
         
   
   
@@ -883,7 +883,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../CONTEXT/" class="md-nav__link">
+      <a href="../../CONTEXT/" class="md-nav__link">
         
   
   
@@ -911,7 +911,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../SKILLS/" class="md-nav__link">
+      <a href="../../SKILLS/" class="md-nav__link">
         
   
   
@@ -936,6 +936,117 @@
                 
   
   
+  
+  
+    <li class="md-nav__item">
+      <a href="../../WORKFLOWS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    End-to-End Workflows
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../REQUIREMENTS-TEMPLATE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Requirements Template
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8_5" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_8_5" id="__nav_8_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PRDs
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_8_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_8_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    PRDs
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
     
   
   
@@ -955,7 +1066,7 @@
   <span class="md-ellipsis">
     
   
-    End-to-End Workflows
+    VaultKVSecret
   
 
     
@@ -973,7 +1084,7 @@
   <span class="md-ellipsis">
     
   
-    End-to-End Workflows
+    VaultKVSecret
   
 
     
@@ -999,127 +1110,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#scenario-a-add-a-new-vault-auth-method" class="md-nav__link">
+  <a href="#problem-statement" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Scenario A — Add a new Vault auth method
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Scenario A — Add a new Vault auth method">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#steps" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Steps
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#done-when" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Done when
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#scenario-b-fix-a-reconcile-bug" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Scenario B — Fix a reconcile bug
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Scenario B — Fix a reconcile bug">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#steps_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Steps
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#done-when_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Done when
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#scenario-c-refactor-a-sharedcontroller-package" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Scenario C — Refactor a shared/controller/* package
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Scenario C — Refactor a shared/controller/* package">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#steps_2" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Steps
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#done-when_2" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Done when
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#how-to-add-a-new-flow-doc" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        How to add a new FLOW doc
+        Problem statement
       
     </span>
   </a>
@@ -1127,10 +1121,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#changelog-conventions" class="md-nav__link">
+  <a href="#goals" class="md-nav__link">
     <span class="md-ellipsis">
       
-        CHANGELOG conventions
+        Goals
       
     </span>
   </a>
@@ -1138,10 +1132,98 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#common-pitfalls" class="md-nav__link">
+  <a href="#non-goals" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Common pitfalls
+        Non-goals
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#acceptance-criteria" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Acceptance criteria
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#affected-crds-api-surface" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Affected CRDs / API surface
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#affected-docs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Affected docs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#compatibility-migration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Compatibility &amp; migration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#security-considerations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Security considerations
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#open-questions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Open questions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#implementation-sketch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Implementation sketch
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        References
       
     </span>
   </a>
@@ -1152,117 +1234,6 @@
   
 </nav>
       
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../REQUIREMENTS-TEMPLATE/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Requirements Template
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    
-    
-      
-        
-      
-    
-    
-    
-      
-    
-    
-    <li class="md-nav__item md-nav__item--nested">
-      
-        
-        
-          
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_8_5" >
-        
-          
-          <label class="md-nav__link" for="__nav_8_5" id="__nav_8_5_label" tabindex="0">
-            
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    PRDs
-  
-
-    
-  </span>
-  
-  
-
-            <span class="md-nav__icon md-icon"></span>
-          </label>
-        
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_8_5_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_8_5">
-            <span class="md-nav__icon md-icon"></span>
-            
-  
-    PRDs
-  
-
-          </label>
-          <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../prd/vaultkvsecret/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    VaultKVSecret
-  
-
-    
-  </span>
-  
-  
-
-      </a>
     </li>
   
 
@@ -1348,7 +1319,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../AUDIT-2026-05/" class="md-nav__link">
+      <a href="../../AUDIT-2026-05/" class="md-nav__link">
         
   
   
@@ -1420,7 +1391,7 @@
 
 
   
-    <a href="https://github.com/panteparak/vault-access-operator/edit/main/docs/internal/WORKFLOWS.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/panteparak/vault-access-operator/edit/main/docs/internal/prd/vaultkvsecret.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -1428,146 +1399,108 @@
   
 
 
-<h1 id="end-to-end-workflows">End-to-End Workflows<a class="headerlink" href="#end-to-end-workflows" title="Permanent link">&para;</a></h1>
-<p>Three canonical scenarios that compose the skills in <a href="../SKILLS/">SKILLS.md</a> with the project's slash commands and Makefile targets. Each scenario ends with explicit "Done when" criteria.</p>
-<hr />
-<h2 id="scenario-a-add-a-new-vault-auth-method">Scenario A — Add a new Vault auth method<a class="headerlink" href="#scenario-a-add-a-new-vault-auth-method" title="Permanent link">&para;</a></h2>
-<p><strong>Frequency:</strong> 1–2 per quarter as new Vault auth integrations land.
-<strong>Difficulty:</strong> High. Touches CRD schema, webhook, Vault client, FLOW docs, public docs, e2e tests.</p>
-<h3 id="steps">Steps<a class="headerlink" href="#steps" title="Permanent link">&para;</a></h3>
-<ol>
-<li><strong>Capture requirements</strong> — copy <a href="../REQUIREMENTS-TEMPLATE/">REQUIREMENTS-TEMPLATE.md</a> to <code>docs/internal/prd/auth-&lt;method&gt;.md</code>. Fill in goals, acceptance criteria, affected docs.</li>
-<li><strong>Threat-model</strong> — <code>/security-threat-model</code>. Auth is in scope by definition.</li>
-<li><strong>Record the design decision</strong> — <code>/new-adr auth-&lt;method&gt;-support</code>. Capture: why this auth method, why now, alternatives (e.g., "could be done client-side with a sidecar"), trade-offs.</li>
-<li><strong>Update CONTEXT.md</strong> — add the new auth method to the Vault domain section. <code>grill-with-docs</code> can do this inline.</li>
-<li><strong>Implement</strong> — <code>/dev-k8s-operator</code> to scaffold; <code>/tdd</code> for the per-method auth handler under <code>pkg/vault/auth/</code>. The CRD schema goes in <code>api/v1alpha1/vaultconnection_types.go</code> under the <code>auth</code> discriminated union.</li>
-<li><strong>Webhook validation</strong> — extend <code>internal/webhook/vaultconnection_webhook.go</code> to validate the new auth fields. Tests under <code>internal/webhook/*_test.go</code>.</li>
-<li><strong>Generate</strong> — <code>make manifests generate helm-update-crds</code>. Commit the generated diff.</li>
-<li><strong>Unit tests</strong> — colocated <code>*_test.go</code> for the auth handler. Vault mock via <code>httptest.Server</code>.</li>
-<li><strong>Integration tests</strong> — under <code>test/integration/connection/</code> (or a new category if it fits). Real Vault via Testcontainers.</li>
-<li><strong>E2E tests</strong> — under <code>test/e2e/tc_auth_&lt;method&gt;_test.go</code>. Run against <code>make e2e-local-up</code>.</li>
-<li><strong>Public docs</strong> — add <code>docs/auth-methods/&lt;method&gt;.md</code> following the pattern of existing 8 method docs.</li>
-<li><strong>FLOW doc</strong> — if the auth flow has new participants or sequence, run <code>/new-flow AUTH_&lt;METHOD&gt;</code> and fill it in. Otherwise update FLOW_AUTH.md.</li>
-<li><strong>CHANGELOG</strong> — <code>/changelog-add</code> under <code>### Added</code>. Include all the public-facing field additions.</li>
-<li><strong>Self-audit</strong> — <code>/docs-drift</code>. Should come back clean if the above was followed.</li>
-<li><strong>Verify</strong> — <code>/verify-operator</code>. All static checks pass.</li>
-<li><strong>Review</strong> — open PR. Reviewer uses <code>pr-review-toolkit:review-pr</code> for multi-aspect review.</li>
-</ol>
-<h3 id="done-when">Done when<a class="headerlink" href="#done-when" title="Permanent link">&para;</a></h3>
+<h1 id="seed-vault-kv-v2-paths-for-external-secrets-operator-vaultkvsecret">Seed Vault KV v2 paths for External Secrets Operator (<code>VaultKVSecret</code>)<a class="headerlink" href="#seed-vault-kv-v2-paths-for-external-secrets-operator-vaultkvsecret" title="Permanent link">&para;</a></h1>
 <ul>
-<li>[ ] <code>/verify-operator</code> is green</li>
-<li>[ ] Integration test for the new auth method passes</li>
-<li>[ ] E2E test in <code>test/e2e/tc_auth_&lt;method&gt;_test.go</code> passes against local stack</li>
-<li>[ ] <code>docs/auth-methods/&lt;method&gt;.md</code> exists and matches the style of existing 8 docs</li>
-<li>[ ] CHANGELOG entry under <code>[Unreleased] → Added</code></li>
-<li>[ ] ADR is <code>Status: Accepted</code> with the index updated</li>
-<li>[ ] CONTEXT.md mentions the new auth method</li>
-<li>[ ] <code>/docs-drift</code> reports no outstanding gaps</li>
+<li><strong>Author:</strong> panteparak</li>
+<li><strong>Date:</strong> 2026-06-19</li>
+<li><strong>Status:</strong> Implemented</li>
+<li><strong>Tracking:</strong> —</li>
 </ul>
-<hr />
-<h2 id="scenario-b-fix-a-reconcile-bug">Scenario B — Fix a reconcile bug<a class="headerlink" href="#scenario-b-fix-a-reconcile-bug" title="Permanent link">&para;</a></h2>
-<p><strong>Frequency:</strong> Several per month. The common case.
-<strong>Difficulty:</strong> Medium. Requires understanding the relevant FLOW doc.</p>
-<h3 id="steps_1">Steps<a class="headerlink" href="#steps_1" title="Permanent link">&para;</a></h3>
-<ol>
-<li><strong>Identify the symptom</strong> — <code>kubectl describe</code>, operator logs, condition values. Note: which CR? what phase? what error condition?</li>
-<li><strong>Read the relevant FLOW doc first</strong> — for a <code>VaultPolicy</code> issue, <code>docs/internal/FLOW_POLICY.md</code> is your map of the runtime. Likewise FLOW_ROLE, FLOW_CONNECTION, FLOW_DISCOVERY, FLOW_DELETION.</li>
-<li><strong>Reproduce</strong> — <code>/diagnose</code> to set up the reproduction. Aim for a single failing integration test under <code>test/integration/&lt;cat&gt;/</code> (or a new one). This is the regression test for later.</li>
-<li><strong>Root cause</strong> — <code>/debug-backend</code> (or just step through manually). Use the FLOW doc step numbers to locate where state diverges.</li>
-<li><strong>Fix</strong> — minimal change. Don't refactor surrounding code; that's a separate workflow.</li>
-<li><strong>Run the failing test</strong> — <code>make test-integration</code> with focus on the new test; confirm it now passes.</li>
-<li><strong>Full unit suite</strong> — <code>make test</code> to catch regressions.</li>
-<li><strong>Docs drift?</strong> — <code>/docs-drift</code>. If the FLOW doc had a wrong step (the bug was a docs-drift in addition to a code drift), update it. Usually a fix doesn't need doc changes — the docs were right, the code was wrong.</li>
-<li><strong>CHANGELOG</strong> — <code>/changelog-add</code> under <code>### Fixed</code>. Reference the issue if there is one.</li>
-</ol>
-<h3 id="done-when_1">Done when<a class="headerlink" href="#done-when_1" title="Permanent link">&para;</a></h3>
+<h2 id="problem-statement">Problem statement<a class="headerlink" href="#problem-statement" title="Permanent link">&para;</a></h2>
+<p>In a GitOps deployment, External Secrets Operator (ESO) reads a secret from a Vault KV v2 path (e.g. <code>secret/data/apps/myapp/config</code>). On a fresh stack that path does not exist yet, so ESO's first sync 404s and the <code>ExternalSecret</code> goes <code>SecretSyncedError</code>. There is a chicken-and-egg gap: nobody has populated the path, but ESO needs it to exist before it can sync. Operators today work around this by hand-creating placeholder secrets out-of-band — undocumented, un-GitOps'd, and easy to forget on the next environment.</p>
+<h2 id="goals">Goals<a class="headerlink" href="#goals" title="Permanent link">&para;</a></h2>
+<p>What does success look like? Bullet list, each item testable.</p>
 <ul>
-<li>[ ] The failing integration test exists and now passes</li>
-<li>[ ] <code>make test</code> is green</li>
-<li>[ ] No drift surfaced by <code>/docs-drift</code></li>
-<li>[ ] CHANGELOG entry under <code>[Unreleased] → Fixed</code></li>
+<li>[x] G1: A <code>VaultKVSecret</code> CR pre-creates ("seeds") its Vault KV v2 path so ESO's first sync resolves instead of 404-ing.</li>
+<li>[x] G2: The operator never overwrites or reads the real values stored at that path — real data written later by ESO or a human is preserved.</li>
+<li>[x] G3: On CR delete, an untouched seed is cleaned up; a modified secret or one owned by someone else is retained (never destroy real data).</li>
 </ul>
-<hr />
-<h2 id="scenario-c-refactor-a-sharedcontroller-package">Scenario C — Refactor a <code>shared/controller/*</code> package<a class="headerlink" href="#scenario-c-refactor-a-sharedcontroller-package" title="Permanent link">&para;</a></h2>
-<p><strong>Frequency:</strong> Occasional, often opportunistic.
-<strong>Difficulty:</strong> High. These are the cross-cutting layers; mistakes ripple.</p>
-<h3 id="steps_2">Steps<a class="headerlink" href="#steps_2" title="Permanent link">&para;</a></h3>
-<ol>
-<li><strong>Discover the opportunity</strong> — <code>/improve-codebase-architecture</code>. Output: a candidates list with priority. Pick one.</li>
-<li><strong>Decide if an ADR is needed</strong> — if the refactor changes the <em>interface</em> of a shared package (not just the implementation), <code>/new-adr</code>. Cite the existing ADRs the refactor builds on or supersedes.</li>
-<li><strong>Plan</strong> — <code>/dev-flow</code>. Plan agent identifies all consumers of the package.</li>
-<li><strong>Refactor</strong> — <code>/solid</code> + <code>/refactor-code</code>. Make the structural changes; do not change behavior.</li>
-<li><strong>Tests</strong> — unit tests for the package itself must pass unchanged (if they don't, you changed behavior; either revert or update tests with justification).</li>
-<li><strong>Integration tests</strong> — <code>make test-integration</code>. These exercise the reconcile path and catch subtle behavioral regressions.</li>
-<li><strong>Template parity</strong> — <code>make compare-templates</code> after any change that affects RBAC, manifests, or chart values.</li>
-<li><strong>Verify</strong> — <code>/verify-operator</code>.</li>
-<li><strong>Update CONTEXT.md</strong> — if vocabulary changed (new types/concepts exposed).</li>
-<li><strong>Update FLOW docs</strong> — if the package's public API surface changed, all consuming FLOW docs likely need a tweak. <code>/docs-drift</code> will flag them.</li>
-<li><strong>CHANGELOG</strong> — <code>/changelog-add</code> under <code>### Changed</code>. Include a migration note if downstream callers need updates.</li>
-<li><strong>Review</strong> — open PR. Reviewer uses <code>pr-review-toolkit:review-pr</code>.</li>
-</ol>
-<h3 id="done-when_2">Done when<a class="headerlink" href="#done-when_2" title="Permanent link">&para;</a></h3>
+<h2 id="non-goals">Non-goals<a class="headerlink" href="#non-goals" title="Permanent link">&para;</a></h2>
+<p>What this requirement explicitly does <strong>not</strong> cover. Use this to fend off scope creep.</p>
 <ul>
-<li>[ ] All existing tests pass without modification (or modifications are documented as intentional)</li>
-<li>[ ] <code>/verify-operator</code> is green</li>
-<li>[ ] Integration tests for at least 2 features that consume this package pass</li>
-<li>[ ] CHANGELOG entry under <code>[Unreleased] → Changed</code></li>
-<li>[ ] If interface changed: ADR is <code>Status: Accepted</code>, CONTEXT.md updated, consumer FLOW docs updated</li>
-<li>[ ] <code>/docs-drift</code> reports no outstanding gaps</li>
+<li>N1: NOT a general secret manager — no value updates, rotation, templating, or syncing. The model is strictly create-only-if-absent.</li>
+<li>N2: No cluster-scoped <code>VaultClusterKVSecret</code> in v1 (and therefore no adapter pattern — there is a single concrete type). Possible follow-up.</li>
+<li>N3: The CR does not gate ESO ordering. There is no hard Kubernetes ordering between a <code>VaultKVSecret</code> seed and ESO's sync; ESO's <code>refreshInterval</code> retries cover the gap.</li>
 </ul>
-<hr />
-<h2 id="how-to-add-a-new-flow-doc">How to add a new FLOW doc<a class="headerlink" href="#how-to-add-a-new-flow-doc" title="Permanent link">&para;</a></h2>
-<p>Use <code>/new-flow &lt;NAME&gt;</code> to create one from the canonical skeleton. The skeleton (reproduced here for reference):</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="gh"># Flow: &lt;Feature Title&gt; (&lt;NAME&gt;)</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="gu">## Purpose</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>One paragraph: what this flow accomplishes and why.
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="gu">## Trigger</span>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>What event/condition starts this flow.
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>
-<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="gu">## Sequence</span>
-<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>[Mermaid sequenceDiagram]
-<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>
-<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="gu">## Step-by-step</span>
-<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="k">1.</span> <span class="gs">**Fetch resource**</span> — code reference
-<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="k">2.</span> <span class="gs">**Validate**</span> — code reference
-<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>... up to ~10 numbered steps
-<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>
-<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="gu">## Error paths</span>
-<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="k">-</span><span class="w"> </span><span class="gs">**&lt;error condition&gt;**</span> — what the operator does
-<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>
-<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a><span class="gu">## Code references</span>
-<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a><span class="k">-</span><span class="w"> </span>Reconciler: <span class="sb">`features/&lt;feature&gt;/controller/&lt;feature&gt;_reconciler.go`</span>
-<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a><span class="k">-</span><span class="w"> </span>Handler: <span class="sb">`features/&lt;feature&gt;/controller/handler.go`</span>
-<a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>... canonical code paths
-<a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>
-<a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a><span class="gu">## Related</span>
-<a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a><span class="k">-</span><span class="w"> </span>[<span class="nt">CONTEXT.md</span>](<span class="na">CONTEXT.md</span>) — vocabulary
-<a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a><span class="k">-</span><span class="w"> </span>Sibling FLOW docs
-<a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a><span class="k">-</span><span class="w"> </span>Relevant ADRs
+<h2 id="acceptance-criteria">Acceptance criteria<a class="headerlink" href="#acceptance-criteria" title="Permanent link">&para;</a></h2>
+<p>Concrete, testable bullets. Each maps to at least one test (unit, integration, or e2e).</p>
+<ul>
+<li>[x] AC1: When the path is absent, the operator seeds it → the path exists in Vault and <code>status.seeded=true</code>, <code>status.seededVersion=1</code>. (<code>TestSyncKVSecret_SeedWhenAbsent</code>, <code>INT-KVS01</code>)</li>
+<li>[x] AC2: When the path already exists, the operator skips it → never overwrites, <code>status.seeded=false</code>. (<code>TestSyncKVSecret_SkipWhenPresent</code>, <code>INT-KVS02</code>)</li>
+<li>[x] AC3: On CR delete with <code>deletionPolicy: Delete</code>, an untouched operator-owned secret is deleted; a secret written-to since seeding, foreign-owned, or <code>deletionPolicy: Retain</code> is retained. (<code>TestCleanupKVSecret_*</code>, <code>INT-KVS03</code>, <code>INT-KVS04</code>)</li>
+<li>[x] AC4: A literally empty <code>data: {}</code> seed writes an empty secret (sufficient for ESO whole-secret <code>dataFrom</code> reads). (<code>INT-KVS05</code>)</li>
+<li>[x] AC5: With the <code>vault.platform.io/dry-run=true</code> annotation, no write hits Vault and a <code>DryRun</code> status condition is surfaced. (<code>TestSyncKVSecret_DryRun_NoWrite</code>, <code>INT-KVS06</code>)</li>
+<li>[x] <strong>AC6: The operator's data-path capability is <code>create</code>-only — <code>read</code> / <code>update</code> / <code>delete</code> on <code>&lt;mount&gt;/data/*</code> are NOT required.</strong> Existence and untouched checks read <code>&lt;mount&gt;/metadata/*</code>; deletion uses <code>DeleteMetadata</code>. The originally-assumed <code>read</code> "to see the secret" is dropped by the metadata-driven design. A create-only data-path token can complete the full seed→stamp→untouched-check→delete lifecycle, and a forced overwrite under that token is denied <code>403</code>. (<code>INT-KVS07</code>)</li>
+<li>[x] AC7: All existing tests still pass; <code>make verify-templates</code> reports no drift.</li>
+</ul>
+<h2 id="affected-crds-api-surface">Affected CRDs / API surface<a class="headerlink" href="#affected-crds-api-surface" title="Permanent link">&para;</a></h2>
+<p>A <strong>new namespaced CRD</strong> is introduced — this is additive, net-new, no migration.</p>
+<ul>
+<li><strong>NEW CRD <code>VaultKVSecret</code></strong> (group <code>vault.platform.io/v1alpha1</code>, namespaced, shortName <code>vks</code>).</li>
+<li><code>VaultKVSecret.spec.connectionRef</code> — new required string (name of the <code>VaultConnection</code>).</li>
+<li><code>VaultKVSecret.spec.path</code> — new required string, full KV v2 data path (must contain a <code>/data/</code> segment); <strong>immutable</strong> after creation, enforced by a CEL <code>x-kubernetes-validations</code> rule.</li>
+<li><code>VaultKVSecret.spec.data</code> — new optional <code>map[string]string</code>, default <code>{}</code>.</li>
+<li><code>VaultKVSecret.spec.deletionPolicy</code> — reuses the existing <code>DeletionPolicy</code> enum (<code>Delete</code> | <code>Retain</code>, default <code>Delete</code>).</li>
+<li><code>VaultKVSecret.status.vaultPath</code> — new string (resolved seeded path).</li>
+<li><code>VaultKVSecret.status.seeded</code> — new bool (operator created it vs. pre-existing).</li>
+<li><code>VaultKVSecret.status.seededVersion</code> — new int (KV v2 version baseline for the untouched check).</li>
+<li>Plus inline <code>ReconcileStatus</code> + <code>SyncStatus</code> (phase, message, conditions, etc.).</li>
+</ul>
+<blockquote>
+<p>⚠️ This is the first CRD in the repo to use CEL validation (<code>x-kubernetes-validations</code>) instead of an admission webhook.</p>
+</blockquote>
+<h2 id="affected-docs">Affected docs<a class="headerlink" href="#affected-docs" title="Permanent link">&para;</a></h2>
+<ul>
+<li><code>docs/api-reference.md</code> — new <code>## VaultKVSecret</code> section (create-only + delete-if-untouched semantics, ESO <code>.property</code> caveat).</li>
+<li><code>docs/internal/FLOW_KVSECRET.md</code> — new flow doc (reconcile + cleanup sequences, trimmed-reconcile rationale).</li>
+<li><code>docs/internal/CONTEXT.md</code> — new domain terms (Secret seeding, VaultKVSecret).</li>
+<li><code>docs/auth-methods/bootstrap.md</code>, <code>docs/configuration.md</code> — the new operator Vault capability (create-only on <code>secret/data/*</code>, <code>read</code>/<code>patch</code>/<code>delete</code> on <code>secret/metadata/*</code>).</li>
+<li><code>CHANGELOG.md</code> — <code>### Added</code> entry under <code>[Unreleased]</code>.</li>
+</ul>
+<h2 id="compatibility-migration">Compatibility &amp; migration<a class="headerlink" href="#compatibility-migration" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Backward compatibility:</strong> Net-new CRD; no existing CR is affected. Pre-existing resources continue to reconcile unchanged. <code>spec.data</code> defaults to <code>{}</code> and <code>spec.deletionPolicy</code> defaults to <code>Delete</code>.</li>
+<li><strong>Version skew:</strong> None within the operator's own CRs. The new CRD must be applied before any <code>VaultKVSecret</code> is created (standard <code>make manifests</code> / <code>helm-update-crds</code> flow). The operator's Vault <strong>policy</strong> must gain the create-only <code>secret/data/*</code> + <code>read</code>/<code>patch</code>/<code>delete</code> <code>secret/metadata/*</code> grants before seeding works — see Security considerations.</li>
+<li><strong>Webhook validation:</strong> None. Validation (path immutability + <code>/data/</code> segment) uses CEL <code>x-kubernetes-validations</code>, so no <code>--enable-webhooks</code> dependency and no cert wiring.</li>
+</ul>
+<h2 id="security-considerations">Security considerations<a class="headerlink" href="#security-considerations" title="Permanent link">&para;</a></h2>
+<p>This touches the operator's Vault RBAC/policy — an RBAC / service-account boundary change.</p>
+<ul>
+<li>[ ] Changes auth path (login, token issuance, token rotation) — <strong>No.</strong> The operator's Kubernetes auth-role binding (<code>auth/kubernetes/role/vault-access-operator</code>) is unchanged; it inherits the new capabilities automatically. This is a Vault <strong>policy</strong> change, not an auth-role change.</li>
+<li>[ ] Changes webhook input/output handling — <strong>No.</strong> CEL validation only.</li>
+<li>[x] Changes RBAC or service-account boundaries — <strong>Yes.</strong> The operator's Vault policy gains KV grants (details below).</li>
+<li>[x] Introduces a new user-controlled string that ends up in a Vault path — <strong>Yes.</strong> <code>spec.path</code> is written to a Vault KV v2 path. Constrained by CEL (<code>^[^/]+/data/.+</code>) and bounded in production by scoping the <code>secret/data/*</code> prefix.</li>
+</ul>
+<p><strong>Least-privilege grant (the key design point).</strong> To seed, the operator's own Vault policy needs <strong><code>create</code>-ONLY</strong> on the target <code>secret/data/*</code> — <strong>NOT <code>update</code>, <code>read</code>, or <code>delete</code></strong> — plus <code>read</code>/<code>patch</code>/<code>delete</code> on <code>secret/metadata/*</code> (no <code>list</code> needed):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="err">path</span><span class="w"> </span><span class="s2">&quot;secret/data/*&quot;     { capabilities = [&quot;create&quot;</span><span class="p">]</span><span class="w"> </span><span class="p">}</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="err">path</span><span class="w"> </span><span class="s2">&quot;secret/metadata/*&quot; { capabilities = [&quot;read&quot;, &quot;patch&quot;, &quot;delete&quot;</span><span class="p">]</span><span class="w"> </span><span class="p">}</span>
 </code></pre></div>
-<p>Update <a href="../../mkdocs-internal.yml"><code>mkdocs-internal.yml</code></a> nav so the new FLOW doc is discoverable in the rendered internal docs site.</p>
-<hr />
-<h2 id="changelog-conventions">CHANGELOG conventions<a class="headerlink" href="#changelog-conventions" title="Permanent link">&para;</a></h2>
-<p>This repo uses <a href="https://keepachangelog.com/en/1.1.0/">Keep a Changelog v1.1.0</a> and <a href="https://semver.org/spec/v2.0.0.html">Semantic Versioning</a>.</p>
-<p>Sections within a version, in canonical order:
-- <code>### Added</code> — new features
-- <code>### Changed</code> — changes to existing functionality
-- <code>### Deprecated</code> — features that will be removed
-- <code>### Removed</code> — features that have been removed
-- <code>### Fixed</code> — bug fixes
-- <code>### Security</code> — security-relevant changes</p>
-<p>Each entry: a single imperative-mood sentence on the headline line, followed by 2–4 bullet sub-items explaining what/why and any caveats.</p>
-<p>Use <code>/changelog-add</code> to add an entry; it walks you through the categorization.</p>
-<hr />
-<h2 id="common-pitfalls">Common pitfalls<a class="headerlink" href="#common-pitfalls" title="Permanent link">&para;</a></h2>
+<p><strong>The operator needs NO <code>read</code> on <code>secret/data/*</code>.</strong> The original assumption was that <code>read</code> would be required "to see" the seeded secret. With the create-only + KV-v2-metadata design that requirement was <strong>dropped</strong>: existence checks and the untouched-check read <code>secret/metadata/*</code> (never secret data values), the ownership stamp is <code>custom_metadata</code>, and deletion uses <code>DeleteMetadata</code>. The net effect is that the operator can CREATE empty secrets but can never read or overwrite the real values users/ESO store — <strong>Vault itself enforces the never-clobber guarantee</strong> (defense-in-depth above the <code>cas=0</code> code). In production, scope the <code>secret/data/*</code> prefix to the paths you actually seed (e.g. <code>secret/data/apps/*</code>).</p>
+<blockquote>
+<p>⚠️ KV v2's create-vs-update ACL evaluation is version-dependent. <code>INT-KVS07</code> pins the create-only decision against the test Vault image. If a Vault version rejects the <code>cas=0</code> first write under create-only, fall back to <code>["create","update"]</code> on <code>secret/data/*</code> only — the <code>cas=0</code> code still guarantees never-overwrite, just without the Vault-layer backstop.</p>
+</blockquote>
+<p>Policy fixtures: <code>test/e2e/fixtures/policies/operator-bootstrap.hcl</code> (production baseline, with least-privilege note) and <code>test/e2e/fixtures/policies/e2e-operator-bootstrap.hcl</code> (e2e dev stack).</p>
+<h2 id="open-questions">Open questions<a class="headerlink" href="#open-questions" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>Skipping <code>make manifests generate helm-update-crds</code></strong> — CI auto-commits on <code>main</code> but blocks PRs. Run locally and commit the generated diff alongside your spec changes.</li>
-<li><strong>Forgetting <code>make compare-templates</code></strong> — Kustomize and Helm chart output must match. The diff is usually trivial, but skipping the check lets divergence accumulate.</li>
-<li><strong>E2E test cache</strong> — <code>go test</code> caches results. Use <code>-count=1</code> (already in the Makefile's e2e target) when you want fresh runs.</li>
-<li><strong>Webhook re-enabling</strong> — if you toggle <code>--enable-webhooks=true</code>, you also need cert-manager. Use <code>make e2e-local-up-with-webhooks</code>.</li>
-<li><strong>PublishAsync in tests</strong> — see CONTEXT.md "Event bus". Use buffered channels for synchronization or your tests flake.</li>
+<li>Q1: Should a cluster-scoped <code>VaultClusterKVSecret</code> variant be added for platform-team-owned shared paths? — Deferred (N2); revisit if demand appears.</li>
+<li>Q2: Should the seed support a non-default mount declared explicitly rather than parsed from <code>path</code>? — Currently inferred via <code>SplitKVv2Path</code> on the first <code>/data/</code> segment, which covers non-default mounts (<code>kv/data/x</code>). Revisit only if a mount has no <code>/data/</code> segment.</li>
+</ul>
+<h2 id="implementation-sketch">Implementation sketch<a class="headerlink" href="#implementation-sketch" title="Permanent link">&para;</a></h2>
+<ol>
+<li>Add the CRD type (<code>api/v1alpha1/vaultkvsecret_types.go</code>) with CEL + printcolumn markers; <code>init()</code> self-registers with the scheme.</li>
+<li>Add the KV v2 client surface (<code>pkg/vault/kvsecret.go</code>): <code>SplitKVv2Path</code>, <code>CreateKVSecretIfAbsent</code> (atomic <code>cas=0</code>), <code>ReadKVMetadata</code>, <code>StampKVOwnership</code>, <code>IsOwnedBy</code>, <code>DeleteKVSecret</code>. Do NOT extend the <code>VaultOpsClient</code> interface.</li>
+<li>Add a thin feature (<code>features/kvsecret/</code>): a <code>base.BaseReconciler[*VaultKVSecret]</code> plus a <code>Handler</code> implementing <code>Sync</code>/<code>Cleanup</code> directly — <strong>a trimmed reconcile, NOT the shared <code>SyncWorkflow</code></strong> (create-only-if-absent deliberately abandons drift management).</li>
+<li>Grant the operator's Vault policy <code>create</code>-only on <code>secret/data/*</code> and <code>read</code>/<code>patch</code>/<code>delete</code> on <code>secret/metadata/*</code> (HCL fixtures + docs).</li>
+<li>Tests: unit (<code>TestSyncKVSecret_*</code>, <code>TestCleanupKVSecret_*</code>, <code>pkg/vault</code> cases), integration (<code>INT-KVS01..07</code>), e2e (<code>TC-KVS01..02</code>).</li>
+<li>Docs: this PRD, <code>FLOW_KVSECRET.md</code>, <code>api-reference.md</code>, <code>CONTEXT.md</code>, <code>CHANGELOG.md</code>, bootstrap/configuration capability note.</li>
+</ol>
+<h2 id="references">References<a class="headerlink" href="#references" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Related ADRs: <a href="../../adr/0001-adapter-pattern-for-cluster-scoped-types.md">ADR 0001</a> (adapter pattern — explicitly <em>not</em> used here), <a href="../../adr/0002-template-method-base-reconciler.md">ADR 0002</a> (BaseReconciler this feature builds on), <a href="../../adr/0003-two-level-drift-and-conflict-config.md">ADR 0003</a> (drift/conflict config the trimmed reconcile bypasses).</li>
+<li>Related FLOW docs: <a href="../../FLOW_KVSECRET/">FLOW_KVSECRET.md</a>, <a href="../../FLOW_POLICY/">FLOW_POLICY.md</a> (the canonical <code>SyncWorkflow</code> this feature diverges from), <a href="../../FLOW_OVERVIEW/">FLOW_OVERVIEW.md</a>.</li>
+<li>Domain terms: <a href="../../CONTEXT/">CONTEXT.md → Secret seeding / Managed marker / KV v2</a>.</li>
+<li>Code: <code>api/v1alpha1/vaultkvsecret_types.go</code>, <code>pkg/vault/kvsecret.go</code>, <code>features/kvsecret/</code>.</li>
+<li>External: <a href="https://external-secrets.io/">External Secrets Operator</a>, Vault <a href="https://developer.hashicorp.com/vault/docs/secrets/kv/kv-v2">KV v2 check-and-set</a>, Vault <a href="https://developer.hashicorp.com/vault/docs/concepts/policies">policies / capabilities</a>.</li>
 </ul>
 
 
@@ -1644,10 +1577,10 @@
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.instant", "navigation.top", "navigation.sections", "navigation.expand", "navigation.indexes", "search.highlight", "content.code.copy", "content.action.edit", "toc.integrate"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.top", "navigation.sections", "navigation.expand", "navigation.indexes", "search.highlight", "content.code.copy", "content.action.edit", "toc.integrate"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
       
     
   </body>

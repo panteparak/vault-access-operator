@@ -392,6 +392,8 @@
       
         
       
+        
+      
     
     
     
@@ -538,6 +540,34 @@
     
   
     Role
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_KVSECRET/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    KV Secret Seeding
   
 
     
@@ -799,6 +829,8 @@
       
         
       
+        
+      
     
     
     
@@ -993,6 +1025,17 @@
     <span class="md-ellipsis">
       
         Role (Vault auth method)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#secret-seeding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Secret seeding
       
     </span>
   </a>
@@ -1461,6 +1504,97 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_8_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_8_5" id="__nav_8_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PRDs
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_8_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    PRDs
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../prd/vaultkvsecret/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VaultKVSecret
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -1651,6 +1785,11 @@
 <blockquote>
 <p>See <a href="../FLOW_ROLE/"><code>FLOW_ROLE.md</code></a>.</p>
 </blockquote>
+<h3 id="secret-seeding">Secret seeding<a class="headerlink" href="#secret-seeding" title="Permanent link">&para;</a></h3>
+<p>Pre-creating ("seeding") a Vault KV v2 secret path so a consumer — typically External Secrets Operator (ESO) — doesn't 404 when the source path is missing on a fresh deployment. Managed through <code>VaultKVSecret</code>. The model is strictly <strong>create-only-if-absent</strong>: the operator writes the path only when absent and <strong>never overwrites or reads</strong> the values stored there, so real data written later by ESO or a human is never clobbered. When it seeds, the operator stamps the secret's KV v2 <code>custom_metadata</code> (<code>managed-by: vault-access-operator</code>, <code>k8s-resource: &lt;ns&gt;/&lt;name&gt;</code>) as the ownership marker. On CR deletion it runs <strong>delete-if-untouched</strong> — removing the secret only if still operator-owned and at the same KV v2 version it seeded (<code>status.seededVersion</code>), otherwise retaining it. This stamp is the <em>same intent</em> as the <a href="#managed-marker">Managed marker</a> but uses the seeded secret's own native KV v2 metadata rather than a separate marker path. Seeding requires <code>create</code>-only on <code>secret/data/*</code> and full caps on <code>secret/metadata/*</code> in the operator's Vault policy — notably <strong>no <code>read</code> on <code>secret/data/*</code></strong>.</p>
+<blockquote>
+<p>See <a href="../FLOW_KVSECRET/"><code>FLOW_KVSECRET.md</code></a>, <a href="../prd/vaultkvsecret/"><code>prd/vaultkvsecret.md</code></a>. Code: <a href="../../pkg/vault/kvsecret.go"><code>pkg/vault/kvsecret.go</code></a>, <a href="../../features/kvsecret/"><code>features/kvsecret/</code></a>.</p>
+</blockquote>
 <h3 id="token">Token<a class="headerlink" href="#token" title="Permanent link">&para;</a></h3>
 <p>A short-lived Vault credential. The operator issues tokens via its configured auth method and caches them; expiry triggers re-auth. Tokens are never persisted to K8s. See <code>FLOW_AUTH.md</code> for the lease/refresh logic.</p>
 <hr />
@@ -1698,9 +1837,9 @@
 <p>See <a href="../adr/0004-event-bus-closure-capture.md">ADR 0004</a>, <a href="../FLOW_EVENTS/"><code>FLOW_EVENTS.md</code></a>.</p>
 </blockquote>
 <h3 id="feature">Feature<a class="headerlink" href="#feature" title="Permanent link">&para;</a></h3>
-<p>A self-contained domain area under <code>features/&lt;name&gt;/</code>. Current features: <code>connection</code>, <code>policy</code>, <code>role</code>, <code>discovery</code>. Each owns its controllers, handler, ops, and domain types. Features depend on <code>shared/</code> and <code>api/</code>, not on each other.</p>
+<p>A self-contained domain area under <code>features/&lt;name&gt;/</code>. Current features: <code>connection</code>, <code>policy</code>, <code>role</code>, <code>discovery</code>, <code>kvsecret</code>. Each owns its controllers, handler, ops, and domain types. Features depend on <code>shared/</code> and <code>api/</code>, not on each other. (<code>kvsecret</code> is the exception that uses a trimmed reconcile with no <code>ResourceOps</code> — see <a href="../FLOW_KVSECRET/"><code>FLOW_KVSECRET.md</code></a>.)</p>
 <h3 id="finalizer">Finalizer<a class="headerlink" href="#finalizer" title="Permanent link">&para;</a></h3>
-<p>A K8s metadata field that blocks deletion of an object until cleared. The operator adds finalizers to <code>VaultPolicy</code>/<code>VaultRole</code>/<code>VaultClusterPolicy</code>/<code>VaultClusterRole</code> so it can clean up Vault state before K8s removes the object. Finalizer string is <code>vault.platform.io/finalizer</code>.</p>
+<p>A K8s metadata field that blocks deletion of an object until cleared. The operator adds finalizers to <code>VaultPolicy</code>/<code>VaultRole</code>/<code>VaultClusterPolicy</code>/<code>VaultClusterRole</code>/<code>VaultKVSecret</code> so it can clean up Vault state before K8s removes the object (for <code>VaultKVSecret</code>, the finalizer runs the delete-if-untouched check). Finalizer string is <code>vault.platform.io/finalizer</code>.</p>
 <h3 id="handler">Handler<a class="headerlink" href="#handler" title="Permanent link">&para;</a></h3>
 <p>A feature-level type (<a href="../../features/"><code>features/&lt;name&gt;/controller/handler.go</code></a>) that implements the <code>FeatureHandler[T]</code> interface from <code>shared/controller/base</code>. Has <code>Sync</code> and <code>Cleanup</code> methods. The Handler operates on an Adapter, not directly on the K8s type.</p>
 <h3 id="managed-marker_1">Managed marker<a class="headerlink" href="#managed-marker_1" title="Permanent link">&para;</a></h3>
@@ -1720,7 +1859,7 @@
 <hr />
 <h2 id="kubernetes-controller-runtime-domain">Kubernetes / controller-runtime domain<a class="headerlink" href="#kubernetes-controller-runtime-domain" title="Permanent link">&para;</a></h2>
 <h3 id="crd-custom-resource-definition">CRD (Custom Resource Definition)<a class="headerlink" href="#crd-custom-resource-definition" title="Permanent link">&para;</a></h3>
-<p>The schema for a custom K8s resource. This operator owns 5: <code>VaultConnection</code>, <code>VaultPolicy</code>, <code>VaultClusterPolicy</code>, <code>VaultRole</code>, <code>VaultClusterRole</code>. Generated from kubebuilder markers in <code>api/v1alpha1/*_types.go</code> → <code>make manifests</code> → <code>config/crd/bases/</code>.</p>
+<p>The schema for a custom K8s resource. This operator owns 6: <code>VaultConnection</code>, <code>VaultPolicy</code>, <code>VaultClusterPolicy</code>, <code>VaultRole</code>, <code>VaultClusterRole</code>, <code>VaultKVSecret</code>. Generated from kubebuilder markers in <code>api/v1alpha1/*_types.go</code> → <code>make manifests</code> → <code>config/crd/bases/</code>. <code>VaultKVSecret</code> is the first to validate via CEL (<code>x-kubernetes-validations</code>) rather than the admission webhook.</p>
 <h3 id="generation-vs-observedgeneration">Generation vs ObservedGeneration<a class="headerlink" href="#generation-vs-observedgeneration" title="Permanent link">&para;</a></h3>
 <p><code>metadata.generation</code> increments on every spec change. <code>status.observedGeneration</code> is set by the operator after a successful reconcile. When they're equal, the latest spec has been processed.</p>
 <h3 id="indexer">Indexer<a class="headerlink" href="#indexer" title="Permanent link">&para;</a></h3>
@@ -1740,7 +1879,7 @@
 <hr />
 <h2 id="cross-references">Cross-references<a class="headerlink" href="#cross-references" title="Permanent link">&para;</a></h2>
 <ul>
-<li>The 10 <a href="."><code>FLOW_*.md</code></a> files are the runtime-behavior source of truth. CONTEXT.md is the vocabulary they share.</li>
+<li>The 11 <a href="."><code>FLOW_*.md</code></a> files are the runtime-behavior source of truth. CONTEXT.md is the vocabulary they share.</li>
 <li>The <a href="../adr/"><code>docs/adr/</code></a> directory holds the <em>why</em> for non-obvious decisions.</li>
 <li><a href="../IMPROVEMENTS/"><code>IMPROVEMENTS.md</code></a> tracks known gaps; ADRs reference its sections where relevant.</li>
 </ul>

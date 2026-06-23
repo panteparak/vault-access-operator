@@ -1488,6 +1488,89 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#vaultkvsecret" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        VaultKVSecret
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="VaultKVSecret">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#example_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#spec-fields_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Spec Fields
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#deletion-behavior" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deletion Behavior
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#status-fields_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Status Fields
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dry-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dry Run
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#kubectl-output_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        kubectl Output
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#secretkeyselector" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2462,6 +2545,89 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#vaultkvsecret" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        VaultKVSecret
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="VaultKVSecret">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#example_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#spec-fields_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Spec Fields
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#deletion-behavior" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deletion Behavior
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#status-fields_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Status Fields
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dry-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dry Run
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#kubectl-output_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        kubectl Output
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#secretkeyselector" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2544,6 +2710,11 @@
 <td><a href="#vaultclusterrole">VaultClusterRole</a></td>
 <td>Cluster</td>
 <td>Manages cluster-wide Kubernetes auth roles</td>
+</tr>
+<tr>
+<td><a href="#vaultkvsecret">VaultKVSecret</a></td>
+<td>Namespaced</td>
+<td>Seeds (pre-creates) a KV v2 secret path for External Secrets Operator</td>
 </tr>
 </tbody>
 </table>
@@ -4051,6 +4222,165 @@
 <div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>$<span class="w"> </span>kubectl<span class="w"> </span>get<span class="w"> </span>vaultclusterrole
 <a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>NAME<span class="w">                </span>VAULT<span class="w"> </span>ROLE<span class="w">          </span>PHASE<span class="w">    </span>POLICIES<span class="w">                    </span>AGE
 <a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>platform-services<span class="w">   </span>platform-services<span class="w">   </span>Active<span class="w">   </span><span class="o">[</span><span class="s2">&quot;shared-secrets-reader&quot;</span><span class="o">]</span><span class="w">   </span>5d
+</code></pre></div>
+<hr />
+<h2 id="vaultkvsecret">VaultKVSecret<a class="headerlink" href="#vaultkvsecret" title="Permanent link">&para;</a></h2>
+<p>Pre-creates ("seeds") a Vault KV v2 secret path so consumers such as External Secrets Operator (ESO) don't fail when the source path is missing on a fresh deployment.</p>
+<ul>
+<li><strong>Scope:</strong> Namespaced</li>
+<li><strong>Short Name:</strong> <code>vks</code></li>
+</ul>
+<p>The operator follows a strict <strong>create-only-if-absent</strong> model: it writes the path <strong>only when it does not already exist</strong>, and it <strong>never overwrites or reads</strong> the values stored there. Real data written later by ESO or a human is always preserved. On deletion, the operator runs a <strong>delete-if-untouched</strong> check — it removes the seeded secret only if it is still operator-owned and unmodified since seeding; otherwise it retains it.</p>
+<div class="admonition warning">
+<p class="admonition-title">ESO <code>.property</code> references need explicit placeholder keys</p>
+<p>A literally empty <code>data: {}</code> secret unblocks ESO whole-secret references (<code>spec.dataFrom</code>), but an ESO <code>spec.data[].remoteRef.property</code> reference against a <strong>zero-key</strong> secret still reports a <em>missing property</em>. For <code>.property</code> refs, seed explicit placeholder keys with empty-string values:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="nt">data</span><span class="p">:</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">  </span><span class="nt">username</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;&quot;</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="w">  </span><span class="nt">password</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;&quot;</span>
+</code></pre></div>
+</div>
+<h3 id="example_5">Example<a class="headerlink" href="#example_5" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault.platform.io/v1alpha1</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">VaultKVSecret</span>
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="nt">metadata</span><span class="p">:</span>
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">app-config</span>
+<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-app</span>
+<a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a><span class="nt">spec</span><span class="p">:</span>
+<a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a><span class="w">  </span><span class="nt">connectionRef</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-primary</span>
+<a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a><span class="w">  </span><span class="c1"># Full KV v2 data path; must contain a &quot;/data/&quot; segment and is immutable.</span>
+<a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a><span class="w">  </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;secret/data/apps/my-app/config&quot;</span>
+<a id="__codelineno-11-10" name="__codelineno-11-10" href="#__codelineno-11-10"></a><span class="w">  </span><span class="c1"># Placeholder content, written ONLY if the path is absent — never overwrites.</span>
+<a id="__codelineno-11-11" name="__codelineno-11-11" href="#__codelineno-11-11"></a><span class="w">  </span><span class="c1"># Omit `data` entirely for a truly empty {} (fine for whole-secret reads).</span>
+<a id="__codelineno-11-12" name="__codelineno-11-12" href="#__codelineno-11-12"></a><span class="w">  </span><span class="nt">data</span><span class="p">:</span>
+<a id="__codelineno-11-13" name="__codelineno-11-13" href="#__codelineno-11-13"></a><span class="w">    </span><span class="nt">username</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;&quot;</span>
+<a id="__codelineno-11-14" name="__codelineno-11-14" href="#__codelineno-11-14"></a><span class="w">    </span><span class="nt">password</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;&quot;</span>
+<a id="__codelineno-11-15" name="__codelineno-11-15" href="#__codelineno-11-15"></a><span class="w">  </span><span class="nt">deletionPolicy</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Delete</span>
+</code></pre></div>
+<h3 id="spec-fields_5">Spec Fields<a class="headerlink" href="#spec-fields_5" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>connectionRef</code></td>
+<td>string</td>
+<td>Yes</td>
+<td>-</td>
+<td>Name of VaultConnection to use</td>
+</tr>
+<tr>
+<td><code>path</code></td>
+<td>string</td>
+<td>Yes</td>
+<td>-</td>
+<td>Full KV v2 data path, e.g. <code>secret/data/apps/myapp/config</code>. <strong>Must</strong> contain a <code>/data/</code> segment. <strong>Immutable</strong> after creation (enforced by a CEL validation rule)</td>
+</tr>
+<tr>
+<td><code>data</code></td>
+<td>map[string]string</td>
+<td>No</td>
+<td><code>{}</code></td>
+<td>Initial placeholder content, written <strong>only</strong> when the path is absent. Never overwrites an existing secret. Use empty-string placeholder keys for ESO <code>remoteRef.property</code> references</td>
+</tr>
+<tr>
+<td><code>deletionPolicy</code></td>
+<td>string</td>
+<td>No</td>
+<td><code>Delete</code></td>
+<td><code>Delete</code> (delete-if-untouched) or <code>Retain</code> (never delete) — see below</td>
+</tr>
+</tbody>
+</table>
+<h3 id="deletion-behavior">Deletion Behavior<a class="headerlink" href="#deletion-behavior" title="Permanent link">&para;</a></h3>
+<p>For <code>VaultKVSecret</code>, the standard <code>Delete</code>/<code>Retain</code> enum has secret-seeding-specific semantics:</p>
+<table>
+<thead>
+<tr>
+<th>Policy</th>
+<th>Behavior</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Delete</code> (default)</td>
+<td><strong>Delete-if-untouched.</strong> On CR deletion, the seeded secret is removed <strong>only if</strong> it is still operator-owned (<code>custom_metadata.managed-by == vault-access-operator</code>) <strong>and</strong> its current KV v2 version equals <code>status.seededVersion</code> (no writes since seeding). A secret written to since seeding, or owned by someone else, is <strong>retained</strong>.</td>
+</tr>
+<tr>
+<td><code>Retain</code></td>
+<td>Never delete the seeded secret.</td>
+</tr>
+</tbody>
+</table>
+<p>When the operator seeds a path it stamps the secret's KV v2 <code>custom_metadata</code> with <code>{managed-by: vault-access-operator, k8s-resource: &lt;namespace/name&gt;}</code> — this ownership marker, plus <code>status.seededVersion</code>, drives the delete-if-untouched check. The operator never destroys data it didn't seed or that has been modified since seeding.</p>
+<div class="admonition note">
+<p class="admonition-title">Operator Vault policy requirement</p>
+<p>To seed, the operator's own Vault policy needs <strong><code>create</code>-only</strong> on the target <code>secret/data/*</code> (NOT <code>update</code>, <code>read</code>, or <code>delete</code>) plus <code>create</code>/<code>read</code>/<code>update</code>/<code>patch</code>/<code>delete</code>/<code>list</code> on <code>secret/metadata/*</code>. This is deliberate least-privilege — the operator only ever CREATES secrets, so Vault itself enforces the never-clobber guarantee. In production, scope the <code>secret/data/*</code> prefix to the paths you actually seed (e.g. <code>secret/data/apps/*</code>). See <a href="../auth-methods/bootstrap/">Bootstrap Authentication</a> and <a href="../configuration/">Configuration</a>.</p>
+</div>
+<h3 id="status-fields_3">Status Fields<a class="headerlink" href="#status-fields_3" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>phase</code></td>
+<td>string</td>
+<td><code>Pending</code>, <code>Syncing</code>, <code>Active</code>, <code>Conflict</code>, <code>Error</code>, <code>Deleting</code></td>
+</tr>
+<tr>
+<td><code>vaultPath</code></td>
+<td>string</td>
+<td>Resolved KV v2 data path that was seeded</td>
+</tr>
+<tr>
+<td><code>seeded</code></td>
+<td>bool</td>
+<td><code>true</code> if the operator created this path; <code>false</code> if it already existed when first reconciled</td>
+</tr>
+<tr>
+<td><code>seededVersion</code></td>
+<td>int</td>
+<td>KV v2 version the operator created — the baseline for the delete-if-untouched check. Zero when the path pre-existed</td>
+</tr>
+<tr>
+<td><code>message</code></td>
+<td>string</td>
+<td>Additional status information (e.g. "seeded empty secret at … (version 1)" or "already exists; left untouched")</td>
+</tr>
+<tr>
+<td><code>conditions</code></td>
+<td>[]Condition</td>
+<td>Detailed state conditions (<code>Ready</code>, <code>Synced</code>, and <code>DryRun</code> when the dry-run annotation is set)</td>
+</tr>
+<tr>
+<td><code>lastSyncedAt</code></td>
+<td>time</td>
+<td>Time of last successful sync</td>
+</tr>
+<tr>
+<td><code>binding</code></td>
+<td>VaultResourceBinding</td>
+<td>Binding to the seeded Vault path</td>
+</tr>
+</tbody>
+</table>
+<h3 id="dry-run">Dry Run<a class="headerlink" href="#dry-run" title="Permanent link">&para;</a></h3>
+<p>Annotate the resource with <code>vault.platform.io/dry-run=true</code> to skip the Vault write: the operator surfaces a <code>DryRun</code> status condition and a "dry-run: would seed <code>&lt;path&gt;</code>" message without creating the secret. Cleanup also skips the delete-if-untouched check while dry-run is active.</p>
+<h3 id="kubectl-output_5">kubectl Output<a class="headerlink" href="#kubectl-output_5" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>$<span class="w"> </span>kubectl<span class="w"> </span>get<span class="w"> </span>vaultkvsecret<span class="w"> </span>-n<span class="w"> </span>my-app
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>NAME<span class="w">         </span>PATH<span class="w">                              </span>PHASE<span class="w">    </span>SEEDED<span class="w">   </span>AGE
+<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>app-config<span class="w">   </span>secret/data/apps/my-app/config<span class="w">    </span>Active<span class="w">   </span><span class="nb">true</span><span class="w">     </span>1h
 </code></pre></div>
 <hr />
 <h2 id="secretkeyselector">SecretKeySelector<a class="headerlink" href="#secretkeyselector" title="Permanent link">&para;</a></h2>
