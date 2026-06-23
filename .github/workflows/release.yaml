@@ -1,15 +1,27 @@
 name: Release
 
 on:
+  # Continuous delivery: fires after CI completes. The guard job only proceeds
+  # on a SUCCESSFUL CI run for `main`, and only releases when commitizen finds a
+  # bumpable commit (feat/fix/breaking) since the last tag.
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+  # Manual fallback — optionally force an explicit version.
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release version (e.g., 0.3.0). Leave empty to auto-compute from conventional commits.'
+        description: 'Release version (e.g., 0.7.0). Leave empty to auto-compute from conventional commits.'
         required: false
         default: ''
         type: string
 
 permissions: {}
+
+# Serialize releases so two CI completions can't both bump+push concurrently.
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 env:
   REGISTRY: ghcr.io
@@ -17,28 +29,35 @@ env:
 
 jobs:
   # ============================================================================
-  # Guard: Verify CI passed and extract release metadata
+  # Guard + Bump: gate on CI success, auto-compute version, commit + tag
   # ============================================================================
 
   guard:
-    name: Guard
+    name: Bump & Guard
     runs-on: ubuntu-latest
+    # Release only on a successful CI run for main, or a manual dispatch.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main')
     permissions:
-      contents: read
-      actions: read
+      contents: write   # push the bump commit + tag to main
+      actions: read     # look up the CI run (dispatch path)
     outputs:
-      should-release: ${{ steps.final-version.outputs.should-release }}
-      version: ${{ steps.final-version.outputs.version }}
-      tag: ${{ steps.final-version.outputs.tag }}
-      checkout-ref: ${{ steps.final-version.outputs.checkout-ref }}
-      image-tag: ${{ steps.ci-lookup.outputs.image-tag }}
-      ci-run-id: ${{ steps.ci-lookup.outputs.run-id }}
+      should-release: ${{ steps.bump.outputs.should-release }}
+      version: ${{ steps.bump.outputs.version }}
+      tag: ${{ steps.bump.outputs.tag }}
+      checkout-ref: ${{ steps.bump.outputs.checkout-ref }}
+      image-tag: ${{ steps.bump.outputs.image-tag }}
+      ci-run-id: ${{ steps.ci.outputs.run-id }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
+          # The CI run's commit (workflow_run) or current main (dispatch).
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
           fetch-depth: 0
           fetch-tags: true
-          persist-credentials: false
+          persist-credentials: true   # needed to push the bump commit + tag
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
@@ -47,70 +66,80 @@ jobs:
       - name: Install commitizen
         run: pip install commitizen
 
-      - name: Auto-compute version with commitizen
-        id: dispatch
-        run: |
-          # Parse the "version X → Y" line from `cz bump --dry-run`. Anchored on
-          # "version <semver> → <semver>" (rather than the older "bump version"
-          # prefix) so cz output format changes between releases don't silently
-          # break version detection — commitizen 4.x emits `bump: version …`
-          # while older releases emitted `bump version …`.
-          CZ_OUTPUT=$(cz bump --dry-run 2>&1 || true)
-          echo "::group::cz bump --dry-run output"
-          echo "$CZ_OUTPUT"
-          echo "::endgroup::"
-          CZ_VERSION=$(echo "$CZ_OUTPUT" | grep -oP 'version [0-9.]+ → \K[0-9.]+' | head -1 || echo "")
-          echo "cz-version=$CZ_VERSION" >> $GITHUB_OUTPUT
-
-      - name: Set dispatch version
-        id: dispatch-version
+      - name: Compute version, stamp files, commit + tag
+        id: bump
         env:
           INPUT_VERSION: ${{ inputs.version }}
         run: |
-          if [[ -n "$INPUT_VERSION" ]]; then
-            VERSION="$INPUT_VERSION"
-          elif [[ -n "${{ steps.dispatch.outputs.cz-version }}" ]]; then
-            VERSION="${{ steps.dispatch.outputs.cz-version }}"
+          set -euo pipefail
+
+          # Image tag = the CODE commit's CI-built image (computed BEFORE the
+          # bump commit is created, so we retag exactly what CI tested).
+          SHA=$(git rev-parse HEAD)
+          echo "image-tag=sha-${SHA:0:7}" >> "$GITHUB_OUTPUT"
+
+          # Next version: explicit dispatch input wins; otherwise commitizen
+          # computes it from conventional commits since the last tag (scm).
+          if [[ -n "${INPUT_VERSION}" ]]; then
+            VERSION="${INPUT_VERSION#v}"
           else
-            echo "::error::Could not determine version. Provide a version or ensure conventional commits exist."
-            exit 1
+            if RAW=$(cz bump --get-next 2>/tmp/cz.err); then
+              VERSION=$(printf '%s\n' "$RAW" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z]+)*' | tail -n1 || true)
+            else
+              echo "::notice::No bumpable commits since the last tag — nothing to release."
+              cat /tmp/cz.err || true
+              echo "should-release=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
           fi
-          echo "tag=v${VERSION}" >> $GITHUB_OUTPUT
-          echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          echo "should-release=true" >> $GITHUB_OUTPUT
-          echo "Release (dispatch): v${VERSION}"
+          if [[ -z "${VERSION}" ]]; then
+            echo "::notice::commitizen produced no version — nothing to release."
+            echo "should-release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          TAG="v${VERSION}"
+          echo "Releasing ${TAG}"
 
-      - name: Set final version
-        id: final-version
-        run: |
-          TAG="${{ steps.dispatch-version.outputs.tag }}"
-          VERSION="${{ steps.dispatch-version.outputs.version }}"
-          SHOULD="${{ steps.dispatch-version.outputs.should-release || 'false' }}"
-          echo "tag=${TAG}" >> $GITHUB_OUTPUT
-          echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          echo "should-release=${SHOULD}" >> $GITHUB_OUTPUT
-          echo "checkout-ref=" >> $GITHUB_OUTPUT
+          # Stamp the version into the chart.
+          sed -i "s/^version:.*/version: ${VERSION}/" charts/vault-access-operator/Chart.yaml
+          sed -i "s/^appVersion:.*/appVersion: \"${VERSION}\"/" charts/vault-access-operator/Chart.yaml
+          sed -i "s/^\(\s*\)tag:.*/\1tag: \"${VERSION}\"/" charts/vault-access-operator/values.yaml
 
-      - name: Find CI run for HEAD
-        if: steps.final-version.outputs.should-release == 'true'
-        id: ci-lookup
+          # Promote CHANGELOG [Unreleased] -> [VERSION] (preserves hand-written prose).
+          ./hack/promote-changelog.sh "${VERSION}"
+
+          # Commit the bump + tag, then push to main in one shot. The push is made
+          # with GITHUB_TOKEN, which does NOT re-trigger CI — so there's no release
+          # loop. [skip ci] is belt-and-suspenders.
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add charts/vault-access-operator/Chart.yaml \
+                  charts/vault-access-operator/values.yaml \
+                  CHANGELOG.md
+          git commit -m "bump: version ${VERSION}" -m "[skip ci]"
+          git tag "${TAG}"
+          git push origin HEAD:main --follow-tags
+
+          {
+            echo "version=${VERSION}"
+            echo "tag=${TAG}"
+            echo "checkout-ref=${TAG}"   # publish jobs check out the tagged (stamped) commit
+            echo "should-release=true"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Resolve CI run id (image retag + SBOMs)
+        id: ci
+        if: steps.bump.outputs.should-release == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          SHA=$(git rev-parse HEAD)
-          SHORT_SHA="${SHA:0:7}"
-          echo "image-tag=sha-${SHORT_SHA}" >> $GITHUB_OUTPUT
-
-          # Find successful CI run for this commit
-          RUN_ID=$(gh api "repos/${{ github.repository }}/actions/workflows/ci.yaml/runs?head_sha=${SHA}&status=success&per_page=1" \
-            --jq '.workflow_runs[0].id // empty' 2>/dev/null || echo "")
-
-          if [[ -n "$RUN_ID" ]]; then
-            echo "Found CI run: $RUN_ID"
-            echo "run-id=$RUN_ID" >> $GITHUB_OUTPUT
+          if [[ "${{ github.event_name }}" == "workflow_run" ]]; then
+            echo "run-id=${{ github.event.workflow_run.id }}" >> "$GITHUB_OUTPUT"
           else
-            echo "No CI run found for $SHA — will build from source"
-            echo "run-id=" >> $GITHUB_OUTPUT
+            SHA="${{ github.event.workflow_run.head_sha || github.sha }}"
+            RUN_ID=$(gh api "repos/${{ github.repository }}/actions/workflows/ci.yaml/runs?head_sha=${SHA}&status=success&per_page=1" \
+              --jq '.workflow_runs[0].id // empty' 2>/dev/null || echo "")
+            echo "run-id=${RUN_ID}" >> "$GITHUB_OUTPUT"
           fi
 
   # ============================================================================
@@ -120,6 +149,8 @@ jobs:
   setup:
     name: Setup
     runs-on: ubuntu-latest
+    needs: [guard]
+    if: needs.guard.outputs.should-release == 'true'
     outputs:
       platforms: ${{ steps.platforms.outputs.matrix }}
     steps:
@@ -132,7 +163,6 @@ jobs:
   # Docker Release Build: Parallel per-platform builds (fallback)
   # ============================================================================
   # Only runs when there's no CI run to retag from.
-  # Mirrors CI's matrix build pattern for parallel per-platform builds.
 
   docker-release-build:
     name: Docker Build (${{ matrix.platform }})
@@ -195,10 +225,6 @@ jobs:
   # ============================================================================
   # Docker Release Manifest: Retag CI images or merge platform-specific builds
   # ============================================================================
-  # If a CI run exists: retags CI-built SHA images to version tags using
-  # `docker buildx imagetools create`. This is a manifest-only operation —
-  # no rebuild, bit-for-bit identical to what CI tested.
-  # If no CI run: merges per-platform builds into a multi-arch manifest.
 
   docker-release-manifest:
     name: Docker Manifest
@@ -261,7 +287,7 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-          ref: ${{ needs.guard.outputs.checkout-ref }}
+          ref: ${{ needs.guard.outputs.checkout-ref }}   # the tagged, version-stamped commit
           fetch-depth: 0
           persist-credentials: false
 
@@ -286,7 +312,8 @@ jobs:
           path: /tmp/sbom-arm64/
         continue-on-error: true
 
-      # Generate install manifest with correct version
+      # Generate install manifest with correct version. The chart is already
+      # version-stamped by the bump commit (we check out the tag), so no sed here.
       - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
         with:
           go-version-file: go.mod
@@ -294,14 +321,6 @@ jobs:
       - uses: azure/setup-helm@b9e51907a09c216f16ebe8536097933489208112 # v4.3.0
         with:
           version: 'v3.14.0'
-
-      - name: Stamp version in chart
-        env:
-          VERSION: ${{ needs.guard.outputs.version }}
-        run: |
-          sed -i "s/^version:.*/version: ${VERSION}/" charts/vault-access-operator/Chart.yaml
-          sed -i "s/^appVersion:.*/appVersion: \"${VERSION}\"/" charts/vault-access-operator/Chart.yaml
-          sed -i "s/tag:.*/tag: \"${VERSION}\"/" charts/vault-access-operator/values.yaml
 
       - name: Build install manifest
         env:
@@ -349,13 +368,13 @@ jobs:
         env:
           TAG: ${{ needs.guard.outputs.tag }}
         run: |
-          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          PREV_TAG=$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || echo "")
           if [ -n "$PREV_TAG" ]; then
             echo "Generating changelog from $PREV_TAG to $TAG"
-            CHANGELOG=$(git log --pretty=format:"- %s" "$PREV_TAG".."$TAG" | head -50)
+            CHANGELOG=$(git log --pretty=format:"- %s" "$PREV_TAG".."$TAG" | grep -v '^- bump: ' | head -50)
           else
             echo "No previous tag found, using all commits"
-            CHANGELOG=$(git log --pretty=format:"- %s" | head -50)
+            CHANGELOG=$(git log --pretty=format:"- %s" | grep -v '^- bump: ' | head -50)
           fi
           echo "$CHANGELOG" > /tmp/changelog.txt
 
@@ -387,20 +406,12 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-          ref: ${{ needs.guard.outputs.checkout-ref }}
+          ref: ${{ needs.guard.outputs.checkout-ref }}   # the tagged, version-stamped commit
           persist-credentials: false
 
       - uses: azure/setup-helm@b9e51907a09c216f16ebe8536097933489208112 # v4.3.0
         with:
           version: 'v3.14.0'
-
-      - name: Stamp version in chart
-        env:
-          VERSION: ${{ needs.guard.outputs.version }}
-        run: |
-          sed -i "s/^version:.*/version: ${VERSION}/" charts/vault-access-operator/Chart.yaml
-          sed -i "s/^appVersion:.*/appVersion: \"${VERSION}\"/" charts/vault-access-operator/Chart.yaml
-          sed -i "s/tag:.*/tag: \"${VERSION}\"/" charts/vault-access-operator/values.yaml
 
       - name: Login to GHCR
         env:
