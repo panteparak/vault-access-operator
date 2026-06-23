@@ -159,6 +159,21 @@ path "sys/health" {
 EOF
 ```
 
+!!! note "Optional: extra policy for KV secret seeding (`VaultKVSecret`)"
+    If you use the [`VaultKVSecret`](api-reference.md#vaultkvsecret) CRD to pre-seed
+    KV v2 paths for External Secrets Operator, the operator policy additionally needs
+    **`create`-only** on the data path plus `read`/`patch`/`delete` on the metadata
+    path. **No `list`** (and no data `read`) is required — the operator only ever
+    creates a path when absent and acts solely on each resource's explicit `spec.path`:
+
+    ```hcl
+    path "secret/data/*"     { capabilities = ["create"] }
+    path "secret/metadata/*" { capabilities = ["read", "patch", "delete"] }
+    ```
+
+    Scope the prefixes to the paths you actually seed (e.g. `secret/data/apps/*`). See
+    [Operator Vault Policy (KV secret seeding)](configuration.md#operator-vault-policy-kv-secret-seeding).
+
 !!! tip "Verify Token Capabilities"
     You can verify what a token can access using:
     ```bash
@@ -414,6 +429,7 @@ You've successfully:
 | VaultClusterPolicy | Cluster | Cluster-wide Vault policy |
 | VaultRole | Namespaced | Namespace-scoped Kubernetes auth role |
 | VaultClusterRole | Cluster | Cluster-wide Kubernetes auth role |
+| VaultKVSecret | Namespaced | Seeds KV v2 secret paths for External Secrets Operator |
 
 ---
 
@@ -430,7 +446,8 @@ You've successfully:
       vaultpolicies.vault.platform.io \
       vaultclusterpolicies.vault.platform.io \
       vaultroles.vault.platform.io \
-      vaultclusterroles.vault.platform.io
+      vaultclusterroles.vault.platform.io \
+      vaultkvsecrets.vault.platform.io
 
     kubectl delete namespace vault-access-operator-system
     ```

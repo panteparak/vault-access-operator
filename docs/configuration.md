@@ -195,22 +195,44 @@ helm install vault-access-operator \
 The capabilities the operator needs **inside Vault** are governed by the Vault
 policy attached to its auth role (configured during [bootstrap](auth-methods/bootstrap.md),
 not by a Helm value). If you use the [`VaultKVSecret`](api-reference.md#vaultkvsecret)
-CRD to pre-seed KV v2 paths for External Secrets Operator, grant the operator
-policy **`create`-only** on the target `secret/data/*` (NOT `update`, `read`, or
-`delete`) plus full capabilities on `secret/metadata/*`:
+CRD to pre-seed KV v2 paths for External Secrets Operator, the operator needs a
+**very small** set of capabilities — it only ever *creates* a secret when the
+path is absent, and it never reads, lists, updates, or deletes secret **data**:
 
 ```hcl
-# Create-only on the data path: the operator only ever creates new secrets — it
-# never reads or overwrites stored values, so Vault enforces never-clobber. All
-# lifecycle/ownership runs through the metadata path; no `read` on data is needed.
-path "secret/data/*"     { capabilities = ["create"] }
-path "secret/metadata/*" { capabilities = ["create", "read", "update", "patch", "delete", "list"] }
+# Data path: CREATE ONLY. The operator writes to the exact spec.path of each
+# VaultKVSecret. It never reads, lists, updates, or deletes secret data — Vault
+# itself then enforces the never-clobber guarantee.
+path "secret/data/*" {
+  capabilities = ["create"]
+}
+
+# Metadata path: read + patch + delete only. These back the existence check,
+# the custom_metadata ownership stamp, and delete-if-untouched cleanup.
+path "secret/metadata/*" {
+  capabilities = ["read", "patch", "delete"]
+}
 ```
 
-**Least privilege:** scope the data prefix to the paths you actually seed (e.g.
-`secret/data/apps/*`) rather than the broad `secret/data/*`. Omit these grants
-entirely if you don't use `VaultKVSecret`. See [Bootstrap Authentication](auth-methods/bootstrap.md)
-for where this fits in the operator policy.
+| Capability | Path | Why the operator needs it |
+|------------|------|---------------------------|
+| `create` | `secret/data/*` | Seed a new secret (KV v2 `cas=0` write) when the path is absent |
+| `read` | `secret/metadata/*` | Existence check before seeding, and the untouched-check on delete (reads `current_version` + `custom_metadata`) |
+| `patch` | `secret/metadata/*` | Stamp operator ownership into `custom_metadata` (requires Vault **≥ 1.9**) |
+| `delete` | `secret/metadata/*` | `DeleteMetadata` removes an untouched seeded secret on cleanup |
+
+**Do you need `list`? No.** Neither `secret/data/*` nor `secret/metadata/*` needs
+`list`. The operator never enumerates KV paths — it acts only on the explicit
+`spec.path` of each `VaultKVSecret`. The data path likewise needs **no** `read`,
+`update`, or `delete`. (The unrelated managed-marker tracking does `list` its own
+`secret/metadata/vault-access-operator/managed/*` prefix — that is separate from
+seeding and already covered by the operator's base policy.)
+
+**Least privilege:** scope both prefixes to the paths you actually seed (e.g.
+`secret/data/apps/*` and `secret/metadata/apps/*`) rather than the broad
+`secret/*`. Omit these grants entirely if you don't use `VaultKVSecret`. See
+[Bootstrap Authentication](auth-methods/bootstrap.md) for where this fits in the
+operator policy.
 
 ### Extensibility
 

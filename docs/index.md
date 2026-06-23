@@ -55,7 +55,7 @@ For detailed installation instructions, see the [Getting Started](getting-starte
 
 ## Custom Resource Definitions
 
-The operator provides five CRDs for managing Vault access:
+The operator provides six CRDs for managing Vault access:
 
 | CRD | Scope | Description |
 |-----|-------|-------------|
@@ -64,6 +64,7 @@ The operator provides five CRDs for managing Vault access:
 | [VaultPolicy](api-reference.md#vaultpolicy) | Namespaced | Manages namespace-scoped Vault policies |
 | [VaultClusterRole](api-reference.md#vaultclusterrole) | Cluster | Manages cluster-wide Kubernetes auth roles |
 | [VaultRole](api-reference.md#vaultrole) | Namespaced | Manages namespace-scoped Kubernetes auth roles |
+| [VaultKVSecret](api-reference.md#vaultkvsecret) | Namespaced | Seeds KV v2 secret paths for External Secrets Operator |
 
 ## Prerequisites
 

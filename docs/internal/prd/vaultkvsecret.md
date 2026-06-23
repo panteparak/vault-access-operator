@@ -58,13 +58,13 @@ A **new namespaced CRD** is introduced — this is additive, net-new, no migrati
 - `docs/api-reference.md` — new `## VaultKVSecret` section (create-only + delete-if-untouched semantics, ESO `.property` caveat).
 - `docs/internal/FLOW_KVSECRET.md` — new flow doc (reconcile + cleanup sequences, trimmed-reconcile rationale).
 - `docs/internal/CONTEXT.md` — new domain terms (Secret seeding, VaultKVSecret).
-- `docs/auth-methods/bootstrap.md`, `docs/configuration.md` — the new operator Vault capability (create-only on `secret/data/*`, full on `secret/metadata/*`).
+- `docs/auth-methods/bootstrap.md`, `docs/configuration.md` — the new operator Vault capability (create-only on `secret/data/*`, `read`/`patch`/`delete` on `secret/metadata/*`).
 - `CHANGELOG.md` — `### Added` entry under `[Unreleased]`.
 
 ## Compatibility & migration
 
 - **Backward compatibility:** Net-new CRD; no existing CR is affected. Pre-existing resources continue to reconcile unchanged. `spec.data` defaults to `{}` and `spec.deletionPolicy` defaults to `Delete`.
-- **Version skew:** None within the operator's own CRs. The new CRD must be applied before any `VaultKVSecret` is created (standard `make manifests` / `helm-update-crds` flow). The operator's Vault **policy** must gain the create-only `secret/data/*` + full `secret/metadata/*` grants before seeding works — see Security considerations.
+- **Version skew:** None within the operator's own CRs. The new CRD must be applied before any `VaultKVSecret` is created (standard `make manifests` / `helm-update-crds` flow). The operator's Vault **policy** must gain the create-only `secret/data/*` + `read`/`patch`/`delete` `secret/metadata/*` grants before seeding works — see Security considerations.
 - **Webhook validation:** None. Validation (path immutability + `/data/` segment) uses CEL `x-kubernetes-validations`, so no `--enable-webhooks` dependency and no cert wiring.
 
 ## Security considerations
@@ -76,11 +76,11 @@ This touches the operator's Vault RBAC/policy — an RBAC / service-account boun
 - [x] Changes RBAC or service-account boundaries — **Yes.** The operator's Vault policy gains KV grants (details below).
 - [x] Introduces a new user-controlled string that ends up in a Vault path — **Yes.** `spec.path` is written to a Vault KV v2 path. Constrained by CEL (`^[^/]+/data/.+`) and bounded in production by scoping the `secret/data/*` prefix.
 
-**Least-privilege grant (the key design point).** To seed, the operator's own Vault policy needs **`create`-ONLY** on the target `secret/data/*` — **NOT `update`, `read`, or `delete`** — plus `create`/`read`/`update`/`patch`/`delete`/`list` on `secret/metadata/*`:
+**Least-privilege grant (the key design point).** To seed, the operator's own Vault policy needs **`create`-ONLY** on the target `secret/data/*` — **NOT `update`, `read`, or `delete`** — plus `read`/`patch`/`delete` on `secret/metadata/*` (no `list` needed):
 
 ```hcl
 path "secret/data/*"     { capabilities = ["create"] }
-path "secret/metadata/*" { capabilities = ["create", "read", "update", "patch", "delete", "list"] }
+path "secret/metadata/*" { capabilities = ["read", "patch", "delete"] }
 ```
 
 **The operator needs NO `read` on `secret/data/*`.** The original assumption was that `read` would be required "to see" the seeded secret. With the create-only + KV-v2-metadata design that requirement was **dropped**: existence checks and the untouched-check read `secret/metadata/*` (never secret data values), the ownership stamp is `custom_metadata`, and deletion uses `DeleteMetadata`. The net effect is that the operator can CREATE empty secrets but can never read or overwrite the real values users/ESO store — **Vault itself enforces the never-clobber guarantee** (defense-in-depth above the `cas=0` code). In production, scope the `secret/data/*` prefix to the paths you actually seed (e.g. `secret/data/apps/*`).
@@ -99,7 +99,7 @@ Policy fixtures: `test/e2e/fixtures/policies/operator-bootstrap.hcl` (production
 1. Add the CRD type (`api/v1alpha1/vaultkvsecret_types.go`) with CEL + printcolumn markers; `init()` self-registers with the scheme.
 2. Add the KV v2 client surface (`pkg/vault/kvsecret.go`): `SplitKVv2Path`, `CreateKVSecretIfAbsent` (atomic `cas=0`), `ReadKVMetadata`, `StampKVOwnership`, `IsOwnedBy`, `DeleteKVSecret`. Do NOT extend the `VaultOpsClient` interface.
 3. Add a thin feature (`features/kvsecret/`): a `base.BaseReconciler[*VaultKVSecret]` plus a `Handler` implementing `Sync`/`Cleanup` directly — **a trimmed reconcile, NOT the shared `SyncWorkflow`** (create-only-if-absent deliberately abandons drift management).
-4. Grant the operator's Vault policy `create`-only on `secret/data/*` and full on `secret/metadata/*` (HCL fixtures + docs).
+4. Grant the operator's Vault policy `create`-only on `secret/data/*` and `read`/`patch`/`delete` on `secret/metadata/*` (HCL fixtures + docs).
 5. Tests: unit (`TestSyncKVSecret_*`, `TestCleanupKVSecret_*`, `pkg/vault` cases), integration (`INT-KVS01..07`), e2e (`TC-KVS01..02`).
 6. Docs: this PRD, `FLOW_KVSECRET.md`, `api-reference.md`, `CONTEXT.md`, `CHANGELOG.md`, bootstrap/configuration capability note.
 

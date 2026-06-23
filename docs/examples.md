@@ -697,6 +697,83 @@ spec:
 
 ---
 
+## VaultKVSecret Examples
+
+`VaultKVSecret` pre-creates ("seeds") a KV v2 secret path so External Secrets
+Operator (ESO) doesn't fail with a 404 when the path doesn't exist yet on a fresh
+deployment. The operator only ever **creates** the path when it is absent — it never
+overwrites or reads the values stored there.
+
+### Seed a Truly-Empty Path
+
+Omit `data` to seed an empty secret (`{}`) at version 1:
+
+```yaml
+apiVersion: vault.platform.io/v1alpha1
+kind: VaultKVSecret
+metadata:
+  name: app-config
+  namespace: my-app
+spec:
+  connectionRef: vault-primary
+  # Full KV v2 data path — must contain a "/data/" segment. Immutable.
+  path: secret/data/apps/my-app/config
+```
+
+```bash
+kubectl get vaultkvsecret -n my-app
+# NAME         PATH                             PHASE    SEEDED   AGE
+# app-config   secret/data/apps/my-app/config   Active   true     1m
+```
+
+### Seed Placeholder Keys
+
+List keys with empty-string values when ESO references a specific `property`:
+
+```yaml
+apiVersion: vault.platform.io/v1alpha1
+kind: VaultKVSecret
+metadata:
+  name: app-config
+  namespace: my-app
+spec:
+  connectionRef: vault-primary
+  path: secret/data/apps/my-app/config
+  # Written ONLY if the path is absent — never overwrites real data.
+  data:
+    username: ""
+    password: ""
+```
+
+### Retain the Secret on Deletion
+
+`deletionPolicy: Retain` never deletes the seeded secret. The default `Delete`
+removes it only if it is still operator-owned and unmodified since seeding
+(delete-if-untouched):
+
+```yaml
+apiVersion: vault.platform.io/v1alpha1
+kind: VaultKVSecret
+metadata:
+  name: persistent-config
+  namespace: my-app
+spec:
+  connectionRef: vault-primary
+  path: secret/data/apps/my-app/persistent
+  data:
+    api_key: ""
+  deletionPolicy: Retain
+```
+
+!!! note "Empty `{}` vs placeholder keys (for ESO)"
+    A truly-empty `{}` seed is enough for an ESO `ExternalSecret` that reads the
+    **whole** secret (`spec.dataFrom`). But an ESO `spec.data[].remoteRef.property`
+    reference to a specific key (e.g. `password`) still fails until that key exists —
+    so seed placeholder keys for `.property` references. Either way, the seed
+    guarantees the path exists so ESO's first sync resolves instead of 404-ing.
+
+---
+
 ## Complete Application Setup
 
 A complete example for setting up Vault access for a microservices application:

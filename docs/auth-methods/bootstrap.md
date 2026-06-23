@@ -233,8 +233,8 @@ During bootstrap, the operator:
        If you use the [`VaultKVSecret`](../api-reference.md#vaultkvsecret) CRD to
        pre-seed KV v2 paths for External Secrets Operator, the operator policy
        additionally needs **`create`-ONLY** on the target `secret/data/*` (NOT
-       `update`, `read`, or `delete`) plus full capabilities on
-       `secret/metadata/*`:
+       `read`, `list`, `update`, or `delete`) plus only `read`/`patch`/`delete`
+       on `secret/metadata/*`:
 
        ```hcl
        # CREATE-ONLY on the data path: the operator only ever creates new
@@ -244,8 +244,13 @@ During bootstrap, the operator:
        # DeleteMetadata) runs through the metadata path. The operator needs NO
        # `read` on secret/data/*.
        path "secret/data/*"     { capabilities = ["create"] }
-       path "secret/metadata/*" { capabilities = ["create", "read", "update", "patch", "delete", "list"] }
+       path "secret/metadata/*" { capabilities = ["read", "patch", "delete"] }
        ```
+
+       **No `list` is required** on either path — the operator acts only on each
+       `VaultKVSecret`'s explicit `spec.path` and never enumerates KV keys.
+       (`read` = existence + untouched check, `patch` = ownership stamp on Vault
+       ≥ 1.9, `delete` = DeleteMetadata cleanup.)
 
        **Least privilege:** scope the data prefix to the paths you actually
        seed (e.g. `secret/data/apps/*`) rather than the broad `secret/data/*`.

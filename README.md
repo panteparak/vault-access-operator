@@ -170,6 +170,7 @@ kubectl get vaultpolicy,vaultrole -n my-app
 | **VaultClusterPolicy** | Cluster | Cluster-wide Vault policies |
 | **VaultRole** | Namespaced | Kubernetes auth roles for namespace service accounts |
 | **VaultClusterRole** | Cluster | Kubernetes auth roles spanning multiple namespaces |
+| **VaultKVSecret** | Namespaced | Seeds empty KV v2 secret paths for External Secrets Operator |
 
 ## Authentication Methods
 
