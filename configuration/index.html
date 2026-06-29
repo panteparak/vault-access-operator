@@ -1177,6 +1177,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#sharing-one-vault-across-clusters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sharing one Vault across clusters
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#example-values-files" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1970,6 +1981,17 @@
     <span class="md-ellipsis">
       
         CLI Flags
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sharing-one-vault-across-clusters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sharing one Vault across clusters
       
     </span>
   </a>
@@ -2880,6 +2902,11 @@ operator policy.</p>
 <td>(from downward API)</td>
 <td>Service account name used by the operator</td>
 </tr>
+<tr>
+<td><code>CLUSTER_NAME</code></td>
+<td><code>""</code></td>
+<td>Per-cluster prefix for all Vault resource names (see <a href="#cli-flags"><code>--cluster-name</code></a> and <a href="#sharing-one-vault-across-clusters">Sharing one Vault across clusters</a>). The <code>--cluster-name</code> flag takes precedence.</td>
+</tr>
 </tbody>
 </table>
 <p>These can be set via the <code>extraEnv</code> Helm value:</p>
@@ -2961,8 +2988,45 @@ operator policy.</p>
 <td><code>false</code></td>
 <td>Enable admission webhooks (requires certificate configuration)</td>
 </tr>
+<tr>
+<td><code>--cluster-name</code></td>
+<td><code>""</code></td>
+<td>Per-cluster prefix for all Vault resource names (policies, roles, managed markers). Set a unique value per cluster when multiple operators share one Vault server; empty disables prefixing. Also settable via the <code>CLUSTER_NAME</code> env var. See <a href="#sharing-one-vault-across-clusters">Sharing one Vault across clusters</a>.</td>
+</tr>
 </tbody>
 </table>
+<hr />
+<h2 id="sharing-one-vault-across-clusters">Sharing one Vault across clusters<a class="headerlink" href="#sharing-one-vault-across-clusters" title="Permanent link">&para;</a></h2>
+<p>Vault Community Edition has no <a href="https://developer.hashicorp.com/vault/docs/enterprise/namespaces">namespaces</a> (an Enterprise feature), so ACL policies live in a single global store (<code>sys/policies/acl/</code>) and the operator's managed-marker KV path is shared. If you run <strong>one operator per Kubernetes cluster against the same Vault server</strong>, two clusters that define a policy or role with the same name (e.g. <code>default/admin</code>) would otherwise write to the same Vault object and silently overwrite each other.</p>
+<p>Set a unique <strong><code>--cluster-name</code></strong> (or <code>CLUSTER_NAME</code> env / <code>clusterName</code> Helm value) per cluster to prefix every derived Vault resource name:</p>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th><code>VaultPolicy</code> <code>default/admin</code> → Vault policy</th>
+<th>Managed marker</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>clusterName: east</code></td>
+<td><code>east-default-admin</code></td>
+<td><code>…/managed/policies/east-default-admin</code></td>
+</tr>
+<tr>
+<td><code>clusterName: west</code></td>
+<td><code>west-default-admin</code></td>
+<td><code>…/managed/policies/west-default-admin</code></td>
+</tr>
+</tbody>
+</table>
+<p>Both clusters then coexist on one Vault with no collisions. Notes:</p>
+<ul>
+<li><strong>Empty (default) = no prefix</strong> — existing single-cluster installs are unaffected.</li>
+<li>The prefix also applies to the policy names a <code>VaultRole</code> binds (<code>token_policies</code>), so role→policy references stay consistent automatically.</li>
+<li>Enabling the prefix on an <strong>existing</strong> install renames the Vault objects: the operator creates the new prefixed policies/roles and the old unprefixed ones become orphaned. Plan a cutover (create prefixed → repoint external consumers → delete the old names).</li>
+<li>Valid characters: <code>^[a-zA-Z0-9._-]+$</code> (the prefix becomes part of Vault policy names and KV paths).</li>
+</ul>
 <hr />
 <h2 id="example-values-files">Example Values Files<a class="headerlink" href="#example-values-files" title="Permanent link">&para;</a></h2>
 <h3 id="minimal">Minimal<a class="headerlink" href="#minimal" title="Permanent link">&para;</a></h3>

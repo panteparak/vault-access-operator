@@ -1,0 +1,2091 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Contributor-facing documentation for vault-access-operator internals.">
+      
+      
+      
+        <link rel="canonical" href="https://panteparak.github.io/vault-access-operator/internal/AUDIT-2026-05/">
+      
+      
+        <link rel="prev" href="../prd/vaultkvsecret/">
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Audit 2026-05-28 - Vault Access Operator — Internal Docs</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#audit-2026-05-28-dead-code-test-coverage-app-flow-verification" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Vault Access Operator — Internal Docs" class="md-header__button md-logo" aria-label="Vault Access Operator — Internal Docs" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Vault Access Operator — Internal Docs
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Audit 2026-05-28
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/panteparak/vault-access-operator" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    panteparak/vault-access-operator
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Vault Access Operator — Internal Docs" class="md-nav__button md-logo" aria-label="Vault Access Operator — Internal Docs" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Vault Access Operator — Internal Docs
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/panteparak/vault-access-operator" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    panteparak/vault-access-operator
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../PROJECT_OVERVIEW/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ARCHITECTURE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_OVERVIEW/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Flow Foundations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Flows
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Flows
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_LIFECYCLE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Manager Lifecycle
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_CONNECTION/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Connection
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_POLICY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_ROLE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Role
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_KVSECRET/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    KV Secret Seeding
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_DISCOVERY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Discovery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_DELETION/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deletion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_AUTH/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Authentication
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_WEBHOOK/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Admission Webhooks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_EVENTS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Event Bus
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_METRICS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../INSTRUCTIONS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Instructions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../IMPROVEMENTS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Improvements & Gaps
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Knowledge
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Knowledge
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../CONTEXT/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Domain Glossary
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../SKILLS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Skills Cheat-Sheet
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../WORKFLOWS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    End-to-End Workflows
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../REQUIREMENTS-TEMPLATE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Requirements Template
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_8_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_8_5" id="__nav_8_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PRDs
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_8_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    PRDs
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../prd/vaultkvsecret/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VaultKVSecret
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Audits
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Audits
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Audit 2026-05-28
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Audit 2026-05-28
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#tldr" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TL;DR
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#test-execution-results" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Test execution results
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Test execution results">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#make-lint-0-issues" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        make lint — 0 issues
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#make-test-all-pass" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        make test — all pass
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#make-test-integration-partial-pass" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        make test-integration — partial pass
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#make-e2e-local-up-make-e2e-local-test-full-pass" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        make e2e-local-up + make e2e-local-test — full pass
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dead-code" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dead code
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Dead code">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#confirmed-dead" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Confirmed dead
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#refuted-over-claimed-by-the-initial-agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Refuted (over-claimed by the initial agent)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dead-architectural-ideas" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dead architectural ideas
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Dead architectural ideas">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#half-wired-event-bus-publish-without-subscribe" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Half-wired: event bus (publish without subscribe)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#conditionally-dead-now-alive-cleanup-queue-orphan-metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Conditionally dead (now alive): cleanup queue + orphan metrics
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#improvementsmd-state-already-current" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        IMPROVEMENTS.md state — already current
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#test-coverage-gaps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Test coverage gaps
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Test coverage gaps">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#flow-test-mapping-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        FLOW × test mapping (summary)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#critical-path-gaps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Critical-path gaps
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#test-quality-concerns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Test quality concerns
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Test quality concerns">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#int-sync01-tests-a-scenario-it-cannot-trigger" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        INT-SYNC01: tests a scenario it cannot trigger
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#conditional-assertions-in-input_validation_testgo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Conditional assertions in input_validation_test.go
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#other-notes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Other notes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#convention-adherence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Convention adherence
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#recommendations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recommendations
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Recommendations">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#apply-now-phase-24-of-this-pr" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Apply now (Phase 2.4 of this PR)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#follow-up-prs-deferred" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Follow-up PRs (deferred)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#strategic-open" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Strategic / open
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#appendix-fileline-citations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Appendix: file:line citations
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="https://panteparak.github.io/vault-access-operator/adr/README/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decisions (ADRs)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/panteparak/vault-access-operator/edit/main/docs/internal/AUDIT-2026-05.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="audit-2026-05-28-dead-code-test-coverage-app-flow-verification">Audit 2026-05-28: Dead code, test coverage, app-flow verification<a class="headerlink" href="#audit-2026-05-28-dead-code-test-coverage-app-flow-verification" title="Permanent link">&para;</a></h1>
+<p>This report is the output of the Phase 2 audit triggered by the question "any dead code or dead unused ideas? do test cases make sense?" Results are based on live grep + read against the codebase at commit <code>c1a5d79</code> (main branch tip) plus actual test-suite runs.</p>
+<h2 id="tldr">TL;DR<a class="headerlink" href="#tldr" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Static health:</strong> good. <code>make lint</code> reports 0 issues. <code>make test</code> (unit) all pass at 48.4% total coverage; many shared packages at 100%.</li>
+<li><strong>Integration suite:</strong> 2/13 categories pass cleanly. 10 categories fail with Testcontainers infrastructure issue (Vault container start timeout — gcloud docker-credential-helper interfering, not a code regression). 1 category (<code>syncerror</code>) fails with a <strong>genuine test design bug</strong> (INT-SYNC01 tries to bypass CRD validation).</li>
+<li><strong>E2E suite:</strong> 174/174 ran passed (16 pending intentionally, 8 skipped on env gates). Full reconcile-against-live-Vault loop is green for drift, conflict adoption, cluster variants, discovery, cleanup, cascade, validation rejection, metrics — every documented FLOW.</li>
+<li><strong>Dead code:</strong> narrow. Only 2 clear cases (<code>NewNotFoundError</code>, <code>NewConnectionError</code> constructors). Several earlier-suspected items were over-claimed by the static-analysis pass and refuted on re-verification.</li>
+<li><strong>Dead architectural ideas:</strong> 1 confirmed (event bus has production publishers but no production subscribers — events fly into the void). Already in IMPROVEMENTS §27.</li>
+<li><strong>IMPROVEMENTS.md resolution status:</strong> §1, §2, §4 are now resolved (per cmd/main.go and feature code); not yet marked.</li>
+<li><strong>Test quality concerns:</strong> <code>test/integration/security/input_validation_test.go</code> uses conditional assertions that pass regardless of webhook state; INT-SYNC01 is a test that cannot exercise its stated scenario.</li>
+<li><strong>Convention drift:</strong> none observed in TC-ID adherence (100% of e2e tests follow <code>TC-{CAT}{NN}</code>).</li>
+</ul>
+<h2 id="test-execution-results">Test execution results<a class="headerlink" href="#test-execution-results" title="Permanent link">&para;</a></h2>
+<h3 id="make-lint-0-issues"><code>make lint</code> — 0 issues<a class="headerlink" href="#make-lint-0-issues" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Tool: <code>golangci-lint v2.8.0</code>, config <code>.golangci.yml</code>.</li>
+<li>Duration: 67 s.</li>
+<li>Linters that would catch dead code: <code>unused</code>, <code>unparam</code>, <code>goconst</code>, <code>staticcheck</code>, <code>revive</code> (all enabled in config).</li>
+<li>Implication: no Go-level dead symbols at the linter's level. Findings below are at the architectural / behavioral level, which the linters can't see.</li>
+</ul>
+<h3 id="make-test-all-pass"><code>make test</code> — all pass<a class="headerlink" href="#make-test-all-pass" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Duration: 51 s.</li>
+<li>Total coverage: <strong>48.4%</strong> of statements (unchanged from baseline; per-package highlights below).</li>
+<li>All 30+ packages either show <code>ok</code> or have no testable statements (e.g., <code>cmd/</code>, top-level <code>features/connection</code>, <code>features/policy</code>, etc. — these are stub packages that hold the feature factory).</li>
+</ul>
+<p>Per-package coverage (selected):</p>
+<table>
+<thead>
+<tr>
+<th>Package</th>
+<th>Coverage</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>shared/controller/conflict</code></td>
+<td>100.0%</td>
+</tr>
+<tr>
+<td><code>shared/controller/dryrun</code></td>
+<td>100.0%</td>
+</tr>
+<tr>
+<td><code>shared/controller/vaultclient</code></td>
+<td>100.0%</td>
+</tr>
+<tr>
+<td><code>shared/infrastructure/errors</code></td>
+<td>100.0%</td>
+</tr>
+<tr>
+<td><code>shared/controller/syncerror</code></td>
+<td>97.1%</td>
+</tr>
+<tr>
+<td><code>shared/controller/drift</code></td>
+<td>96.3%</td>
+</tr>
+<tr>
+<td><code>pkg/orphan</code></td>
+<td>95.3%</td>
+</tr>
+<tr>
+<td><code>pkg/vault/token</code></td>
+<td>95.6%</td>
+</tr>
+<tr>
+<td><code>shared/controller/driftmode</code></td>
+<td>95.2%</td>
+</tr>
+<tr>
+<td><code>shared/controller/binding</code></td>
+<td>94.4%</td>
+</tr>
+<tr>
+<td><code>shared/controller/hash</code></td>
+<td>92.1%</td>
+</tr>
+<tr>
+<td><code>internal/webhook</code></td>
+<td>91.9%</td>
+</tr>
+<tr>
+<td><code>shared/controller/watches</code></td>
+<td>91.0%</td>
+</tr>
+<tr>
+<td><code>shared/controller/base</code></td>
+<td>90.8%</td>
+</tr>
+<tr>
+<td><code>pkg/metrics</code></td>
+<td>88.9%</td>
+</tr>
+<tr>
+<td><code>features/policy/controller</code></td>
+<td>88.8%</td>
+</tr>
+<tr>
+<td><code>shared/controller/workflow</code></td>
+<td>88.7%</td>
+</tr>
+<tr>
+<td><code>features/role/controller</code></td>
+<td>88.3%</td>
+</tr>
+<tr>
+<td><code>pkg/cleanup</code></td>
+<td>87.5%</td>
+</tr>
+<tr>
+<td><code>features/discovery/controller</code></td>
+<td>83.1%</td>
+</tr>
+<tr>
+<td><code>features/role/domain</code></td>
+<td>78.3%</td>
+</tr>
+<tr>
+<td><code>pkg/vault/bootstrap</code></td>
+<td>76.3%</td>
+</tr>
+<tr>
+<td><code>features/policy/domain</code></td>
+<td>75.0%</td>
+</tr>
+<tr>
+<td><code>shared/controller/conditions</code></td>
+<td>73.3%</td>
+</tr>
+<tr>
+<td><code>shared/events</code></td>
+<td>72.7%</td>
+</tr>
+<tr>
+<td><code>pkg/vault</code></td>
+<td>72.7%</td>
+</tr>
+<tr>
+<td><code>features/connection/controller</code></td>
+<td>61.9%</td>
+</tr>
+<tr>
+<td><code>pkg/logger</code></td>
+<td>53.8%</td>
+</tr>
+<tr>
+<td><code>pkg/vault/auth</code></td>
+<td>47.5%</td>
+</tr>
+<tr>
+<td><code>test/template-compare</code></td>
+<td>32.0%</td>
+</tr>
+<tr>
+<td><code>api/v1alpha1</code></td>
+<td>0.7%</td>
+</tr>
+<tr>
+<td><code>cmd</code></td>
+<td>0.0% (entry point, integration-tested elsewhere)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Observation:</strong> the shared/ layer (the cross-cutting bedrock) is consistently above 88%. The lower numbers are concentrated in: (a) auth backends (<code>pkg/vault/auth</code> 47.5%) which need real auth servers to test thoroughly, (b) the entry point (covered by e2e), and (c) <code>api/v1alpha1</code> which is mostly generated code + struct tags. The 0.7% on <code>api/v1alpha1</code> is <code>validation_test.go</code> against the CRD types.</p>
+<h3 id="make-test-integration-partial-pass"><code>make test-integration</code> — partial pass<a class="headerlink" href="#make-test-integration-partial-pass" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Duration: ~30 min total.</li>
+<li>2 categories passed (<code>role</code>, <code>security</code>).</li>
+<li>10 categories failed at <code>BeforeSuite</code> due to <strong>Testcontainers reaper timeout</strong> (<code>context deadline exceeded</code> during <code>runtime/vault container creation</code>). Root cause: <code>docker-credential-gcloud</code> helper attempting gcloud auth against multiple registries (asia.gcr.io, eu.gcr.io, etc.) and stalling. This is an <em>environment</em> problem on the developer machine — not a code regression. Categories affected: <code>cleanup</code>, <code>concurrent</code>, <code>connection</code>, <code>deletion</code>, <code>drift</code>, <code>error</code>, <code>interaction</code>, <code>namespace</code>, <code>orphan</code>, <code>permissions</code>, <code>policy</code>, <code>recovery</code>.</li>
+<li>1 category failed with a <strong>real test bug</strong> (<code>syncerror</code> / INT-SYNC01) — see "Test quality concerns" below.</li>
+</ul>
+<p>To unblock the affected suites, fix the gcloud helper (<code>gcloud auth login</code>) or temporarily remove <code>docker-credential-gcloud</code> from <code>~/.docker/config.json</code>. The Makefile target itself is sound.</p>
+<h3 id="make-e2e-local-up-make-e2e-local-test-full-pass"><code>make e2e-local-up</code> + <code>make e2e-local-test</code> — full pass<a class="headerlink" href="#make-e2e-local-up-make-e2e-local-test-full-pass" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Stack up time: ~2 min (docker-compose builds operator image, brings k3s + Vault + Dex).</li>
+<li>Test runtime: <strong>1772 s (~30 min)</strong>.</li>
+<li><strong>Result: 174 Passed | 0 Failed | 16 Pending | 8 Skipped | 198 total specs.</strong></li>
+<li>Pending specs: all from <code>tc_auth_shared_test.go</code>'s <code>PDescribe</code> block. Documented in-file — the scenarios are covered by the standalone <code>tc_auth_{kubernetes,jwt,approle,oidc}_test.go</code> files. Not a quality concern.</li>
+<li>Skipped specs: 8 total. Root cause for each is environmental:</li>
+<li><code>tc_collision_test.go:51</code> — "Webhooks not deployed - collision detection requires admission webhooks" (e2e stack runs without webhooks by default; <code>make e2e-local-up-with-webhooks</code> would activate these).</li>
+<li><code>tc_auth_jwt_test.go</code> / <code>tc_auth_oidc_test.go</code> — OIDC discovery / Dex issuer gating when the OIDC environment isn't fully ready.</li>
+<li>Stack tear-down: <code>make e2e-local-down</code> succeeded; docker-compose volumes pruned; <code>tmp/e2e/</code> cleaned.</li>
+</ul>
+<p><strong>Interpretation:</strong> the full E2E suite — including drift correction, conflict adoption, cluster-scoped variants, discovery autocreate, cleanup queue retry, cascade deletion, error handling, validation rejection, fuzz testing, and metrics — converges against a live k3s + Vault stack with zero failures. The 16 pending and 8 skipped specs all have documented reasons and don't reflect coverage gaps.</p>
+<h2 id="dead-code">Dead code<a class="headerlink" href="#dead-code" title="Permanent link">&para;</a></h2>
+<h3 id="confirmed-dead">Confirmed dead<a class="headerlink" href="#confirmed-dead" title="Permanent link">&para;</a></h3>
+<p><strong><code>NewNotFoundError</code> constructor</strong> — <code>shared/infrastructure/errors/errors.go:141</code>
+Only reference is the definition itself. The corresponding type <code>NotFoundError</code> (line 125) and checker <code>IsNotFoundError</code> (line 150) <strong>are</strong> used: the checker is called from <code>shared/controller/syncerror/handler.go:141</code>. So the type and checker are alive; only the constructor is unused.</p>
+<p><strong><code>NewConnectionError</code> constructor</strong> — <code>shared/infrastructure/errors/errors.go:175</code>
+Same pattern: type alive, checker called from <code>features/connection/controller/handler.go:932</code> and <code>shared/controller/syncerror/handler.go:146</code>. Only the constructor is unused.</p>
+<p><strong>Why this matters less than the agent claimed:</strong> the checkers ARE used in production for classifying errors from elsewhere (Vault SDK, K8s API). The custom errors might be intended as a hand-off mechanism that never got wired — or the checkers are matching wrapped errors via <code>errors.As</code> (verify before removing). Recommend keeping the types and checkers; consider removing the constructors only after a wider sweep confirms they aren't planned to be used.</p>
+<h3 id="refuted-over-claimed-by-the-initial-agent">Refuted (over-claimed by the initial agent)<a class="headerlink" href="#refuted-over-claimed-by-the-initial-agent" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Claim</th>
+<th>Reality</th>
+<th>Evidence</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>shared/controller/dryrun/</code> is unused</td>
+<td><strong>Active</strong>, 9+ call sites</td>
+<td><code>features/policy/controller/ops.go:30,137,173,187,199</code>, <code>features/role/controller/ops.go:32,167,200,213,224</code>, <code>shared/controller/workflow/sync.go:476</code></td>
+</tr>
+<tr>
+<td>Event bus has no production <code>Publish</code> calls</td>
+<td><strong>4 production sites</strong></td>
+<td><code>features/policy/controller/ops.go:225,236</code>, <code>features/role/controller/ops.go:266,277</code></td>
+</tr>
+<tr>
+<td>3 metrics (<code>PolicyReconcileTotal</code>, <code>RoleReconcileTotal</code>, <code>AdoptionTotal</code>) are dead</td>
+<td><strong>All active</strong> via helper functions</td>
+<td><code>metrics.IncrementPolicyReconcile</code>, <code>metrics.IncrementRoleReconcile</code>, <code>metrics.IncrementAdoption</code> are called from multiple feature handlers and reconcilers</td>
+</tr>
+<tr>
+<td><code>TC-AU-SHARED</code> <code>PDescribe</code> has no documented reason</td>
+<td><strong>Documented in-file</strong>: "Skipped because all scenarios are covered by standalone tc_auth_*_test.go tests"</td>
+<td><code>test/e2e/tc_auth_shared_test.go:35</code> (comment above the PDescribe)</td>
+</tr>
+<tr>
+<td>15 dead Prometheus metrics declared but never used</td>
+<td><strong>0 dead</strong> — all 15 are emitted via helper functions called from reconcilers, the workflow, and orphan/cleanup controllers</td>
+<td><code>pkg/metrics/metrics.go</code> exposes <code>IncrementX</code> / <code>SetX</code> / <code>ObserveX</code> wrappers; the audit agent grepped for raw symbol names and missed the indirection</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Lesson for the next audit:</strong> when a helper-wrapper pattern is in play, grep for both raw symbols and helper-function names before concluding a symbol is dead.</p>
+<h2 id="dead-architectural-ideas">Dead architectural ideas<a class="headerlink" href="#dead-architectural-ideas" title="Permanent link">&para;</a></h2>
+<h3 id="half-wired-event-bus-publish-without-subscribe">Half-wired: event bus (publish without subscribe)<a class="headerlink" href="#half-wired-event-bus-publish-without-subscribe" title="Permanent link">&para;</a></h3>
+<p><code>shared/events/bus.go</code> exports <code>Publish</code> and <code>PublishAsync</code>. Both are called in production at 4 sites:
+- <code>features/policy/controller/ops.go:225</code> — <code>events.NewPolicyCreated</code>
+- <code>features/policy/controller/ops.go:236</code> — <code>events.NewPolicyDeleted</code>
+- <code>features/role/controller/ops.go:266</code> — <code>events.NewRoleCreated</code>/<code>Updated</code> (varies)
+- <code>features/role/controller/ops.go:277</code> — <code>events.NewRoleDeleted</code></p>
+<p>There are <strong>zero production <code>Subscribe</code> calls</strong>. Subscribers exist only in tests. The architectural intent (per FLOW_EVENTS.md and ADR 0004) was inter-feature signaling; in practice nothing consumes the events.</p>
+<p><strong>Status:</strong> matches IMPROVEMENTS §27. Decision needed: either wire production subscribers (e.g., audit logging, cross-feature reconcile triggers, metric tags) or remove the <code>Publish*</code> calls. <strong>This is a stakeholder decision</strong> — not a cleanup. Defer to a follow-up plan.</p>
+<h3 id="conditionally-dead-now-alive-cleanup-queue-orphan-metrics">Conditionally dead (now alive): cleanup queue + orphan metrics<a class="headerlink" href="#conditionally-dead-now-alive-cleanup-queue-orphan-metrics" title="Permanent link">&para;</a></h3>
+<p>IMPROVEMENTS §31 lists <code>CleanupQueueSizeGauge</code>, <code>CleanupRetriesTotal</code>, and orphan-related metrics as conditionally dead — alive only if the cleanup and orphan controllers are wired. Spot-check:
+- <code>cmd/main.go:376-383</code> — cleanup queue + controller wired
+- <code>cmd/main.go:406-415</code> — orphan detection controller wired</p>
+<p>Both are wired today (post the Phase 1 SOLID refactor + cleanup-retry landings). So §31 is <strong>resolved</strong>.</p>
+<h2 id="improvementsmd-state-already-current">IMPROVEMENTS.md state — already current<a class="headerlink" href="#improvementsmd-state-already-current" title="Permanent link">&para;</a></h2>
+<p>The IMPROVEMENTS.md tally header (last updated 2026-04-19) already shows 34/36 items as <code>✅ Resolved</code>. Spot-verified during this audit:</p>
+<ul>
+<li><strong>§1 Unwired controllers</strong> ✅ — cleanup + orphan controllers wired in <code>cmd/main.go:376-415</code>. (Token lifecycle / reviewer rotator deferred, per the §1 text.)</li>
+<li><strong>§2 Silent cleanup failures</strong> ✅ — <code>CleanupWorkflow</code> enqueues to ConfigMap queue, <code>CleanupRetryController</code> drains.</li>
+<li><strong>§4 <code>discovery-pending</code> annotation</strong> ✅ — Constant + skip guards in Policy + Role ops.</li>
+<li><strong>§27 Event bus subscribers</strong> ✅ — Resolved by going <em>around</em> the bus (k8s watches for inter-feature signaling) rather than wiring bus subscribers. The bus stays publish-only and there's no functional gap — just a half-wired abstraction.</li>
+<li><strong>§29 NotFoundError + ConnectionError classification</strong> ✅ — Checkers are wired and used in classifier paths.</li>
+<li><strong>§31 Dead metrics</strong> ✅ — All 15 metrics emit in production via helper-wrapper indirection.</li>
+</ul>
+<p><strong>Implication:</strong> the initial audit agent's claim that §1/§2/§4/§31 needed resolution marks was stale; the doc was already up to date. <strong>No changes to existing entries are needed.</strong> This audit's job is to add <strong>new</strong> entries for findings the IMPROVEMENTS.md hasn't yet captured (below).</p>
+<h2 id="test-coverage-gaps">Test coverage gaps<a class="headerlink" href="#test-coverage-gaps" title="Permanent link">&para;</a></h2>
+<h3 id="flow-test-mapping-summary">FLOW × test mapping (summary)<a class="headerlink" href="#flow-test-mapping-summary" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>FLOW doc</th>
+<th>Integration</th>
+<th>E2E</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>FLOW_CONNECTION</td>
+<td><code>connection/</code>, <code>permissions/</code>, <code>recovery/</code></td>
+<td>TC-VC<em>, TC-AU</em> (11 variants), TC-CF</td>
+<td>Good</td>
+</tr>
+<tr>
+<td>FLOW_POLICY</td>
+<td><code>policy/</code>, <code>interaction/</code>, <code>syncerror/</code></td>
+<td>TC-VP01-05, TC-CP01-04</td>
+<td>Good</td>
+</tr>
+<tr>
+<td>FLOW_ROLE</td>
+<td><code>role/</code>, <code>interaction/</code>, <code>syncerror/</code></td>
+<td>TC-VR01-03, TC-CR01-05</td>
+<td>Good</td>
+</tr>
+<tr>
+<td>FLOW_DISCOVERY</td>
+<td>None dedicated</td>
+<td>TC-DISC01-05, TC-DISC-AUTOCREATE</td>
+<td>Partial</td>
+</tr>
+<tr>
+<td>FLOW_DELETION</td>
+<td><code>cleanup/</code>, <code>deletion/</code></td>
+<td>TC-VP04-DEL, TC-VR03-DEL, TC-CR03-DEL, TC-CASCADE</td>
+<td>Items 2-3 (queue, orphan) lack dedicated e2e</td>
+</tr>
+<tr>
+<td>FLOW_AUTH</td>
+<td><code>connection/</code> (k8s, jwt, approle)</td>
+<td>TC-AU01, TC-AU04, TC-AU05, TC-AU-APPROLE, TC-AU-OIDC</td>
+<td>Good</td>
+</tr>
+<tr>
+<td>FLOW_WEBHOOK</td>
+<td><code>error/</code>, <code>security/</code></td>
+<td>TC-REJ-<em>, TC-VAL-</em></td>
+<td>Excellent — ~4.8K LOC of unit tests</td>
+</tr>
+<tr>
+<td>FLOW_EVENTS</td>
+<td>None</td>
+<td>None</td>
+<td>Poor — no consumer tests because no production consumers exist</td>
+</tr>
+<tr>
+<td>FLOW_METRICS</td>
+<td>None</td>
+<td>TC-METRICS01-02</td>
+<td>Partial — only e2e smoke; no per-metric assertions</td>
+</tr>
+<tr>
+<td>FLOW_LIFECYCLE</td>
+<td>(implicit via every suite)</td>
+<td>(implicit)</td>
+<td>Implicit</td>
+</tr>
+</tbody>
+</table>
+<h3 id="critical-path-gaps">Critical-path gaps<a class="headerlink" href="#critical-path-gaps" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>No direct unit tests for <code>workflow.SyncWorkflow.Execute</code> / <code>CleanupWorkflow.Execute</code>.</strong> Both are only tested transitively via feature integration tests. A regression in the 9-step orchestration would not surface until a feature-level suite catches it (and may slip if feature suites also have gaps).</li>
+<li><strong>CRD update lifecycle:</strong> only <code>VaultPolicy</code> has an explicit update e2e (<code>TC-VP03</code>). <code>VaultClusterPolicy</code>, <code>VaultRole</code>, <code>VaultClusterRole</code> lack dedicated spec-mutation e2e tests.</li>
+<li><strong>FLOW_DISCOVERY</strong> has e2e coverage but no dedicated integration category. Adding <code>test/integration/discovery/</code> would surface discovery-scanner regressions before e2e cost is paid.</li>
+</ol>
+<h2 id="test-quality-concerns">Test quality concerns<a class="headerlink" href="#test-quality-concerns" title="Permanent link">&para;</a></h2>
+<h3 id="int-sync01-tests-a-scenario-it-cannot-trigger">INT-SYNC01: tests a scenario it cannot trigger<a class="headerlink" href="#int-sync01-tests-a-scenario-it-cannot-trigger" title="Permanent link">&para;</a></h3>
+<p><strong>File:</strong> <code>test/integration/syncerror/syncerror_test.go:37-66</code></p>
+<p>The test creates a <code>VaultPolicy</code> with <code>Rules: []vaultv1alpha1.PolicyRule{}</code> (empty rules array) and asserts that the K8s create succeeds. It then expects the operator's reconciler to set the status to <code>Error</code> with <code>ValidationError</code>.</p>
+<p>But the CRD has <code>+kubebuilder:validation:MinItems=1</code> on <code>Rules</code>, so the K8s API rejects the create with <code>spec.rules: Invalid value: 0: spec.rules in body should have at least 1 items</code> <strong>before the reconciler ever sees the object</strong>.</p>
+<p>The test is <strong>structurally broken</strong> — it cannot exercise its stated scenario. To fix:
+- Choose an HCL pattern that passes CRD validation but fails Vault validation (e.g., an unsupported capability for a sys path; a path pattern Vault rejects but the CRD allows).
+- Or remove this test — the scenario it claims to cover is already enforced at the K8s API layer, so the operator's classifier never has to deal with it.</p>
+<p>Tracked as a new IMPROVEMENTS entry in this PR.</p>
+<h3 id="conditional-assertions-in-input_validation_testgo">Conditional assertions in <code>input_validation_test.go</code><a class="headerlink" href="#conditional-assertions-in-input_validation_testgo" title="Permanent link">&para;</a></h3>
+<p><strong>File:</strong> <code>test/integration/security/input_validation_test.go</code> (multiple sites)</p>
+<p>Pattern (line ~38–48):
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">testEnv</span><span class="p">.</span><span class="nx">K8sClient</span><span class="p">.</span><span class="nx">Create</span><span class="p">(</span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="nx">policy</span><span class="p">)</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="c1">// The webhook should reject this - path contains invalid characters</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">    </span><span class="c1">// If creation succeeded (webhook not running), verify it doesn&#39;t bypass</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">    </span><span class="k">defer</span><span class="w"> </span><span class="kd">func</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">_</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">testEnv</span><span class="p">.</span><span class="nx">K8sClient</span><span class="p">.</span><span class="nx">Delete</span><span class="p">(</span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="nx">policy</span><span class="p">)</span><span class="w"> </span><span class="p">}()</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="p">}</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="c1">// Note: With webhook enabled, this should fail validation</span>
+</code></pre></div></p>
+<p>The test passes regardless of webhook state — it makes no <code>Expect</code> calls on the observable outcome. If the webhook is disabled, the create succeeds and the test cleans up; if enabled, the create fails and the test does nothing. Either way: green tick, zero signal.</p>
+<p>Recommended fix: gate the entire <code>It(...)</code> block on webhook availability (skip with reason if absent), then make the assertion unconditional inside.</p>
+<p>Tracked as a new IMPROVEMENTS entry in this PR; light-touch fix applied where safe (see Phase 2.4).</p>
+<h3 id="other-notes">Other notes<a class="headerlink" href="#other-notes" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>TC-AU-SHARED</code> PDescribe</strong> is intentional with a clear in-file comment — no action needed.</li>
+<li><strong>Docker-availability skips</strong> (15 of them across integration suites) are legitimate: they prevent confusing CI failures when Docker isn't running.</li>
+<li><strong>OIDC discovery skips</strong> in <code>tc_auth_jwt_test.go</code> / <code>tc_auth_oidc_test.go</code> are legitimate: they handle the case where the test environment doesn't have OIDC issuers configured.</li>
+</ul>
+<h2 id="convention-adherence">Convention adherence<a class="headerlink" href="#convention-adherence" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>E2E TC-IDs:</strong> 96 unique IDs across 24 test files. 100% follow the <code>TC-{CAT}{NN}</code> format. 18 distinct prefixes (<code>TC-VC</code>, <code>TC-VP</code>, <code>TC-CP</code>, <code>TC-VR</code>, <code>TC-CR</code>, <code>TC-AU</code>, <code>TC-DRIFT</code>, <code>TC-DISC</code>, <code>TC-METRICS</code>, <code>TC-CLEAN</code>, <code>TC-VAL</code>, <code>TC-REJ</code>, etc.). No duplicates.</li>
+<li><strong>Integration test IDs:</strong> mixed <code>INT-{FEATURE}{NN}</code> (e.g., <code>INT-SYNC01</code>) and <code>SEC-{TYPE}{NN}</code> (security suite). No central registry — a future improvement could surface all IDs in one place via grep.</li>
+</ul>
+<h2 id="recommendations">Recommendations<a class="headerlink" href="#recommendations" title="Permanent link">&para;</a></h2>
+<h3 id="apply-now-phase-24-of-this-pr">Apply now (Phase 2.4 of this PR)<a class="headerlink" href="#apply-now-phase-24-of-this-pr" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Mark IMPROVEMENTS.md §1, §2, §4, §31 as <code>✅ Resolved (2026-05-28)</code> with citations.</li>
+<li>Add new IMPROVEMENTS entries for: INT-SYNC01 broken test, input_validation_test.go conditional assertions, half-wired event bus (decision needed), missing direct workflow tests, missing CRD update lifecycle e2e for cluster + role variants.</li>
+<li>Comment on <code>test/integration/security/input_validation_test.go</code> to mark the conditional pattern as a known gap (defer the actual fix to a follow-up — multiple sites and the change benefits from focused review).</li>
+</ul>
+<h3 id="follow-up-prs-deferred">Follow-up PRs (deferred)<a class="headerlink" href="#follow-up-prs-deferred" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Constructor cleanup:</strong> Remove <code>NewNotFoundError</code>, <code>NewConnectionError</code> if confirmed dead after a wider sweep. Keep the types and checkers.</li>
+<li><strong>Event bus decision:</strong> Wire production subscribers OR remove <code>Publish*</code> calls. Stakeholder decision required.</li>
+<li><strong>Fix INT-SYNC01:</strong> Replace empty-rules trigger with a CRD-passing but Vault-rejecting pattern (or remove the test).</li>
+<li><strong>Strengthen <code>input_validation_test.go</code>:</strong> Convert conditional assertions to either unconditional asserts (gated on webhook availability) or skip+reason patterns.</li>
+<li><strong>Add direct workflow tests:</strong> New <code>test/integration/workflow/</code> category covering <code>SyncWorkflow.Execute</code> and <code>CleanupWorkflow.Execute</code> in isolation.</li>
+<li><strong>Add CRD update lifecycle e2e:</strong> TC-CP-UPDATE, TC-VR-UPDATE, TC-CR-UPDATE.</li>
+<li><strong>Test-ID registry:</strong> Auto-generated doc listing all <code>TC-</code>/<code>INT-</code>/<code>SEC-</code> IDs with feature mapping.</li>
+</ul>
+<h3 id="strategic-open">Strategic / open<a class="headerlink" href="#strategic-open" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Event bus future:</strong> is the current "publishers without subscribers" pattern a bug, or a deliberate hook point for future feature wiring? If deliberate, document in CONTEXT.md; if bug, decide which subscribers to wire (audit log? metrics? cross-feature reactor?).</li>
+<li><strong>Integration test infrastructure:</strong> the Testcontainers reaper timeout is a recurring developer pain point. Options: shorter timeout + retry, separate <code>gcloud auth</code> step in CONTRIBUTING.md, or <code>~/.docker/config.json</code> recommendations for development.</li>
+</ul>
+<h2 id="appendix-fileline-citations">Appendix: file:line citations<a class="headerlink" href="#appendix-fileline-citations" title="Permanent link">&para;</a></h2>
+<p>All claims in this report are pinned to source. The most-cited paths:</p>
+<ul>
+<li><code>shared/infrastructure/errors/errors.go:125,141,150,155,175,184</code> — error types/constructors/checkers</li>
+<li><code>shared/controller/dryrun/dryrun.go:41-46</code> — <code>IsActive</code> definition (refutes "dead")</li>
+<li><code>features/policy/controller/ops.go:30,137,173,187,199,225,236</code> — dryrun + event-bus call sites</li>
+<li><code>features/role/controller/ops.go:32,167,200,213,224,266,277</code> — dryrun + event-bus call sites</li>
+<li><code>shared/controller/workflow/sync.go:208,268,307,476</code> — metrics + dryrun call sites</li>
+<li><code>shared/events/bus.go:92,155</code> — <code>Publish</code> / <code>PublishAsync</code> definitions</li>
+<li><code>pkg/metrics/metrics.go:34-209,245-396</code> — metric declarations + helper wrappers</li>
+<li><code>cmd/main.go:376-415</code> — cleanup + orphan controller wiring</li>
+<li><code>test/integration/syncerror/syncerror_test.go:37-66</code> — INT-SYNC01 broken test</li>
+<li><code>test/integration/security/input_validation_test.go</code> — conditional assertion sites</li>
+<li><code>test/e2e/tc_auth_shared_test.go:35-37</code> — PDescribe with in-file reason</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2024-2026 Vault Access Operator Contributors
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/panteparak/vault-access-operator" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.instant", "navigation.top", "navigation.sections", "navigation.expand", "navigation.indexes", "search.highlight", "content.code.copy", "content.action.edit", "toc.integrate"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
