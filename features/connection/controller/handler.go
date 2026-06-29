@@ -44,6 +44,7 @@ import (
 	"github.com/panteparak/vault-access-operator/shared/controller/conditions"
 	"github.com/panteparak/vault-access-operator/shared/events"
 	infraerrors "github.com/panteparak/vault-access-operator/shared/infrastructure/errors"
+	"github.com/panteparak/vault-access-operator/shared/naming"
 )
 
 // Default auth path constant.
@@ -304,7 +305,7 @@ func (h *Handler) restoreManagedMarkers(
 	} else {
 		for i := range policies.Items {
 			p := &policies.Items[i]
-			vaultName := p.Namespace + "-" + p.Name
+			vaultName := naming.Vault(p.Namespace + "-" + p.Name)
 			k8sRef := p.Namespace + "/" + p.Name
 			if err := vaultClient.MarkPolicyManaged(ctx, vaultName, k8sRef, nil); err != nil {
 				errs = append(errs, fmt.Sprintf("VaultPolicy/%s: %v", k8sRef, err))
@@ -320,7 +321,7 @@ func (h *Handler) restoreManagedMarkers(
 	} else {
 		for i := range clusterPolicies.Items {
 			p := &clusterPolicies.Items[i]
-			if err := vaultClient.MarkPolicyManaged(ctx, p.Name, p.Name, nil); err != nil {
+			if err := vaultClient.MarkPolicyManaged(ctx, naming.Vault(p.Name), p.Name, nil); err != nil {
 				errs = append(errs, fmt.Sprintf("VaultClusterPolicy/%s: %v", p.Name, err))
 				continue
 			}
@@ -334,7 +335,7 @@ func (h *Handler) restoreManagedMarkers(
 	} else {
 		for i := range roles.Items {
 			r := &roles.Items[i]
-			vaultName := r.Namespace + "-" + r.Name
+			vaultName := naming.Vault(r.Namespace + "-" + r.Name)
 			k8sRef := r.Namespace + "/" + r.Name
 			if err := vaultClient.MarkRoleManaged(ctx, vaultName, k8sRef); err != nil {
 				errs = append(errs, fmt.Sprintf("VaultRole/%s: %v", k8sRef, err))
@@ -350,7 +351,7 @@ func (h *Handler) restoreManagedMarkers(
 	} else {
 		for i := range clusterRoles.Items {
 			r := &clusterRoles.Items[i]
-			if err := vaultClient.MarkRoleManaged(ctx, r.Name, r.Name); err != nil {
+			if err := vaultClient.MarkRoleManaged(ctx, naming.Vault(r.Name), r.Name); err != nil {
 				errs = append(errs, fmt.Sprintf("VaultClusterRole/%s: %v", r.Name, err))
 				continue
 			}

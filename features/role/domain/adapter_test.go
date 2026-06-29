@@ -24,6 +24,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
+	"github.com/panteparak/vault-access-operator/shared/naming"
 )
 
 // Test constants
@@ -105,6 +106,25 @@ func TestNewVaultRoleAdapter(t *testing.T) {
 
 	if adapter.VaultRole != role {
 		t.Error("expected adapter to wrap the provided VaultRole")
+	}
+}
+
+func TestRoleAdapter_GetVaultRoleName_ClusterPrefix(t *testing.T) {
+	naming.SetCluster("east")
+	t.Cleanup(func() { naming.SetCluster("") })
+
+	nsAdapter := NewVaultRoleAdapter(&vaultv1alpha1.VaultRole{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "prod", Name: "app"},
+	})
+	if got, want := nsAdapter.GetVaultRoleName(), "east-prod-app"; got != want {
+		t.Errorf("VaultRole GetVaultRoleName() = %q, want %q", got, want)
+	}
+
+	clusterAdapter := NewVaultClusterRoleAdapter(&vaultv1alpha1.VaultClusterRole{
+		ObjectMeta: metav1.ObjectMeta{Name: "admin"},
+	})
+	if got, want := clusterAdapter.GetVaultRoleName(), "east-admin"; got != want {
+		t.Errorf("VaultClusterRole GetVaultRoleName() = %q, want %q", got, want)
 	}
 }
 

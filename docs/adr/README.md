@@ -13,6 +13,7 @@ ADRs are immutable once Accepted. If a decision is reversed or superseded, write
 | [0003](0003-two-level-drift-and-conflict-config.md) | Two-level drift and conflict-policy configuration | Accepted | 2026-05-27 |
 | [0004](0004-event-bus-closure-capture.md) | Event bus with closure-captured type dispatch | Accepted | 2026-05-27 |
 | [0005](0005-cleanup-failure-configmap-queue.md) | ConfigMap-backed retry queue for cleanup failures | Accepted | 2026-05-27 |
+| [0006](0006-cluster-name-prefix.md) | Per-cluster name prefix for Vault resources (CE multi-tenancy) | Accepted | 2026-06-29 |
 
 ## Process
 

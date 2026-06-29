@@ -7,6 +7,19 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added
+
+- **`--cluster-name` — share one Vault CE server across clusters.** Optional
+  per-cluster prefix (`--cluster-name` flag / `CLUSTER_NAME` env / `clusterName`
+  Helm value) applied to every derived Vault resource name (policies, roles, and
+  managed markers). Lets multiple operators — one per Kubernetes cluster —
+  coexist on a single Vault Community Edition server, whose ACL policy store is
+  global because CE has no namespaces. Empty (default) disables prefixing, so
+  existing single-cluster installs are unaffected. Role→policy bindings
+  (`token_policies`) are prefixed consistently. See
+  [ADR 0006](docs/adr/0006-cluster-name-prefix.md) and
+  [docs/configuration.md](docs/configuration.md#sharing-one-vault-across-clusters).
+
 ## [0.6.0] - 2026-06-23
 
 ### Added

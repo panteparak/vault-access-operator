@@ -195,6 +195,12 @@ logging:
   # -- Enable stack trace in logs
   stacktraceLevel: error
 
+# -- Per-cluster prefix applied to every Vault resource name (policies, roles,
+# managed markers). Set a unique value per cluster when multiple operators share
+# one Vault server, so they don't collide on the global ACL policy store (Vault
+# CE has no namespaces). Empty disables prefixing (single-cluster default).
+clusterName: ""
+
 # Additional environment variables
 extraEnv: []
 # - name: MY_VAR

@@ -26,6 +26,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
+	"github.com/panteparak/vault-access-operator/shared/naming"
 )
 
 const (
@@ -163,10 +164,10 @@ func VaultPolicyName(ref vaultv1alpha1.PolicyReference, defaultNamespace string)
 		if ns == "" {
 			ns = defaultNamespace
 		}
-		return fmt.Sprintf("%s-%s", ns, ref.Name)
+		return naming.Vault(fmt.Sprintf("%s-%s", ns, ref.Name))
 	case KindVaultClusterPolicy:
-		return ref.Name
+		return naming.Vault(ref.Name)
 	default:
-		return ref.Name
+		return naming.Vault(ref.Name)
 	}
 }
