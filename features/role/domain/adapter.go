@@ -21,6 +21,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
+	"github.com/panteparak/vault-access-operator/shared/naming"
 )
 
 // RoleAdapter provides a unified interface for both VaultRole and VaultClusterRole.
@@ -131,7 +132,9 @@ func (a *VaultRoleAdapter) GetJWT() *vaultv1alpha1.VaultRoleJWTSpec      { retur
 func (a *VaultRoleAdapter) GetDeletionPolicy() vaultv1alpha1.DeletionPolicy {
 	return a.Spec.DeletionPolicy
 }
-func (a *VaultRoleAdapter) GetVaultRoleName() string         { return a.Namespace + "-" + a.Name }
+func (a *VaultRoleAdapter) GetVaultRoleName() string {
+	return naming.Vault(a.Namespace + "-" + a.Name)
+}
 func (a *VaultRoleAdapter) GetK8sResourceIdentifier() string { return a.Namespace + "/" + a.Name }
 func (a *VaultRoleAdapter) IsNamespaced() bool               { return true }
 
@@ -194,7 +197,7 @@ func (a *VaultClusterRoleAdapter) GetJWT() *vaultv1alpha1.VaultRoleJWTSpec {
 func (a *VaultClusterRoleAdapter) GetDeletionPolicy() vaultv1alpha1.DeletionPolicy {
 	return a.Spec.DeletionPolicy
 }
-func (a *VaultClusterRoleAdapter) GetVaultRoleName() string         { return a.Name }
+func (a *VaultClusterRoleAdapter) GetVaultRoleName() string         { return naming.Vault(a.Name) }
 func (a *VaultClusterRoleAdapter) GetK8sResourceIdentifier() string { return a.Name }
 func (a *VaultClusterRoleAdapter) IsNamespaced() bool               { return false }
 

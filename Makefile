@@ -309,6 +309,14 @@ e2e-import-operator: ## Import operator image into k3s containerd
 # cert-manager version for E2E webhook testing
 CERT_MANAGER_VERSION ?= v1.14.4
 
+# Cluster-name prefix for the cluster-name E2E variant (ADR 0006). The same value
+# is passed to the operator's --cluster-name flag and to the test's E2E_CLUSTER_NAME
+# env, so the expected prefix matches what the operator writes.
+E2E_CLUSTER_NAME ?= e2e-cluster
+
+# Extra `helm upgrade` args injected into e2e-deploy-operator (set per target).
+E2E_DEPLOY_EXTRA_ARGS ?=
+
 .PHONY: e2e-install-cert-manager
 e2e-install-cert-manager: e2e-check-context ## Install cert-manager for webhook TLS certificates
 	@echo "Installing cert-manager $(CERT_MANAGER_VERSION)..."
@@ -330,6 +338,7 @@ e2e-deploy-operator: e2e-check-context ## Deploy operator via Helm into k3s (wit
 		--set image.tag=$$TAG \
 		--set image.pullPolicy=Never \
 		--set webhook.enabled=false \
+		$(E2E_DEPLOY_EXTRA_ARGS) \
 		--set 'extraEnv[0].name=OPERATOR_REQUEUE_SUCCESS_INTERVAL' \
 		--set 'extraEnv[0].value=30s' \
 		--set 'extraEnv[1].name=OPERATOR_MIN_SCAN_INTERVAL' \
@@ -364,6 +373,11 @@ e2e-deploy-operator-with-webhooks: e2e-check-context e2e-install-cert-manager ##
 		-n vault-access-operator-system --timeout=120s
 	@echo "Operator deployed with webhooks enabled"
 
+.PHONY: e2e-deploy-operator-with-cluster-name
+e2e-deploy-operator-with-cluster-name: E2E_DEPLOY_EXTRA_ARGS = --set clusterName=$(E2E_CLUSTER_NAME)
+e2e-deploy-operator-with-cluster-name: e2e-deploy-operator ## Deploy operator with --cluster-name set (CE multi-tenancy prefix, ADR 0006)
+	@echo "Operator deployed with --cluster-name=$(E2E_CLUSTER_NAME)"
+
 ##@ E2E Local Development (Composite)
 
 .PHONY: e2e-local-up
@@ -382,6 +396,18 @@ e2e-local-up-with-webhooks: e2e-compose-up e2e-wait-cluster e2e-deploy-vault-rba
 	@echo ""
 	@echo "  Run tests:   make e2e-local-test"
 	@echo "  Status:      make e2e-local-status"
+	@echo "  Tear down:   make e2e-local-down"
+	@echo ""
+
+.PHONY: e2e-local-up-with-cluster-name
+e2e-local-up-with-cluster-name: ## Set up full local E2E stack with the operator's --cluster-name prefix (ADR 0006)
+e2e-local-up-with-cluster-name: e2e-compose-up e2e-wait-cluster e2e-deploy-vault-rbac e2e-bridge-vault e2e-bridge-dex e2e-configure-vault e2e-build-operator e2e-import-operator e2e-deploy-operator-with-cluster-name
+	@echo ""
+	@echo "========================================"
+	@echo "  E2E stack is ready (cluster-name=$(E2E_CLUSTER_NAME))!"
+	@echo "========================================"
+	@echo ""
+	@echo "  Run tests:   make e2e-local-test-cluster-name"
 	@echo "  Tear down:   make e2e-local-down"
 	@echo ""
 
@@ -419,6 +445,15 @@ e2e-local-test-modules: ## Run module E2E tests only
 		E2E_OPERATOR_IMAGE=$(E2E_OPERATOR_IMAGE) \
 		E2E_SKIP_BUILD=true E2E_SKIP_IMAGE_LOAD=true \
 		go test ./test/e2e/ -v -ginkgo.v -ginkgo.fail-fast -ginkgo.label-filter="module || setup" -timeout 25m
+
+.PHONY: e2e-local-test-cluster-name
+e2e-local-test-cluster-name: ## Run cluster-name prefix E2E tests (needs e2e-local-up-with-cluster-name)
+	KUBECONFIG=$(E2E_KUBECONFIG) VAULT_ADDR=http://localhost:8200 \
+		E2E_K8S_HOST=https://k3s:6443 \
+		E2E_OPERATOR_IMAGE=$(E2E_OPERATOR_IMAGE) \
+		E2E_CLUSTER_NAME=$(E2E_CLUSTER_NAME) \
+		E2E_SKIP_BUILD=true E2E_SKIP_IMAGE_LOAD=true \
+		go test ./test/e2e/ -v -ginkgo.v -ginkgo.fail-fast -ginkgo.label-filter="cluster-name" -timeout 15m
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter

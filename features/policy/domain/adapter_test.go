@@ -23,6 +23,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
+	"github.com/panteparak/vault-access-operator/shared/naming"
 )
 
 // Helper function to create a bool pointer
@@ -33,6 +34,25 @@ func boolPtr(b bool) *bool {
 // =============================================================================
 // VaultPolicyAdapter Tests
 // =============================================================================
+
+func TestPolicyAdapter_GetVaultPolicyName_ClusterPrefix(t *testing.T) {
+	naming.SetCluster("east")
+	t.Cleanup(func() { naming.SetCluster("") })
+
+	nsAdapter := NewVaultPolicyAdapter(&vaultv1alpha1.VaultPolicy{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "prod", Name: "app"},
+	})
+	if got, want := nsAdapter.GetVaultPolicyName(), "east-prod-app"; got != want {
+		t.Errorf("VaultPolicy GetVaultPolicyName() = %q, want %q", got, want)
+	}
+
+	clusterAdapter := NewVaultClusterPolicyAdapter(&vaultv1alpha1.VaultClusterPolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "admin"},
+	})
+	if got, want := clusterAdapter.GetVaultPolicyName(), "east-admin"; got != want {
+		t.Errorf("VaultClusterPolicy GetVaultPolicyName() = %q, want %q", got, want)
+	}
+}
 
 func TestVaultPolicyAdapter_GetVaultPolicyName(t *testing.T) {
 	tests := []struct {

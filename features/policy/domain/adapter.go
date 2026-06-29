@@ -21,6 +21,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
+	"github.com/panteparak/vault-access-operator/shared/naming"
 )
 
 // PolicyAdapter provides a unified interface for both VaultPolicy and
@@ -101,7 +102,9 @@ func (a *VaultPolicyAdapter) GetDeletionPolicy() vaultv1alpha1.DeletionPolicy {
 func (a *VaultPolicyAdapter) GetConflictPolicy() vaultv1alpha1.ConflictPolicy {
 	return a.Spec.ConflictPolicy
 }
-func (a *VaultPolicyAdapter) GetVaultPolicyName() string       { return a.Namespace + "-" + a.Name }
+func (a *VaultPolicyAdapter) GetVaultPolicyName() string {
+	return naming.Vault(a.Namespace + "-" + a.Name)
+}
 func (a *VaultPolicyAdapter) GetK8sResourceIdentifier() string { return a.Namespace + "/" + a.Name }
 func (a *VaultPolicyAdapter) IsNamespaced() bool               { return true }
 func (a *VaultPolicyAdapter) IsEnforceNamespaceBoundary() bool {
@@ -136,7 +139,7 @@ func (a *VaultClusterPolicyAdapter) GetDeletionPolicy() vaultv1alpha1.DeletionPo
 func (a *VaultClusterPolicyAdapter) GetConflictPolicy() vaultv1alpha1.ConflictPolicy {
 	return a.Spec.ConflictPolicy
 }
-func (a *VaultClusterPolicyAdapter) GetVaultPolicyName() string       { return a.Name }
+func (a *VaultClusterPolicyAdapter) GetVaultPolicyName() string       { return naming.Vault(a.Name) }
 func (a *VaultClusterPolicyAdapter) GetK8sResourceIdentifier() string { return a.Name }
 func (a *VaultClusterPolicyAdapter) IsNamespaced() bool               { return false }
 

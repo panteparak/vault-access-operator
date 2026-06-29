@@ -40,7 +40,13 @@ secret/data/vault-access-operator/managed/{policies|roles}/{vault-name}
 
 The metadata records the K8s resource that owns the Vault object (e.g., `<namespace>/<name>` for a `VaultPolicy`). Used to detect conflicts (resource exists but is owned by someone else) and orphans (managed in Vault but no K8s owner anymore).
 
+`{vault-name}` is `{namespace}-{name}` (or `{name}` for cluster-scoped CRs), optionally prefixed with the operator's [Cluster name](#cluster-name) — `{cluster}-{namespace}-{name}` — when set.
+
 > See [`shared/controller/binding/`](../../shared/controller/binding/), [`FLOW_DELETION.md`](FLOW_DELETION.md).
+
+### Cluster name
+
+An optional operator-wide prefix (`--cluster-name` / `CLUSTER_NAME` / `clusterName` Helm value) applied to every derived Vault resource name. Lets multiple operators share one Vault CE server (no namespaces → a single global ACL policy store and marker path) without colliding on policy/role names or markers. Empty (default) means no prefix. See [`shared/naming/`](../../shared/naming/naming.go), [ADR 0006](../adr/0006-cluster-name-prefix.md), [`configuration.md`](../configuration.md#sharing-one-vault-across-clusters).
 
 ### Policy (Vault)
 

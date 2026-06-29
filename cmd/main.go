@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -57,6 +58,7 @@ import (
 	"github.com/panteparak/vault-access-operator/pkg/orphan"
 	"github.com/panteparak/vault-access-operator/shared/controller/base"
 	"github.com/panteparak/vault-access-operator/shared/events"
+	"github.com/panteparak/vault-access-operator/shared/naming"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -64,6 +66,12 @@ var (
 	scheme   = runtime.NewScheme()
 	setupLog = ctrl.Log.WithName("setup")
 )
+
+// clusterNamePattern restricts --cluster-name to characters safe in a Vault
+// policy name and KV path segment (it becomes a prefix on both).
+const clusterNamePattern = `^[a-zA-Z0-9._-]+$`
+
+var clusterNameRE = regexp.MustCompile(clusterNamePattern)
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
@@ -108,6 +116,11 @@ func main() {
 			"Empty (default) watches all namespaces. Cluster-scoped CRDs "+
 			"(VaultClusterPolicy, VaultClusterRole) are always watched regardless. "+
 			"IMPROVEMENTS Missing Features §A.")
+	var clusterName string
+	flag.StringVar(&clusterName, "cluster-name", os.Getenv("CLUSTER_NAME"),
+		"Per-cluster prefix applied to every Vault resource name (policies, roles, managed "+
+			"markers), so multiple operators can share one Vault CE server without collisions. "+
+			"Empty (default) disables prefixing. Must match "+clusterNamePattern+".")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -115,6 +128,13 @@ func main() {
 	flag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+
+	if clusterName != "" && !clusterNameRE.MatchString(clusterName) {
+		setupLog.Error(nil, "invalid --cluster-name; must match "+clusterNamePattern,
+			"clusterName", clusterName)
+		os.Exit(1)
+	}
+	naming.SetCluster(clusterName)
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will

@@ -263,6 +263,7 @@ The operator supports the following environment variables for runtime configurat
 | `OPERATOR_MIN_SCAN_INTERVAL` | `5m` | Minimum interval between discovery scans |
 | `OPERATOR_NAMESPACE` | (from downward API) | Namespace where the operator is running |
 | `OPERATOR_SERVICE_ACCOUNT` | (from downward API) | Service account name used by the operator |
+| `CLUSTER_NAME` | `""` | Per-cluster prefix for all Vault resource names (see [`--cluster-name`](#cli-flags) and [Sharing one Vault across clusters](#sharing-one-vault-across-clusters)). The `--cluster-name` flag takes precedence. |
 
 These can be set via the `extraEnv` Helm value:
 
@@ -294,6 +295,27 @@ The operator binary accepts the following command-line flags:
 | `--metrics-cert-key` | `tls.key` | Metrics key file name |
 | `--enable-http2` | `false` | Enable HTTP/2 for metrics and webhook servers |
 | `--enable-webhooks` | `false` | Enable admission webhooks (requires certificate configuration) |
+| `--cluster-name` | `""` | Per-cluster prefix for all Vault resource names (policies, roles, managed markers). Set a unique value per cluster when multiple operators share one Vault server; empty disables prefixing. Also settable via the `CLUSTER_NAME` env var. See [Sharing one Vault across clusters](#sharing-one-vault-across-clusters). |
+
+---
+
+## Sharing one Vault across clusters
+
+Vault Community Edition has no [namespaces](https://developer.hashicorp.com/vault/docs/enterprise/namespaces) (an Enterprise feature), so ACL policies live in a single global store (`sys/policies/acl/`) and the operator's managed-marker KV path is shared. If you run **one operator per Kubernetes cluster against the same Vault server**, two clusters that define a policy or role with the same name (e.g. `default/admin`) would otherwise write to the same Vault object and silently overwrite each other.
+
+Set a unique **`--cluster-name`** (or `CLUSTER_NAME` env / `clusterName` Helm value) per cluster to prefix every derived Vault resource name:
+
+| Setting | `VaultPolicy` `default/admin` → Vault policy | Managed marker |
+|---------|----------------------------------------------|----------------|
+| `clusterName: east` | `east-default-admin` | `…/managed/policies/east-default-admin` |
+| `clusterName: west` | `west-default-admin` | `…/managed/policies/west-default-admin` |
+
+Both clusters then coexist on one Vault with no collisions. Notes:
+
+- **Empty (default) = no prefix** — existing single-cluster installs are unaffected.
+- The prefix also applies to the policy names a `VaultRole` binds (`token_policies`), so role→policy references stay consistent automatically.
+- Enabling the prefix on an **existing** install renames the Vault objects: the operator creates the new prefixed policies/roles and the old unprefixed ones become orphaned. Plan a cutover (create prefixed → repoint external consumers → delete the old names).
+- Valid characters: `^[a-zA-Z0-9._-]+$` (the prefix becomes part of Vault policy names and KV paths).
 
 ---
 

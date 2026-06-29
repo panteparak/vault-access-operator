@@ -851,6 +851,8 @@ Tests:
 ### D. No multi-cluster support (out of scope)
 One operator = one cluster's worth of CRs. Multi-cluster setups need multiple operator deployments, each with its own set of CRs. Explicitly out of scope for the single-operator architecture.
 
+**Partially addressed (2026-06-29):** when multiple operators share **one Vault CE server** (one operator per cluster), the optional `--cluster-name` prefix lets their policies/roles/markers coexist without collisions on the global ACL policy store. See [ADR 0006](../adr/0006-cluster-name-prefix.md). This covers the shared-Vault naming collision only — not full multi-cluster orchestration.
+
 ### E. No policy templating (still missing)
 Beyond `{{namespace}}` and `{{name}}` in paths, there's no way to template capabilities or rule structures. **Deferred**: likely a Helm-chart-level concern (generate the VaultPolicy CR with capabilities rendered via Helm values), not an operator concern.
 

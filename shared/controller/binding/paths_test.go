@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
+	"github.com/panteparak/vault-access-operator/shared/naming"
 )
 
 func TestPolicyPath(t *testing.T) {
@@ -355,6 +356,25 @@ func TestNewPolicyBindingRef(t *testing.T) {
 				t.Errorf("Resolved = %v, want %v", binding.Resolved, tt.resolved)
 			}
 		})
+	}
+}
+
+func TestVaultPolicyName_ClusterPrefix(t *testing.T) {
+	// Not parallel: mutates the process-wide naming.Cluster. Runs in the
+	// sequential phase, before any t.Parallel test resumes.
+	naming.SetCluster("east")
+	t.Cleanup(func() { naming.SetCluster("") })
+
+	// A namespaced VaultPolicy reference must yield the SAME prefixed name the
+	// policy is created under, so a role's token_policies stay valid.
+	nsRef := vaultv1alpha1.PolicyReference{Kind: "VaultPolicy", Name: "app", Namespace: "prod"}
+	if got, want := VaultPolicyName(nsRef, "default"), "east-prod-app"; got != want {
+		t.Errorf("VaultPolicyName(namespaced) = %q, want %q", got, want)
+	}
+
+	clusterRef := vaultv1alpha1.PolicyReference{Kind: "VaultClusterPolicy", Name: "admin"}
+	if got, want := VaultPolicyName(clusterRef, "prod"), "east-admin"; got != want {
+		t.Errorf("VaultPolicyName(cluster) = %q, want %q", got, want)
 	}
 }
 
