@@ -267,7 +267,7 @@ spec:
 The operator is designed with security in mind:
 
 - **No secret access** - Only manages policies and roles, never reads secrets
-- **Minimal permissions** - Requires only `sys/policies/acl/*` and `auth/kubernetes/role/*`
+- **Minimal permissions** - Core grants are just `sys/policies/acl/*` and `auth/<mount>/role/*` for the auth backend it manages (Kubernetes or JWT) — never any secret-data reads. See the [operator policy](https://panteparak.github.io/vault-access-operator/getting-started/#create-operator-policy)
 - **Namespace boundary enforcement** - Prevents cross-namespace access leaks
 - **Admission webhooks** - Validates configurations before applying
 

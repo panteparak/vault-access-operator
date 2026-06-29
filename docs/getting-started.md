@@ -100,20 +100,43 @@ The Vault Access Operator follows the **Principle of Least Privilege**—it only
 
 #### What the Operator Needs
 
+Permissions come in three groups: **core** grants are always required;
+**role-management** grants depend on which auth backend your `VaultRole` /
+`VaultClusterRole` resources target; the rest are opt-in per feature.
+
+**Core — always required**
+
 | Path | Capabilities | Purpose |
 |------|--------------|---------|
 | `sys/policies/acl/*` | create, read, update, delete, list | Manage Vault policies |
-| `sys/policies/acl` | list | List existing policies |
-| `auth/kubernetes/role/*` | create, read, update, delete, list | Manage Kubernetes auth roles |
-| `auth/kubernetes/role` | list | List existing roles |
-| `auth/kubernetes/config` | read, update | Configure Kubernetes auth method |
-| `sys/health` | read | Health checks for connection status |
+| `sys/policies/acl` | list | Existence / conflict check, run on every reconcile |
+| `sys/health` | read | Connection health checks |
+
+**Role management — per auth backend**
+
+The operator writes every role to `auth/<mount>/role/<name>`, so these grants are
+identical for **Kubernetes** and **JWT** mounts (JWT also covers OIDC mounts — set
+`spec.authType: jwt`). The only difference is `config`: a Kubernetes mount may need
+it, a JWT mount never does.
+
+| Path | Capabilities | Kubernetes | JWT |
+|------|--------------|:----------:|:---:|
+| `auth/<mount>/role/*` | create, read, update, delete | required | required |
+| `auth/<mount>/role` | list | discovery only | discovery only |
+| `auth/<mount>/config` | create, read, update | bootstrap / reviewer-JWT rotation only | never |
+
+**Opt-in — per feature**
+
+| Path | Capabilities | Enable when |
+|------|--------------|-------------|
+| `secret/{data,metadata}/vault-access-operator/managed/*` | data: CRUD · metadata: list, read, delete | You want managed-marker tracking (drift adoption, discovery, safe cleanup) |
+| `secret/{data,metadata}/<prefix>/*` | data: create · metadata: read, patch, delete | You use the [`VaultKVSecret`](api-reference.md#vaultkvsecret) CRD |
 
 #### What the Operator Does NOT Need
 
 | Path | Reason |
 |------|--------|
-| `secret/*` | The operator manages **access** to secrets, not the secrets themselves |
+| `secret/*` data **reads** | The operator manages **access** to secrets and never reads their values. (Two opt-in features *write* to narrow `secret/` prefixes — see the opt-in table above.) |
 | `sys/seal`, `sys/unseal` | Administrative operations only |
 | `sys/init` | Vault initialization is out of scope |
 | `identity/*` | Entity/alias management not required |
@@ -121,43 +144,50 @@ The Vault Access Operator follows the **Principle of Least Privilege**—it only
 
 ### Create Operator Policy
 
-```bash
-vault policy write vault-access-operator - <<EOF
-# Manage policies
-path "sys/policies/acl/*" {
-  capabilities = ["create", "read", "update", "delete", "list"]
-}
-path "sys/policies/acl" {
-  capabilities = ["list"]
-}
+Pick the tab for the auth backend your `VaultRole` / `VaultClusterRole` resources
+target, and substitute your real mount name for `kubernetes` / `jwt` (e.g. a custom
+mount `ep-digital-dev`). Both tabs share the same **core** grants and differ only in
+the role-management block.
 
-# Manage Kubernetes auth roles
-path "auth/kubernetes/role/*" {
-  capabilities = ["create", "read", "update", "delete", "list"]
-}
-path "auth/kubernetes/role" {
-  capabilities = ["list"]
-}
+=== "Kubernetes mount"
 
-# Configure Kubernetes auth method (optional, for initial setup)
-path "auth/kubernetes/config" {
-  capabilities = ["create", "read", "update", "delete"]
-}
+    ```bash
+    vault policy write vault-access-operator - <<'EOF'
+    # ── Core (always) ─────────────────────────────────────────────
+    path "sys/policies/acl/*" { capabilities = ["create", "read", "update", "delete", "list"] }
+    path "sys/policies/acl"   { capabilities = ["list"] }
+    path "sys/health"         { capabilities = ["read"] }
 
-# Enable/disable auth methods (optional, for bootstrapping)
-path "sys/auth" {
-  capabilities = ["read"]
-}
-path "sys/auth/*" {
-  capabilities = ["sudo", "create", "read", "update", "delete", "list"]
-}
+    # ── Kubernetes auth role lifecycle ────────────────────────────
+    path "auth/kubernetes/role/*" { capabilities = ["create", "read", "update", "delete"] }
+    path "auth/kubernetes/role"   { capabilities = ["list"] }   # only with VaultDiscovery
+    # config — only if the operator bootstraps the mount or rotates token_reviewer_jwt
+    path "auth/kubernetes/config" { capabilities = ["create", "read", "update"] }
+    EOF
+    ```
 
-# Health check
-path "sys/health" {
-  capabilities = ["read"]
-}
-EOF
-```
+=== "JWT mount (incl. OIDC)"
+
+    ```bash
+    vault policy write vault-access-operator - <<'EOF'
+    # ── Core (always) ─────────────────────────────────────────────
+    path "sys/policies/acl/*" { capabilities = ["create", "read", "update", "delete", "list"] }
+    path "sys/policies/acl"   { capabilities = ["list"] }
+    path "sys/health"         { capabilities = ["read"] }
+
+    # ── JWT auth role lifecycle (no config path needed) ───────────
+    path "auth/jwt/role/*" { capabilities = ["create", "read", "update", "delete"] }
+    path "auth/jwt/role"   { capabilities = ["list"] }          # only with VaultDiscovery
+    EOF
+    ```
+
+!!! note "How the operator authenticates adds nothing — except bootstrap"
+    Logging in (Token, AppRole, Kubernetes, JWT/OIDC, AWS, GCP) is a credential
+    exchange that needs **no** policy capability — the grants above are only about
+    what the operator *manages*. The one exception is the one-time
+    [bootstrap](auth-methods/bootstrap.md) flow, which enables and configures the
+    operator's own auth mount and so needs extra `sys/auth` + `config` + role
+    grants. See [Bootstrap Authentication](auth-methods/bootstrap.md).
 
 !!! note "Optional: extra policy for KV secret seeding (`VaultKVSecret`)"
     If you use the [`VaultKVSecret`](api-reference.md#vaultkvsecret) CRD to pre-seed
