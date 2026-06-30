@@ -1,0 +1,1949 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Contributor-facing documentation for vault-access-operator internals.">
+      
+      
+      
+        <link rel="canonical" href="https://panteparak.github.io/vault-access-operator/internal/FLOW_ROLE/">
+      
+      
+        <link rel="prev" href="../FLOW_POLICY/">
+      
+      
+        <link rel="next" href="../FLOW_KVSECRET/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Role - Vault Access Operator — Internal Docs</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#flow-vaultrole-vaultclusterrole-sync" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Vault Access Operator — Internal Docs" class="md-header__button md-logo" aria-label="Vault Access Operator — Internal Docs" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Vault Access Operator — Internal Docs
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Role
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/panteparak/vault-access-operator" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    panteparak/vault-access-operator
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Vault Access Operator — Internal Docs" class="md-nav__button md-logo" aria-label="Vault Access Operator — Internal Docs" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Vault Access Operator — Internal Docs
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/panteparak/vault-access-operator" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    panteparak/vault-access-operator
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../PROJECT_OVERVIEW/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ARCHITECTURE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_OVERVIEW/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Flow Foundations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Flows
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Flows
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_LIFECYCLE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Manager Lifecycle
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_CONNECTION/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Connection
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_POLICY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Role
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Role
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Summary
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#participants" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Participants
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#full-sync-interaction-kubernetes-auth-backend" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Full Sync Interaction (Kubernetes auth backend)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#auth-backend-branching" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Auth Backend Branching
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Auth Backend Branching">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#jwt-audience-resolution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        JWT Audience Resolution
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ttl-normalization" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TTL Normalization
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#policy-resolution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Policy Resolution
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#drift-comparison-fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Drift Comparison Fields
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#step-by-step-narrative" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step-by-Step Narrative
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Step-by-Step Narrative">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#step-1-resolve-policy-names" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 1: Resolve policy names
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-2-verify-policies-exist-warning-non-blocking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 2: Verify policies exist (warning, non-blocking)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-3-service-account-bindings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 3: Service account bindings
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-4-resolve-connection-best-effort" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 4: Resolve connection (best-effort)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-5-build-role-data-backend-aware" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 5: Build role data (backend-aware)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-6-spec-hash" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 6: Spec hash
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#step-7-onwards" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 7 onwards
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#status-fields-set-on-success" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Status Fields Set on Success
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#error-scenarios" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Error Scenarios
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cross-references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cross-References
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_KVSECRET/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    KV Secret Seeding
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_DISCOVERY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Discovery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_DELETION/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deletion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_AUTH/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Authentication
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_WEBHOOK/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Admission Webhooks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_EVENTS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Event Bus
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_METRICS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../INSTRUCTIONS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Instructions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../IMPROVEMENTS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Improvements & Gaps
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Knowledge
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Knowledge
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../CONTEXT/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Domain Glossary
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../SKILLS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Skills Cheat-Sheet
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../WORKFLOWS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    End-to-End Workflows
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../REQUIREMENTS-TEMPLATE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Requirements Template
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_8_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_8_5" id="__nav_8_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PRDs
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_8_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    PRDs
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../prd/vaultkvsecret/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VaultKVSecret
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Audits
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Audits
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../AUDIT-2026-05/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Audit 2026-05-28
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="https://panteparak.github.io/vault-access-operator/adr/README/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decisions (ADRs)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/panteparak/vault-access-operator/edit/main/docs/internal/FLOW_ROLE.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="flow-vaultrole-vaultclusterrole-sync">FLOW: VaultRole / VaultClusterRole Sync<a class="headerlink" href="#flow-vaultrole-vaultclusterrole-sync" title="Permanent link">&para;</a></h1>
+<h2 id="summary">Summary<a class="headerlink" href="#summary" title="Permanent link">&para;</a></h2>
+<p>Roles bind a set of Kubernetes service accounts (or JWT identities) to a list of Vault policies. The operator resolves <code>PolicyReference</code> objects (which point at <code>VaultPolicy</code> / <code>VaultClusterPolicy</code> CRs) into concrete Vault policy names, builds a role data payload appropriate for the <strong>auth backend</strong> (Kubernetes or JWT), and writes it to <code>auth/{mount}/role/{name}</code>.</p>
+<p>Like policy, role uses the shared <code>workflow.SyncWorkflow</code>. Unlike policy, role branches on the <strong>auth backend</strong> at several points — backend selection is driven by <a href="../../pkg/vault/client.go"><code>vault.ResolveAuthBackend(spec.authType, spec.authPath)</code></a>: an explicit <code>spec.authType</code> (<code>kubernetes</code>/<code>jwt</code>) wins, otherwise the family is inferred from the mount-path name via <code>AuthBackendForPath</code>. The explicit override (IMPROVEMENTS §7) lets a role target a JWT/Kubernetes method mounted at an arbitrary path (e.g. <code>auth/custom-oidc</code>).</p>
+<h2 id="participants">Participants<a class="headerlink" href="#participants" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Component</th>
+<th>Source</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><code>RoleReconciler</code> / <code>ClusterRoleReconciler</code></td>
+<td><a href="../../features/role/controller/role_reconciler.go">role_reconciler.go</a>, <a href="../../features/role/controller/clusterrole_reconciler.go">clusterrole_reconciler.go</a></td>
+<td>watches VaultRole + VaultConnection</td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>roleFeatureHandler</code></td>
+<td>same</td>
+<td>adapter to <code>FeatureHandler[*VaultRole]</code></td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>role.Handler</code></td>
+<td><a href="../../features/role/controller/handler.go:47">handler.go:47</a></td>
+<td><code>SyncRole</code>, <code>CleanupRole</code>, policy resolution, drift comparison</td>
+</tr>
+<tr>
+<td>4</td>
+<td><code>RoleAdapter</code></td>
+<td><a href="../../features/role/domain/adapter.go">features/role/domain/adapter.go</a></td>
+<td>interface over both role kinds</td>
+</tr>
+<tr>
+<td>5</td>
+<td><code>RoleOps</code></td>
+<td><a href="../../features/role/controller/ops.go:37">ops.go:37</a></td>
+<td>implements <code>workflow.ResourceOps</code> for roles</td>
+</tr>
+<tr>
+<td>6</td>
+<td><code>workflow.SyncWorkflow</code></td>
+<td>shared</td>
+<td>same 9-step orchestration as policy</td>
+</tr>
+<tr>
+<td>7</td>
+<td><code>vault.Client</code></td>
+<td>pkg</td>
+<td><code>WriteKubernetesAuthRole</code>, <code>ReadKubernetesAuthRole</code>, <code>KubernetesAuthRoleExists</code>, <code>DeleteKubernetesAuthRole</code>, <code>MarkRoleManaged</code>, <code>GetRoleManagedBy</code>, <code>PolicyExists</code></td>
+</tr>
+<tr>
+<td>8</td>
+<td><code>drift.Comparator</code></td>
+<td><a href="../../shared/controller/drift/compare.go">drift/compare.go</a></td>
+<td>sort-insensitive field-by-field comparison</td>
+</tr>
+<tr>
+<td>9</td>
+<td><code>hash.FromMapDeterministic</code></td>
+<td><a href="../../shared/controller/hash/hash.go">hash/hash.go</a></td>
+<td>sorted-key hashing of role data map</td>
+</tr>
+</tbody>
+</table>
+<h2 id="full-sync-interaction-kubernetes-auth-backend">Full Sync Interaction (Kubernetes auth backend)<a class="headerlink" href="#full-sync-interaction-kubernetes-auth-backend" title="Permanent link">&para;</a></h2>
+<pre class="mermaid"><code>sequenceDiagram
+    participant Base as BaseReconciler
+    participant H as role.Handler
+    participant WF as SyncWorkflow
+    participant Ops as RoleOps
+    participant VC as vault.Client
+    participant K8s as K8s API
+    participant Bus as EventBus
+    participant V as Vault
+
+    Base-&gt;&gt;H: Sync(role)
+    H-&gt;&gt;Ops: NewRoleOps(adapter, handler) — authPath defaults to "kubernetes"
+    H-&gt;&gt;WF: Execute
+
+    WF-&gt;&gt;WF: resolve driftMode, resolve vault client
+    WF-&gt;&gt;Ops: Validate — no-op for roles
+    WF-&gt;&gt;Ops: CheckConflict
+    Ops-&gt;&gt;VC: KubernetesAuthRoleExists(authPath, name)
+    VC-&gt;&gt;V: GET /auth/{authPath}/role/{name}
+    alt exists &amp; different owner &amp; !shouldAdopt
+        Ops--&gt;&gt;WF: ConflictError
+    end
+
+    WF-&gt;&gt;Ops: PrepareContent
+
+    Ops-&gt;&gt;H: resolvePolicyNames(adapter)
+    Note over H: for each PolicyRef:&lt;br/&gt;- VaultPolicy → "{namespace}-{name}"&lt;br/&gt;- VaultClusterPolicy → "{name}"
+    H--&gt;&gt;Ops: []string policyNames
+
+    Ops-&gt;&gt;H: verifyPoliciesExistInVault(policyNames)
+    loop each policy
+        H-&gt;&gt;VC: PolicyExists(name)
+        VC-&gt;&gt;V: GET /sys/policies/acl/{name}
+    end
+    alt any missing
+        H-&gt;&gt;H: setCondition(PoliciesResolved=False, Reason=PolicyNotInVault)
+        H-&gt;&gt;Recorder: Event(Warning, PolicyNotInVault)
+        Note over H: non-blocking — Vault allows referencing nonexistent policies
+    else all present
+        H-&gt;&gt;H: setCondition(PoliciesResolved=True)
+    end
+
+    Ops-&gt;&gt;Ops: serviceAccountBindings = adapter.GetServiceAccountBindings() — ["ns/name", ...]
+    Ops-&gt;&gt;Ops: resolveConnection — for default JWT audiences
+
+    Ops-&gt;&gt;H: buildRoleData
+    Note over H: backend = ResolveAuthBackend(authType, authPath)
+    alt backend = Kubernetes
+        H-&gt;&gt;H: buildKubernetesRoleData&lt;br/&gt;- split "ns/name" → names[] + namespaces[] (deduped)&lt;br/&gt;- sort both for deterministic hash&lt;br/&gt;- policies = policyNames&lt;br/&gt;- token_ttl, token_max_ttl (optional)
+    else backend = JWT
+        H-&gt;&gt;H: buildJWTRoleData&lt;br/&gt;- role_type = "jwt"&lt;br/&gt;- user_claim default "sub"&lt;br/&gt;- bound_audiences (spec or conn fallback)&lt;br/&gt;- bound_claims = mergeBoundClaims(scalars, lists) OR bound_subject&lt;br/&gt;- bound_claims_type (when bound_claims is set; default "string")&lt;br/&gt;- policies, token_ttl, token_max_ttl
+    end
+
+    H--&gt;&gt;Ops: roleData map
+
+    Ops-&gt;&gt;H: calculateSpecHash(roleData) → hash.FromMapDeterministic
+    H--&gt;&gt;Ops: specHash
+
+    WF-&gt;&gt;WF: handleDriftDetection (Active + detect/correct)
+    WF-&gt;&gt;Ops: DetectDrift(vc)
+    Ops-&gt;&gt;H: detectRoleDrift
+    H-&gt;&gt;VC: ReadKubernetesAuthRole(authPath, name)
+    VC-&gt;&gt;V: GET /auth/{authPath}/role/{name}
+    V--&gt;&gt;VC: currentData
+    H-&gt;&gt;H: drift.Comparator
+    alt backend = Kubernetes
+        H-&gt;&gt;H: compare policies, bound_service_account_names, bound_service_account_namespaces
+    else backend = JWT
+        H-&gt;&gt;H: compare policies (fallback token_policies), bound_audiences, role_type, user_claim, bound_claims + bound_claims_type, or bound_subject
+    end
+    H-&gt;&gt;H: compareValuesIfExpected token_ttl, token_max_ttl (normalized to int seconds)
+    H--&gt;&gt;Ops: (drifted, summary)
+
+    WF-&gt;&gt;WF: handleDriftModes (same branching as policy)
+
+    WF-&gt;&gt;Ops: WriteToVault
+    Ops-&gt;&gt;VC: WriteKubernetesAuthRole(authPath, name, roleData)
+    VC-&gt;&gt;V: PUT /auth/{authPath}/role/{name}
+
+    WF-&gt;&gt;Ops: ReadbackVerify
+    Ops-&gt;&gt;H: detectRoleDrift (same compare, after write)
+    alt drift still present
+        Ops--&gt;&gt;WF: TransientError
+    end
+
+    WF-&gt;&gt;Ops: MarkManaged
+    Ops-&gt;&gt;VC: MarkRoleManaged(name, k8sResource)
+    VC-&gt;&gt;V: PUT secret/data/vault-access-operator/managed/roles/{name}
+
+    WF-&gt;&gt;Ops: ApplyBindings
+    Ops-&gt;&gt;Ops: adapter.SetBinding(VaultResourceBinding{authMount, path})
+    Ops-&gt;&gt;H: buildPolicyBindings
+    H--&gt;&gt;Ops: []PolicyBinding (tracks resolved + resolution status)
+    Ops-&gt;&gt;Ops: adapter.SetPolicyBindings
+
+    WF-&gt;&gt;Ops: ApplyActiveStatus
+    Ops-&gt;&gt;Ops: adapter.SetVaultRoleName, SetBoundServiceAccounts, SetResolvedPolicies
+
+    WF-&gt;&gt;WF: set Phase=Active, Ready/Synced/DependencyReady=True, Drifted=False
+    WF-&gt;&gt;K8s: Status.Update
+    WF-&gt;&gt;Ops: PublishSyncEvent
+    Ops-&gt;&gt;Bus: PublishAsync(RoleCreated)</code></pre>
+<h2 id="auth-backend-branching">Auth Backend Branching<a class="headerlink" href="#auth-backend-branching" title="Permanent link">&para;</a></h2>
+<pre class="mermaid"><code>flowchart TD
+    Start["NewRoleOps(adapter)"] --&gt; AuthPath{adapter.GetAuthPath}
+    AuthPath --&gt;|empty| Default["default: 'kubernetes'"]
+    AuthPath --&gt;|auth/kubernetes/...| K8sPath["kubernetes backend"]
+    AuthPath --&gt;|auth/jwt/...| JWTPath["jwt backend"]
+    AuthPath --&gt;|other| UnsupportedOut["ValidationError:&lt;br/&gt;unsupported backend"]
+    Default --&gt; K8sPath
+
+    K8sPath --&gt; BuildK8s["buildKubernetesRoleData:&lt;br/&gt;- bound_service_account_names&lt;br/&gt;- bound_service_account_namespaces&lt;br/&gt;- policies"]
+    JWTPath --&gt; BuildJWT["buildJWTRoleData:&lt;br/&gt;- role_type (default 'jwt')&lt;br/&gt;- user_claim (default 'sub')&lt;br/&gt;- bound_audiences&lt;br/&gt;- (bound_claims + bound_claims_type) OR bound_subject"]
+
+    BuildJWT --&gt; JWTSub{boundClaims OR&lt;br/&gt;boundClaimsList set?}
+    JWTSub --&gt;|yes| UseClaims["bound_claims = mergeBoundClaims&lt;br/&gt;(lists win on collision,&lt;br/&gt;scalars wrapped as []interface{}{v}&lt;br/&gt;so round-trip matches Vault JSON)&lt;br/&gt;bound_claims_type = spec or 'string' default"]
+    JWTSub --&gt;|no| Subject{spec.jwt.boundSubject&lt;br/&gt;set?}
+    Subject --&gt;|yes| ExplicitSub["bound_subject = override"]
+    Subject --&gt;|no| DeriveSub["derive from first SA&lt;br/&gt;'system:serviceaccount:ns:sa'"]
+    DeriveSub --&gt; MultiSA{more than 1 SA?}
+    MultiSA --&gt;|yes| SubErr["ValidationError:&lt;br/&gt;multi-SA requires explicit subject"]
+    MultiSA --&gt;|no| UseSubject["bound_subject = derived"]</code></pre>
+<h3 id="jwt-audience-resolution">JWT Audience Resolution<a class="headerlink" href="#jwt-audience-resolution" title="Permanent link">&para;</a></h3>
+<p>If <code>spec.jwt.boundAudiences</code> is empty, fall back to:
+1. <code>VaultConnection.Spec.Auth.JWT.Audiences</code> (if present)
+2. Cluster default: <code>https://kubernetes.default.svc.cluster.local</code></p>
+<p>See <a href="../../features/role/controller/handler.go:528">defaultJWTAudiences</a> and <code>defaultJWTAudience</code> constant.</p>
+<h3 id="ttl-normalization">TTL Normalization<a class="headerlink" href="#ttl-normalization" title="Permanent link">&para;</a></h3>
+<p>Vault returns TTLs as integer seconds. The operator normalizes expected values before comparison:
+<a href="../../features/role/controller/handler.go:540">normalizeTTLToSeconds</a> — parses "30s"/"5m"/"1h" to <code>int(d.Seconds())</code>. This prevents false-positive drift where "30s" (expected string) ≠ 30 (actual int).</p>
+<h2 id="policy-resolution">Policy Resolution<a class="headerlink" href="#policy-resolution" title="Permanent link">&para;</a></h2>
+<p>From <a href="../../features/role/controller/handler.go:307">resolvePolicyNames</a>:</p>
+<pre class="mermaid"><code>flowchart TD
+    Start[policies list] --&gt; Loop[for each ref]
+    Loop --&gt; Kind{ref.Kind}
+    Kind --&gt;|VaultPolicy| NamespaceCheck{namespace set?}
+    NamespaceCheck --&gt;|yes| UseNS["policyName = namespace + '-' + name"]
+    NamespaceCheck --&gt;|no, role is namespaced| DefaultNS["namespace = role.Namespace"]
+    NamespaceCheck --&gt;|no, cluster role| Err["ValidationError:&lt;br/&gt;namespace required for&lt;br/&gt;VaultPolicy ref in cluster-scoped role"]
+    DefaultNS --&gt; UseNS
+    Kind --&gt;|VaultClusterPolicy| NameOnly["policyName = name"]
+    Kind --&gt;|other| KindErr["ValidationError:&lt;br/&gt;must be VaultPolicy or VaultClusterPolicy"]
+    UseNS --&gt; Append
+    NameOnly --&gt; Append
+    Append --&gt; Loop
+    Loop -.-&gt;|done| Return[return policyNames]</code></pre>
+<p>Note the <strong>asymmetry</strong>: VaultPolicy (namespaced) gets prefixed with its namespace to prevent collisions across namespaces (<code>prod-read</code> vs <code>staging-read</code>). VaultClusterPolicy keeps its raw name.</p>
+<h2 id="drift-comparison-fields">Drift Comparison Fields<a class="headerlink" href="#drift-comparison-fields" title="Permanent link">&para;</a></h2>
+<pre class="mermaid"><code>graph TB
+    subgraph Kubernetes
+        K1[policies]
+        K2[bound_service_account_names]
+        K3[bound_service_account_namespaces]
+        K4[token_ttl — optional]
+        K5[token_max_ttl — optional]
+    end
+    subgraph JWT
+        J1[policies — fallback token_policies]
+        J2[bound_audiences]
+        J3[role_type — optional]
+        J4[user_claim — optional]
+        J5[bound_claims OR bound_subject]
+        J6[token_ttl, token_max_ttl — optional]
+    end</code></pre>
+<p>The comparator uses <code>CompareStringSlices</code> (order-insensitive via sort) for list fields and <code>CompareValuesIfExpected</code> for optional scalars (drift isn't flagged when the spec doesn't set the field).</p>
+<h2 id="step-by-step-narrative">Step-by-Step Narrative<a class="headerlink" href="#step-by-step-narrative" title="Permanent link">&para;</a></h2>
+<h3 id="step-1-resolve-policy-names">Step 1: Resolve policy names<a class="headerlink" href="#step-1-resolve-policy-names" title="Permanent link">&para;</a></h3>
+<p>Kind-aware: namespaced prefix for VaultPolicy, bare name for VaultClusterPolicy. Cluster roles referencing namespaced policies <strong>must</strong> specify <code>namespace</code> explicitly.</p>
+<h3 id="step-2-verify-policies-exist-warning-non-blocking">Step 2: Verify policies exist (warning, non-blocking)<a class="headerlink" href="#step-2-verify-policies-exist-warning-non-blocking" title="Permanent link">&para;</a></h3>
+<p>Loop <code>PolicyExists</code> for each resolved name. Missing policies emit a warning condition (<code>PoliciesResolved=False</code>) and a K8s event but <strong>do not block</strong> the sync — Vault permits binding non-existent policies. This supports workflows where you create the role CR first and the policy CRs catch up.</p>
+<h3 id="step-3-service-account-bindings">Step 3: Service account bindings<a class="headerlink" href="#step-3-service-account-bindings" title="Permanent link">&para;</a></h3>
+<p><code>RoleAdapter.GetServiceAccountBindings()</code> returns <code>[]string</code> of <code>"namespace/name"</code>:
+- VaultRole (namespaced): adapter prepends the role's own namespace to each SA name.
+- VaultClusterRole: adapter uses the explicit <code>ServiceAccountRef.Namespace</code>.</p>
+<h3 id="step-4-resolve-connection-best-effort">Step 4: Resolve connection (best-effort)<a class="headerlink" href="#step-4-resolve-connection-best-effort" title="Permanent link">&para;</a></h3>
+<p><code>RoleOps.resolveConnection</code> — used only for JWT audience fallback. Return <code>nil</code> on any error.</p>
+<h3 id="step-5-build-role-data-backend-aware">Step 5: Build role data (backend-aware)<a class="headerlink" href="#step-5-build-role-data-backend-aware" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Kubernetes</strong>: split bindings into names + namespaces (deduped), sort both (stable hashing), add optional TTLs.</li>
+<li><strong>JWT</strong>: compute role_type, user_claim, bound_audiences, then either <code>bound_claims</code> map or derived <code>bound_subject</code>. Multi-SA JWT roles require explicit <code>boundSubject</code> or <code>boundClaims</code> (error otherwise).</li>
+</ul>
+<h3 id="step-6-spec-hash">Step 6: Spec hash<a class="headerlink" href="#step-6-spec-hash" title="Permanent link">&para;</a></h3>
+<p><code>hash.FromMapDeterministic(roleData)</code> — sorted keys, JSON marshal, SHA-256. Any change in bindings, policies, or TTLs produces a new hash.</p>
+<h3 id="step-7-onwards">Step 7 onwards<a class="headerlink" href="#step-7-onwards" title="Permanent link">&para;</a></h3>
+<p>Same as policy: drift detection, write, readback, mark managed, apply bindings, status, event.</p>
+<h2 id="status-fields-set-on-success">Status Fields Set on Success<a class="headerlink" href="#status-fields-set-on-success" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>VaultRoleName</code></td>
+<td><code>adapter.GetVaultRoleName()</code></td>
+</tr>
+<tr>
+<td><code>BoundServiceAccounts</code></td>
+<td>resolved <code>"ns/name"</code> list</td>
+</tr>
+<tr>
+<td><code>ResolvedPolicies</code></td>
+<td>resolved Vault policy names</td>
+</tr>
+<tr>
+<td><code>Binding</code></td>
+<td><code>{vaultPath: auth/{mount}/role/{name}, authMount, ...}</code></td>
+</tr>
+<tr>
+<td><code>PolicyBindings[]</code></td>
+<td>per-ref: <code>{VaultPolicyRef, vaultPolicyName, resolved:bool}</code></td>
+</tr>
+<tr>
+<td><code>LastAppliedHash</code></td>
+<td>spec hash</td>
+</tr>
+<tr>
+<td><code>LastSyncedAt</code></td>
+<td>now</td>
+</tr>
+<tr>
+<td><code>EffectiveDriftMode</code></td>
+<td>resolved mode</td>
+</tr>
+</tbody>
+</table>
+<h2 id="error-scenarios">Error Scenarios<a class="headerlink" href="#error-scenarios" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Error</th>
+<th>Step</th>
+<th>Trigger</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ValidationError "invalid policy kind"</code></td>
+<td>resolvePolicyNames</td>
+<td>user set <code>kind: Role</code> or empty</td>
+</tr>
+<tr>
+<td><code>ValidationError "namespace required"</code></td>
+<td>resolvePolicyNames</td>
+<td>cluster role references VaultPolicy without namespace</td>
+</tr>
+<tr>
+<td><code>ValidationError "unsupported auth backend"</code></td>
+<td>buildRoleData</td>
+<td>authPath not kubernetes/jwt</td>
+</tr>
+<tr>
+<td><code>ValidationError "at least one service account"</code></td>
+<td>resolveJWTBoundSubject</td>
+<td>JWT role has no SAs &amp; no <code>boundSubject</code> override</td>
+</tr>
+<tr>
+<td><code>ValidationError "multi-SA JWT VaultRole must set boundSubject"</code></td>
+<td>resolveJWTBoundSubject</td>
+<td>JWT role with &gt;1 SA</td>
+</tr>
+<tr>
+<td><code>ConflictError</code></td>
+<td>CheckConflict</td>
+<td>existing role owned by another resource</td>
+</tr>
+<tr>
+<td><code>DependencyError</code></td>
+<td>vaultclient.Resolve</td>
+<td>connection not Active</td>
+</tr>
+<tr>
+<td><code>TransientError "readback verification"</code></td>
+<td>ReadbackVerify</td>
+<td>role content differs after write (rare)</td>
+</tr>
+<tr>
+<td>Warning <code>PolicyNotInVault</code></td>
+<td>verifyPoliciesExistInVault</td>
+<td>referenced policy missing — non-fatal</td>
+</tr>
+</tbody>
+</table>
+<h2 id="cross-references">Cross-References<a class="headerlink" href="#cross-references" title="Permanent link">&para;</a></h2>
+<ul>
+<li><a href="../FLOW_POLICY/">FLOW_POLICY.md</a> — sibling flow sharing the workflow</li>
+<li><a href="../FLOW_CONNECTION/">FLOW_CONNECTION.md</a> — required dependency</li>
+<li><a href="../FLOW_AUTH/">FLOW_AUTH.md</a> — more on kubernetes vs jwt auth backend handling</li>
+<li><a href="../FLOW_DELETION/">FLOW_DELETION.md</a></li>
+<li><a href="../IMPROVEMENTS/">IMPROVEMENTS.md</a> — drift comparator divergence, backend coverage gaps</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2024-2026 Vault Access Operator Contributors
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/panteparak/vault-access-operator" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.instant", "navigation.top", "navigation.sections", "navigation.expand", "navigation.indexes", "search.highlight", "content.code.copy", "content.action.edit", "toc.integrate"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
