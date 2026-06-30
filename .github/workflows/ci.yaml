@@ -47,19 +47,19 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+      - uses: actions/setup-go@v6
         with:
           go-version-file: ${{ env.GO_VERSION_FILE }}
           cache: false  # We use explicit caching below for better control
       - name: Cache Go modules
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        uses: actions/cache@v6
         with:
           path: ~/go/pkg/mod
           key: ${{ runner.os }}-go-mod-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-mod-
       - name: Cache Go build
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        uses: actions/cache@v6
         with:
           path: ~/.cache/go-build
           key: ${{ runner.os }}-go-build-lint-${{ hashFiles('**/go.sum') }}-${{ hashFiles('**/*.go') }}
@@ -67,7 +67,7 @@ jobs:
             ${{ runner.os }}-go-build-lint-${{ hashFiles('**/go.sum') }}-
             ${{ runner.os }}-go-build-lint-
             ${{ runner.os }}-go-build-
-      - uses: golangci/golangci-lint-action@25e2cdc5eb1d7a04fdc45ff538f1a00e960ae128 # v8.0.0
+      - uses: golangci/golangci-lint-action@v9
         with:
           version: v2.8.0
           args: --config=.golangci.yml
@@ -89,19 +89,19 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+      - uses: actions/setup-go@v6
         with:
           go-version-file: ${{ env.GO_VERSION_FILE }}
           cache: false  # We use explicit caching below for better control
       - name: Cache Go modules
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        uses: actions/cache@v6
         with:
           path: ~/go/pkg/mod
           key: ${{ runner.os }}-go-mod-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-mod-
       - name: Cache Go build
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        uses: actions/cache@v6
         with:
           path: ~/.cache/go-build
           key: ${{ runner.os }}-go-build-test-${{ hashFiles('**/go.sum') }}-${{ hashFiles('**/*.go') }}
@@ -130,7 +130,7 @@ jobs:
             TOTAL=$(go tool cover -func=cover.out | grep total | awk '{print $3}')
             echo "**Total Coverage: ${TOTAL}**" >> $GITHUB_STEP_SUMMARY
           fi
-      - uses: codecov/codecov-action@0f8570b1a125f4937846a11fcfa3bcd548bd8c97 # v4.6.0
+      - uses: codecov/codecov-action@v7
         with:
           files: cover.out
           fail_ci_if_error: false
@@ -144,19 +144,19 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+      - uses: actions/setup-go@v6
         with:
           go-version-file: ${{ env.GO_VERSION_FILE }}
           cache: false  # We use explicit caching below for better control
       - name: Cache Go modules
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        uses: actions/cache@v6
         with:
           path: ~/go/pkg/mod
           key: ${{ runner.os }}-go-mod-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-mod-
       - name: Cache Go build
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        uses: actions/cache@v6
         with:
           path: ~/.cache/go-build
           key: ${{ runner.os }}-go-build-integration-${{ hashFiles('**/go.sum') }}-${{ hashFiles('**/*.go') }}
@@ -229,7 +229,7 @@ jobs:
           fi
       - name: Upload integration test output
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@v7
         with:
           name: integration-test-output
           path: |
@@ -251,19 +251,19 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+      - uses: actions/setup-go@v6
         with:
           go-version-file: ${{ env.GO_VERSION_FILE }}
           cache: false  # We use explicit caching below for better control
       - name: Cache Go modules
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        uses: actions/cache@v6
         with:
           path: ~/go/pkg/mod
           key: ${{ runner.os }}-go-mod-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-mod-
       - name: Cache Go build
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        uses: actions/cache@v6
         with:
           path: ~/.cache/go-build
           key: ${{ runner.os }}-go-build-verify-${{ hashFiles('**/go.sum') }}-${{ hashFiles('**/*.go') }}
@@ -271,7 +271,7 @@ jobs:
             ${{ runner.os }}-go-build-verify-${{ hashFiles('**/go.sum') }}-
             ${{ runner.os }}-go-build-verify-
             ${{ runner.os }}-go-build-
-      - uses: azure/setup-helm@b9e51907a09c216f16ebe8536097933489208112 # v4.3.0
+      - uses: azure/setup-helm@v5
         with:
           version: 'v3.14.0'
 
@@ -318,7 +318,7 @@ jobs:
           exit 1
 
       - name: Upload CRDs as artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@v7
         with:
           name: generated-crds
           path: |
@@ -338,7 +338,7 @@ jobs:
           git checkout config/manager/kustomization.yaml
 
       - name: Upload install manifest
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@v7
         with:
           name: install-manifest
           path: dist/install.yaml
@@ -466,7 +466,7 @@ jobs:
           docker save ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ steps.short-sha.outputs.sha }}-${{ steps.platform.outputs.pair }} \
             -o /tmp/operator-image.tar
 
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@v7
         if: github.event_name == 'pull_request' && matrix.platform == 'linux/amd64'
         with:
           name: operator-image
@@ -544,7 +544,7 @@ jobs:
           echo "pair=${platform//\//-}" >> $GITHUB_OUTPUT  # linux/amd64 -> linux-amd64
 
       # For PRs: Load the image from artifact (amd64 only)
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      - uses: actions/download-artifact@v8
         if: github.event_name == 'pull_request' && matrix.platform == 'linux/amd64'
         with:
           name: operator-image
@@ -584,7 +584,7 @@ jobs:
       # Generate SBOM (CycloneDX format)
       - name: Generate SBOM
         if: github.event_name != 'pull_request' || matrix.platform == 'linux/amd64'
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: 'image'
           image-ref: ${{ steps.image.outputs.ref }}
@@ -594,7 +594,7 @@ jobs:
       # Scan for all vulnerabilities (JSON output)
       - name: Scan for vulnerabilities (JSON - all)
         if: github.event_name != 'pull_request' || matrix.platform == 'linux/amd64'
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: 'sbom'
           scan-ref: 'sbom.json'
@@ -605,7 +605,7 @@ jobs:
       # Scan for MEDIUM+ vulnerabilities, ignore unfixed (table for summary)
       - name: Scan for vulnerabilities (MEDIUM+, ignore unfixed)
         if: github.event_name != 'pull_request' || matrix.platform == 'linux/amd64'
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: 'sbom'
           scan-ref: 'sbom.json'
@@ -623,7 +623,7 @@ jobs:
 
       - name: Generate HTML report
         if: github.event_name != 'pull_request' || matrix.platform == 'linux/amd64'
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: 'sbom'
           scan-ref: 'sbom.json'
@@ -637,7 +637,7 @@ jobs:
       # Generate SARIF for GitHub Security tab
       - name: Generate SARIF report
         if: github.event_name != 'pull_request' || matrix.platform == 'linux/amd64'
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: 'sbom'
           scan-ref: 'sbom.json'
@@ -647,14 +647,14 @@ jobs:
 
       - name: Upload SARIF to GitHub Security
         if: github.event_name != 'pull_request' || matrix.platform == 'linux/amd64'
-        uses: github/codeql-action/upload-sarif@f35333b910470a5408cb081b68f0701254a7d27b # v3.28.18
+        uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: 'trivy-results.sarif'
           category: 'trivy-container-scan-${{ steps.platform.outputs.pair }}'
 
       - name: Upload SBOM
         if: github.event_name != 'pull_request' || matrix.platform == 'linux/amd64'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@v7
         with:
           name: sbom-${{ steps.platform.outputs.pair }}
           path: sbom.json
@@ -662,7 +662,7 @@ jobs:
 
       - name: Upload vulnerability report (JSON)
         if: github.event_name != 'pull_request' || matrix.platform == 'linux/amd64'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@v7
         with:
           name: trivy-results-json-${{ steps.platform.outputs.pair }}
           path: trivy-results.json
@@ -670,7 +670,7 @@ jobs:
 
       - name: Upload vulnerability report (HTML)
         if: github.event_name != 'pull_request' || matrix.platform == 'linux/amd64'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@v7
         with:
           name: trivy-report-html-${{ steps.platform.outputs.pair }}
           path: trivy-report.html
@@ -775,19 +775,19 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+      - uses: actions/setup-go@v6
         with:
           go-version-file: ${{ env.GO_VERSION_FILE }}
           cache: false  # We use explicit caching below for better control
       - name: Cache Go modules
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        uses: actions/cache@v6
         with:
           path: ~/go/pkg/mod
           key: ${{ runner.os }}-go-mod-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-mod-
       - name: Cache Go build
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        uses: actions/cache@v6
         with:
           path: ~/.cache/go-build
           key: ${{ runner.os }}-go-build-security-${{ hashFiles('**/go.sum') }}-${{ hashFiles('**/*.go') }}
@@ -870,7 +870,7 @@ jobs:
           fi
       - name: Upload security test output
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@v7
         with:
           name: security-test-output
           path: |
@@ -887,19 +887,19 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+      - uses: actions/setup-go@v6
         with:
           go-version-file: ${{ env.GO_VERSION_FILE }}
           cache: false  # We use explicit caching below for better control
       - name: Cache Go modules
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        uses: actions/cache@v6
         with:
           path: ~/go/pkg/mod
           key: ${{ runner.os }}-go-mod-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-mod-
       - name: Cache Go build
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        uses: actions/cache@v6
         with:
           path: ~/.cache/go-build
           key: ${{ runner.os }}-go-build-profiled-${{ hashFiles('**/go.sum') }}-${{ hashFiles('**/*.go') }}
@@ -937,7 +937,7 @@ jobs:
           fi
       - name: Upload profiling reports
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@v7
         with:
           name: profiling-reports
           path: reports/profiling/
@@ -959,7 +959,7 @@ jobs:
 
       # Download generated CRDs from verify job to ensure we use latest
       - name: Download generated CRDs
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@v8
         with:
           name: generated-crds
           path: /tmp/generated-crds
@@ -973,19 +973,19 @@ jobs:
                 ./charts/vault-access-operator/crds/
           echo "CRDs copied successfully"
 
-      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: false
       - name: Cache Go modules
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        uses: actions/cache@v6
         with:
           path: ~/go/pkg/mod
           key: ${{ runner.os }}-go-mod-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-mod-
       - name: Cache Go build
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        uses: actions/cache@v6
         with:
           path: ~/.cache/go-build
           key: ${{ runner.os }}-go-build-e2e-${{ hashFiles('**/go.sum') }}-${{ hashFiles('**/*.go') }}
@@ -1013,7 +1013,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: azure/setup-helm@b9e51907a09c216f16ebe8536097933489208112 # v4.3.0
+      - uses: azure/setup-helm@v5
         with:
           version: 'v3.14.0'
 
@@ -1033,7 +1033,7 @@ jobs:
           make e2e-configure-vault
 
       # PR: Load image from build artifact
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      - uses: actions/download-artifact@v8
         if: github.event_name == 'pull_request'
         with:
           name: operator-image
@@ -1289,7 +1289,7 @@ jobs:
 
       - name: Upload debug logs
         if: failure()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@v7
         with:
           name: e2e-debug-logs
           path: /tmp/debug-logs/
