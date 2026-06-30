@@ -118,7 +118,10 @@ jobs:
                   CHANGELOG.md
           git commit -m "bump: version ${VERSION}" -m "[skip ci]"
           git tag "${TAG}"
-          git push origin HEAD:main --follow-tags
+          # Push branch + tag atomically. NOT --follow-tags: that only pushes
+          # annotated tags, silently dropping our lightweight tag and leaving
+          # downstream `checkout ref: <tag>` jobs to fail on a missing remote tag.
+          git push origin --atomic HEAD:main "refs/tags/${TAG}"
 
           {
             echo "version=${VERSION}"
