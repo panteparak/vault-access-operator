@@ -224,20 +224,17 @@ Gated by `--managed-markers` (default OFF); when enabled, stored as KV v2 `custo
 
 ```json
 {
-  "k8sResource": "VaultPolicy/my-namespace/my-policy",
-  "managedAt": "2026-04-18T12:34:56Z",
-  "lastUpdated": "2026-04-18T12:40:00Z",
-  "ruleDescriptions": {                    // policy only
-    "secret/data/app/*": "app secrets",
-    "secret/data/shared/*": "shared config"
-  }
+  "managed-by": "vault-access-operator",
+  "k8s-resource": "my-namespace/my-policy",
+  "managed-at": "2026-04-18T12:34:56Z",
+  "last-updated": "2026-04-18T12:40:00Z"
 }
 ```
 
-- `k8sResource` is the foreign-key-like identifier; `{Kind}/{namespace}/{name}` for namespaced, `{Kind}/{name}` for cluster-scoped.
-- `managedAt` is set once when the operator first claims ownership. Never re-written.
-- `lastUpdated` is bumped every successful MarkManaged (essentially every sync).
-- `ruleDescriptions` only populated for policies; gives discovery/orphan context.
+- `managed-by` is the ownership sentinel (`vault-access-operator`); `IsOwnedBy` checks it before any read/adopt.
+- `k8s-resource` is the foreign-key-like identifier: `{namespace}/{name}` for namespaced, `{name}` for cluster-scoped.
+- `managed-at` is set once when the operator first claims ownership. Never re-written.
+- `last-updated` is bumped every successful MarkManaged (essentially every sync).
 
 **Two operators managing the same Vault path** — if two operator instances (different UIDs) write to the same marker, the last writer wins. There's no ownership lease. This is an unlikely-but-real multi-cluster scenario; see [IMPROVEMENTS.md §G](IMPROVEMENTS.md#g-no-backuprestore-story-for-managed-markers).
 
