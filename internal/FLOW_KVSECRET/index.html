@@ -1672,7 +1672,7 @@
 <h3 id="step-5-stamp-ownership-only-when-seeded">Step 5: Stamp ownership (only when seeded)<a class="headerlink" href="#step-5-stamp-ownership-only-when-seeded" title="Permanent link">&para;</a></h3>
 <p>When <code>created==true</code>, <a href="../../pkg/vault/kvsecret.go"><code>StampKVOwnership</code></a> writes the secret's KV v2 <code>custom_metadata</code> via a non-destructive merge patch: <code>{managed-by: vault-access-operator, k8s-resource: &lt;namespace/name&gt;}</code>. This is the basis of the delete-if-untouched check. <code>status.seeded=true</code>, <code>status.seededVersion=version</code> (the baseline for the untouched check).</p>
 <h3 id="step-6-finalize-status-binding">Step 6: Finalize status + binding<a class="headerlink" href="#step-6-finalize-status-binding" title="Permanent link">&para;</a></h3>
-<p><code>Phase=Active</code>, <code>Managed=true</code>, and a <code>Binding</code> is set (<code>vaultPath=spec.path</code>, <code>vaultResourceName=&lt;rel&gt;</code>, <code>boundAt</code>/<code>lastVerifiedAt=now</code>, <code>bindingVerified=true</code>). The base then calls <code>updateStatus</code>, which sets <code>Ready=True</code> / <code>Synced=True</code> and <code>lastSyncedAt</code>, and persists status. The operator does NOT publish an event (no event bus integration for this feature) and does NOT write a managed-marker at <code>secret/data/vault-access-operator/managed/*</code> — ownership lives in the seeded secret's own <code>custom_metadata</code> instead.</p>
+<p><code>Phase=Active</code>, <code>Managed=true</code>, and a <code>Binding</code> is set (<code>vaultPath=spec.path</code>, <code>vaultResourceName=&lt;rel&gt;</code>, <code>boundAt</code>/<code>lastVerifiedAt=now</code>, <code>bindingVerified=true</code>). The base then calls <code>updateStatus</code>, which sets <code>Ready=True</code> / <code>Synced=True</code> and <code>lastSyncedAt</code>, and persists status. The operator does NOT publish an event (no event bus integration for this feature) and does NOT write a managed-marker under <code>secret/metadata/vault-access-operator/managed/*</code> (the marker mechanism used by policies/roles, itself gated by <code>--managed-markers</code>) — ownership lives in the seeded secret's own <code>custom_metadata</code> instead.</p>
 <h2 id="branching-points">Branching Points<a class="headerlink" href="#branching-points" title="Permanent link">&para;</a></h2>
 <pre class="mermaid"><code>flowchart TD
     Start[Sync] --&gt; Split{path has&lt;br/&gt;/data/ segment?}
@@ -1785,7 +1785,7 @@
 <tr>
 <td>5</td>
 <td>Managed marker</td>
-<td>Separate KV path <code>secret/data/vault-access-operator/managed/{policies,roles}/{name}</code></td>
+<td>Separate KV v2 <code>custom_metadata</code> path <code>secret/metadata/vault-access-operator/managed/{cluster}/{policies\|roles}/…</code> (gated by <code>--managed-markers</code>, default off)</td>
 <td>Native KV v2 <code>custom_metadata</code> on the seeded secret itself</td>
 </tr>
 <tr>

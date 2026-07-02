@@ -1467,9 +1467,9 @@
 <ol>
 <li><strong>Finalizer-guarded cleanup</strong> (every CRD) — standard K8s pattern: a finalizer blocks deletion until <code>Cleanup()</code> runs successfully.</li>
 <li><strong>Persistent cleanup queue</strong> (<code>pkg/cleanup</code>) — ConfigMap-backed retry queue for failed deletions, meant to survive operator restarts. <strong>⚠️ Not wired into main.go.</strong></li>
-<li><strong>Orphan detection</strong> (<code>pkg/orphan</code>) — periodic scan for Vault resources marked as managed whose K8s owner has vanished. <strong>⚠️ Not wired into main.go.</strong></li>
+<li><strong>Orphan detection</strong> (<code>pkg/orphan</code>) — periodic scan for Vault resources marked as managed whose K8s owner has vanished. Gated behind <code>--managed-markers=true</code> (default OFF): with markers off there are no markers to scan, so the operator does not run the orphan controller.</li>
 </ol>
-<p>Only (1) is active today. (2) and (3) are complete implementations with tests but no one calls <code>Start(ctx)</code> on them. This is the single largest feature gap in the codebase.</p>
+<p>Only (1) is active today. (2) and (3) are complete implementations with tests. Orphan detection (3) is additionally gated on <code>--managed-markers</code> being enabled (it enumerates the managed-marker hierarchy).</p>
 <h2 id="finalizer-guarded-cleanup-active">Finalizer-Guarded Cleanup (active)<a class="headerlink" href="#finalizer-guarded-cleanup-active" title="Permanent link">&para;</a></h2>
 <p>Finalizer name: <code>vault.platform.io/finalizer</code> (see <a href="../../api/v1alpha1/common_types.go">api/v1alpha1/common_types.go</a>).</p>
 <p>Added by <a href="../../shared/controller/base/finalizer.go">FinalizerManager.Ensure</a> on first reconcile; removed by <code>BaseReconciler.handleDeletion</code> after <code>Cleanup</code> succeeds.</p>
@@ -1611,7 +1611,7 @@
             C-&gt;&gt;Cache: Get(connName)
             Cache--&gt;&gt;C: vaultClient
             C-&gt;&gt;VC: ListManagedPolicies(ctx)
-            VC-&gt;&gt;V: LIST + GET managed/policies
+            VC-&gt;&gt;V: recursive LIST + READ custom_metadata over managed/{cluster}/policies/**
             V--&gt;&gt;VC: map[vaultName]ManagedResource{K8sResource, ...}
             loop each managed
                 C-&gt;&gt;K8s: Get(VaultPolicy / VaultClusterPolicy) by k8sResource
@@ -1632,13 +1632,14 @@
 <p>Controller can be constructed and even started (<code>NewController(cfg).Start(ctx)</code>) but nothing calls that in <code>main.go</code>. The <code>NeedsLeaderElection() bool</code> method means it <strong>would</strong> run on the leader only when wired.</p>
 <p>The orphan controller <strong>does not delete</strong> — it only logs and publishes metrics. This is the right default (cleanup is destructive) but there's no delete-on-orphan strategy documented.</p>
 <h2 id="resource-type-matrix">Resource Type Matrix<a class="headerlink" href="#resource-type-matrix" title="Permanent link">&para;</a></h2>
+<p>Managed-marker deletes below run <strong>only when <code>--managed-markers=true</code></strong> (default OFF); with markers off the <code>RemoveManaged</code> step is a no-op and no marker exists to remove. Marker paths are KV v2 <code>custom_metadata</code> (never <code>secret/data</code>); <code>{cluster}</code> is omitted when unset, and cluster-scoped CRs use the sentinel <code>_cluster</code> in the <code>{ns}</code> slot.</p>
 <table>
 <thead>
 <tr>
 <th>CR kind</th>
 <th>Cleanup calls</th>
 <th>Vault path deleted</th>
-<th>Managed marker path deleted</th>
+<th>Managed marker <code>custom_metadata</code> deleted (markers on)</th>
 </tr>
 </thead>
 <tbody>
@@ -1646,25 +1647,25 @@
 <td><code>VaultPolicy</code></td>
 <td><code>DeletePolicy</code>, <code>RemovePolicyManaged</code></td>
 <td><code>sys/policies/acl/{namespace}-{name}</code></td>
-<td><code>secret/data/vault-access-operator/managed/policies/{namespace}-{name}</code></td>
+<td><code>secret/metadata/vault-access-operator/managed/{cluster}/policies/{ns}/{name}</code></td>
 </tr>
 <tr>
 <td><code>VaultClusterPolicy</code></td>
 <td><code>DeletePolicy</code>, <code>RemovePolicyManaged</code></td>
 <td><code>sys/policies/acl/{name}</code></td>
-<td><code>secret/data/vault-access-operator/managed/policies/{name}</code></td>
+<td><code>secret/metadata/vault-access-operator/managed/{cluster}/policies/_cluster/{name}</code></td>
 </tr>
 <tr>
 <td><code>VaultRole</code></td>
 <td><code>DeleteKubernetesAuthRole</code>, <code>RemoveRoleManaged</code></td>
 <td><code>auth/{mount}/role/{namespace}-{name}</code></td>
-<td><code>secret/data/vault-access-operator/managed/roles/{namespace}-{name}</code></td>
+<td><code>secret/metadata/vault-access-operator/managed/{cluster}/roles/{mount}/{ns}/{name}</code></td>
 </tr>
 <tr>
 <td><code>VaultClusterRole</code></td>
 <td>same</td>
 <td><code>auth/{mount}/role/{name}</code></td>
-<td><code>.../managed/roles/{name}</code></td>
+<td><code>.../managed/{cluster}/roles/{mount}/_cluster/{name}</code></td>
 </tr>
 <tr>
 <td><code>VaultConnection</code></td>

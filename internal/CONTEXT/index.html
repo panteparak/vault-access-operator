@@ -1779,13 +1779,20 @@
 <h3 id="kv-v2">KV v2<a class="headerlink" href="#kv-v2" title="Permanent link">&para;</a></h3>
 <p>The Vault key-value engine, version 2. Supports versioned secrets and <strong>metadata</strong> alongside data. The operator uses KV v2 metadata for managed-marker tracking (see Managed marker).</p>
 <h3 id="managed-marker">Managed marker<a class="headerlink" href="#managed-marker" title="Permanent link">&para;</a></h3>
-<p>A KV v2 metadata entry the operator writes to claim ownership of a Vault resource. Path convention:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>secret/data/vault-access-operator/managed/{policies|roles}/{vault-name}
+<p>A KV v2 <strong><code>custom_metadata</code></strong> entry the operator writes to claim ownership of a Vault resource. It is stored <strong>only in metadata — never in <code>secret/data</code></strong> — under a hierarchical path:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>secret/metadata/vault-access-operator/managed/{cluster}/roles/{mount}/{ns}/{name}
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>secret/metadata/vault-access-operator/managed/{cluster}/policies/{ns}/{name}
 </code></pre></div>
-<p>The metadata records the K8s resource that owns the Vault object (e.g., <code>&lt;namespace&gt;/&lt;name&gt;</code> for a <code>VaultPolicy</code>). Used to detect conflicts (resource exists but is owned by someone else) and orphans (managed in Vault but no K8s owner anymore).</p>
-<p><code>{vault-name}</code> is <code>{namespace}-{name}</code> (or <code>{name}</code> for cluster-scoped CRs), optionally prefixed with the operator's <a href="#cluster-name">Cluster name</a> — <code>{cluster}-{namespace}-{name}</code> — when set.</p>
+<ul>
+<li><code>{cluster}</code> = the operator's <a href="#cluster-name">Cluster name</a>; the segment is <strong>omitted entirely when unset</strong>.</li>
+<li><code>{mount}</code> = the bare auth-mount name (<code>kubernetes</code>, <code>jwt</code>, …) — <strong>roles only</strong>; policies have no mount segment.</li>
+<li><code>{ns}</code> = the CR's namespace; <strong>cluster-scoped</strong> CRs (<code>VaultClusterPolicy</code> / <code>VaultClusterRole</code>) use the sentinel <code>_cluster</code> in this slot.</li>
+<li><code>custom_metadata</code> keys: <code>managed-by=vault-access-operator</code>, <code>k8s-resource=&lt;ns/name&gt;</code>, <code>managed-at</code>, <code>last-updated</code>.</li>
+</ul>
+<p>Used to detect conflicts (resource exists but is owned by someone else) and orphans (managed in Vault but no K8s owner anymore). The hierarchical layout lets an operator token be ACL-scoped per segment (e.g. limited to <code>.../managed/{cluster}/*</code>).</p>
+<p>The <strong>entire mechanism is gated by the <code>--managed-markers</code> flag (default OFF)</strong>. When off, the operator writes/reads no markers, skips conflict/ownership detection (write-and-forget), and does not run the discovery or orphan controllers — so it needs no grant on the marker KV path. See <a href="../configuration.md#managed-markers"><code>configuration.md</code></a>.</p>
 <blockquote>
-<p>See <a href="../../shared/controller/binding/"><code>shared/controller/binding/</code></a>, <a href="../FLOW_DELETION/"><code>FLOW_DELETION.md</code></a>.</p>
+<p>See <a href="../../shared/controller/binding/"><code>shared/controller/binding/</code></a>, <a href="../FLOW_DELETION/"><code>FLOW_DELETION.md</code></a>, <a href="../adr/0007-hierarchical-metadata-only-managed-markers.md">ADR 0007</a>.</p>
 </blockquote>
 <h3 id="cluster-name">Cluster name<a class="headerlink" href="#cluster-name" title="Permanent link">&para;</a></h3>
 <p>An optional operator-wide prefix (<code>--cluster-name</code> / <code>CLUSTER_NAME</code> / <code>clusterName</code> Helm value) applied to every derived Vault resource name. Lets multiple operators share one Vault CE server (no namespaces → a single global ACL policy store and marker path) without colliding on policy/role names or markers. Empty (default) means no prefix. See <a href="../../shared/naming/naming.go"><code>shared/naming/</code></a>, <a href="../adr/0006-cluster-name-prefix.md">ADR 0006</a>, <a href="../configuration.md#sharing-one-vault-across-clusters"><code>configuration.md</code></a>.</p>

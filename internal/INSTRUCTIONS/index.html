@@ -1850,7 +1850,7 @@
 <li>
 <p><strong>Direct Vault introspection</strong> (need Vault creds):
    <div class="highlight"><pre><span></span><code><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a>vault<span class="w"> </span><span class="nb">read</span><span class="w"> </span>sys/policies/acl/&lt;namespace&gt;-&lt;name&gt;<span class="w">       </span><span class="c1"># the policy itself</span>
-<a id="__codelineno-23-2" name="__codelineno-23-2" href="#__codelineno-23-2"></a>vault<span class="w"> </span>kv<span class="w"> </span>get<span class="w"> </span>secret/vault-access-operator/managed/policies/&lt;namespace&gt;-&lt;name&gt;<span class="w">  </span><span class="c1"># the managed marker</span>
+<a id="__codelineno-23-2" name="__codelineno-23-2" href="#__codelineno-23-2"></a>vault<span class="w"> </span>kv<span class="w"> </span>metadata<span class="w"> </span>get<span class="w"> </span>secret/vault-access-operator/managed/policies/&lt;namespace&gt;/&lt;name&gt;<span class="w">  </span><span class="c1"># managed marker (custom_metadata; prefix policies/ with &lt;cluster&gt;/ if --cluster-name set; only when --managed-markers=true)</span>
 <a id="__codelineno-23-3" name="__codelineno-23-3" href="#__codelineno-23-3"></a>vault<span class="w"> </span>token<span class="w"> </span>lookup-self<span class="w">                               </span><span class="c1"># what token the operator is using</span>
 </code></pre></div></p>
 </li>

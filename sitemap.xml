@@ -2,122 +2,126 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
          <loc>https://panteparak.github.io/vault-access-operator/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://panteparak.github.io/vault-access-operator/api-reference/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://panteparak.github.io/vault-access-operator/configuration/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://panteparak.github.io/vault-access-operator/examples/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://panteparak.github.io/vault-access-operator/getting-started/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://panteparak.github.io/vault-access-operator/test-evaluation/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://panteparak.github.io/vault-access-operator/troubleshooting/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://panteparak.github.io/vault-access-operator/webhooks/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://panteparak.github.io/vault-access-operator/adr/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://panteparak.github.io/vault-access-operator/adr/0000-template/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://panteparak.github.io/vault-access-operator/adr/0001-adapter-pattern-for-cluster-scoped-types/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://panteparak.github.io/vault-access-operator/adr/0002-template-method-base-reconciler/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://panteparak.github.io/vault-access-operator/adr/0003-two-level-drift-and-conflict-config/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://panteparak.github.io/vault-access-operator/adr/0004-event-bus-closure-capture/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://panteparak.github.io/vault-access-operator/adr/0005-cleanup-failure-configmap-queue/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://panteparak.github.io/vault-access-operator/adr/0006-cluster-name-prefix/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-02</lastmod>
+    </url>
+    <url>
+         <loc>https://panteparak.github.io/vault-access-operator/adr/0007-hierarchical-metadata-only-managed-markers/</loc>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://panteparak.github.io/vault-access-operator/auth-methods/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://panteparak.github.io/vault-access-operator/auth-methods/approle/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://panteparak.github.io/vault-access-operator/auth-methods/aws-iam/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://panteparak.github.io/vault-access-operator/auth-methods/bootstrap/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://panteparak.github.io/vault-access-operator/auth-methods/gcp-iam/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://panteparak.github.io/vault-access-operator/auth-methods/jwt-gitlab/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://panteparak.github.io/vault-access-operator/auth-methods/jwt/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://panteparak.github.io/vault-access-operator/auth-methods/kubernetes/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://panteparak.github.io/vault-access-operator/auth-methods/oidc/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://panteparak.github.io/vault-access-operator/auth-methods/token/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://panteparak.github.io/vault-access-operator/concepts/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://panteparak.github.io/vault-access-operator/concepts/architecture/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://panteparak.github.io/vault-access-operator/concepts/discovery/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
     <url>
          <loc>https://panteparak.github.io/vault-access-operator/concepts/drift-detection/</loc>
-         <lastmod>2026-06-30</lastmod>
+         <lastmod>2026-07-02</lastmod>
     </url>
 </urlset>

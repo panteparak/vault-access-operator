@@ -1441,6 +1441,10 @@
 <h1 id="flow-discovery-scan">FLOW: Discovery Scan<a class="headerlink" href="#flow-discovery-scan" title="Permanent link">&para;</a></h1>
 <h2 id="summary">Summary<a class="headerlink" href="#summary" title="Permanent link">&para;</a></h2>
 <p>Discovery is an <strong>inverse reconciliation</strong>: instead of pushing K8s state to Vault, it pulls Vault state and identifies unmanaged resources so operators can adopt them into CRs (either manually or via auto-creation). It's driven by <code>VaultConnection.Spec.Discovery</code>, runs on a configurable interval (default 1h), and has its own reconciler that watches <code>VaultConnection</code> — separately from the connection-management reconciler.</p>
+<div class="admonition note">
+<p class="admonition-title">Discovery requires <code>--managed-markers=true</code> (default OFF)</p>
+<p>Discovery depends on the managed-marker map to separate unmanaged Vault resources from ones the operator already owns, so it runs <strong>only when <code>--managed-markers=true</code></strong>. With markers off (the default) the operator has no marker hierarchy to compare against and does not run the discovery reconciler. Because markers now live under a hierarchical path, <code>ListManagedPolicies</code> / <code>ListManagedRoles</code> enumerate them with a <strong>recursive LIST</strong> over <code>secret/metadata/vault-access-operator/managed/{cluster}/{policies|roles}/**</code> (then read each leaf's <code>custom_metadata</code>), rather than a single flat <code>LIST</code>. See <a href="../adr/0007-hierarchical-metadata-only-managed-markers.md">ADR 0007</a>.</p>
+</div>
 <p>Two reconcilers watch the same CRD. This is intentional (separation of concerns: connection auth vs discovery scanning) but creates a <strong>status-write contention</strong> handled with <code>retry.RetryOnConflict</code>. See <a href="../../features/discovery/controller/controller.go:286">controller.go:286</a>.</p>
 <h2 id="participants">Participants<a class="headerlink" href="#participants" title="Permanent link">&para;</a></h2>
 <table>
@@ -1533,8 +1537,8 @@
         VC-&gt;&gt;V: GET /v1/sys/policies/acl?list=true
         V--&gt;&gt;VC: [names]
         S-&gt;&gt;VC: ListManagedPolicies(ctx)
-        VC-&gt;&gt;V: LIST secret/metadata/vault-access-operator/managed/policies/
-        VC-&gt;&gt;V: GET for each — managedBy + connectionName
+        VC-&gt;&gt;V: recursive LIST over secret/metadata/vault-access-operator/managed/{cluster}/policies/**
+        VC-&gt;&gt;V: READ custom_metadata for each leaf — managedBy + connectionName
         V--&gt;&gt;VC: map[name]ManagedResource
         loop for each policy
             alt system policy &amp; excludeSystemPolicies
@@ -1552,7 +1556,7 @@
         VC-&gt;&gt;V: LIST /auth/{authPath}/role
         V--&gt;&gt;VC: [names] or nil
         S-&gt;&gt;VC: ListManagedRoles(ctx)
-        VC-&gt;&gt;V: LIST + GET managed/roles
+        VC-&gt;&gt;V: recursive LIST over managed/{cluster}/roles/{mount}/** + READ custom_metadata
         loop for each role
             alt managed OR !matchesRolePatterns
                 Note over S: skip

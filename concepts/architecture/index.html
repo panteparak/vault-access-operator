@@ -2211,10 +2211,11 @@
 <h3 id="pattern">Pattern<a class="headerlink" href="#pattern" title="Permanent link">&para;</a></h3>
 <p>Features publish events via <code>EventBus.Publish()</code> (synchronous) or <code>EventBus.PublishAsync()</code> (fire-and-forget goroutine). Other features subscribe with typed handlers using Go generics: <code>events.Subscribe[ConnectionReady](bus, handler)</code>.</p>
 <h2 id="managed-markers-and-orphan-detection">Managed Markers and Orphan Detection<a class="headerlink" href="#managed-markers-and-orphan-detection" title="Permanent link">&para;</a></h2>
-<p>The operator tracks which Vault resources it manages using KV v2 markers stored at:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>secret/data/vault-access-operator/managed/policies/{name}
-<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>secret/data/vault-access-operator/managed/roles/{name}
+<p>Managed markers are opt-in via the <code>--managed-markers</code> flag (default off). When enabled, the operator tracks which Vault resources it manages using KV v2 <strong><code>custom_metadata</code></strong> — never <code>secret/data</code> — stored at a hierarchical path:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>secret/metadata/vault-access-operator/managed/{cluster}/policies/{namespace}/{name}
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>secret/metadata/vault-access-operator/managed/{cluster}/roles/{mount}/{namespace}/{name}
 </code></pre></div>
+<p>The <code>{cluster}</code> segment is the <code>--cluster-name</code> value and is omitted when unset; cluster-scoped resources use <code>_cluster</code> in place of <code>{namespace}</code>. When the flag is off, the operator writes no markers and skips ownership, discovery, and orphan detection entirely.</p>
 <p>These markers enable:</p>
 <ul>
 <li><strong>Orphan detection</strong>: Periodic scans compare markers against existing K8s resources. A marker without a matching CR indicates an orphaned Vault resource (e.g., CR deleted while operator was down).</li>

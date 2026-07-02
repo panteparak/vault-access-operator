@@ -2080,9 +2080,9 @@ it, a JWT mount never does.</p>
 </thead>
 <tbody>
 <tr>
-<td><code>secret/{data,metadata}/vault-access-operator/managed/*</code></td>
-<td>data: CRUD · metadata: list, read, delete</td>
-<td>You want managed-marker tracking (drift adoption, discovery, safe cleanup)</td>
+<td><code>secret/metadata/vault-access-operator/managed/*</code></td>
+<td>create, read, update, list, delete (metadata only — <strong>no <code>data</code></strong>)</td>
+<td>You run with <code>--managed-markers=true</code> (default OFF) for ownership tracking, discovery, and orphan detection. Multi-tenant operators can scope this to <code>secret/metadata/vault-access-operator/managed/{cluster}/*</code>.</td>
 </tr>
 <tr>
 <td><code>secret/{data,metadata}/&lt;prefix&gt;/*</code></td>
@@ -2102,7 +2102,7 @@ it, a JWT mount never does.</p>
 <tbody>
 <tr>
 <td><code>secret/*</code> data <strong>reads</strong></td>
-<td>The operator manages <strong>access</strong> to secrets and never reads their values. (Two opt-in features <em>write</em> to narrow <code>secret/</code> prefixes — see the opt-in table above.)</td>
+<td>The operator manages <strong>access</strong> to secrets and never reads their values. Managed-marker tracking writes only KV v2 <code>custom_metadata</code> (<code>secret/metadata/…</code>), never <code>secret/data</code>. The single feature that <em>writes</em> <code>secret/data</code> is <code>VaultKVSecret</code> seeding, and only <code>create</code> on the narrow prefix you seed — see the opt-in table above.</td>
 </tr>
 <tr>
 <td><code>sys/seal</code>, <code>sys/unseal</code></td>
@@ -2141,7 +2141,14 @@ the role-management block.</p>
 <a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="s">path &quot;auth/kubernetes/role&quot;   { capabilities = [&quot;list&quot;] }   # only with VaultDiscovery</span>
 <a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a><span class="s"># config — only if the operator bootstraps the mount or rotates token_reviewer_jwt</span>
 <a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a><span class="s">path &quot;auth/kubernetes/config&quot; { capabilities = [&quot;create&quot;, &quot;read&quot;, &quot;update&quot;] }</span>
-<a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a><span class="s">EOF</span>
+<a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a>
+<a id="__codelineno-7-13" name="__codelineno-7-13" href="#__codelineno-7-13"></a><span class="s"># ── Managed markers — ONLY with --managed-markers=true (default OFF) ──</span>
+<a id="__codelineno-7-14" name="__codelineno-7-14" href="#__codelineno-7-14"></a><span class="s"># custom_metadata only, never secret/data. Scope to .../managed/{cluster}/*</span>
+<a id="__codelineno-7-15" name="__codelineno-7-15" href="#__codelineno-7-15"></a><span class="s"># in a multi-tenant (shared Vault CE) setup.</span>
+<a id="__codelineno-7-16" name="__codelineno-7-16" href="#__codelineno-7-16"></a><span class="s">path &quot;secret/metadata/vault-access-operator/managed/*&quot; {</span>
+<a id="__codelineno-7-17" name="__codelineno-7-17" href="#__codelineno-7-17"></a><span class="s">  capabilities = [&quot;create&quot;, &quot;read&quot;, &quot;update&quot;, &quot;list&quot;, &quot;delete&quot;]</span>
+<a id="__codelineno-7-18" name="__codelineno-7-18" href="#__codelineno-7-18"></a><span class="s">}</span>
+<a id="__codelineno-7-19" name="__codelineno-7-19" href="#__codelineno-7-19"></a><span class="s">EOF</span>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
@@ -2154,7 +2161,14 @@ the role-management block.</p>
 <a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a><span class="s"># ── JWT auth role lifecycle (no config path needed) ───────────</span>
 <a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a><span class="s">path &quot;auth/jwt/role/*&quot; { capabilities = [&quot;create&quot;, &quot;read&quot;, &quot;update&quot;, &quot;delete&quot;] }</span>
 <a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a><span class="s">path &quot;auth/jwt/role&quot;   { capabilities = [&quot;list&quot;] }          # only with VaultDiscovery</span>
-<a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a><span class="s">EOF</span>
+<a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a>
+<a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a><span class="s"># ── Managed markers — ONLY with --managed-markers=true (default OFF) ──</span>
+<a id="__codelineno-8-12" name="__codelineno-8-12" href="#__codelineno-8-12"></a><span class="s"># custom_metadata only, never secret/data. Scope to .../managed/{cluster}/*</span>
+<a id="__codelineno-8-13" name="__codelineno-8-13" href="#__codelineno-8-13"></a><span class="s"># in a multi-tenant (shared Vault CE) setup.</span>
+<a id="__codelineno-8-14" name="__codelineno-8-14" href="#__codelineno-8-14"></a><span class="s">path &quot;secret/metadata/vault-access-operator/managed/*&quot; {</span>
+<a id="__codelineno-8-15" name="__codelineno-8-15" href="#__codelineno-8-15"></a><span class="s">  capabilities = [&quot;create&quot;, &quot;read&quot;, &quot;update&quot;, &quot;list&quot;, &quot;delete&quot;]</span>
+<a id="__codelineno-8-16" name="__codelineno-8-16" href="#__codelineno-8-16"></a><span class="s">}</span>
+<a id="__codelineno-8-17" name="__codelineno-8-17" href="#__codelineno-8-17"></a><span class="s">EOF</span>
 </code></pre></div>
 </div>
 </div>

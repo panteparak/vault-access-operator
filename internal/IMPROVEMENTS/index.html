@@ -2739,7 +2739,7 @@ A global package var mutated during init based on env. Works, but test isolation
 - Operator already has the right credentials, client cache, and indexer.
 - Works through the normal reconcile loop — same delivery semantics, retry, leader-election as everything else.</p>
 <p>Annotation auto-clears after a successful pass. Partial failures (one bad write) keep the annotation set so the next reconcile retries; aggregate error message + <code>ManagedMarkersPartiallyRestored</code> k8s event surface which resources failed.</p>
-<p>Marker writes use the policy/role names directly (no rule descriptions for VaultPolicy markers — those are nice-to-have and re-populate on the next normal reconcile of each policy). This keeps the connection handler from depending on the policy feature's <code>buildRuleDescriptions</code> helper — single-direction dependency preserved.</p>
+<p>Marker writes go through the shared <code>MarkManaged(id, k8sResource)</code> client method: the restore builds a <code>MarkerID</code> per CR (kind, plus the bare auth mount for roles, namespace, and name) — the same identity the normal reconcile uses, so markers land at the hierarchical <code>secret/metadata/vault-access-operator/managed/…</code> custom_metadata path. The whole restore is gated behind <code>--managed-markers</code>; with marker tracking disabled (the default) it is a no-op.</p>
 <p>Tests: 4 cases in <code>restore_markers_test.go</code>:
 - <code>WritesMarkerForEveryDependent</code> — full coverage of all 4 CR kinds.
 - <code>OnlyTouchesDependentsOfThisConnection</code> — pin the field-indexed query.

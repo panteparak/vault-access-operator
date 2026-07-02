@@ -1978,22 +1978,19 @@
 </tbody>
 </table>
 <h3 id="managed-marker-schema">Managed-marker schema<a class="headerlink" href="#managed-marker-schema" title="Permanent link">&para;</a></h3>
-<p>Written to Vault KV v2 at <code>secret/data/vault-access-operator/managed/{policies|roles}/{vaultName}</code> via <a href="../../pkg/vault/managed.go">pkg/vault/managed.go</a>.</p>
+<p>Gated by <code>--managed-markers</code> (default OFF); when enabled, stored as KV v2 <code>custom_metadata</code> (never <code>secret/data</code>) at the hierarchical path <code>secret/metadata/vault-access-operator/managed/{cluster}/policies/{ns}/{name}</code> (policies) or <code>.../managed/{cluster}/roles/{mount}/{ns}/{name}</code> (roles) — <code>{cluster}</code> omitted when unset, <code>_cluster</code> sentinel for cluster-scoped CRs — via <a href="../../pkg/vault/managed.go">pkg/vault/managed.go</a>. See <a href="../adr/0007-hierarchical-metadata-only-managed-markers.md">ADR 0007</a>. The keys below are the <code>custom_metadata</code> fields:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="p">{</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">&quot;k8sResource&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;VaultPolicy/my-namespace/my-policy&quot;</span><span class="p">,</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span><span class="nt">&quot;managedAt&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2026-04-18T12:34:56Z&quot;</span><span class="p">,</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">  </span><span class="nt">&quot;lastUpdated&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2026-04-18T12:40:00Z&quot;</span><span class="p">,</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">  </span><span class="nt">&quot;ruleDescriptions&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">                    </span><span class="c1">// policy only</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">    </span><span class="nt">&quot;secret/data/app/*&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;app secrets&quot;</span><span class="p">,</span>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">    </span><span class="nt">&quot;secret/data/shared/*&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;shared config&quot;</span>
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">  </span><span class="p">}</span>
-<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="p">}</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">&quot;managed-by&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;vault-access-operator&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span><span class="nt">&quot;k8s-resource&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;my-namespace/my-policy&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">  </span><span class="nt">&quot;managed-at&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2026-04-18T12:34:56Z&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">  </span><span class="nt">&quot;last-updated&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2026-04-18T12:40:00Z&quot;</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="p">}</span>
 </code></pre></div>
 <ul>
-<li><code>k8sResource</code> is the foreign-key-like identifier; <code>{Kind}/{namespace}/{name}</code> for namespaced, <code>{Kind}/{name}</code> for cluster-scoped.</li>
-<li><code>managedAt</code> is set once when the operator first claims ownership. Never re-written.</li>
-<li><code>lastUpdated</code> is bumped every successful MarkManaged (essentially every sync).</li>
-<li><code>ruleDescriptions</code> only populated for policies; gives discovery/orphan context.</li>
+<li><code>managed-by</code> is the ownership sentinel (<code>vault-access-operator</code>); <code>IsOwnedBy</code> checks it before any read/adopt.</li>
+<li><code>k8s-resource</code> is the foreign-key-like identifier: <code>{namespace}/{name}</code> for namespaced, <code>{name}</code> for cluster-scoped.</li>
+<li><code>managed-at</code> is set once when the operator first claims ownership. Never re-written.</li>
+<li><code>last-updated</code> is bumped every successful MarkManaged (essentially every sync).</li>
 </ul>
 <p><strong>Two operators managing the same Vault path</strong> — if two operator instances (different UIDs) write to the same marker, the last writer wins. There's no ownership lease. This is an unlikely-but-real multi-cluster scenario; see <a href="../IMPROVEMENTS/#g-no-backuprestore-story-for-managed-markers">IMPROVEMENTS.md §G</a>.</p>
 <h2 id="configuration-precedence">Configuration Precedence<a class="headerlink" href="#configuration-precedence" title="Permanent link">&para;</a></h2>
@@ -2090,18 +2087,18 @@
 <td>JSON array of <code>Item</code> — <strong>consumer not wired</strong></td>
 </tr>
 <tr>
-<td>Vault KV: <code>secret/data/vault-access-operator/managed/policies/{name}</code></td>
+<td>Vault KV: <code>secret/metadata/vault-access-operator/managed/{cluster}/policies/{ns}/{name}</code></td>
 <td>Vault</td>
 <td>✅ conflict check, orphan, discovery</td>
 <td>✅ <code>MarkPolicyManaged</code></td>
-<td>metadata: <code>{k8sResource, connectionName, ...}</code></td>
+<td><code>custom_metadata: {k8sResource, connectionName, ...}</code>; <strong>only when <code>--managed-markers=true</code></strong></td>
 </tr>
 <tr>
-<td>Vault KV: <code>secret/data/vault-access-operator/managed/roles/{name}</code></td>
+<td>Vault KV: <code>secret/metadata/vault-access-operator/managed/{cluster}/roles/{mount}/{ns}/{name}</code></td>
 <td>Vault</td>
 <td>✅ conflict check, orphan, discovery</td>
 <td>✅ <code>MarkRoleManaged</code></td>
-<td>same shape</td>
+<td>same shape; <strong>only when <code>--managed-markers=true</code></strong></td>
 </tr>
 <tr>
 <td>Vault sys: <code>sys/policies/acl/{name}</code></td>

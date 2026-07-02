@@ -1578,7 +1578,7 @@ For user-facing docs (install, CRD examples, auth methods), see <a href="../inde
 </tr>
 <tr>
 <td><strong>Managed marker</strong></td>
-<td>KV-v2 entry at <code>secret/data/vault-access-operator/managed/{policies,roles}/{name}</code> storing the K8s owner reference. Used for orphan + discovery + conflict checks.</td>
+<td>KV-v2 <code>custom_metadata</code> (never <code>secret/data</code>) at the hierarchical path <code>secret/metadata/vault-access-operator/managed/{cluster}/{policies/{ns}\|roles/{mount}/{ns}}/{name}</code> storing the K8s owner reference. Used for orphan + discovery + conflict checks. Gated by <code>--managed-markers</code> (default off).</td>
 </tr>
 <tr>
 <td><strong>Bootstrap</strong></td>
@@ -1786,7 +1786,7 @@ For user-facing docs (install, CRD examples, auth methods), see <a href="../inde
 </tr>
 <tr>
 <td><code>vault.platform.io/restore-managed-markers=true</code> <em>(VaultConnection only)</em></td>
-<td>one-shot mass re-adoption: the connection reconciler walks every dependent VaultPolicy/VaultClusterPolicy/VaultRole/VaultClusterRole and re-writes its managed-marker entry in Vault. Use after the <code>secret/data/vault-access-operator/managed/</code> KV tree is wiped (manual cleanup, snapshot restore, etc.) so dependents aren't conflict-blocked. Auto-clears on success; partial failures keep it set so the next reconcile retries. Constant <code>AnnotationRestoreManagedMarkers</code> (<a href="../IMPROVEMENTS/#g-no-backuprestore-story-for-managed-markers-still-missing">§G</a>).</td>
+<td>one-shot mass re-adoption: the connection reconciler walks every dependent VaultPolicy/VaultClusterPolicy/VaultRole/VaultClusterRole and re-writes its managed-marker entry in Vault. Use after the <code>secret/metadata/vault-access-operator/managed/</code> custom_metadata tree is wiped (manual cleanup, snapshot restore, etc.) so dependents aren't conflict-blocked. Only relevant when <code>--managed-markers=true</code> (default off). Auto-clears on success; partial failures keep it set so the next reconcile retries. Constant <code>AnnotationRestoreManagedMarkers</code> (<a href="../IMPROVEMENTS/#g-no-backuprestore-story-for-managed-markers-still-missing">§G</a>).</td>
 </tr>
 </tbody>
 </table>
