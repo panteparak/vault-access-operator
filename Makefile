@@ -378,6 +378,11 @@ e2e-deploy-operator-with-cluster-name: E2E_DEPLOY_EXTRA_ARGS = --set clusterName
 e2e-deploy-operator-with-cluster-name: e2e-deploy-operator ## Deploy operator with --cluster-name set (CE multi-tenancy prefix, ADR 0006)
 	@echo "Operator deployed with --cluster-name=$(E2E_CLUSTER_NAME)"
 
+.PHONY: e2e-deploy-operator-with-markers
+e2e-deploy-operator-with-markers: E2E_DEPLOY_EXTRA_ARGS = --set managedMarkers.enabled=true
+e2e-deploy-operator-with-markers: e2e-deploy-operator ## Deploy operator with --managed-markers enabled (ownership marker tracking)
+	@echo "Operator deployed with --managed-markers=true"
+
 ##@ E2E Local Development (Composite)
 
 .PHONY: e2e-local-up
@@ -408,6 +413,18 @@ e2e-local-up-with-cluster-name: e2e-compose-up e2e-wait-cluster e2e-deploy-vault
 	@echo "========================================"
 	@echo ""
 	@echo "  Run tests:   make e2e-local-test-cluster-name"
+	@echo "  Tear down:   make e2e-local-down"
+	@echo ""
+
+.PHONY: e2e-local-up-with-markers
+e2e-local-up-with-markers: ## Set up full local E2E stack with the operator's --managed-markers enabled
+e2e-local-up-with-markers: e2e-compose-up e2e-wait-cluster e2e-deploy-vault-rbac e2e-bridge-vault e2e-bridge-dex e2e-configure-vault e2e-build-operator e2e-import-operator e2e-deploy-operator-with-markers
+	@echo ""
+	@echo "========================================"
+	@echo "  E2E stack is ready (managed-markers=true)!"
+	@echo "========================================"
+	@echo ""
+	@echo "  Run tests:   make e2e-local-test-markers"
 	@echo "  Tear down:   make e2e-local-down"
 	@echo ""
 
@@ -454,6 +471,15 @@ e2e-local-test-cluster-name: ## Run cluster-name prefix E2E tests (needs e2e-loc
 		E2E_CLUSTER_NAME=$(E2E_CLUSTER_NAME) \
 		E2E_SKIP_BUILD=true E2E_SKIP_IMAGE_LOAD=true \
 		go test ./test/e2e/ -v -ginkgo.v -ginkgo.fail-fast -ginkgo.label-filter="cluster-name" -timeout 15m
+
+.PHONY: e2e-local-test-markers
+e2e-local-test-markers: ## Run managed-marker E2E tests (needs e2e-local-up-with-markers for opt-in cases)
+	KUBECONFIG=$(E2E_KUBECONFIG) VAULT_ADDR=http://localhost:8200 \
+		E2E_K8S_HOST=https://k3s:6443 \
+		E2E_OPERATOR_IMAGE=$(E2E_OPERATOR_IMAGE) \
+		E2E_MANAGED_MARKERS=true \
+		E2E_SKIP_BUILD=true E2E_SKIP_IMAGE_LOAD=true \
+		go test ./test/e2e/ -v -ginkgo.v -ginkgo.fail-fast -ginkgo.label-filter="managed-markers" -timeout 15m
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter

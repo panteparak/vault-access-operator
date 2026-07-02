@@ -6,6 +6,9 @@ Policies declare what Vault paths a set of capabilities (read/write/etc.) can ac
 
 **All state transitions and Vault writes are driven by `workflow.SyncWorkflow`** ([shared/controller/workflow/sync.go](../../shared/controller/workflow/sync.go)), which both policy and role share.
 
+!!! note "Managed markers gated by `--managed-markers` (default OFF)"
+    The `CheckConflict` (`GetPolicyManagedBy`) and `MarkManaged` steps run **only when `--managed-markers=true`**. With markers off (the default), the workflow writes the policy and forgets it — no ownership marker is written or read, and conflict/ownership detection is skipped. When on, the marker is KV v2 `custom_metadata` (never `secret/data`) at `secret/metadata/vault-access-operator/managed/{cluster}/policies/{ns}/{name}`. See [ADR 0007](../adr/0007-hierarchical-metadata-only-managed-markers.md), [CONTEXT.md `Managed marker`](CONTEXT.md#managed-marker).
+
 ## Participants
 
 | # | Component | Layer | Source | Role |
@@ -85,9 +88,9 @@ sequenceDiagram
     Ops->>VC: PolicyExists(name)
     VC->>V: GET /sys/policies/acl/{name}
     V-->>VC: exists?
-    alt exists
+    alt exists (managed-by check only when --managed-markers=true)
         Ops->>VC: GetPolicyManagedBy(name)
-        VC->>V: GET secret/data/vault-access-operator/managed/policies/{name}
+        VC->>V: READ custom_metadata at<br/>secret/metadata/vault-access-operator/managed/{cluster}/policies/{ns}/{name}
         V-->>VC: managedBy string
         alt managedBy == ourResource
             Note over Ops: same owner, no conflict
@@ -155,9 +158,9 @@ sequenceDiagram
         Ops-->>WF: TransientError("readback verification")
     end
 
-    WF->>Ops: MarkManaged (best-effort)
+    WF->>Ops: MarkManaged (best-effort; only when --managed-markers=true)
     Ops->>VC: MarkPolicyManaged(name, k8sResource, descriptions)
-    VC->>V: PUT secret/data/vault-access-operator/managed/policies/{name}
+    VC->>V: WRITE custom_metadata at<br/>secret/metadata/vault-access-operator/managed/{cluster}/policies/{ns}/{name}
 
     WF->>Ops: ApplyBindings
     Ops->>Ops: adapter.SetBinding(VaultResourceBinding)
@@ -196,9 +199,10 @@ Only if not already `Syncing` or `Active`. Avoids unnecessary status writes on r
 - Namespaced VaultPolicy with `enforceNamespaceBoundary=true`: each `rules[i].path` must contain `{{namespace}}` and must NOT have `*` before `{{namespace}}` (would allow cross-namespace access).
 - VaultClusterPolicy: no-op.
 
-### Step 5: Check conflict (Ops.CheckConflict)
+### Step 5: Check conflict (Ops.CheckConflict) — only when `--managed-markers=true`
+With markers **off** (the default) this step is skipped entirely: the operator writes the policy and forgets it (write-and-forget). When markers are on:
 - If policy doesn't exist in Vault → no conflict.
-- If exists, read managed marker (`secret/data/vault-access-operator/managed/policies/{name}`).
+- If exists, read managed marker — KV v2 `custom_metadata` (never `secret/data`) at `secret/metadata/vault-access-operator/managed/{cluster}/policies/{ns}/{name}` (`{cluster}` omitted when unset; `_cluster` for `{ns}` on `VaultClusterPolicy`).
   - Same K8s owner → OK.
   - Different owner → `ConflictError` (cannot adopt under another operator).
   - No owner (not managed) → `ConflictError` unless `shouldAdopt(adapter)` (annotation or `ConflictPolicy: Adopt`).
@@ -225,7 +229,7 @@ Only if not already `Syncing` or `Active`. Avoids unnecessary status writes on r
 - Readback mismatch returns `TransientError` — the next reconcile will retry.
 
 ### Step 10: Mark managed + apply bindings + active status
-- `MarkPolicyManaged` stores `{k8sResource, descriptions}` at the managed-marker KV path.
+- `MarkPolicyManaged` stores `{k8sResource, descriptions}` into the marker's KV v2 `custom_metadata` — **only when `--managed-markers=true`**; a no-op otherwise.
 - `ApplyBindings` sets `Status.Binding = {vaultPath: sys/policies/acl/{name}, vaultResourceName: {name}}`.
 - `ApplyActiveStatus` sets `Status.VaultName` and `Status.RulesCount`.
 
@@ -290,9 +294,9 @@ sequenceDiagram
             CW->>Ops: DeleteFromVault
             Ops->>VC: DeletePolicy(name)
             VC->>V: DELETE /sys/policies/acl/{name}
-            CW->>Ops: RemoveManaged
+            CW->>Ops: RemoveManaged (only when --managed-markers=true)
             Ops->>VC: RemovePolicyManaged
-            VC->>V: DELETE secret/data/vault-access-operator/managed/policies/{name}
+            VC->>V: DELETE custom_metadata at<br/>secret/metadata/vault-access-operator/managed/{cluster}/policies/{ns}/{name}
         else DeletionPolicy = Retain
             Note over CW: keep policy in Vault
         end
@@ -337,7 +341,7 @@ sequenceDiagram
 | VaultPolicy / VaultClusterPolicy CR | R + status W | every reconcile |
 | VaultConnection CR | R | dependency resolution, driftmode |
 | Vault `/sys/policies/acl/{name}` | R (drift + readback + exists) + W (sync) + DELETE (cleanup) | WriteToVault, DetectDrift, ReadbackVerify, CheckConflict, DeleteFromVault |
-| Vault `secret/data/vault-access-operator/managed/policies/{name}` | R (GetPolicyManagedBy) + W (MarkPolicyManaged) + DELETE (RemoveManaged) | CheckConflict, MarkManaged, RemoveManaged |
+| Vault `secret/metadata/vault-access-operator/managed/{cluster}/policies/{ns}/{name}` (custom_metadata; **only when `--managed-markers=true`**) | R (GetPolicyManagedBy) + W (MarkPolicyManaged) + DELETE (RemoveManaged) | CheckConflict, MarkManaged, RemoveManaged |
 | K8s Event | W | at Syncing/Synced/SyncFailed/DriftDetected/DriftCorrected |
 
 ## Divergences from Role Flow

@@ -42,7 +42,7 @@ func newRoleDryRunHarness(t *testing.T) *roleDryRunHarness {
 			switch {
 			case strings.Contains(path, "/auth/") && strings.Contains(path, "/role/"):
 				atomic.AddInt32(&h.writeHit, 1)
-			case strings.Contains(path, "/secret/data/vault-access-operator/managed/"):
+			case strings.Contains(path, "/secret/metadata/vault-access-operator/managed/"):
 				atomic.AddInt32(&h.managedHit, 1)
 			}
 			w.WriteHeader(http.StatusNoContent)

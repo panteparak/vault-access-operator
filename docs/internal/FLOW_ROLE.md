@@ -6,6 +6,9 @@ Roles bind a set of Kubernetes service accounts (or JWT identities) to a list of
 
 Like policy, role uses the shared `workflow.SyncWorkflow`. Unlike policy, role branches on the **auth backend** at several points — backend selection is driven by [`vault.ResolveAuthBackend(spec.authType, spec.authPath)`](../../pkg/vault/client.go): an explicit `spec.authType` (`kubernetes`/`jwt`) wins, otherwise the family is inferred from the mount-path name via `AuthBackendForPath`. The explicit override (IMPROVEMENTS §7) lets a role target a JWT/Kubernetes method mounted at an arbitrary path (e.g. `auth/custom-oidc`).
 
+!!! note "Managed markers gated by `--managed-markers` (default OFF)"
+    The conflict check (`GetRoleManagedBy`) and `MarkManaged` steps run **only when `--managed-markers=true`**. With markers off (the default), the operator writes the role and forgets it — no ownership marker is written or read, and conflict/ownership detection is skipped. When on, the marker is KV v2 `custom_metadata` (never `secret/data`) at `secret/metadata/vault-access-operator/managed/{cluster}/roles/{mount}/{ns}/{name}` (`{cluster}` omitted when unset; cluster-scoped roles use `_cluster` for `{ns}`). See [ADR 0007](../adr/0007-hierarchical-metadata-only-managed-markers.md), [CONTEXT.md `Managed marker`](CONTEXT.md#managed-marker).
+
 ## Participants
 
 | # | Component | Source | Role |
@@ -108,9 +111,9 @@ sequenceDiagram
         Ops-->>WF: TransientError
     end
 
-    WF->>Ops: MarkManaged
+    WF->>Ops: MarkManaged (only when --managed-markers=true)
     Ops->>VC: MarkRoleManaged(name, k8sResource)
-    VC->>V: PUT secret/data/vault-access-operator/managed/roles/{name}
+    VC->>V: WRITE custom_metadata at<br/>secret/metadata/vault-access-operator/managed/{cluster}/roles/{mount}/{ns}/{name}
 
     WF->>Ops: ApplyBindings
     Ops->>Ops: adapter.SetBinding(VaultResourceBinding{authMount, path})

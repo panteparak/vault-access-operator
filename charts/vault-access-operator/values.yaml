@@ -201,6 +201,14 @@ logging:
 # CE has no namespaces). Empty disables prefixing (single-cluster default).
 clusterName: ""
 
+# Managed-marker ownership tracking (Vault KV v2 custom_metadata): conflict /
+# adoption detection, discovery, orphan detection, and safe cleanup. Disabled by
+# default (opt-in). When enabled, the operator's Vault policy needs
+# create,read,update,list,delete on secret/metadata/vault-access-operator/managed/*.
+managedMarkers:
+  # -- Enable managed-marker tracking (sets the operator's --managed-markers flag).
+  enabled: false
+
 # Additional environment variables
 extraEnv: []
 # - name: MY_VAR

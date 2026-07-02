@@ -12,7 +12,6 @@ package controller
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -25,11 +24,12 @@ import (
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/pkg/vault"
+	"github.com/panteparak/vault-access-operator/shared/markers"
 )
 
-// markerHarness counts MarkPolicyManaged / MarkRoleManaged invocations
-// against a fake Vault HTTP server. The marker writes hit the KV v2
-// data path under `secret/data/vault-access-operator/managed/`.
+// markerHarness counts MarkManaged invocations against a fake Vault HTTP
+// server. Markers are custom_metadata only, so writes hit the KV v2 *metadata*
+// path under `secret/metadata/vault-access-operator/managed/`.
 type markerHarness struct {
 	server      *httptest.Server
 	policyHits  int32
@@ -47,12 +47,12 @@ func newMarkerHarness(t *testing.T) *markerHarness {
 		switch r.Method {
 		case http.MethodPost, http.MethodPut:
 			switch {
-			case strings.Contains(path, "/secret/data/vault-access-operator/managed/policies/"):
+			case strings.Contains(path, "/secret/metadata/vault-access-operator/managed/policies/"):
 				atomic.AddInt32(&h.policyHits, 1)
 				h.mu.Lock()
 				h.policyPaths = append(h.policyPaths, path)
 				h.mu.Unlock()
-			case strings.Contains(path, "/secret/data/vault-access-operator/managed/roles/"):
+			case strings.Contains(path, "/secret/metadata/vault-access-operator/managed/roles/"):
 				atomic.AddInt32(&h.roleHits, 1)
 				h.mu.Lock()
 				h.rolePaths = append(h.rolePaths, path)
@@ -60,15 +60,9 @@ func newMarkerHarness(t *testing.T) *markerHarness {
 			}
 			w.WriteHeader(http.StatusNoContent)
 		case http.MethodGet:
-			// Vault KV v2 read — return an empty data block so MarkXxxManaged
-			// proceeds as if the marker doesn't yet exist.
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{
-				"data": map[string]interface{}{
-					"data":     map[string]interface{}{},
-					"metadata": map[string]interface{}{},
-				},
-			})
+			// Vault KV v2 metadata read — return an absent marker (404) so
+			// MarkManaged treats managed-at as fresh and proceeds to write.
+			w.WriteHeader(http.StatusNotFound)
 		default:
 			w.WriteHeader(http.StatusOK)
 		}
@@ -97,6 +91,8 @@ func newRestoreScheme() *runtime.Scheme {
 // for restore, the handler walks every dependent CR (both kinds of
 // policy + both kinds of role) and writes a managed marker for each.
 func TestRestoreManagedMarkers_WritesMarkerForEveryDependent(t *testing.T) {
+	markers.SetEnabled(true)
+	t.Cleanup(func() { markers.SetEnabled(false) })
 	scheme := newRestoreScheme()
 	conn := &vaultv1alpha1.VaultConnection{
 		ObjectMeta: metav1.ObjectMeta{Name: "c"},
@@ -139,6 +135,8 @@ func TestRestoreManagedMarkers_WritesMarkerForEveryDependent(t *testing.T) {
 // the field-indexed query: a CR pointing at a different connection must
 // NOT be re-marked.
 func TestRestoreManagedMarkers_OnlyTouchesDependentsOfThisConnection(t *testing.T) {
+	markers.SetEnabled(true)
+	t.Cleanup(func() { markers.SetEnabled(false) })
 	scheme := newRestoreScheme()
 	conn := &vaultv1alpha1.VaultConnection{
 		ObjectMeta: metav1.ObjectMeta{Name: "c"},
@@ -164,17 +162,20 @@ func TestRestoreManagedMarkers_OnlyTouchesDependentsOfThisConnection(t *testing.
 	if got := atomic.LoadInt32(&harness.policyHits); got != 1 {
 		t.Errorf("expected exactly 1 marker write (only `mine`), got %d", got)
 	}
-	// Confirm the path identifies `mine`, not `other`.
+	// Confirm the path identifies `mine`, not `other`. Namespaced policy markers
+	// live at .../policies/{ns}/{name}.
 	harness.mu.Lock()
 	defer harness.mu.Unlock()
-	if !strings.Contains(harness.policyPaths[0], "ns-mine") {
-		t.Errorf("expected marker path for ns-mine, got %s", harness.policyPaths[0])
+	if !strings.Contains(harness.policyPaths[0], "policies/ns/mine") {
+		t.Errorf("expected marker path for policies/ns/mine, got %s", harness.policyPaths[0])
 	}
 }
 
 // TestRestoreManagedMarkers_NoOpWhenNoDependents pins that an empty
 // dependent list is not an error — no markers to write, no failure.
 func TestRestoreManagedMarkers_NoOpWhenNoDependents(t *testing.T) {
+	markers.SetEnabled(true)
+	t.Cleanup(func() { markers.SetEnabled(false) })
 	scheme := newRestoreScheme()
 	conn := &vaultv1alpha1.VaultConnection{
 		ObjectMeta: metav1.ObjectMeta{Name: "lonely"},
@@ -197,6 +198,8 @@ func TestRestoreManagedMarkers_NoOpWhenNoDependents(t *testing.T) {
 // the loop — other resources are still re-marked, and the aggregated
 // error names every failure so operators can investigate.
 func TestRestoreManagedMarkers_PartialFailureContinuesAndReports(t *testing.T) {
+	markers.SetEnabled(true)
+	t.Cleanup(func() { markers.SetEnabled(false) })
 	scheme := newRestoreScheme()
 	conn := &vaultv1alpha1.VaultConnection{
 		ObjectMeta: metav1.ObjectMeta{Name: "c"},
@@ -213,23 +216,19 @@ func TestRestoreManagedMarkers_PartialFailureContinuesAndReports(t *testing.T) {
 	c := newClientBuilderWithConnectionRefIndex(scheme).
 		WithObjects(conn, good, bad).Build()
 
-	// Custom server: 500 on the `explode` policy marker, 204 elsewhere.
+	// Custom server: 500 on the `explode` policy marker write, 204 elsewhere.
+	// The metadata path for a namespaced policy is .../policies/{ns}/{name}.
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost || r.Method == http.MethodPut {
-			if strings.Contains(r.URL.Path, "ns-explode") {
+			if strings.Contains(r.URL.Path, "policies/ns/explode") {
 				w.WriteHeader(http.StatusInternalServerError)
 				return
 			}
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		// KV v2 read — empty data
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"data": map[string]interface{}{
-				"data": map[string]interface{}{},
-			},
-		})
+		// KV v2 metadata read — absent marker.
+		w.WriteHeader(http.StatusNotFound)
 	}))
 	defer server.Close()
 

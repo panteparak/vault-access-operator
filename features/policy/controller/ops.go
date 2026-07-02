@@ -25,12 +25,14 @@ import (
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/features/policy/domain"
+	"github.com/panteparak/vault-access-operator/pkg/vault"
 	"github.com/panteparak/vault-access-operator/shared/controller/binding"
 	"github.com/panteparak/vault-access-operator/shared/controller/drift"
 	"github.com/panteparak/vault-access-operator/shared/controller/dryrun"
 	"github.com/panteparak/vault-access-operator/shared/controller/workflow"
 	"github.com/panteparak/vault-access-operator/shared/events"
 	infraerrors "github.com/panteparak/vault-access-operator/shared/infrastructure/errors"
+	"github.com/panteparak/vault-access-operator/shared/markers"
 )
 
 // PolicyOps implements workflow.ResourceOps for policy resources.
@@ -167,19 +169,19 @@ func (o *PolicyOps) ReadbackVerify(ctx context.Context, vaultClient workflow.Vau
 	return nil
 }
 
-// MarkManaged marks the policy as managed with rule descriptions. Skipped
-// under dry-run since it would side-effect Vault's KV store.
+// MarkManaged records operator ownership of the policy. No-op when managed
+// markers are disabled, or under dry-run (a Vault-side side effect).
 func (o *PolicyOps) MarkManaged(ctx context.Context, vaultClient workflow.VaultOpsClient) error {
+	if !markers.Enabled() {
+		return nil
+	}
 	if dryrun.IsActive(o.adapter) {
 		logr.FromContextOrDiscard(ctx).V(1).Info(
 			"skipping MarkManaged due to dry-run annotation",
 			"policy", o.adapter.GetVaultPolicyName())
 		return nil
 	}
-	k8sResource := o.adapter.GetK8sResourceIdentifier()
-	descriptions := o.handler.buildRuleDescriptions(
-		o.adapter.GetRules(), o.namespace, o.adapter.GetName())
-	return vaultClient.MarkPolicyManaged(ctx, o.adapter.GetVaultPolicyName(), k8sResource, descriptions)
+	return vaultClient.MarkManaged(ctx, o.markerID(), o.adapter.GetK8sResourceIdentifier())
 }
 
 // DeleteFromVault deletes the policy from Vault. Skipped under dry-run.
@@ -193,13 +195,23 @@ func (o *PolicyOps) DeleteFromVault(ctx context.Context, vaultClient workflow.Va
 	return vaultClient.DeletePolicy(ctx, o.adapter.GetVaultPolicyName())
 }
 
-// RemoveManaged removes the managed marker for this policy. Skipped under
-// dry-run since the managed marker is itself a Vault-side side effect.
+// RemoveManaged removes the policy's ownership marker. No-op when managed
+// markers are disabled, or under dry-run.
 func (o *PolicyOps) RemoveManaged(ctx context.Context, vaultClient workflow.VaultOpsClient) error {
-	if dryrun.IsActive(o.adapter) {
+	if !markers.Enabled() || dryrun.IsActive(o.adapter) {
 		return nil
 	}
-	return vaultClient.RemovePolicyManaged(ctx, o.adapter.GetVaultPolicyName())
+	return vaultClient.RemoveManaged(ctx, o.markerID())
+}
+
+// markerID builds the managed-marker identity for this policy. Namespace is ""
+// for cluster-scoped policies (encoded as the _cluster sentinel in the path).
+func (o *PolicyOps) markerID() vault.MarkerID {
+	return vault.MarkerID{
+		Kind:      vault.MarkerPolicy,
+		Namespace: o.adapter.GetNamespace(),
+		Name:      o.adapter.GetName(),
+	}
 }
 
 // ApplyActiveStatus sets policy-specific status fields.

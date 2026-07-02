@@ -99,37 +99,6 @@ func TestRolePath(t *testing.T) {
 	}
 }
 
-func TestManagedMetadataPath(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name         string
-		resourceType string
-		resourceName string
-		want         string
-	}{
-		{
-			name:         "policy metadata",
-			resourceType: "policy",
-			resourceName: "my-policy",
-			want:         "secret/data/vault-access-operator/managed/policy/my-policy",
-		},
-		{
-			name:         "role metadata",
-			resourceType: "role",
-			resourceName: "my-role",
-			want:         "secret/data/vault-access-operator/managed/role/my-role",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := ManagedMetadataPath(tt.resourceType, tt.resourceName); got != tt.want {
-				t.Errorf("ManagedMetadataPath(%q, %q) = %q, want %q", tt.resourceType, tt.resourceName, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestPolicyK8sRef(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
