@@ -40,6 +40,7 @@ import (
 	"github.com/panteparak/vault-access-operator/pkg/vault"
 	"github.com/panteparak/vault-access-operator/shared/controller/base"
 	"github.com/panteparak/vault-access-operator/shared/controller/conditions"
+	"github.com/panteparak/vault-access-operator/shared/naming"
 )
 
 const (
@@ -194,10 +195,50 @@ func (r *Reconciler) runScan(
 	if conn.Spec.Defaults != nil {
 		authPath = conn.Spec.Defaults.AuthPath
 	}
-	scanner := NewScanner(vaultClient, conn.Spec.Discovery, authPath, log)
+	scanner := NewScanner(vaultClient, conn.Spec.Discovery, authPath,
+		r.managedRoleNames(ctx, authPath, log), log)
 	result := scanner.Scan(ctx)
 	scanner.UpdateMetrics(conn.Name, result)
 	return result
+}
+
+// managedRoleNames derives the set of Vault role names owned by this
+// cluster's role CRs on the scanned auth mount. Roles carry no in-band
+// ownership record (ADR 0008), so the CR set is the ownership source for
+// discovery. A list failure yields an empty set — every role then surfaces
+// as unmanaged, which is safe (discovery never mutates Vault).
+func (r *Reconciler) managedRoleNames(
+	ctx context.Context, authPath string, log logr.Logger,
+) map[string]struct{} {
+	mount := vault.NormalizeAuthPath(authPath)
+	managed := map[string]struct{}{}
+
+	var roles vaultv1alpha1.VaultRoleList
+	if err := r.List(ctx, &roles); err != nil {
+		log.V(1).Info("failed to list VaultRoles for discovery ownership", "error", err.Error())
+	} else {
+		for i := range roles.Items {
+			role := &roles.Items[i]
+			if vault.NormalizeAuthPath(role.Spec.AuthPath) != mount {
+				continue
+			}
+			managed[naming.Vault(role.Namespace+"-"+role.Name)] = struct{}{}
+		}
+	}
+
+	var clusterRoles vaultv1alpha1.VaultClusterRoleList
+	if err := r.List(ctx, &clusterRoles); err != nil {
+		log.V(1).Info("failed to list VaultClusterRoles for discovery ownership", "error", err.Error())
+	} else {
+		for i := range clusterRoles.Items {
+			role := &clusterRoles.Items[i]
+			if vault.NormalizeAuthPath(role.Spec.AuthPath) != mount {
+				continue
+			}
+			managed[naming.Vault(role.Name)] = struct{}{}
+		}
+	}
+	return managed
 }
 
 // persistScanResult updates DiscoveryStatus with a retry loop to handle

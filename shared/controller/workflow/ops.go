@@ -67,14 +67,10 @@ type ResourceOps interface {
 	// Read failures are non-fatal (return nil); content mismatches are fatal.
 	ReadbackVerify(ctx context.Context, vaultClient VaultOpsClient) error
 
-	// MarkManaged marks the resource as managed by this operator. Best-effort.
-	MarkManaged(ctx context.Context, vaultClient VaultOpsClient) error
-
-	// DeleteFromVault removes the resource from Vault. Best-effort during cleanup.
+	// DeleteFromVault removes the resource from Vault. Best-effort during
+	// cleanup. Implementations verify in-band ownership before destructive
+	// writes where the object family supports it (ADR 0008).
 	DeleteFromVault(ctx context.Context, vaultClient VaultOpsClient) error
-
-	// RemoveManaged removes the managed marker. Best-effort.
-	RemoveManaged(ctx context.Context, vaultClient VaultOpsClient) error
 
 	// --- Status/binding updates ---
 

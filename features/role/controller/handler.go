@@ -130,6 +130,12 @@ func (h *Handler) CleanupRole(ctx context.Context, adapter domain.RoleAdapter) e
 // --- Helper methods used by RoleOps ---
 
 // checkConflict checks for conflicts with existing Vault roles.
+//
+// Roles carry no in-band ownership record — Vault auth roles have no metadata
+// surface (ADR 0008). Ownership memory is the CR's own status: a CR that has
+// previously synced (LastAppliedHash set) owns its role. Cross-cluster safety
+// comes from the one-cluster-per-auth-mount invariant: another cluster's
+// operator authenticates through its own mount and never reaches this one.
 // Supports adoption via annotation (vault.platform.io/adopt: "true") or ConflictPolicy.
 func (h *Handler) checkConflict(
 	ctx context.Context,
@@ -137,8 +143,8 @@ func (h *Handler) checkConflict(
 	adapter domain.RoleAdapter,
 	authPath, vaultRoleName string,
 ) error {
-	// Managed markers disabled: no ownership data, so conflict detection can't
-	// run — proceed (write-and-forget). Explicit adopt-intent is surfaced separately.
+	// Managed markers disabled: ownership tracking is off — proceed
+	// (write-and-forget). Explicit adopt-intent is surfaced separately.
 	if !markers.Enabled() {
 		conflict.WarnAdoptIntentInert(h.recorder, adapter.GetObject(), adapter)
 		return nil
@@ -155,36 +161,12 @@ func (h *Handler) checkConflict(
 		return nil
 	}
 
-	// Role exists, check ownership
-	managedBy, err := vaultClient.GetManagedBy(ctx, vault.MarkerID{
-		Kind:      vault.MarkerRole,
-		Mount:     vault.AuthMountName(authPath),
-		Namespace: adapter.GetNamespace(),
-		Name:      adapter.GetName(),
-	})
-	if err != nil {
-		// Can't determine ownership - check if adoption is allowed
-		if h.shouldAdopt(adapter) {
-			log.Info("adopting role (ownership unknown)", "roleName", vaultRoleName)
-			metrics.IncrementAdoption(roleKindForMetric(adapter), adapter.GetNamespace(), true)
-			return nil
-		}
-		return infraerrors.NewTransientError("check role ownership", err)
-	}
-
-	k8sResource := adapter.GetK8sResourceIdentifier()
-
-	// Same owner, no conflict
-	if managedBy == k8sResource {
+	// This CR has synced the role before — it's ours.
+	if adapter.GetLastAppliedHash() != "" {
 		return nil
 	}
 
-	// Different owner - cannot adopt
-	if managedBy != "" {
-		return infraerrors.NewConflictError("role", vaultRoleName, fmt.Sprintf("already managed by %s", managedBy))
-	}
-
-	// Exists but not managed - check if adoption is allowed
+	// Role exists but this CR never created it - check if adoption is allowed
 	if h.shouldAdopt(adapter) {
 		log.Info("adopting existing Vault role", "roleName", vaultRoleName)
 		metrics.IncrementAdoption(roleKindForMetric(adapter), adapter.GetNamespace(), true)
@@ -194,7 +176,9 @@ func (h *Handler) checkConflict(
 	return infraerrors.NewConflictError(
 		"role",
 		vaultRoleName,
-		"already exists in Vault and is not managed by this operator",
+		"already exists in Vault and is not tracked by this resource "+
+			"(roles carry no in-band ownership record; set ConflictPolicy: Adopt "+
+			"or the vault.platform.io/adopt annotation to take it over)",
 	)
 }
 

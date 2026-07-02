@@ -159,9 +159,6 @@ func TestCleanupWorkflow_HappyPath(t *testing.T) {
 	if !containsCall(ops.calls, "DeleteFromVault") {
 		t.Error("expected DeleteFromVault to be called")
 	}
-	if !containsCall(ops.calls, "RemoveManaged") {
-		t.Error("expected RemoveManaged to be called")
-	}
 	if !containsCall(ops.calls, "PublishDeleteEvent") {
 		t.Error("expected PublishDeleteEvent to be called")
 	}
@@ -204,9 +201,6 @@ func TestCleanupWorkflow_RetainPolicy(t *testing.T) {
 
 	if containsCall(ops.calls, "DeleteFromVault") {
 		t.Error("expected DeleteFromVault NOT to be called for Retain policy")
-	}
-	if containsCall(ops.calls, "RemoveManaged") {
-		t.Error("expected RemoveManaged NOT to be called for Retain policy")
 	}
 	if !containsCall(ops.calls, "PublishDeleteEvent") {
 		t.Error("expected PublishDeleteEvent to still be called for Retain policy")
@@ -288,9 +282,6 @@ func TestCleanupWorkflow_UnauthenticatedClient(t *testing.T) {
 	if containsCall(ops.calls, "DeleteFromVault") {
 		t.Error("expected DeleteFromVault NOT to be called for unauthenticated client")
 	}
-	if containsCall(ops.calls, "RemoveManaged") {
-		t.Error("expected RemoveManaged NOT to be called for unauthenticated client")
-	}
 }
 
 func TestCleanupWorkflow_DeleteFromVaultError_BestEffort(t *testing.T) {
@@ -330,53 +321,8 @@ func TestCleanupWorkflow_DeleteFromVaultError_BestEffort(t *testing.T) {
 	if !containsCall(ops.calls, "DeleteFromVault") {
 		t.Error("expected DeleteFromVault to be called")
 	}
-	if !containsCall(ops.calls, "RemoveManaged") {
-		t.Error("expected RemoveManaged to still be called after DeleteFromVault error")
-	}
 	if !containsCall(ops.calls, "PublishDeleteEvent") {
 		t.Error("expected PublishDeleteEvent to still be called after DeleteFromVault error")
-	}
-}
-
-func TestCleanupWorkflow_RemoveManagedError_BestEffort(t *testing.T) {
-	t.Parallel()
-
-	policy := &vaultv1alpha1.VaultPolicy{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:       "test-policy",
-			Namespace:  "default",
-			Generation: 1,
-		},
-		Spec: vaultv1alpha1.VaultPolicySpec{
-			ConnectionRef:  "test-connection",
-			DeletionPolicy: vaultv1alpha1.DeletionPolicyDelete,
-		},
-	}
-	k8sClient := newFakeK8sClient(t, policy)
-	resource := newTestResource(policy)
-
-	vc := newAuthenticatedVaultClient(t)
-	getter := func(_ string) (VaultOpsClient, error) {
-		return vc, nil
-	}
-
-	bus := events.NewEventBus(logr.Discard())
-	ops := &mockOps{
-		removeManagedErr: errors.New("failed to remove managed marker"),
-	}
-
-	wf := NewCleanupWorkflow(k8sClient, getter, bus, logr.Discard())
-	err := wf.Execute(context.Background(), resource, ops)
-
-	if err != nil {
-		t.Fatalf("expected no error (best-effort), got: %v", err)
-	}
-
-	if !containsCall(ops.calls, "RemoveManaged") {
-		t.Error("expected RemoveManaged to be called")
-	}
-	if !containsCall(ops.calls, "PublishDeleteEvent") {
-		t.Error("expected PublishDeleteEvent to still be called after RemoveManaged error")
 	}
 }
 
@@ -464,9 +410,6 @@ func TestCleanupWorkflow_NilEventBus(t *testing.T) {
 	// Vault operations should still proceed normally
 	if !containsCall(ops.calls, "DeleteFromVault") {
 		t.Error("expected DeleteFromVault to still be called with nil eventBus")
-	}
-	if !containsCall(ops.calls, "RemoveManaged") {
-		t.Error("expected RemoveManaged to still be called with nil eventBus")
 	}
 }
 

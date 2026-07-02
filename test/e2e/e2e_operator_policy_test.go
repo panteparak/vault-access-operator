@@ -24,7 +24,10 @@ package e2e
 //   - auth/<backend>/role/* and /config — role + mount configuration
 //   - sys/auth/*         — enable/disable mounts during test setup
 //   - sys/health, sys/mounts — read-only diagnostics
-//   - secret/metadata/vault-access-operator/managed/* — managed-marker tracking (custom_metadata only)
+//
+// NOTE (ADR 0008): ownership tracking is in-band (policy comment headers, KV
+// custom_metadata on the secrets themselves) — there is no marker subtree and
+// therefore no marker-specific grant.
 const operatorPolicyHCL = `
 # Policy management - operator needs to create/update/delete policies
 path "sys/policies/acl/*" {
@@ -108,18 +111,10 @@ path "sys/mounts" {
   capabilities = ["read"]
 }
 
-# Managed markers: KV v2 custom_metadata ONLY (never secret/data). The operator
-# writes ownership records via PutMetadata, so it needs create/update alongside
-# read/list/delete — and no capability on secret/data (metadata-only least-privilege).
-path "secret/metadata/vault-access-operator/managed/*" {
-  capabilities = ["create", "read", "update", "list", "delete"]
-}
-
 # KV v2 secret seeding (VaultKVSecret). CREATE-ONLY on the data path — the
 # operator only ever creates new secrets, never overwrites or reads values.
 # Existence checks, the ownership custom_metadata stamp, the untouched-check,
-# and DeleteMetadata cleanup all run through the metadata path. The more
-# specific managed-marker rules above still win for those paths. Mirrors
+# and DeleteMetadata cleanup all run through the metadata path. Mirrors
 # test/e2e/fixtures/policies/e2e-operator-bootstrap.hcl.
 path "secret/data/*" {
   capabilities = ["create"]

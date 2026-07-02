@@ -50,11 +50,11 @@ type VaultOpsClient interface {
 	WriteKubernetesAuthRole(ctx context.Context, authPath, roleName string, data map[string]interface{}) error
 	DeleteKubernetesAuthRole(ctx context.Context, authPath, roleName string) error
 
-	// --- Managed markers (shared; policy + role) ---
-	// The marker's structural identity (kind/mount/namespace/name) is carried
-	// by vault.MarkerID; callers build it from their adapter. Only invoked when
-	// managed-marker tracking is enabled (see shared/markers).
-	MarkManaged(ctx context.Context, id vault.MarkerID, k8sResource string) error
-	GetManagedBy(ctx context.Context, id vault.MarkerID) (string, error)
-	RemoveManaged(ctx context.Context, id vault.MarkerID) error
+	// --- In-band ownership (ADR 0008) ---
+	// AuthMount is the operator identity — the auth mount this client logged
+	// in through ("" for static token auth). GetPolicyOwnership reads a
+	// policy's ownership comment header ((nil, nil) when the policy is absent
+	// or not operator-managed).
+	AuthMount() string
+	GetPolicyOwnership(ctx context.Context, name string) (*vault.Ownership, error)
 }

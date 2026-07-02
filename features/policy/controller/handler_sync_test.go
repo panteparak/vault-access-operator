@@ -19,7 +19,6 @@ package controller
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -40,13 +39,6 @@ import (
 	"github.com/panteparak/vault-access-operator/shared/events"
 	"github.com/panteparak/vault-access-operator/shared/markers"
 )
-
-// policyMarkerPath returns the metadata path a policy marker lands at.
-// nsSeg is the K8s namespace, or "_cluster" for a cluster-scoped policy; name
-// is the CR name (NOT the derived vault name).
-func policyMarkerPath(nsSeg, name string) string {
-	return fmt.Sprintf("secret/metadata/vault-access-operator/managed/policies/%s/%s", nsSeg, name)
-}
 
 // enableMarkersForTest turns managed-marker tracking on for the duration of a
 // test. Every marker/conflict assertion below is gated on this (markers default
@@ -331,18 +323,17 @@ func TestSyncPolicy_Success_NewPolicy(t *testing.T) {
 		t.Errorf("expected HCL to contain secret path, got: %s", hcl)
 	}
 
-	// Verify managed marker was written to the hierarchical metadata path.
-	// The path uses the K8s namespace + CR name, not the derived vault name.
-	managedKey := policyMarkerPath(policyTestNamespace, policyTestName)
-	state.mu.Lock()
-	cm, markerExists := state.managed[managedKey]
-	state.mu.Unlock()
-
-	if !markerExists {
-		t.Fatalf("expected managed marker at %s, but not found; managed keys: %v", managedKey, managedKeys(state.managed))
+	// Verify the in-band ownership header (ADR 0008) was written as part of
+	// the policy document itself.
+	own, ok := vault.ParseOwnership(hcl)
+	if !ok {
+		t.Fatalf("written policy carries no ownership header:\n%s", hcl)
 	}
-	if cm[vault.KVManagedByKey] != vault.KVManagedByValue {
-		t.Errorf("marker managed-by = %v, want %q", cm[vault.KVManagedByKey], vault.KVManagedByValue)
+	if own.K8sResource != policyTestNamespace+"/"+policyTestName {
+		t.Errorf("header k8s-resource = %q, want %q", own.K8sResource, policyTestNamespace+"/"+policyTestName)
+	}
+	if own.K8sKind != "VaultPolicy" {
+		t.Errorf("header k8s-kind = %q, want VaultPolicy", own.K8sKind)
 	}
 }
 
@@ -393,21 +384,23 @@ func TestSyncPolicy_Success_ClusterPolicy(t *testing.T) {
 
 	// Cluster policies use just the name
 	state.mu.Lock()
-	_, exists := state.policies["admin-base"]
+	hcl, exists := state.policies["admin-base"]
 	state.mu.Unlock()
 
 	if !exists {
 		t.Fatalf("cluster policy not written to Vault; policies: %v", policyKeys(state.policies))
 	}
 
-	// Cluster-scoped policy: marker lands under the _cluster sentinel segment.
-	managedKey := policyMarkerPath("_cluster", "admin-base")
-	state.mu.Lock()
-	_, markerExists := state.managed[managedKey]
-	state.mu.Unlock()
-
-	if !markerExists {
-		t.Errorf("expected managed marker at %s, but not found; keys: %v", managedKey, managedKeys(state.managed))
+	// Cluster-scoped policy: header records the bare CR name and cluster kind.
+	own, ok := vault.ParseOwnership(hcl)
+	if !ok {
+		t.Fatalf("written cluster policy carries no ownership header:\n%s", hcl)
+	}
+	if own.K8sResource != "admin-base" {
+		t.Errorf("header k8s-resource = %q, want admin-base", own.K8sResource)
+	}
+	if own.K8sKind != "VaultClusterPolicy" {
+		t.Errorf("header k8s-kind = %q, want VaultClusterPolicy", own.K8sKind)
 	}
 }
 
@@ -509,17 +502,14 @@ func TestSyncPolicy_ConflictError_Fail(t *testing.T) {
 	enableMarkersForTest(t)
 	state := newPolicyMockState()
 	vaultPolicyName := policyTestNamespace + "-" + policyTestName
-	// Pre-populate an existing policy managed by someone else. The marker is
-	// custom_metadata at the hierarchical metadata path — managed-by must be the
-	// operator sentinel (so it's recognized as ours to read), but k8s-resource
-	// points at a different owner → conflict under the default Fail policy.
-	state.policies[vaultPolicyName] = existingPolicyHCL
-
-	managedKey := policyMarkerPath(policyTestNamespace, policyTestName)
-	state.managed[managedKey] = map[string]interface{}{
-		vault.KVManagedByKey:   vault.KVManagedByValue,
-		vault.KVK8sResourceKey: "other-ns/other-policy",
-	}
+	// Pre-populate an existing policy managed by someone else: its in-band
+	// header (ADR 0008) carries the operator sentinel but names a different
+	// owning CR → conflict under the default Fail policy.
+	state.policies[vaultPolicyName] = vault.OwnershipHeader(vault.Ownership{
+		ManagedBy:   vault.KVManagedByValue,
+		K8sResource: "other-ns/other-policy",
+		K8sKind:     "VaultPolicy",
+	}) + "\n" + existingPolicyHCL
 
 	conn := newPolicyTestConnection()
 	policy := newTestVaultPolicy()
@@ -917,12 +907,6 @@ func TestCleanupPolicy_DeletePolicy(t *testing.T) {
 	state := newPolicyMockState()
 	policyName := policyTestNamespace + "-" + policyTestName
 	state.policies[policyName] = existingPolicyHCL
-	// Seed the ownership marker so we can assert cleanup removes it.
-	state.managed[policyMarkerPath(policyTestNamespace, policyTestName)] = map[string]interface{}{
-		vault.KVManagedByKey:   vault.KVManagedByValue,
-		vault.KVK8sResourceKey: policyTestNamespace + "/" + policyTestName,
-	}
-
 	conn := newPolicyTestConnection()
 	policy := newTestVaultPolicy()
 	policy.Spec.DeletionPolicy = vaultv1alpha1.DeletionPolicyDelete
@@ -947,29 +931,12 @@ func TestCleanupPolicy_DeletePolicy(t *testing.T) {
 	if exists {
 		t.Error("expected policy to be deleted from Vault with DeletionPolicy=Delete")
 	}
-
-	// Verify managed marker was removed
-	managedKey := policyMarkerPath(policyTestNamespace, policyTestName)
-	state.mu.Lock()
-	_, markerExists := state.managed[managedKey]
-	state.mu.Unlock()
-
-	if markerExists {
-		t.Error("expected managed marker to be removed after policy deletion")
-	}
+	// No marker assertion: ownership travels in-band with the policy (ADR
+	// 0008), so deleting the policy deletes the ownership record with it.
 }
 
 // policyKeys returns the keys of a string map.
 func policyKeys(m map[string]string) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	return keys
-}
-
-// managedKeys returns the keys of the managed metadata map.
-func managedKeys(m map[string]map[string]interface{}) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {
 		keys = append(keys, k)

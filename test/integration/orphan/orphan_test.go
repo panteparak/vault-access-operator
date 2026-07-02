@@ -73,10 +73,10 @@ var _ = Describe("Orphan Detection Integration Tests", func() {
 				vaultClient := testEnv.VaultClient
 				Expect(vaultClient).NotTo(BeNil())
 
-				// The policy should be marked as managed in Vault
-				managedPolicies, err := vaultClient.ListManaged(ctx, vault.MarkerPolicy)
+				// The policy carries the in-band ownership header (ADR 0008)
+				own, err := vaultClient.GetPolicyOwnership(ctx, "default-int-orp01-test-policy")
 				Expect(err).NotTo(HaveOccurred())
-				Expect(managedPolicies).To(HaveKey("default-int-orp01-test-policy"))
+				Expect(own).NotTo(BeNil())
 
 				By("Cleaning up")
 				Expect(testEnv.K8sClient.Delete(ctx, policy)).To(Succeed())
@@ -127,14 +127,12 @@ var _ = Describe("Orphan Detection Integration Tests", func() {
 					return createdPolicy.Status.Phase
 				}, 30*time.Second, time.Second).Should(Equal(vaultv1alpha1.PhaseActive))
 
-				By("Verifying managed metadata contains correct K8s resource reference")
+				By("Verifying the ownership header names the owning K8s resource")
 				vaultClient := testEnv.VaultClient
-				managedPolicies, err := vaultClient.ListManaged(ctx, vault.MarkerPolicy)
+				own, err := vaultClient.GetPolicyOwnership(ctx, "default-int-orp02-active-policy")
 				Expect(err).NotTo(HaveOccurred())
-
-				managedInfo, exists := managedPolicies["default-int-orp02-active-policy"]
-				Expect(exists).To(BeTrue())
-				Expect(managedInfo.K8sResource).To(Equal("default/int-orp02-active-policy"))
+				Expect(own).NotTo(BeNil())
+				Expect(own.K8sResource).To(Equal("default/int-orp02-active-policy"))
 
 				By("Cleaning up")
 				Expect(testEnv.K8sClient.Delete(ctx, policy)).To(Succeed())
@@ -217,13 +215,13 @@ var _ = Describe("Orphan Detection Integration Tests", func() {
 					return createdRole.Status.Phase
 				}, 30*time.Second, time.Second).Should(Equal(vaultv1alpha1.PhaseActive))
 
-				By("Verifying the role is marked as managed in Vault")
+				By("Verifying the role exists on the operator's own mount")
+				// Roles carry no in-band ownership record (ADR 0008): the CR set
+				// plus the one-cluster-per-mount invariant IS the ownership source.
 				vaultClient := testEnv.VaultClient
-				// Role markers are keyed "{mount}/{vaultName}"; the default auth
-				// mount is kubernetes.
-				managedRoles, err := vaultClient.ListManaged(ctx, vault.MarkerRole)
+				exists, err := vaultClient.KubernetesAuthRoleExists(ctx, "kubernetes", "default-int-orp03-test-role")
 				Expect(err).NotTo(HaveOccurred())
-				Expect(managedRoles).To(HaveKey("kubernetes/default-int-orp03-test-role"))
+				Expect(exists).To(BeTrue())
 
 				By("Cleaning up role and policy")
 				Expect(testEnv.K8sClient.Delete(ctx, role)).To(Succeed())
@@ -283,20 +281,16 @@ var _ = Describe("Orphan Detection Integration Tests", func() {
 					return createdPolicy.Status.Phase
 				}, 30*time.Second, time.Second).Should(Equal(vaultv1alpha1.PhaseActive))
 
-				By("Reading managed marker custom_metadata directly from Vault")
-				// Markers are KV v2 custom_metadata (no data version) at the
-				// hierarchical metadata path .../policies/{ns}/{name}.
+				By("Reading the in-band ownership header from the policy document")
 				vaultClient := testEnv.VaultClient
-				md, err := vaultClient.ReadKVMetadata(
-					ctx, "secret", "vault-access-operator/managed/policies/default/int-orp04-metadata-policy")
+				own, err := vaultClient.GetPolicyOwnership(ctx, "default-int-orp04-metadata-policy")
 				Expect(err).NotTo(HaveOccurred())
-				Expect(md).NotTo(BeNil())
+				Expect(own).NotTo(BeNil())
 
-				By("Verifying custom_metadata fields")
-				Expect(md.CustomMetadata).To(HaveKeyWithValue(vault.KVManagedByKey, vault.KVManagedByValue))
-				Expect(md.CustomMetadata).To(HaveKeyWithValue(vault.KVK8sResourceKey, "default/int-orp04-metadata-policy"))
-				Expect(md.CustomMetadata).To(HaveKey("managed-at"))
-				Expect(md.CustomMetadata).To(HaveKey("last-updated"))
+				By("Verifying header fields")
+				Expect(own.ManagedBy).To(Equal(vault.KVManagedByValue))
+				Expect(own.K8sResource).To(Equal("default/int-orp04-metadata-policy"))
+				Expect(own.K8sKind).To(Equal("VaultPolicy"))
 
 				By("Cleaning up")
 				Expect(testEnv.K8sClient.Delete(ctx, policy)).To(Succeed())
@@ -344,15 +338,14 @@ var _ = Describe("Orphan Detection Integration Tests", func() {
 					return p.Status.Phase
 				}, 30*time.Second, time.Second).Should(Equal(vaultv1alpha1.PhaseActive))
 
-				By("Verifying metadata has cluster-scoped resource reference (no namespace)")
+				By("Verifying the header has a cluster-scoped resource reference (no namespace)")
 				vaultClient := testEnv.VaultClient
-				managedPolicies, err := vaultClient.ListManaged(ctx, vault.MarkerPolicy)
+				own, err := vaultClient.GetPolicyOwnership(ctx, "int-orp05-cluster-metadata")
 				Expect(err).NotTo(HaveOccurred())
-
-				managedInfo, exists := managedPolicies["int-orp05-cluster-metadata"]
-				Expect(exists).To(BeTrue())
+				Expect(own).NotTo(BeNil())
 				// Cluster-scoped resources don't have namespace prefix
-				Expect(managedInfo.K8sResource).To(Equal("int-orp05-cluster-metadata"))
+				Expect(own.K8sResource).To(Equal("int-orp05-cluster-metadata"))
+				Expect(own.K8sKind).To(Equal("VaultClusterPolicy"))
 
 				By("Cleaning up")
 				Expect(testEnv.K8sClient.Delete(ctx, clusterPolicy)).To(Succeed())

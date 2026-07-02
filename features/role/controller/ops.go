@@ -33,7 +33,6 @@ import (
 	"github.com/panteparak/vault-access-operator/shared/controller/workflow"
 	"github.com/panteparak/vault-access-operator/shared/events"
 	infraerrors "github.com/panteparak/vault-access-operator/shared/infrastructure/errors"
-	"github.com/panteparak/vault-access-operator/shared/markers"
 )
 
 // RoleOps implements workflow.ResourceOps for role resources.
@@ -203,23 +202,13 @@ func (o *RoleOps) ReadbackVerify(ctx context.Context, vaultClient workflow.Vault
 	return nil
 }
 
-// MarkManaged records operator ownership of the role. No-op when managed
-// markers are disabled, or under dry-run (a Vault-side write).
-func (o *RoleOps) MarkManaged(ctx context.Context, vaultClient workflow.VaultOpsClient) error {
-	if !markers.Enabled() {
-		return nil
-	}
-	if dryrun.IsActive(o.adapter) {
-		logr.FromContextOrDiscard(ctx).V(1).Info(
-			"skipping role MarkManaged due to dry-run annotation",
-			"role", o.adapter.GetVaultRoleName())
-		return nil
-	}
-	return vaultClient.MarkManaged(ctx, o.markerID(), o.adapter.GetK8sResourceIdentifier())
-}
-
 // DeleteFromVault deletes the Kubernetes auth role from Vault. Skipped under
 // dry-run; status condition surfaces what would have been deleted.
+//
+// Roles carry no in-band ownership record (Vault has no role metadata
+// surface — ADR 0008), so no ownership gate is possible here. Cross-cluster
+// safety comes from the one-cluster-per-auth-mount invariant: this delete
+// only ever targets the connection's own mount.
 func (o *RoleOps) DeleteFromVault(ctx context.Context, vaultClient workflow.VaultOpsClient) error {
 	if dryrun.IsActive(o.adapter) {
 		logr.FromContextOrDiscard(ctx).Info(
@@ -228,27 +217,6 @@ func (o *RoleOps) DeleteFromVault(ctx context.Context, vaultClient workflow.Vaul
 		return nil
 	}
 	return vaultClient.DeleteKubernetesAuthRole(ctx, o.authPath, o.adapter.GetVaultRoleName())
-}
-
-// RemoveManaged removes the role's ownership marker. No-op when managed markers
-// are disabled, or under dry-run.
-func (o *RoleOps) RemoveManaged(ctx context.Context, vaultClient workflow.VaultOpsClient) error {
-	if !markers.Enabled() || dryrun.IsActive(o.adapter) {
-		return nil
-	}
-	return vaultClient.RemoveManaged(ctx, o.markerID())
-}
-
-// markerID builds the managed-marker identity for this role, including the bare
-// auth-mount segment. Namespace is "" for cluster-scoped roles (encoded as the
-// _cluster sentinel in the path).
-func (o *RoleOps) markerID() vault.MarkerID {
-	return vault.MarkerID{
-		Kind:      vault.MarkerRole,
-		Mount:     vault.AuthMountName(o.authPath),
-		Namespace: o.adapter.GetNamespace(),
-		Name:      o.adapter.GetName(),
-	}
 }
 
 // ApplyActiveStatus sets role-specific status fields.

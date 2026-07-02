@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
@@ -32,7 +33,7 @@ import (
 	"github.com/panteparak/vault-access-operator/shared/controller/workflow"
 	"github.com/panteparak/vault-access-operator/shared/events"
 	infraerrors "github.com/panteparak/vault-access-operator/shared/infrastructure/errors"
-	"github.com/panteparak/vault-access-operator/shared/markers"
+	"github.com/panteparak/vault-access-operator/shared/naming"
 )
 
 // PolicyOps implements workflow.ResourceOps for policy resources.
@@ -86,11 +87,27 @@ func (o *PolicyOps) CheckConflict(ctx context.Context, vaultClient workflow.Vaul
 	return o.handler.checkConflict(ctx, vaultClient, o.adapter, o.adapter.GetVaultPolicyName())
 }
 
-// PrepareContent generates HCL and returns the spec hash.
-func (o *PolicyOps) PrepareContent(_ context.Context, _ workflow.VaultOpsClient) (string, error) {
-	o.hcl = o.handler.generatePolicyHCL(
+// PrepareContent generates the policy document — the in-band ownership
+// header (ADR 0008) followed by the HCL body — and returns the spec hash.
+// The header carries stable identity only (no timestamps), so an unchanged
+// spec hashes identically across reconciles.
+func (o *PolicyOps) PrepareContent(_ context.Context, vaultClient workflow.VaultOpsClient) (string, error) {
+	body := o.handler.generatePolicyHCL(
 		o.adapter.GetRules(), o.namespace, o.adapter.GetName())
+	o.hcl = vault.OwnershipHeader(o.ownership(vaultClient)) + "\n" + body
 	return o.handler.calculateHash(o.hcl), nil
+}
+
+// ownership builds this policy's in-band ownership record. The operator
+// identity is the resolved connection's auth mount (ADR 0008).
+func (o *PolicyOps) ownership(vaultClient workflow.VaultOpsClient) vault.Ownership {
+	return vault.Ownership{
+		ManagedBy:   vault.KVManagedByValue,
+		AuthMount:   vaultClient.AuthMount(),
+		Cluster:     naming.Cluster(),
+		K8sResource: o.adapter.GetK8sResourceIdentifier(),
+		K8sKind:     o.ResourceKind(),
+	}
 }
 
 // DetectDrift compares expected vs actual HCL content in Vault. When drift
@@ -169,49 +186,35 @@ func (o *PolicyOps) ReadbackVerify(ctx context.Context, vaultClient workflow.Vau
 	return nil
 }
 
-// MarkManaged records operator ownership of the policy. No-op when managed
-// markers are disabled, or under dry-run (a Vault-side side effect).
-func (o *PolicyOps) MarkManaged(ctx context.Context, vaultClient workflow.VaultOpsClient) error {
-	if !markers.Enabled() {
-		return nil
-	}
-	if dryrun.IsActive(o.adapter) {
-		logr.FromContextOrDiscard(ctx).V(1).Info(
-			"skipping MarkManaged due to dry-run annotation",
-			"policy", o.adapter.GetVaultPolicyName())
-		return nil
-	}
-	return vaultClient.MarkManaged(ctx, o.markerID(), o.adapter.GetK8sResourceIdentifier())
-}
-
 // DeleteFromVault deletes the policy from Vault. Skipped under dry-run.
+//
+// Ownership gate (ADR 0008): before the destructive delete, the live policy's
+// in-band header is re-read; if it names a different operator instance or CR
+// (possible when two clusters derive colliding names on a shared Vault), the
+// delete is skipped with a Warning event instead of destroying the other
+// owner's policy. A header-less policy (adopted / pre-ADR-0008) is deleted
+// as instructed by DeletionPolicy. Read failures fall through to the delete —
+// its own error handling enqueues a retry, whereas skipping here would remove
+// the finalizer and leak the policy silently.
 func (o *PolicyOps) DeleteFromVault(ctx context.Context, vaultClient workflow.VaultOpsClient) error {
+	log := logr.FromContextOrDiscard(ctx)
+	name := o.adapter.GetVaultPolicyName()
 	if dryrun.IsActive(o.adapter) {
-		logr.FromContextOrDiscard(ctx).Info(
-			"skipping DeletePolicy due to dry-run annotation",
-			"policy", o.adapter.GetVaultPolicyName())
+		log.Info("skipping DeletePolicy due to dry-run annotation", "policy", name)
 		return nil
 	}
-	return vaultClient.DeletePolicy(ctx, o.adapter.GetVaultPolicyName())
-}
-
-// RemoveManaged removes the policy's ownership marker. No-op when managed
-// markers are disabled, or under dry-run.
-func (o *PolicyOps) RemoveManaged(ctx context.Context, vaultClient workflow.VaultOpsClient) error {
-	if !markers.Enabled() || dryrun.IsActive(o.adapter) {
+	if own, err := vaultClient.GetPolicyOwnership(ctx, name); err == nil && own != nil &&
+		!own.SameOwner(vaultClient.AuthMount(), o.adapter.GetK8sResourceIdentifier()) {
+		log.Info("skipping DeletePolicy — Vault policy is owned by someone else",
+			"policy", name, "owner", own.String())
+		if o.handler.recorder != nil {
+			o.handler.recorder.Eventf(o.adapter.GetObject(), corev1.EventTypeWarning,
+				"ForeignPolicyNotDeleted",
+				"Vault policy %q was not deleted: it is owned by %s", name, own.String())
+		}
 		return nil
 	}
-	return vaultClient.RemoveManaged(ctx, o.markerID())
-}
-
-// markerID builds the managed-marker identity for this policy. Namespace is ""
-// for cluster-scoped policies (encoded as the _cluster sentinel in the path).
-func (o *PolicyOps) markerID() vault.MarkerID {
-	return vault.MarkerID{
-		Kind:      vault.MarkerPolicy,
-		Namespace: o.adapter.GetNamespace(),
-		Name:      o.adapter.GetName(),
-	}
+	return vaultClient.DeletePolicy(ctx, name)
 }
 
 // ApplyActiveStatus sets policy-specific status fields.

@@ -1,6 +1,6 @@
 # ADR 0007: Hierarchical, metadata-only managed markers with opt-in flag
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR 0008](0008-in-band-ownership-markers.md) (ownership is now stored in-band on the managed objects; the dedicated marker subtree and its grant no longer exist)
 - **Date:** 2026-07-02
 - **Related:** [`docs/configuration.md`](../configuration.md#managed-markers), [`CONTEXT.md`](../internal/CONTEXT.md#managed-marker), [`FLOW_POLICY.md`](../internal/FLOW_POLICY.md), [`FLOW_ROLE.md`](../internal/FLOW_ROLE.md), [`FLOW_DISCOVERY.md`](../internal/FLOW_DISCOVERY.md), [`FLOW_DELETION.md`](../internal/FLOW_DELETION.md), [ADR 0006](0006-cluster-name-prefix.md)
 

@@ -28,31 +28,29 @@ The text format Vault policies are written in. The operator generates HCL from t
 
 ### KV v2
 
-The Vault key-value engine, version 2. Supports versioned secrets and **metadata** alongside data. The operator uses KV v2 metadata for managed-marker tracking (see Managed marker).
+The Vault key-value engine, version 2. Supports versioned secrets and **metadata** alongside data. The operator uses KV v2 `custom_metadata` for the in-band ownership stamp on seeded secrets (see Managed marker).
 
 ### Managed marker
 
-A KV v2 **`custom_metadata`** entry the operator writes to claim ownership of a Vault resource. It is stored **only in metadata — never in `secret/data`** — under a hierarchical path:
+The operator's **in-band ownership record**, stored ON the managed Vault object itself — there is no separate marker path and no marker-specific grant ([ADR 0008](../adr/0008-in-band-ownership-markers.md)):
 
-```
-secret/metadata/vault-access-operator/managed/{cluster}/roles/{mount}/{ns}/{name}
-secret/metadata/vault-access-operator/managed/{cluster}/policies/{ns}/{name}
-```
+- **Policies** — a structured comment header at the top of the policy document (`# managed-by: vault-access-operator`, `# auth-mount: <mount>`, `# cluster: <name>` when set, `# k8s-resource: <ns/name>`, `# k8s-kind: <Kind>`). Vault stores HCL verbatim, so the header round-trips; drift comparison strips comments, so it is drift-neutral. Read back via `vault.ParseOwnership`.
+- **KV secrets** — `custom_metadata` on the secret's own metadata path (`managed-by`, `k8s-resource`, `auth-mount`, `cluster`, `managed-at`, `last-updated`).
+- **Roles** — none: Vault auth roles have no metadata surface. Ownership memory is the owning CR's status plus the [Operator identity](#operator-identity) mount invariant.
 
-- `{cluster}` = the operator's [Cluster name](#cluster-name); the segment is **omitted entirely when unset**.
-- `{mount}` = the bare auth-mount name (`kubernetes`, `jwt`, …) — **roles only**; policies have no mount segment.
-- `{ns}` = the CR's namespace; **cluster-scoped** CRs (`VaultClusterPolicy` / `VaultClusterRole`) use the sentinel `_cluster` in this slot.
-- `custom_metadata` keys: `managed-by=vault-access-operator`, `k8s-resource=<ns/name>`, `managed-at`, `last-updated`.
+Ownership = the `managed-by` sentinel **+ the same [Operator identity](#operator-identity) + the same owning CR** (`Ownership.SameOwner`). A record naming another identity is *foreign*: conflicts are reported, adoption is blocked, cleanup refuses to delete, and discovery never offers it for adoption.
 
-Used to detect conflicts (resource exists but is owned by someone else) and orphans (managed in Vault but no K8s owner anymore). The hierarchical layout lets an operator token be ACL-scoped per segment (e.g. limited to `.../managed/{cluster}/*`).
+The **entire mechanism is gated by the `--managed-markers` flag (default OFF)**. When off, the operator skips conflict/ownership detection (write-and-forget) and does not run the discovery or orphan controllers. Enabling it requires **no additional Vault grant**. See [`configuration.md`](../configuration.md#managed-markers).
 
-The **entire mechanism is gated by the `--managed-markers` flag (default OFF)**. When off, the operator writes/reads no markers, skips conflict/ownership detection (write-and-forget), and does not run the discovery or orphan controllers — so it needs no grant on the marker KV path. See [`configuration.md`](../configuration.md#managed-markers).
+> See [`FLOW_DELETION.md`](FLOW_DELETION.md), [ADR 0008](../adr/0008-in-band-ownership-markers.md).
 
-> See [`shared/controller/binding/`](../../shared/controller/binding/), [`FLOW_DELETION.md`](FLOW_DELETION.md), [ADR 0007](../adr/0007-hierarchical-metadata-only-managed-markers.md).
+### Operator identity
+
+The **auth mount path** the operator's `VaultConnection` logged in through (e.g. `kubernetes`, `k8s-prod-eu`), recorded on the Vault client at login (`Client.AuthMount`). **Hard requirement for shared Vaults: one cluster per auth mount** — mount paths are global on a Vault server, so the mount uniquely identifies the owning operator instance. Static-token connections have no mount → no identity (Warning `OwnershipIdentityUnavailable`; unsupported for multi-operator Vaults). See [ADR 0008](../adr/0008-in-band-ownership-markers.md).
 
 ### Cluster name
 
-An optional operator-wide prefix (`--cluster-name` / `CLUSTER_NAME` / `clusterName` Helm value) applied to every derived Vault resource name. Lets multiple operators share one Vault CE server (no namespaces → a single global ACL policy store and marker path) without colliding on policy/role names or markers. Empty (default) means no prefix. See [`shared/naming/`](../../shared/naming/naming.go), [ADR 0006](../adr/0006-cluster-name-prefix.md), [`configuration.md`](../configuration.md#sharing-one-vault-across-clusters).
+An optional operator-wide prefix (`--cluster-name` / `CLUSTER_NAME` / `clusterName` Helm value) applied to every derived Vault resource name. Lets multiple operators share one Vault CE server (no namespaces → a single global ACL policy store) without colliding on policy/role names. Orthogonal to the [Operator identity](#operator-identity): the prefix *prevents* collisions, the identity *detects and blocks* fights when names do collide. Empty (default) means no prefix. See [`shared/naming/`](../../shared/naming/naming.go), [ADR 0006](../adr/0006-cluster-name-prefix.md), [`configuration.md`](../configuration.md#sharing-one-vault-across-clusters).
 
 ### Policy (Vault)
 

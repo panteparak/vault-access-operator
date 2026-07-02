@@ -61,20 +61,22 @@ func newTestScheme() *runtime.Scheme {
 // Managed markers are custom_metadata only, at hierarchical metadata paths. Each
 // managed name is seeded as a cluster-scoped marker (_cluster segment) so its
 // derived ListManaged key is the bare vault name (roles gain the mount prefix).
-func newMockVaultServer(policies, roles, managedPolicies, managedRoles []string) *httptest.Server {
-	// Build the in-memory metadata tree keyed by "/v1"-stripped API path.
-	meta := map[string]map[string]interface{}{}
-	owner := func() map[string]interface{} {
-		return map[string]interface{}{
-			vault.KVManagedByKey:   vault.KVManagedByValue,
-			vault.KVK8sResourceKey: "test/test-resource",
-		}
+// newMockVaultServer serves the read-only Vault surface discovery scans:
+// policy list + per-policy reads (in-band ownership headers, ADR 0008) and a
+// role list on auth/kubernetes. managedPolicies get a header naming THIS
+// operator (auth-mount "kubernetes"); everything else is unmanaged.
+func newMockVaultServer(policies, roles, managedPolicies []string) *httptest.Server {
+	hcls := map[string]string{}
+	for _, p := range policies {
+		hcls[p] = "path \"secret/*\" {\n  capabilities = [\"read\"]\n}\n"
 	}
 	for _, p := range managedPolicies {
-		meta["secret/metadata/vault-access-operator/managed/policies/_cluster/"+p] = owner()
-	}
-	for _, rl := range managedRoles {
-		meta["secret/metadata/vault-access-operator/managed/roles/kubernetes/_cluster/"+rl] = owner()
+		hcls[p] = vault.OwnershipHeader(vault.Ownership{
+			ManagedBy:   vault.KVManagedByValue,
+			AuthMount:   "kubernetes",
+			K8sResource: "test/test-resource",
+			K8sKind:     "VaultPolicy",
+		}) + "\n" + hcls[p]
 	}
 
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -83,10 +85,21 @@ func newMockVaultServer(policies, roles, managedPolicies, managedRoles []string)
 
 		switch {
 		// ListPolicies: GET /v1/sys/policies/acl?list=true → {"data":{"keys":[...]}}
-		case strings.HasPrefix(path, "/v1/sys/policies/acl"):
+		case path == "/v1/sys/policies/acl":
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
-				"policies": policies,
-				"data":     map[string]interface{}{"keys": policies},
+				"data": map[string]interface{}{"keys": policies},
+			})
+
+		// ReadPolicy: GET /v1/sys/policies/acl/{name}
+		case strings.HasPrefix(path, "/v1/sys/policies/acl/"):
+			name := strings.TrimPrefix(path, "/v1/sys/policies/acl/")
+			hcl, ok := hcls[name]
+			if !ok {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"data": map[string]interface{}{"name": name, "policy": hcl},
 			})
 
 		// ListKubernetesAuthRoles: LIST /v1/auth/kubernetes/role
@@ -99,60 +112,10 @@ func newMockVaultServer(policies, roles, managedPolicies, managedRoles []string)
 				"data": map[string]interface{}{"keys": keys},
 			})
 
-		// Managed markers: recursive LIST + per-marker custom_metadata GET, all
-		// under secret/metadata/vault-access-operator/managed/.
-		case strings.Contains(path, "/secret/metadata/vault-access-operator/managed"):
-			rel := strings.TrimPrefix(path, "/v1/")
-			if r.URL.Query().Get("list") == "true" {
-				keys := discoveryChildKeys(meta, rel)
-				if keys == nil {
-					w.WriteHeader(http.StatusNotFound)
-					return
-				}
-				_ = json.NewEncoder(w).Encode(map[string]interface{}{
-					"data": map[string]interface{}{"keys": keys},
-				})
-				return
-			}
-			cm, ok := meta[rel]
-			if !ok {
-				w.WriteHeader(http.StatusNotFound)
-				return
-			}
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{
-				"data": map[string]interface{}{"custom_metadata": cm},
-			})
-
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
 	}))
-}
-
-// discoveryChildKeys mirrors Vault LIST over the hierarchical metadata tree:
-// intermediate segments get a trailing "/", leaf keys do not; nil → 404.
-func discoveryChildKeys(state map[string]map[string]interface{}, listPath string) []interface{} {
-	prefix := strings.TrimSuffix(strings.Split(listPath, "?")[0], "/")
-	seen := map[string]bool{}
-	for full := range state {
-		if full == prefix || !strings.HasPrefix(full, prefix+"/") {
-			continue
-		}
-		rest := strings.TrimPrefix(full, prefix+"/")
-		if i := strings.IndexByte(rest, '/'); i >= 0 {
-			seen[rest[:i]+"/"] = true
-		} else {
-			seen[rest] = true
-		}
-	}
-	if len(seen) == 0 {
-		return nil
-	}
-	out := make([]interface{}, 0, len(seen))
-	for k := range seen {
-		out = append(out, k)
-	}
-	return out
 }
 
 // newVaultClientFromServer creates a vault.Client connected to the test server
@@ -163,6 +126,9 @@ func newVaultClientFromServer(t *testing.T, server *httptest.Server, cache *vaul
 	if err != nil {
 		t.Fatalf("failed to create vault client: %v", err)
 	}
+	// The operator's identity (ADR 0008) — headers written by "this" operator
+	// carry the same mount, so managed-set detection matches.
+	vc.SetAuthMount("kubernetes")
 	cache.Set(connName, vc)
 }
 
@@ -278,7 +244,6 @@ func TestReconcile_FirstScan_Success(t *testing.T) {
 		[]string{"default", "root", "app-policy"},
 		[]string{"app-role"},
 		nil, // no managed policies
-		nil, // no managed roles
 	)
 	defer server.Close()
 
@@ -431,20 +396,25 @@ func TestReconcile_FindsUnmanagedResources(t *testing.T) {
 		Enabled:  true,
 		Interval: "1h",
 	}, nil)
+	managedRoleCR := &vaultv1alpha1.VaultClusterRole{
+		ObjectMeta: metav1.ObjectMeta{Name: "managed-role"},
+		Spec:       vaultv1alpha1.VaultClusterRoleSpec{AuthPath: "kubernetes"},
+	}
 
 	k8sClient := fake.NewClientBuilder().
 		WithScheme(scheme).
-		WithObjects(conn).
+		WithObjects(conn, managedRoleCR).
 		WithStatusSubresource(conn).
 		Build()
 
 	// Vault has 4 policies (default, root are system), app-policy is unmanaged,
-	// managed-policy is already managed. Roles: app-role is unmanaged, managed-role is managed.
+	// managed-policy carries our in-band ownership header. Roles: app-role is
+	// unmanaged; managed-role is derived from the VaultClusterRole CR below
+	// (roles have no in-band record — the CR set is the ownership source).
 	server := newMockVaultServer(
 		[]string{"default", "root", "app-policy", "managed-policy"},
 		[]string{"app-role", "managed-role"},
 		[]string{"managed-policy"},
-		[]string{"managed-role"},
 	)
 	defer server.Close()
 
@@ -520,7 +490,6 @@ func TestReconcile_MinScanIntervalClamping(t *testing.T) {
 
 	server := newMockVaultServer(
 		[]string{"default", "root"},
-		nil,
 		nil,
 		nil,
 	)

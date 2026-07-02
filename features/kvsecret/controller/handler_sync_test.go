@@ -147,7 +147,10 @@ func TestSyncKVSecret_InvalidPath(t *testing.T) {
 
 func TestCleanupKVSecret_DeleteWhenUntouched(t *testing.T) {
 	h, mock := setupKVTest(t, activeConn(kvTestConn))
-	mock.seed("apps/myapp/config", 1, map[string]interface{}{vault.KVManagedByKey: vault.KVManagedByValue})
+	mock.seed("apps/myapp/config", 1, map[string]interface{}{
+		vault.KVManagedByKey:   vault.KVManagedByValue,
+		vault.KVK8sResourceKey: kvTestNS + "/" + kvTestName,
+	})
 	kvs := newKVSecret(nil)
 	kvs.Status.Seeded = true
 	kvs.Status.SeededVersion = 1
@@ -163,7 +166,10 @@ func TestCleanupKVSecret_DeleteWhenUntouched(t *testing.T) {
 func TestCleanupKVSecret_RetainWhenModified(t *testing.T) {
 	h, mock := setupKVTest(t, activeConn(kvTestConn))
 	// Ours, but written to since seeding (version advanced 1 -> 4).
-	mock.seed("apps/myapp/config", 4, map[string]interface{}{vault.KVManagedByKey: vault.KVManagedByValue})
+	mock.seed("apps/myapp/config", 4, map[string]interface{}{
+		vault.KVManagedByKey:   vault.KVManagedByValue,
+		vault.KVK8sResourceKey: kvTestNS + "/" + kvTestName,
+	})
 	kvs := newKVSecret(nil)
 	kvs.Status.Seeded = true
 	kvs.Status.SeededVersion = 1
@@ -188,6 +194,28 @@ func TestCleanupKVSecret_RetainWhenNotOurs(t *testing.T) {
 	}
 	if !mock.exists("apps/myapp/config") {
 		t.Error("expected a foreign-owned secret to be retained")
+	}
+}
+
+// TestCleanupKVSecret_RetainWhenForeignOwner pins the identity-aware check
+// (ADR 0008): the operator sentinel alone is not ownership — a colliding path
+// seeded by another CR (or another cluster's operator) is never deleted.
+func TestCleanupKVSecret_RetainWhenForeignOwner(t *testing.T) {
+	h, mock := setupKVTest(t, activeConn(kvTestConn))
+	mock.seed("apps/myapp/config", 1, map[string]interface{}{
+		vault.KVManagedByKey:        vault.KVManagedByValue,
+		vault.KVK8sResourceKey:      kvTestNS + "/" + kvTestName,
+		vault.OwnershipAuthMountKey: "k8s-other-cluster", // foreign operator identity
+	})
+	kvs := newKVSecret(nil)
+	kvs.Status.Seeded = true
+	kvs.Status.SeededVersion = 1
+
+	if err := h.Cleanup(context.Background(), kvs); err != nil {
+		t.Fatalf("Cleanup: %v", err)
+	}
+	if !mock.exists("apps/myapp/config") {
+		t.Error("expected a foreign-operator-owned secret to be retained")
 	}
 }
 

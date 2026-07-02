@@ -128,31 +128,9 @@ func TestPolicyOps_DeleteFromVault_SkipsDryRun(t *testing.T) {
 	}
 }
 
-// TestPolicyOps_MarkManaged_SkipsDryRun pins that the managed-marker
-// KV write (which is itself a Vault side effect) is also skipped — a
-// dry-run policy shouldn't gain a managed marker since it's not actually
-// being managed yet.
-func TestPolicyOps_MarkManaged_SkipsDryRun(t *testing.T) {
-	h := newDryRunHarness(t)
-	adapter := newDryRunPolicy(map[string]string{
-		vaultv1alpha1.AnnotationDryRun: vaultv1alpha1.AnnotationValueTrue,
-	})
-	c, err := vault.NewClient(vault.ClientConfig{Address: h.server.URL})
-	if err != nil {
-		t.Fatalf("vault.NewClient: %v", err)
-	}
-
-	ops := &PolicyOps{
-		adapter: adapter,
-		handler: &Handler{},
-	}
-	if err := ops.MarkManaged(context.Background(), c); err != nil {
-		t.Fatalf("MarkManaged returned error: %v", err)
-	}
-	if got := atomic.LoadInt32(&h.managedHit); got != 0 {
-		t.Errorf("expected 0 managed-marker writes under dry-run, got %d", got)
-	}
-}
+// (TestPolicyOps_MarkManaged_SkipsDryRun removed with the marker mechanism —
+// ownership now travels inside the policy document itself (ADR 0008), so
+// dry-run's WriteToVault skip already covers it.)
 
 // TestPolicyOps_WriteToVault_NormalWhenAnnotationAbsent: positive control
 // — without the annotation, the write goes through.

@@ -106,7 +106,7 @@ The hook is a soft nudge, never blocking. To opt out per-session, edit `.claude/
 ## Conventions
 
 - **Conventional commits** — see `.cz.toml`. Types: feat, fix, docs, style, refactor, perf, test, chore. Scope = feature name (`feat(policy):`, `fix(webhook):`).
-- **Managed marker** — Vault path `secret/data/vault-access-operator/managed/{policies,roles}/{vault-name}` in KV v2 metadata. See [CONTEXT.md `Managed marker`](docs/internal/CONTEXT.md#managed-marker).
+- **Managed marker** — in-band ownership on the managed object itself (ADR 0008): policy comment header / KV custom_metadata; roles have none (CR status + one-cluster-per-auth-mount invariant). See [CONTEXT.md `Managed marker`](docs/internal/CONTEXT.md#managed-marker).
 - **Test IDs** — `TestSync*_*` (unit), `INT-{CAT}{NN}` (integration), `TC-{CAT}{NN}` (e2e).
 - **Finalizer** — `vault.platform.io/finalizer`.
 - **Annotations** — `vault.platform.io/adopt=true` (override ConflictPolicy), `vault.platform.io/dry-run=true` (skip Vault writes).

@@ -18,6 +18,10 @@ package orphan
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -31,128 +35,151 @@ import (
 	"github.com/panteparak/vault-access-operator/pkg/vault"
 )
 
-// mockVaultClient implements the single ListManaged(kind) surface the orphan
-// scanner needs. It dispatches on MarkerKind, mirroring the real *vault.Client.
-type mockVaultClient struct {
-	managedPolicies map[string]vault.ManagedResource
-	managedRoles    map[string]vault.ManagedResource
-	listPoliciesErr error
-	listRolesErr    error
+// orphanVaultMock serves the read-only Vault surface the orphan scanner uses:
+// policy list + reads (in-band ownership headers) and role list on one mount.
+type orphanVaultMock struct {
+	policies map[string]string // name → HCL (headers included)
+	roles    []string          // role names on auth/kubernetes
+	failList bool
 }
 
-// ListManaged returns the managed markers of a kind, matching the production
-// signature vaultClient.ListManaged(ctx, vault.MarkerPolicy|MarkerRole).
-func (m *mockVaultClient) ListManaged(
-	_ context.Context, kind vault.MarkerKind,
-) (map[string]vault.ManagedResource, error) {
-	switch kind {
-	case vault.MarkerPolicy:
-		if m.listPoliciesErr != nil {
-			return nil, m.listPoliciesErr
+func (m *orphanVaultMock) handle(w http.ResponseWriter, r *http.Request) {
+	switch {
+	case r.URL.Path == "/v1/sys/policies/acl" && r.URL.Query().Get("list") == "true":
+		if m.failList {
+			w.WriteHeader(http.StatusForbidden)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"errors": []string{"denied"}})
+			return
 		}
-		if m.managedPolicies == nil {
-			return map[string]vault.ManagedResource{}, nil
+		keys := make([]string, 0, len(m.policies))
+		for k := range m.policies {
+			keys = append(keys, k)
 		}
-		return m.managedPolicies, nil
-	case vault.MarkerRole:
-		if m.listRolesErr != nil {
-			return nil, m.listRolesErr
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"data": map[string]interface{}{"keys": keys},
+		})
+	case strings.HasPrefix(r.URL.Path, "/v1/sys/policies/acl/"):
+		name := strings.TrimPrefix(r.URL.Path, "/v1/sys/policies/acl/")
+		hcl, ok := m.policies[name]
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			return
 		}
-		if m.managedRoles == nil {
-			return map[string]vault.ManagedResource{}, nil
-		}
-		return m.managedRoles, nil
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"data": map[string]interface{}{"name": name, "policy": hcl},
+		})
+	case r.URL.Path == "/v1/auth/kubernetes/role" && r.URL.Query().Get("list") == "true":
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"data": map[string]interface{}{"keys": m.roles},
+		})
 	default:
-		return map[string]vault.ManagedResource{}, nil
+		w.WriteHeader(http.StatusNotFound)
 	}
 }
 
-// testableController extends Controller to allow injecting mock vault clients
-type testableController struct {
-	*Controller
-	mockClients map[string]*mockVaultClient
+func newOrphanVaultClient(t *testing.T, m *orphanVaultMock, authMount string) *vault.Client {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(m.handle))
+	t.Cleanup(srv.Close)
+	c, err := vault.NewClient(vault.ClientConfig{Address: srv.URL})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	c.SetAuthMount(authMount)
+	return c
 }
 
-func newTestableController(
-	k8sClient client.Client,
-	mockClients map[string]*mockVaultClient,
-	connections []string,
-) *testableController {
-	// Note: We don't use a real ClientCache here since we inject mocks directly
-	_ = connections // connections would be used by real ClientCache.List()
+func newOrphanK8sClient(objs ...client.Object) client.Client {
+	scheme := runtime.NewScheme()
+	_ = vaultv1alpha1.AddToScheme(scheme)
+	return fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
+}
 
+func ownedHCL(authMount, k8sResource string) string {
+	return vault.OwnershipHeader(vault.Ownership{
+		ManagedBy:   vault.KVManagedByValue,
+		AuthMount:   authMount,
+		K8sResource: k8sResource,
+		K8sKind:     "VaultPolicy",
+	}) + "\npath \"secret/*\" {\n  capabilities = [\"read\"]\n}\n"
+}
+
+// TestController_detectOrphanedPolicies exercises the in-band ownership scan
+// (ADR 0008): only OUR policies (matching auth-mount identity) whose owning
+// CR is gone are flagged.
+func TestController_detectOrphanedPolicies(t *testing.T) {
+	mock := &orphanVaultMock{policies: map[string]string{
+		// Ours, CR exists → not an orphan.
+		"default-live": ownedHCL("kubernetes", "default/live"),
+		// Ours, CR gone → orphan.
+		"default-gone": ownedHCL("kubernetes", "default/gone"),
+		// Another operator's (different mount) → never flagged.
+		"other-cluster": ownedHCL("k8s-other", "default/gone"),
+		// No header → unmanaged, never flagged.
+		"handwritten": "path \"x\" {\n  capabilities = [\"read\"]\n}\n",
+	}}
+	vc := newOrphanVaultClient(t, mock, "kubernetes")
 	ctrl := &Controller{
-		k8sClient:   k8sClient,
-		clientCache: nil, // Will use mock methods
-		interval:    time.Second,
-		log:         logr.Discard(),
-		stopCh:      make(chan struct{}),
-		stoppedCh:   make(chan struct{}),
+		k8sClient: newOrphanK8sClient(&vaultv1alpha1.VaultPolicy{
+			ObjectMeta: metav1.ObjectMeta{Name: "live", Namespace: "default"},
+		}),
+		log: logr.Discard(),
 	}
 
-	return &testableController{
-		Controller:  ctrl,
-		mockClients: mockClients,
+	orphans := ctrl.detectOrphanedPolicies(context.Background(), vc, "conn")
+	if len(orphans) != 1 {
+		t.Fatalf("orphans = %+v, want exactly 1", orphans)
+	}
+	if orphans[0].VaultName != "default-gone" || orphans[0].K8sResource != "default/gone" {
+		t.Errorf("orphan = %+v, want default-gone owned by default/gone", orphans[0])
 	}
 }
 
-// detectOrphansForConnectionWithMock is a test helper that uses mock clients
-func (c *testableController) detectOrphansForConnectionWithMock(
-	ctx context.Context, connName string,
-) ([]OrphanInfo, []OrphanInfo) {
-	mockClient := c.mockClients[connName]
-	if mockClient == nil {
-		return nil, nil
+// TestController_detectOrphanedPolicies_ListError verifies a Vault list
+// failure degrades to "no orphans" rather than an error or false positives.
+func TestController_detectOrphanedPolicies_ListError(t *testing.T) {
+	vc := newOrphanVaultClient(t, &orphanVaultMock{failList: true}, "kubernetes")
+	ctrl := &Controller{k8sClient: newOrphanK8sClient(), log: logr.Discard()}
+	if orphans := ctrl.detectOrphanedPolicies(context.Background(), vc, "conn"); orphans != nil {
+		t.Errorf("orphans = %+v, want nil on list error", orphans)
 	}
-
-	orphanedPolicies := c.detectOrphanedPoliciesWithMock(ctx, mockClient, connName)
-	orphanedRoles := c.detectOrphanedRolesWithMock(ctx, mockClient, connName)
-
-	return orphanedPolicies, orphanedRoles
 }
 
-func (c *testableController) detectOrphanedPoliciesWithMock(
-	ctx context.Context, mockClient *mockVaultClient, connName string,
-) []OrphanInfo {
-	managed, err := mockClient.ListManaged(ctx, vault.MarkerPolicy)
-	if err != nil {
-		return nil
+// TestController_detectOrphanedRoles: under the one-cluster-per-mount
+// invariant, any role on OUR mount with no deriving CR is an orphan
+// candidate; roles derived from live CRs are not.
+func TestController_detectOrphanedRoles(t *testing.T) {
+	mock := &orphanVaultMock{roles: []string{"default-live", "stale-role"}}
+	vc := newOrphanVaultClient(t, mock, "kubernetes")
+	ctrl := &Controller{
+		k8sClient: newOrphanK8sClient(&vaultv1alpha1.VaultRole{
+			ObjectMeta: metav1.ObjectMeta{Name: "live", Namespace: "default"},
+			Spec:       vaultv1alpha1.VaultRoleSpec{AuthPath: "kubernetes"},
+		}),
+		log: logr.Discard(),
 	}
 
-	var orphans []OrphanInfo
-	for vaultName, metadata := range managed {
-		if !c.k8sResourceExists(ctx, metadata.K8sResource, ResourceTypePolicy) {
-			orphans = append(orphans, OrphanInfo{
-				VaultName:      vaultName,
-				ResourceType:   ResourceTypePolicy,
-				K8sResource:    metadata.K8sResource,
-				ConnectionName: connName,
-			})
-		}
+	orphans := ctrl.detectOrphanedRoles(context.Background(), vc, "conn")
+	if len(orphans) != 1 {
+		t.Fatalf("orphans = %+v, want exactly 1", orphans)
 	}
-	return orphans
+	if orphans[0].VaultName != "stale-role" {
+		t.Errorf("orphan = %+v, want stale-role", orphans[0])
+	}
+	// No in-band record exists for roles, so the owner is unknowable.
+	if orphans[0].K8sResource != "" {
+		t.Errorf("role orphan K8sResource = %q, want empty (no ownership record)", orphans[0].K8sResource)
+	}
 }
 
-func (c *testableController) detectOrphanedRolesWithMock(
-	ctx context.Context, mockClient *mockVaultClient, connName string,
-) []OrphanInfo {
-	managed, err := mockClient.ListManaged(ctx, vault.MarkerRole)
-	if err != nil {
-		return nil
+// TestController_detectOrphanedRoles_NoAuthMount: a static-token connection
+// has no mount to scan — the role pass is skipped entirely.
+func TestController_detectOrphanedRoles_NoAuthMount(t *testing.T) {
+	vc := newOrphanVaultClient(t, &orphanVaultMock{roles: []string{"anything"}}, "")
+	ctrl := &Controller{k8sClient: newOrphanK8sClient(), log: logr.Discard()}
+	if orphans := ctrl.detectOrphanedRoles(context.Background(), vc, "conn"); orphans != nil {
+		t.Errorf("orphans = %+v, want nil for mountless connection", orphans)
 	}
-
-	var orphans []OrphanInfo
-	for vaultName, metadata := range managed {
-		if !c.k8sResourceExists(ctx, metadata.K8sResource, ResourceTypeRole) {
-			orphans = append(orphans, OrphanInfo{
-				VaultName:      vaultName,
-				ResourceType:   ResourceTypeRole,
-				K8sResource:    metadata.K8sResource,
-				ConnectionName: connName,
-			})
-		}
-	}
-	return orphans
 }
 
 func TestNewController(t *testing.T) {
@@ -319,285 +346,6 @@ func TestController_k8sResourceExists(t *testing.T) {
 					tt.k8sResource, tt.resourceType, result, tt.expected)
 			}
 		})
-	}
-}
-
-//nolint:dupl // Similar test structure for policies and roles is intentional
-func TestController_detectOrphanedPolicies(t *testing.T) {
-	scheme := runtime.NewScheme()
-	_ = vaultv1alpha1.AddToScheme(scheme)
-
-	// Create some existing K8s resources
-	existingPolicy := &vaultv1alpha1.VaultPolicy{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "existing-policy",
-			Namespace: "default",
-		},
-	}
-
-	existingClusterPolicy := &vaultv1alpha1.VaultClusterPolicy{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "existing-cluster-policy",
-		},
-	}
-
-	k8sClient := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithObjects(existingPolicy, existingClusterPolicy).
-		Build()
-
-	tests := []struct {
-		name            string
-		managedPolicies map[string]vault.ManagedResource
-		expectedOrphans int
-		expectedNames   []string
-	}{
-		{
-			name:            "no managed policies",
-			managedPolicies: map[string]vault.ManagedResource{},
-			expectedOrphans: 0,
-		},
-		{
-			name: "all policies have K8s resources",
-			managedPolicies: map[string]vault.ManagedResource{
-				"default-existing-policy": {
-					K8sResource: "default/existing-policy",
-					ManagedAt:   time.Now(),
-				},
-				"existing-cluster-policy": {
-					K8sResource: "existing-cluster-policy",
-					ManagedAt:   time.Now(),
-				},
-			},
-			expectedOrphans: 0,
-		},
-		{
-			name: "one orphaned policy",
-			managedPolicies: map[string]vault.ManagedResource{
-				"default-existing-policy": {
-					K8sResource: "default/existing-policy",
-					ManagedAt:   time.Now(),
-				},
-				"orphaned-policy": {
-					K8sResource: "default/deleted-policy",
-					ManagedAt:   time.Now(),
-				},
-			},
-			expectedOrphans: 1,
-			expectedNames:   []string{"orphaned-policy"},
-		},
-		{
-			name: "multiple orphaned policies",
-			managedPolicies: map[string]vault.ManagedResource{
-				"orphan1": {
-					K8sResource: "default/deleted1",
-					ManagedAt:   time.Now(),
-				},
-				"orphan2": {
-					K8sResource: "deleted-cluster-policy",
-					ManagedAt:   time.Now(),
-				},
-			},
-			expectedOrphans: 2,
-			expectedNames:   []string{"orphan1", "orphan2"},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			mockClients := map[string]*mockVaultClient{
-				"test-connection": {
-					managedPolicies: tt.managedPolicies,
-				},
-			}
-
-			ctrl := newTestableController(k8sClient, mockClients, []string{"test-connection"})
-
-			orphanedPolicies, _ := ctrl.detectOrphansForConnectionWithMock(
-				context.Background(),
-				"test-connection",
-			)
-
-			if len(orphanedPolicies) != tt.expectedOrphans {
-				t.Errorf("got %d orphaned policies, want %d", len(orphanedPolicies), tt.expectedOrphans)
-			}
-
-			// Verify expected orphan names
-			orphanNames := make(map[string]bool)
-			for _, o := range orphanedPolicies {
-				orphanNames[o.VaultName] = true
-				if o.ResourceType != ResourceTypePolicy {
-					t.Errorf("orphan %q has ResourceType %q, want 'policy'", o.VaultName, o.ResourceType)
-				}
-				if o.ConnectionName != "test-connection" {
-					t.Errorf("orphan %q has ConnectionName %q, want 'test-connection'", o.VaultName, o.ConnectionName)
-				}
-			}
-
-			for _, expectedName := range tt.expectedNames {
-				if !orphanNames[expectedName] {
-					t.Errorf("expected orphan %q not found", expectedName)
-				}
-			}
-		})
-	}
-}
-
-//nolint:dupl // Similar test structure for policies and roles is intentional
-func TestController_detectOrphanedRoles(t *testing.T) {
-	scheme := runtime.NewScheme()
-	_ = vaultv1alpha1.AddToScheme(scheme)
-
-	// Create some existing K8s resources
-	existingRole := &vaultv1alpha1.VaultRole{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "existing-role",
-			Namespace: "default",
-		},
-	}
-
-	existingClusterRole := &vaultv1alpha1.VaultClusterRole{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "existing-cluster-role",
-		},
-	}
-
-	k8sClient := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithObjects(existingRole, existingClusterRole).
-		Build()
-
-	tests := []struct {
-		name            string
-		managedRoles    map[string]vault.ManagedResource
-		expectedOrphans int
-		expectedNames   []string
-	}{
-		{
-			name:            "no managed roles",
-			managedRoles:    map[string]vault.ManagedResource{},
-			expectedOrphans: 0,
-		},
-		{
-			name: "all roles have K8s resources",
-			managedRoles: map[string]vault.ManagedResource{
-				"default-existing-role": {
-					K8sResource: "default/existing-role",
-					ManagedAt:   time.Now(),
-				},
-				"existing-cluster-role": {
-					K8sResource: "existing-cluster-role",
-					ManagedAt:   time.Now(),
-				},
-			},
-			expectedOrphans: 0,
-		},
-		{
-			name: "one orphaned role",
-			managedRoles: map[string]vault.ManagedResource{
-				"default-existing-role": {
-					K8sResource: "default/existing-role",
-					ManagedAt:   time.Now(),
-				},
-				"orphaned-role": {
-					K8sResource: "default/deleted-role",
-					ManagedAt:   time.Now(),
-				},
-			},
-			expectedOrphans: 1,
-			expectedNames:   []string{"orphaned-role"},
-		},
-		{
-			name: "multiple orphaned roles",
-			managedRoles: map[string]vault.ManagedResource{
-				"orphan1": {
-					K8sResource: "default/deleted1",
-					ManagedAt:   time.Now(),
-				},
-				"orphan2": {
-					K8sResource: "deleted-cluster-role",
-					ManagedAt:   time.Now(),
-				},
-			},
-			expectedOrphans: 2,
-			expectedNames:   []string{"orphan1", "orphan2"},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			mockClients := map[string]*mockVaultClient{
-				"test-connection": {
-					managedRoles: tt.managedRoles,
-				},
-			}
-
-			ctrl := newTestableController(k8sClient, mockClients, []string{"test-connection"})
-
-			_, orphanedRoles := ctrl.detectOrphansForConnectionWithMock(
-				context.Background(),
-				"test-connection",
-			)
-
-			if len(orphanedRoles) != tt.expectedOrphans {
-				t.Errorf("got %d orphaned roles, want %d", len(orphanedRoles), tt.expectedOrphans)
-			}
-
-			// Verify expected orphan names
-			orphanNames := make(map[string]bool)
-			for _, o := range orphanedRoles {
-				orphanNames[o.VaultName] = true
-				if o.ResourceType != ResourceTypeRole {
-					t.Errorf("orphan %q has ResourceType %q, want 'role'", o.VaultName, o.ResourceType)
-				}
-				if o.ConnectionName != "test-connection" {
-					t.Errorf("orphan %q has ConnectionName %q, want 'test-connection'", o.VaultName, o.ConnectionName)
-				}
-			}
-
-			for _, expectedName := range tt.expectedNames {
-				if !orphanNames[expectedName] {
-					t.Errorf("expected orphan %q not found", expectedName)
-				}
-			}
-		})
-	}
-}
-
-func TestController_detectOrphans_ListError(t *testing.T) {
-	scheme := runtime.NewScheme()
-	_ = vaultv1alpha1.AddToScheme(scheme)
-
-	k8sClient := fake.NewClientBuilder().WithScheme(scheme).Build()
-
-	// Test policy list error
-	mockClients := map[string]*mockVaultClient{
-		"test-connection": {
-			listPoliciesErr: context.DeadlineExceeded,
-			managedRoles: map[string]vault.ManagedResource{
-				"orphan": {
-					K8sResource: "default/deleted",
-					ManagedAt:   time.Now(),
-				},
-			},
-		},
-	}
-
-	ctrl := newTestableController(k8sClient, mockClients, []string{"test-connection"})
-
-	orphanedPolicies, orphanedRoles := ctrl.detectOrphansForConnectionWithMock(
-		context.Background(),
-		"test-connection",
-	)
-
-	// Policy detection should fail gracefully
-	if len(orphanedPolicies) != 0 {
-		t.Errorf("expected no orphaned policies due to error, got %d", len(orphanedPolicies))
-	}
-
-	// Role detection should still work
-	if len(orphanedRoles) != 1 {
-		t.Errorf("expected 1 orphaned role, got %d", len(orphanedRoles))
 	}
 }
 

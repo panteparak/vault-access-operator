@@ -18,7 +18,6 @@ package e2e
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"os/exec"
 	"time"
@@ -27,14 +26,16 @@ import (
 	. "github.com/onsi/gomega"
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
+	"github.com/panteparak/vault-access-operator/pkg/vault"
 	"github.com/panteparak/vault-access-operator/test/utils"
 )
 
-// Managed-marker tests. Marker tracking is opt-in (--managed-markers), OFF on
-// the default E2E stack. Opt-out cases (TC-MM01, TC-MM04) verify the disabled
-// behavior on the default stack. Opt-in cases (TC-MM10, TC-MM13) require the
-// operator deployed WITH --managed-markers and are gated on E2E_MANAGED_MARKERS
-// (set by `make e2e-local-test-markers`); they Skip otherwise.
+// In-band ownership tests (ADR 0008). Ownership tracking is opt-in
+// (--managed-markers), OFF on the default E2E stack. Opt-out cases (TC-MM01,
+// TC-MM04) verify the disabled behavior on the default stack. Opt-in cases
+// (TC-MM10, TC-MM13) require the operator deployed WITH --managed-markers and
+// are gated on E2E_MANAGED_MARKERS (set by `make e2e-local-test-markers`);
+// they Skip otherwise.
 var _ = Describe("Managed Markers", Ordered, Label("managed-markers"), func() {
 	const (
 		mmOptOutPolicy = "tc-mm-optout-policy"
@@ -45,12 +46,6 @@ var _ = Describe("Managed Markers", Ordered, Label("managed-markers"), func() {
 
 	ctx := context.Background()
 	markersEnabled := false
-
-	// markerMetadataPath returns the KV v2 metadata path a namespaced policy
-	// marker lands at on the default (no cluster prefix) stack.
-	markerMetadataPath := func(name string) string {
-		return fmt.Sprintf("secret/metadata/vault-access-operator/managed/policies/%s/%s", testNamespace, name)
-	}
 
 	BeforeAll(func() {
 		markersEnabled = os.Getenv("E2E_MANAGED_MARKERS") != ""
@@ -66,7 +61,7 @@ var _ = Describe("Managed Markers", Ordered, Label("managed-markers"), func() {
 	})
 
 	Context("TC-MM: markers disabled (default stack, opt-out)", func() {
-		It("TC-MM01: no marker is written and the resource reaches Active", func() {
+		It("TC-MM01: the resource reaches Active and no marker subtree is created", func() {
 			if markersEnabled {
 				Skip("E2E_MANAGED_MARKERS set: this opt-out case asserts the DISABLED behavior")
 			}
@@ -77,14 +72,13 @@ var _ = Describe("Managed Markers", Ordered, Label("managed-markers"), func() {
 			By("waiting for it to become Active")
 			ExpectPolicyActive(ctx, mmOptOutPolicy)
 
-			By("verifying NO managed marker was written to Vault")
+			By("verifying NO marker subtree exists in Vault (ADR 0008: ownership is in-band)")
 			vc, err := utils.GetTestVaultClient()
 			Expect(err).NotTo(HaveOccurred())
-			// The metadata read returns nil data for an absent path.
 			Consistently(func(g Gomega) {
-				secret, readErr := vc.Read(ctx, markerMetadataPath(mmOptOutPolicy))
-				g.Expect(readErr).NotTo(HaveOccurred())
-				g.Expect(secret).To(BeNil(), "no marker should exist with markers disabled")
+				secret, listErr := vc.Client().Logical().ListWithContext(ctx, "secret/metadata/vault-access-operator")
+				g.Expect(listErr).NotTo(HaveOccurred())
+				g.Expect(secret).To(BeNil(), "no marker subtree should ever be created")
 			}, 10*time.Second, 2*time.Second).Should(Succeed())
 		})
 
@@ -122,42 +116,46 @@ var _ = Describe("Managed Markers", Ordered, Label("managed-markers"), func() {
 			}
 		})
 
-		It("TC-MM10: a hierarchical marker (custom_metadata) is written for an Active policy", func() {
+		It("TC-MM10: the ownership header travels inside the policy document", func() {
 			By("creating a VaultPolicy")
 			Expect(utils.CreateVaultPolicyCR(ctx, BuildTestPolicy(mmOnPolicy))).To(Succeed())
 
 			By("waiting for it to become Active")
 			ExpectPolicyActive(ctx, mmOnPolicy)
 
-			By("verifying the marker exists as custom_metadata at the hierarchical path")
+			By("verifying the written policy carries the structured ownership header")
 			vc, err := utils.GetTestVaultClient()
 			Expect(err).NotTo(HaveOccurred())
 			Eventually(func(g Gomega) {
-				secret, readErr := vc.Read(ctx, markerMetadataPath(mmOnPolicy))
+				hcl, readErr := vc.ReadPolicy(ctx, testNamespace+"-"+mmOnPolicy)
 				g.Expect(readErr).NotTo(HaveOccurred())
-				g.Expect(secret).NotTo(BeNil())
-				cm, ok := secret.Data["custom_metadata"].(map[string]interface{})
-				g.Expect(ok).To(BeTrue(), "expected custom_metadata block")
-				g.Expect(cm["managed-by"]).To(Equal("vault-access-operator"))
-				g.Expect(cm["k8s-resource"]).To(Equal(testNamespace + "/" + mmOnPolicy))
+				own, ok := vault.ParseOwnership(hcl)
+				g.Expect(ok).To(BeTrue(), "expected in-band ownership header, got:\n%s", hcl)
+				g.Expect(own.ManagedBy).To(Equal(vault.KVManagedByValue))
+				g.Expect(own.K8sResource).To(Equal(testNamespace + "/" + mmOnPolicy))
+				g.Expect(own.K8sKind).To(Equal("VaultPolicy"))
+				// The operator authenticates via kubernetes auth on the e2e
+				// stack — its identity is the auth mount (ADR 0008).
+				g.Expect(own.AuthMount).NotTo(BeEmpty())
 			}, 60*time.Second, 5*time.Second).Should(Succeed())
+
+			By("verifying no dedicated marker subtree was created")
+			secret, listErr := vc.Client().Logical().ListWithContext(ctx, "secret/metadata/vault-access-operator")
+			Expect(listErr).NotTo(HaveOccurred())
+			Expect(secret).To(BeNil())
 		})
 
-		It("TC-MM13: a foreign marker blocks (Conflict), and adopt does not override it", func() {
-			By("pre-seeding a foreign ownership marker at the policy's marker path")
+		It("TC-MM13: a foreign ownership header blocks (Conflict), and adopt does not override it", func() {
+			By("pre-writing a policy owned by another operator instance (foreign auth-mount identity)")
 			vc, err := utils.GetTestVaultClient()
 			Expect(err).NotTo(HaveOccurred())
-			_, err = vc.Write(ctx, markerMetadataPath(mmConflictPol), map[string]interface{}{
-				"custom_metadata": map[string]interface{}{
-					"managed-by":   "vault-access-operator",
-					"k8s-resource": "other-ns/foreign-owner",
-				},
-			})
-			Expect(err).NotTo(HaveOccurred())
-
-			By("also writing the policy so the existence check trips")
-			Expect(vc.WritePolicy(ctx, testNamespace+"-"+mmConflictPol,
-				`path "secret/*" { capabilities = ["read"] }`)).To(Succeed())
+			foreign := vault.OwnershipHeader(vault.Ownership{
+				ManagedBy:   vault.KVManagedByValue,
+				AuthMount:   "k8s-other-cluster",
+				K8sResource: "other-ns/foreign-owner",
+				K8sKind:     "VaultPolicy",
+			}) + "\npath \"secret/*\" { capabilities = [\"read\"] }"
+			Expect(vc.WritePolicy(ctx, testNamespace+"-"+mmConflictPol, foreign)).To(Succeed())
 
 			By("creating the CR → expect a non-Active (Conflict) phase")
 			Expect(utils.CreateVaultPolicyCR(ctx, BuildTestPolicy(mmConflictPol))).To(Succeed())
@@ -167,7 +165,7 @@ var _ = Describe("Managed Markers", Ordered, Label("managed-markers"), func() {
 				g.Expect(status).To(Equal("Conflict"))
 			}, 90*time.Second, 5*time.Second).Should(Succeed())
 
-			By("adding the adopt annotation → still blocked: adopt never steals a resource a different marker owns")
+			By("adding the adopt annotation → still blocked: adopt never steals a resource another owner holds")
 			Expect(utils.UpdateVaultPolicyCR(ctx, mmConflictPol, testNamespace, func(p *vaultv1alpha1.VaultPolicy) {
 				if p.Annotations == nil {
 					p.Annotations = map[string]string{}
@@ -179,6 +177,13 @@ var _ = Describe("Managed Markers", Ordered, Label("managed-markers"), func() {
 				g.Expect(statusErr).NotTo(HaveOccurred())
 				g.Expect(status).NotTo(Equal("Active"))
 			}, 20*time.Second, 5*time.Second).Should(Succeed())
+
+			By("verifying the foreign policy content was never overwritten")
+			hcl, readErr := vc.ReadPolicy(ctx, testNamespace+"-"+mmConflictPol)
+			Expect(readErr).NotTo(HaveOccurred())
+			own, ok := vault.ParseOwnership(hcl)
+			Expect(ok).To(BeTrue())
+			Expect(own.AuthMount).To(Equal("k8s-other-cluster"))
 		})
 	})
 })
