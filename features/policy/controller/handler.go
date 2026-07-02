@@ -327,7 +327,11 @@ func (h *Handler) validateNamespaceBoundary(adapter domain.PolicyAdapter) error 
 	return nil
 }
 
-// checkConflict checks for conflicts with existing Vault policies.
+// checkConflict checks for conflicts with existing Vault policies using the
+// in-band ownership header (ADR 0008). Ownership requires BOTH the same
+// owning CR and the same operator identity (auth mount) — two clusters on a
+// shared Vault can hold CRs with identical namespace/name coordinates, and
+// only the auth-mount identity tells them apart.
 // Supports adoption via annotation (vault.platform.io/adopt: "true") or ConflictPolicy.
 func (h *Handler) checkConflict(
 	ctx context.Context,
@@ -335,9 +339,8 @@ func (h *Handler) checkConflict(
 	adapter domain.PolicyAdapter,
 	vaultPolicyName string,
 ) error {
-	// Managed markers disabled: no ownership data exists, so conflict detection
-	// can't run — proceed (write-and-forget). Explicit adopt-intent is surfaced
-	// separately (markerIntentDisabledWarning).
+	// Managed markers disabled: ownership tracking is off — proceed
+	// (write-and-forget). Explicit adopt-intent is surfaced separately.
 	if !markers.Enabled() {
 		conflict.WarnAdoptIntentInert(h.recorder, adapter.GetObject(), adapter)
 		return nil
@@ -354,12 +357,8 @@ func (h *Handler) checkConflict(
 		return nil
 	}
 
-	// Policy exists, check ownership
-	managedBy, err := vaultClient.GetManagedBy(ctx, vault.MarkerID{
-		Kind:      vault.MarkerPolicy,
-		Namespace: adapter.GetNamespace(),
-		Name:      adapter.GetName(),
-	})
+	// Policy exists — read its in-band ownership header.
+	own, err := vaultClient.GetPolicyOwnership(ctx, vaultPolicyName)
 	if err != nil {
 		// Can't determine ownership - check if adoption is allowed
 		if h.shouldAdopt(adapter) {
@@ -370,23 +369,34 @@ func (h *Handler) checkConflict(
 		return infraerrors.NewTransientError("check policy ownership", err)
 	}
 
-	k8sResource := adapter.GetK8sResourceIdentifier()
-
-	// Same owner, no conflict
-	if managedBy == k8sResource {
+	// Same owner (same CR via the same operator identity), no conflict.
+	if own != nil && own.SameOwner(vaultClient.AuthMount(), adapter.GetK8sResourceIdentifier()) {
 		return nil
 	}
 
-	// Different owner - cannot adopt
-	if managedBy != "" {
-		log.Info("WARN: policy already managed by another resource, adoption blocked",
+	// Owned by a different CR or a different operator instance - cannot adopt.
+	if own != nil {
+		log.Info("WARN: policy already managed by another owner, adoption blocked",
 			"policyName", vaultPolicyName,
-			"managedBy", managedBy,
-			"currentResource", k8sResource)
-		return infraerrors.NewConflictError("policy", vaultPolicyName, fmt.Sprintf("already managed by %s", managedBy))
+			"owner", own.String(),
+			"currentResource", adapter.GetK8sResourceIdentifier(),
+			"currentAuthMount", vaultClient.AuthMount())
+		return infraerrors.NewConflictError("policy", vaultPolicyName,
+			fmt.Sprintf("already managed by %s", own.String()))
 	}
 
-	// Exists but not managed - check if adoption is allowed
+	// No header, but this CR has synced the policy before: a manual FULL
+	// replacement in Vault wipes the in-band header along with the rules.
+	// The CR's own status is the ownership memory here (same rule as roles)
+	// — proceed, and let drift detection flag/correct the divergence (a
+	// corrective write re-stamps the header).
+	if adapter.GetLastAppliedHash() != "" {
+		log.Info("policy header missing but CR previously synced — treating as ours (manual overwrite?)",
+			"policyName", vaultPolicyName)
+		return nil
+	}
+
+	// Exists but carries no operator header - check if adoption is allowed
 	if h.shouldAdopt(adapter) {
 		log.Info("adopting existing Vault policy", "policyName", vaultPolicyName)
 		metrics.IncrementAdoption(kindForMetric(adapter), adapter.GetNamespace(), true)

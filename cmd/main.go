@@ -119,15 +119,15 @@ func main() {
 			"IMPROVEMENTS Missing Features §A.")
 	var clusterName string
 	flag.StringVar(&clusterName, "cluster-name", os.Getenv("CLUSTER_NAME"),
-		"Per-cluster prefix applied to every Vault resource name (policies, roles, managed "+
-			"markers), so multiple operators can share one Vault CE server without collisions. "+
+		"Per-cluster prefix applied to every Vault resource name (policies, roles), so multiple "+
+			"operators sharing one Vault CE server derive non-colliding names. "+
 			"Empty (default) disables prefixing. Must match "+clusterNamePattern+".")
 	var managedMarkers bool
 	flag.BoolVar(&managedMarkers, "managed-markers", os.Getenv("MANAGED_MARKERS") == "true",
-		"Enable managed-marker ownership tracking (Vault KV v2 custom_metadata): conflict/adoption "+
-			"detection, discovery, orphan detection, and safe cleanup. Disabled by default (opt-in). "+
-			"When enabled the operator needs create,read,update,list,delete on "+
-			"secret/metadata/vault-access-operator/managed/*.")
+		"Enable in-band ownership tracking (ADR 0008): conflict/adoption detection, discovery, and "+
+			"orphan detection. Ownership travels ON the managed objects themselves (policy comment "+
+			"header, KV custom_metadata) keyed to the connection's auth mount — no extra Vault grant "+
+			"is required. Disabled by default (opt-in).")
 	opts := zap.Options{
 		Development: true,
 	}

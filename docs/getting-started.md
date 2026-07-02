@@ -129,14 +129,17 @@ it, a JWT mount never does.
 
 | Path | Capabilities | Enable when |
 |------|--------------|-------------|
-| `secret/metadata/vault-access-operator/managed/*` | create, read, update, list, delete (metadata only — **no `data`**) | You run with `--managed-markers=true` (default OFF) for ownership tracking, discovery, and orphan detection. Multi-tenant operators can scope this to `secret/metadata/vault-access-operator/managed/{cluster}/*`. |
 | `secret/{data,metadata}/<prefix>/*` | data: create · metadata: read, patch, delete | You use the [`VaultKVSecret`](api-reference.md#vaultkvsecret) CRD |
+
+`--managed-markers` (ownership tracking, discovery, orphan detection) needs **no
+extra grant**: ownership records travel in-band on the managed objects
+themselves ([ADR 0008](adr/0008-in-band-ownership-markers.md)).
 
 #### What the Operator Does NOT Need
 
 | Path | Reason |
 |------|--------|
-| `secret/*` data **reads** | The operator manages **access** to secrets and never reads their values. Managed-marker tracking writes only KV v2 `custom_metadata` (`secret/metadata/…`), never `secret/data`. The single feature that *writes* `secret/data` is `VaultKVSecret` seeding, and only `create` on the narrow prefix you seed — see the opt-in table above. |
+| `secret/*` data **reads** | The operator manages **access** to secrets and never reads their values. The single feature that *writes* `secret/data` is `VaultKVSecret` seeding, and only `create` on the narrow prefix you seed — see the opt-in table above. |
 | `sys/seal`, `sys/unseal` | Administrative operations only |
 | `sys/init` | Vault initialization is out of scope |
 | `identity/*` | Entity/alias management not required |
@@ -164,12 +167,6 @@ the role-management block.
     # config — only if the operator bootstraps the mount or rotates token_reviewer_jwt
     path "auth/kubernetes/config" { capabilities = ["create", "read", "update"] }
 
-    # ── Managed markers — ONLY with --managed-markers=true (default OFF) ──
-    # custom_metadata only, never secret/data. Scope to .../managed/{cluster}/*
-    # in a multi-tenant (shared Vault CE) setup.
-    path "secret/metadata/vault-access-operator/managed/*" {
-      capabilities = ["create", "read", "update", "list", "delete"]
-    }
     EOF
     ```
 
@@ -186,12 +183,6 @@ the role-management block.
     path "auth/jwt/role/*" { capabilities = ["create", "read", "update", "delete"] }
     path "auth/jwt/role"   { capabilities = ["list"] }          # only with VaultDiscovery
 
-    # ── Managed markers — ONLY with --managed-markers=true (default OFF) ──
-    # custom_metadata only, never secret/data. Scope to .../managed/{cluster}/*
-    # in a multi-tenant (shared Vault CE) setup.
-    path "secret/metadata/vault-access-operator/managed/*" {
-      capabilities = ["create", "read", "update", "list", "delete"]
-    }
     EOF
     ```
 

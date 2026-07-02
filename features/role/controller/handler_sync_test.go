@@ -42,13 +42,6 @@ import (
 	"github.com/panteparak/vault-access-operator/shared/markers"
 )
 
-// roleMarkerPath returns the metadata path a role marker lands at. mount is the
-// bare auth-mount (e.g. "kubernetes"); nsSeg is the K8s namespace or "_cluster"
-// for a cluster-scoped role; name is the CR name (NOT the derived vault name).
-func roleMarkerPath(mount, nsSeg, name string) string {
-	return fmt.Sprintf("secret/metadata/vault-access-operator/managed/roles/%s/%s/%s", mount, nsSeg, name)
-}
-
 // enableMarkersForTest turns managed-marker tracking on for the test. Marker /
 // conflict assertions are gated on this (markers default OFF in production).
 func enableMarkersForTest(t *testing.T) {
@@ -446,19 +439,8 @@ func TestSyncRole_Success_NewRole(t *testing.T) {
 		t.Error("expected bound_service_account_namespaces in role data")
 	}
 
-	// Verify managed marker was written at the mount-qualified metadata path.
-	// Path segments: roles/{mount}/{ns}/{CR name} — not the derived vault name.
-	managedKey := roleMarkerPath("kubernetes", testNamespace, testRoleName)
-	state.mu.Lock()
-	cm, markerExists := state.managed[managedKey]
-	state.mu.Unlock()
-
-	if !markerExists {
-		t.Fatalf("expected managed marker at %s, but not found; keys: %v", managedKey, keysOf(state.managed))
-	}
-	if cm[vault.KVManagedByKey] != vault.KVManagedByValue {
-		t.Errorf("marker managed-by = %v, want %q", cm[vault.KVManagedByKey], vault.KVManagedByValue)
-	}
+	// No marker assertion: roles carry no Vault-side ownership record (ADR
+	// 0008) — ownership memory is the CR's own status.
 }
 
 func TestSyncRole_Success_WithTTL(t *testing.T) {
@@ -590,14 +572,8 @@ func TestSyncRole_ConflictError_Fail(t *testing.T) {
 	state.roles["auth/kubernetes/role/"+vaultRoleName] = map[string]interface{}{
 		"policies": []interface{}{"old-policy"},
 	}
-	// Seed a foreign ownership marker at the hierarchical metadata path
-	// (custom_metadata): managed-by is the operator sentinel so it's read as
-	// ours, but k8s-resource points elsewhere → conflict under default Fail.
-	managedKey := roleMarkerPath("kubernetes", testNamespace, testRoleName)
-	state.managed[managedKey] = map[string]interface{}{
-		vault.KVManagedByKey:   vault.KVManagedByValue,
-		vault.KVK8sResourceKey: "other-ns/other-role",
-	}
+	// Roles carry no in-band ownership record (ADR 0008): the conflict
+	// signal is "role exists in Vault, but this CR has never synced it".
 
 	conn := newTestVaultConnection()
 	role := newTestVaultRole()
@@ -630,11 +606,6 @@ func TestSyncRole_MarkersDisabled_NoConflict(t *testing.T) {
 	vaultRoleName := testNamespace + "-" + testRoleName
 	state.roles["auth/kubernetes/role/"+vaultRoleName] = map[string]interface{}{
 		"policies": []interface{}{"old-policy"},
-	}
-	// Foreign marker present — but markers are off, so it must be ignored.
-	state.managed[roleMarkerPath("kubernetes", testNamespace, testRoleName)] = map[string]interface{}{
-		vault.KVManagedByKey:   vault.KVManagedByValue,
-		vault.KVK8sResourceKey: "other-ns/other-role",
 	}
 
 	conn := newTestVaultConnection()

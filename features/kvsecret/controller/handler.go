@@ -31,6 +31,7 @@ import (
 	"github.com/panteparak/vault-access-operator/shared/controller/dryrun"
 	"github.com/panteparak/vault-access-operator/shared/controller/vaultclient"
 	infraerrors "github.com/panteparak/vault-access-operator/shared/infrastructure/errors"
+	"github.com/panteparak/vault-access-operator/shared/naming"
 )
 
 // Handler implements the trimmed Sync/Cleanup logic for VaultKVSecret.
@@ -95,7 +96,12 @@ func (h *Handler) Sync(ctx context.Context, kvs *vaultv1alpha1.VaultKVSecret) er
 	}
 
 	if created {
-		if err := vc.StampKVOwnership(ctx, mount, rel, vault.KVOwnership{K8sResource: resourceID}); err != nil {
+		own := vault.KVOwnership{
+			K8sResource: resourceID,
+			AuthMount:   vc.AuthMount(),
+			Cluster:     naming.Cluster(),
+		}
+		if err := vc.StampKVOwnership(ctx, mount, rel, own); err != nil {
 			return infraerrors.NewTransientError("stamp KV ownership", err)
 		}
 		kvs.Status.Seeded = true
@@ -158,12 +164,17 @@ func (h *Handler) Cleanup(ctx context.Context, kvs *vaultv1alpha1.VaultKVSecret)
 	if err != nil {
 		return infraerrors.NewTransientError("read KV metadata for cleanup", err)
 	}
+	own, owned := vault.KVOwnedBy(md)
 	switch {
 	case md == nil:
 		log.V(1).Info("seeded secret already gone", "path", kvs.Spec.Path)
 		return nil
-	case !vault.IsOwnedBy(md):
-		log.Info("retaining KV secret: ownership stamp absent/changed", "path", kvs.Spec.Path)
+	case !owned || !own.SameOwner(vc.AuthMount(), resourceID):
+		// Identity-aware (ADR 0008): a colliding path seeded by another
+		// operator instance (or another CR) is never ours to delete, even
+		// though it carries the same managed-by sentinel.
+		log.Info("retaining KV secret: not owned by this resource",
+			"path", kvs.Spec.Path, "owner", own.String())
 		return nil
 	case md.CurrentVersion != kvs.Status.SeededVersion:
 		log.Info("retaining KV secret: written since seeding",

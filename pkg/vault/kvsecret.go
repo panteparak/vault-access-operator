@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/hashicorp/vault/api"
 )
@@ -22,6 +23,11 @@ const (
 	KVManagedByValue = "vault-access-operator"
 	// KVK8sResourceKey records the owning K8s resource (namespace/name).
 	KVK8sResourceKey = "k8s-resource"
+	// KVManagedAtKey records when the operator first stamped ownership
+	// (RFC3339). Preserved across re-stamps.
+	KVManagedAtKey = "managed-at"
+	// KVLastUpdatedKey records when ownership was last stamped (RFC3339).
+	KVLastUpdatedKey = "last-updated"
 )
 
 // KVOwnership is the ownership information stamped into a seeded secret's
@@ -31,6 +37,11 @@ type KVOwnership struct {
 	ManagedBy string
 	// K8sResource is the owning resource identifier (namespace/name).
 	K8sResource string
+	// AuthMount is the operator's identity — the auth mount it logged in
+	// through (ADR 0008). Empty for static-token connections.
+	AuthMount string
+	// Cluster is --cluster-name, informational; empty when unset.
+	Cluster string
 }
 
 // SplitKVv2Path splits a full KV v2 data path such as "secret/data/apps/foo"
@@ -135,11 +146,31 @@ func (c *Client) StampKVOwnership(ctx context.Context, mount, path string, own K
 	if managedBy == "" {
 		managedBy = KVManagedByValue
 	}
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	// Preserve managed-at across re-stamps; only the first stamp sets it.
+	managedAt := now
+	if md, err := c.ReadKVMetadata(ctx, mount, path); err == nil && md != nil {
+		if v, ok := md.CustomMetadata[KVManagedAtKey].(string); ok && v != "" {
+			managedAt = v
+		}
+	}
+
+	cm := map[string]interface{}{
+		KVManagedByKey:   managedBy,
+		KVK8sResourceKey: own.K8sResource,
+		KVManagedAtKey:   managedAt,
+		KVLastUpdatedKey: now,
+	}
+	if own.AuthMount != "" {
+		cm[OwnershipAuthMountKey] = own.AuthMount
+	}
+	if own.Cluster != "" {
+		cm[OwnershipClusterKey] = own.Cluster
+	}
+
 	err := c.KVv2(mount).PatchMetadata(ctx, path, api.KVMetadataPatchInput{
-		CustomMetadata: map[string]interface{}{
-			KVManagedByKey:   managedBy,
-			KVK8sResourceKey: own.K8sResource,
-		},
+		CustomMetadata: cm,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to stamp KV ownership on %s/%s: %w", mount, path, err)
@@ -150,12 +181,29 @@ func (c *Client) StampKVOwnership(ctx context.Context, mount, path string, own K
 // IsOwnedBy reports whether the KV metadata's custom_metadata marks the secret
 // as managed by the operator (managed-by == KVManagedByValue). Used by the
 // delete-if-untouched check to avoid removing a secret we don't own.
+// Identity-blind — prefer KVOwnedBy + Ownership.SameOwner when the caller can
+// supply the expected identity (multi-operator shared Vault, ADR 0008).
 func IsOwnedBy(md *api.KVMetadata) bool {
 	if md == nil || md.CustomMetadata == nil {
 		return false
 	}
 	v, _ := md.CustomMetadata[KVManagedByKey].(string)
 	return v == KVManagedByValue
+}
+
+// KVOwnedBy extracts the full ownership record from a secret's
+// custom_metadata. ok=false when the secret carries no operator marker.
+func KVOwnedBy(md *api.KVMetadata) (Ownership, bool) {
+	var o Ownership
+	if md == nil || md.CustomMetadata == nil {
+		return o, false
+	}
+	get := func(k string) string { v, _ := md.CustomMetadata[k].(string); return v }
+	o.ManagedBy = get(KVManagedByKey)
+	o.K8sResource = get(KVK8sResourceKey)
+	o.AuthMount = get(OwnershipAuthMountKey)
+	o.Cluster = get(OwnershipClusterKey)
+	return o, o.ManagedBy == KVManagedByValue
 }
 
 // DeleteKVSecret permanently removes a KV v2 secret and ALL its versions via the

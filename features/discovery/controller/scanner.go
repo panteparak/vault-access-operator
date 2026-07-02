@@ -61,23 +61,30 @@ type Scanner struct {
 	vaultClient *vault.Client
 	config      *vaultv1alpha1.DiscoveryConfig
 	authPath    string // Kubernetes auth mount path for role discovery
-	log         logr.Logger
+	// managedRoles is the set of Vault role names the cluster's role CRs
+	// derive to (computed by the reconciler from VaultRole/VaultClusterRole
+	// lists). Roles carry no in-band ownership record (ADR 0008), so the CR
+	// set IS the ownership source for role discovery.
+	managedRoles map[string]struct{}
+	log          logr.Logger
 }
 
 // NewScanner creates a new Scanner.
 // authPath is the Kubernetes auth mount path (defaults to "auth/kubernetes" if empty).
+// managedRoles is the CR-derived set of owned Vault role names (may be nil).
 func NewScanner(
 	vaultClient *vault.Client, config *vaultv1alpha1.DiscoveryConfig,
-	authPath string, log logr.Logger,
+	authPath string, managedRoles map[string]struct{}, log logr.Logger,
 ) *Scanner {
 	if authPath == "" {
 		authPath = vault.DefaultKubernetesAuthPath
 	}
 	return &Scanner{
-		vaultClient: vaultClient,
-		config:      config,
-		authPath:    authPath,
-		log:         log.WithName("scanner"),
+		vaultClient:  vaultClient,
+		config:       config,
+		authPath:     authPath,
+		managedRoles: managedRoles,
+		log:          log.WithName("scanner"),
 	}
 }
 
@@ -118,19 +125,17 @@ func (s *Scanner) Scan(ctx context.Context) *ScanResult {
 	return result
 }
 
-// scanPolicies scans for unmanaged policies
+// scanPolicies scans for unmanaged policies. Ownership is read in-band from
+// each candidate policy's comment header (ADR 0008) — filters run FIRST so
+// only candidates that could actually be surfaced cost a policy read. Any
+// operator-managed policy is skipped, whether owned by this operator or a
+// foreign one (a foreign owner's policy must never become an adoption
+// candidate on a shared Vault).
 func (s *Scanner) scanPolicies(ctx context.Context, result *ScanResult) error {
 	// List all policies in Vault
 	allPolicies, err := s.vaultClient.ListPolicies(ctx)
 	if err != nil {
 		return err
-	}
-
-	// Get managed policies
-	managedPolicies, err := s.vaultClient.ListManaged(ctx, vault.MarkerPolicy)
-	if err != nil {
-		s.log.V(1).Info("failed to list managed policies, assuming none exist", "error", err)
-		managedPolicies = make(map[string]vault.ManagedResource)
 	}
 
 	now := metav1.Now()
@@ -140,13 +145,25 @@ func (s *Scanner) scanPolicies(ctx context.Context, result *ScanResult) error {
 			continue
 		}
 
-		// Skip if already managed
-		if _, managed := managedPolicies[policyName]; managed {
+		// Check against pattern filters
+		if !s.matchesPolicyPatterns(policyName) {
 			continue
 		}
 
-		// Check against pattern filters
-		if !s.matchesPolicyPatterns(policyName) {
+		// Skip if operator-managed (ours or foreign). A read failure skips
+		// the candidate conservatively — better to miss a discovery than to
+		// offer a possibly-owned policy for adoption.
+		own, err := s.vaultClient.GetPolicyOwnership(ctx, policyName)
+		if err != nil {
+			s.log.V(1).Info("failed to read policy ownership; skipping candidate",
+				"policy", policyName, "error", err.Error())
+			continue
+		}
+		if own != nil {
+			if own.AuthMount != s.vaultClient.AuthMount() {
+				s.log.V(1).Info("policy managed by a foreign operator; excluded from discovery",
+					"policy", policyName, "owner", own.String())
+			}
 			continue
 		}
 
@@ -163,10 +180,13 @@ func (s *Scanner) scanPolicies(ctx context.Context, result *ScanResult) error {
 	return nil
 }
 
-// scanRoles scans for unmanaged Kubernetes auth roles
+// scanRoles scans for unmanaged Kubernetes auth roles. Roles carry no
+// in-band ownership record (ADR 0008): the managed set is derived from the
+// cluster's role CRs by the reconciler and injected at construction. The
+// scan only ever targets this connection's own mount — under the
+// one-cluster-per-mount invariant, everything here is legitimately in scope.
 func (s *Scanner) scanRoles(ctx context.Context, result *ScanResult) error {
 	authPath := s.authPath
-	mount := vault.AuthMountName(authPath)
 
 	// List all roles in Vault
 	allRoles, err := s.vaultClient.ListKubernetesAuthRoles(ctx, authPath)
@@ -177,18 +197,10 @@ func (s *Scanner) scanRoles(ctx context.Context, result *ScanResult) error {
 		return nil
 	}
 
-	// Get managed roles. The map is keyed "{mount}/{vaultName}" — mount-qualified
-	// so same-name roles on different auth mounts stay distinct.
-	managedRoles, err := s.vaultClient.ListManaged(ctx, vault.MarkerRole)
-	if err != nil {
-		s.log.V(1).Info("failed to list managed roles, assuming none exist", "error", err)
-		managedRoles = make(map[string]vault.ManagedResource)
-	}
-
 	now := metav1.Now()
 	for _, roleName := range allRoles {
-		// Skip if already managed
-		if _, managed := managedRoles[mount+"/"+roleName]; managed {
+		// Skip if a role CR already derives to this Vault role name
+		if _, managed := s.managedRoles[roleName]; managed {
 			continue
 		}
 

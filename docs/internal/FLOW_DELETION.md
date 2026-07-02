@@ -6,9 +6,9 @@ Deletion of a CR goes through three mechanisms:
 
 1. **Finalizer-guarded cleanup** (every CRD) — standard K8s pattern: a finalizer blocks deletion until `Cleanup()` runs successfully.
 2. **Persistent cleanup queue** (`pkg/cleanup`) — ConfigMap-backed retry queue for failed deletions, meant to survive operator restarts. **⚠️ Not wired into main.go.**
-3. **Orphan detection** (`pkg/orphan`) — periodic scan for Vault resources marked as managed whose K8s owner has vanished. Gated behind `--managed-markers=true` (default OFF): with markers off there are no markers to scan, so the operator does not run the orphan controller.
+3. **Orphan detection** (`pkg/orphan`) — periodic scan for Vault resources this operator owns whose K8s owner has vanished. Policies are scanned by their in-band ownership header (ADR 0008); roles by comparing the operator's own auth mount against the CR-derived name set. Gated behind `--managed-markers=true` (default OFF).
 
-Only (1) is active today. (2) and (3) are complete implementations with tests. Orphan detection (3) is additionally gated on `--managed-markers` being enabled (it enumerates the managed-marker hierarchy).
+Only (1) is active today. (2) and (3) are complete implementations with tests. Orphan detection (3) is additionally gated on `--managed-markers` being enabled.
 
 ## Finalizer-Guarded Cleanup (active)
 
@@ -52,9 +52,7 @@ sequenceDiagram
             alt V returns error
                 Note over CW: logged, but cleanup continues
             end
-            CW->>Ops: RemoveManaged
-            Ops->>VC: RemovePolicyManaged/RemoveRoleManaged
-            VC->>V: DELETE managed marker
+            Note over CW: no marker removal — ownership is in-band<br/>(header dies with the policy; roles have no record)
         else unauthenticated / cache miss
             Note over CW: log "failed to get Vault client, continuing with finalizer removal"<br/>⚠️ Vault resource LEAKED
         end
@@ -162,7 +160,7 @@ See [IMPROVEMENTS.md §1](IMPROVEMENTS.md#1-unwired-controllers) and [§2](IMPRO
 
 ## Orphan Detection (⚠️ not wired)
 
-Symmetric to the cleanup queue: finds Vault resources that **still** have a managed marker but whose K8s CR is gone.
+Symmetric to the cleanup queue: finds Vault resources that still claim this operator as owner (or, for roles, live on its mount) but whose K8s CR is gone.
 
 ### Intended Flow
 
@@ -179,9 +177,9 @@ sequenceDiagram
         loop each connection
             C->>Cache: Get(connName)
             Cache-->>C: vaultClient
-            C->>VC: ListManagedPolicies(ctx)
-            VC->>V: recursive LIST + READ custom_metadata over managed/{cluster}/policies/**
-            V-->>VC: map[vaultName]ManagedResource{K8sResource, ...}
+            C->>VC: ListPolicies + GetPolicyOwnership per candidate
+            VC->>V: LIST sys/policies/acl + READ each policy's in-band header
+            V-->>VC: policies owned by THIS operator (auth-mount identity match)
             loop each managed
                 C->>K8s: Get(VaultPolicy / VaultClusterPolicy) by k8sResource
                 alt NotFound
@@ -192,7 +190,7 @@ sequenceDiagram
             end
             C->>C: metric: vault_orphaned_resources{type=policy}
 
-            C->>VC: ListManagedRoles
+            C->>VC: ListKubernetesAuthRoles(own mount) vs CR-derived name set
             Note over C: same loop for roles
             C->>C: metric: vault_orphaned_resources{type=role}
         end
@@ -207,14 +205,14 @@ The orphan controller **does not delete** — it only logs and publishes metrics
 
 ## Resource Type Matrix
 
-Managed-marker deletes below run **only when `--managed-markers=true`** (default OFF); with markers off the `RemoveManaged` step is a no-op and no marker exists to remove. Marker paths are KV v2 `custom_metadata` (never `secret/data`); `{cluster}` is omitted when unset, and cluster-scoped CRs use the sentinel `_cluster` in the `{ns}` slot.
+Ownership records are in-band (ADR 0008), so deletion needs no marker step: the policy header dies with the policy, KV custom_metadata dies with the secret, and roles have no record. Before a policy delete, cleanup re-reads the live header and **skips the delete when it names a foreign owner** (`ForeignPolicyNotDeleted` warning) — names can collide across clusters on a shared Vault.
 
-| CR kind | Cleanup calls | Vault path deleted | Managed marker `custom_metadata` deleted (markers on) |
+| CR kind | Cleanup calls | Vault path deleted | Ownership record |
 |---------|--------------|--------------------|-------------------------------------------------------|
-| `VaultPolicy` | `DeletePolicy`, `RemovePolicyManaged` | `sys/policies/acl/{namespace}-{name}` | `secret/metadata/vault-access-operator/managed/{cluster}/policies/{ns}/{name}` |
-| `VaultClusterPolicy` | `DeletePolicy`, `RemovePolicyManaged` | `sys/policies/acl/{name}` | `secret/metadata/vault-access-operator/managed/{cluster}/policies/_cluster/{name}` |
-| `VaultRole` | `DeleteKubernetesAuthRole`, `RemoveRoleManaged` | `auth/{mount}/role/{namespace}-{name}` | `secret/metadata/vault-access-operator/managed/{cluster}/roles/{mount}/{ns}/{name}` |
-| `VaultClusterRole` | same | `auth/{mount}/role/{name}` | `.../managed/{cluster}/roles/{mount}/_cluster/{name}` |
+| `VaultPolicy` | `DeletePolicy` (ownership-gated) | `sys/policies/acl/{namespace}-{name}` | in-band header — dies with the policy |
+| `VaultClusterPolicy` | `DeletePolicy` (ownership-gated) | `sys/policies/acl/{name}` | in-band header — dies with the policy |
+| `VaultRole` | `DeleteKubernetesAuthRole` | `auth/{mount}/role/{namespace}-{name}` | none (CR status was the memory) |
+| `VaultClusterRole` | same | `auth/{mount}/role/{name}` | none (CR status was the memory) |
 | `VaultConnection` | dependent-check → DisableAuth (opt-in) → RevokeSelf → Unregister × 2 → Cache.Delete → event | auth mount (opt-in), token revoke | — |
 
 ## Error Scenarios
@@ -224,7 +222,6 @@ Managed-marker deletes below run **only when `--managed-markers=true`** (default
 | Vault unreachable during cleanup | `getVaultClient` | finalizer removed, resource leaked in Vault | enqueue → cleanup controller retries later |
 | Vault 403 during delete | `DeleteFromVault` | logged, finalizer still removed | enqueue → retry; alert on 403 (permissions issue) |
 | Delete returns 404 | `DeleteFromVault` | logged as error (Vault returns 404 when policy doesn't exist) | treat 404 as success |
-| Managed marker delete fails | `RemoveManaged` | logged as non-fatal | orphan scanner may later misattribute resources |
 | Connection deletion while dependents exist | `listDependents` | blocked, `ChildrenExist` condition, user intervention | add CR-level webhook to reject deletion earlier |
 | Finalizer manually removed before cleanup completes | user action | Vault resource leaked | orphan scanner should catch it — but it's not running |
 

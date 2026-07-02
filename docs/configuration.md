@@ -224,9 +224,7 @@ path "secret/metadata/*" {
 **Do you need `list`? No.** Neither `secret/data/*` nor `secret/metadata/*` needs
 `list`. The operator never enumerates KV paths — it acts only on the explicit
 `spec.path` of each `VaultKVSecret`. The data path likewise needs **no** `read`,
-`update`, or `delete`. (The unrelated managed-marker tracking does `list` its own
-`secret/metadata/vault-access-operator/managed/*` prefix — that is separate from
-seeding, metadata-only, and required only when [`--managed-markers=true`](#managed-markers).)
+`update`, or `delete`.
 
 **Least privilege:** scope both prefixes to the paths you actually seed (e.g.
 `secret/data/apps/*` and `secret/metadata/apps/*`) rather than the broad
@@ -264,7 +262,7 @@ The operator supports the following environment variables for runtime configurat
 | `OPERATOR_NAMESPACE` | (from downward API) | Namespace where the operator is running |
 | `OPERATOR_SERVICE_ACCOUNT` | (from downward API) | Service account name used by the operator |
 | `CLUSTER_NAME` | `""` | Per-cluster prefix for all Vault resource names (see [`--cluster-name`](#cli-flags) and [Sharing one Vault across clusters](#sharing-one-vault-across-clusters)). The `--cluster-name` flag takes precedence. |
-| `MANAGED_MARKERS` | `false` | Enable managed-marker ownership tracking, discovery, and orphan detection (see [`--managed-markers`](#cli-flags) and [Managed markers](#managed-markers)). The `--managed-markers` flag takes precedence. |
+| `MANAGED_MARKERS` | `false` | Enable in-band ownership tracking, discovery, and orphan detection (see [`--managed-markers`](#cli-flags) and [Managed markers](#managed-markers)). The `--managed-markers` flag takes precedence. |
 
 These can be set via the `extraEnv` Helm value:
 
@@ -296,21 +294,24 @@ The operator binary accepts the following command-line flags:
 | `--metrics-cert-key` | `tls.key` | Metrics key file name |
 | `--enable-http2` | `false` | Enable HTTP/2 for metrics and webhook servers |
 | `--enable-webhooks` | `false` | Enable admission webhooks (requires certificate configuration) |
-| `--cluster-name` | `""` | Per-cluster prefix for all Vault resource names (policies, roles, managed markers). Set a unique value per cluster when multiple operators share one Vault server; empty disables prefixing. Also settable via the `CLUSTER_NAME` env var. See [Sharing one Vault across clusters](#sharing-one-vault-across-clusters). |
-| `--managed-markers` | `false` | Enable managed-marker ownership tracking, discovery, and orphan detection. Default OFF: the operator writes/reads no markers, skips conflict/ownership detection (write-and-forget), and does not run the discovery or orphan controllers. When ON, it also requires the metadata grant on `secret/metadata/vault-access-operator/managed/*`. Also settable via the `MANAGED_MARKERS` env var. See [Managed markers](#managed-markers). |
+| `--cluster-name` | `""` | Per-cluster prefix for all Vault resource names (policies, roles). Set a unique value per cluster when multiple operators share one Vault server; empty disables prefixing. Also settable via the `CLUSTER_NAME` env var. See [Sharing one Vault across clusters](#sharing-one-vault-across-clusters). |
+| `--managed-markers` | `false` | Enable in-band ownership tracking, discovery, and orphan detection (ADR 0008). Default OFF: the operator skips conflict/ownership detection (write-and-forget) and does not run the discovery or orphan controllers. When ON, ownership travels on the managed objects themselves — no extra Vault grant. Also settable via the `MANAGED_MARKERS` env var. See [Managed markers](#managed-markers). |
 
 ---
 
 ## Sharing one Vault across clusters
 
-Vault Community Edition has no [namespaces](https://developer.hashicorp.com/vault/docs/enterprise/namespaces) (an Enterprise feature), so ACL policies live in a single global store (`sys/policies/acl/`) and the operator's managed-marker KV path is shared. If you run **one operator per Kubernetes cluster against the same Vault server**, two clusters that define a policy or role with the same name (e.g. `default/admin`) would otherwise write to the same Vault object and silently overwrite each other.
+Vault Community Edition has no [namespaces](https://developer.hashicorp.com/vault/docs/enterprise/namespaces) (an Enterprise feature), so ACL policies live in a single global store (`sys/policies/acl/`). If you run **one operator per Kubernetes cluster against the same Vault server**, two clusters that define a policy with the same name (e.g. `default/admin`) would otherwise derive the same Vault object name.
 
-Set a unique **`--cluster-name`** (or `CLUSTER_NAME` env / `clusterName` Helm value) per cluster to prefix every derived Vault resource name:
+Two settings work together (see [ADR 0008](adr/0008-in-band-ownership-markers.md)):
 
-| Setting | `VaultPolicy` `default/admin` → Vault policy | Managed marker (when `--managed-markers=true`) |
-|---------|----------------------------------------------|------------------------------------------------|
-| `clusterName: east` | `east-default-admin` | `…/managed/east/policies/default/admin` |
-| `clusterName: west` | `west-default-admin` | `…/managed/west/policies/default/admin` |
+1. **One auth mount per cluster — hard requirement.** Each cluster's operator MUST authenticate through its own auth mount (e.g. `auth/k8s-east`, `auth/k8s-west`). The mount path is the operator's **ownership identity**: it is stamped into every in-band ownership record, so cross-cluster fights are *detected and blocked* (conflict instead of silent overwrite) even when names collide. Roles are additionally isolated structurally — they live under their cluster's own mount.
+2. **`--cluster-name`** (or `CLUSTER_NAME` env / `clusterName` Helm value) — a unique per-cluster prefix on every derived Vault resource name that *prevents* the collision in the first place:
+
+| Setting | `VaultPolicy` `default/admin` → Vault policy |
+|---------|----------------------------------------------|
+| `clusterName: east` | `east-default-admin` |
+| `clusterName: west` | `west-default-admin` |
 
 Both clusters then coexist on one Vault with no collisions. Notes:
 
@@ -323,11 +324,26 @@ Both clusters then coexist on one Vault with no collisions. Notes:
 
 ## Managed markers
 
-A **managed marker** is a KV v2 `custom_metadata` record the operator writes to
-Vault to track the policies and roles it owns. Markers back three features:
-ownership/conflict detection (so two operators don't silently overwrite each
-other), discovery (adopting pre-existing Vault resources into CRs), and orphan
-detection (spotting resources whose K8s owner has vanished).
+A **managed marker** is the operator's in-band ownership record, stored **on
+the managed Vault object itself** ([ADR 0008](adr/0008-in-band-ownership-markers.md)).
+Markers back three features: ownership/conflict detection (so two operators
+don't silently overwrite each other), discovery (adopting pre-existing Vault
+resources into CRs), and orphan detection (spotting resources whose K8s owner
+has vanished).
+
+Where the record lives:
+
+| Object | In-band record |
+|--------|----------------|
+| ACL policy | Structured comment header inside the policy document (`# managed-by`, `# auth-mount`, `# cluster`, `# k8s-resource`, `# k8s-kind`) |
+| KV secret (`VaultKVSecret`) | `custom_metadata` on the secret's own path (`managed-by`, `k8s-resource`, `auth-mount`, `cluster`, `managed-at`, `last-updated`) |
+| Auth role | None — Vault auth roles have no metadata surface. Ownership memory is the owning CR's status plus the one-cluster-per-auth-mount invariant |
+
+The operator's **identity** is the auth mount path its connection logged in
+through. Ownership requires the sentinel **+ the same identity + the same
+owning CR** — a record naming another operator's mount is *foreign*: it
+conflicts, cannot be adopted, is never deleted by cleanup, and is excluded
+from discovery.
 
 **The whole mechanism is OFF by default** and gated behind a single toggle:
 
@@ -337,34 +353,17 @@ detection (spotting resources whose K8s owner has vanished).
 | `MANAGED_MARKERS` env var | `false` | Same; the flag takes precedence |
 | `managedMarkers.enabled` Helm value | `false` | Renders the flag |
 
-**When OFF (default):** the operator writes and reads **no** markers. It skips
-conflict/ownership detection entirely (write-and-forget) and does **not** run the
-discovery or orphan-detection controllers. It needs **no** grant on the marker KV
-path.
+**When OFF (default):** the operator skips conflict/ownership detection
+entirely (write-and-forget) and does **not** run the discovery or
+orphan-detection controllers.
 
-**When ON:** full ownership tracking, discovery, and orphan detection. This
-requires a metadata grant in the operator's Vault policy:
+**When ON:** full ownership tracking, discovery, and orphan detection —
+**no additional Vault grant is required**; the records live inside objects the
+operator already reads and writes.
 
-```hcl
-# Managed markers live in KV v2 custom_metadata only — never secret/data.
-path "secret/metadata/vault-access-operator/managed/*" {
-  capabilities = ["create", "read", "update", "list", "delete"]
-}
-```
-
-Markers are stored under a hierarchical path so a token can be ACL-scoped per
-segment. Multi-tenant operators (one per cluster, sharing one Vault CE server)
-can narrow the grant to their own subtree:
-
-```hcl
-path "secret/metadata/vault-access-operator/managed/{cluster}/*" {
-  capabilities = ["create", "read", "update", "list", "delete"]
-}
-```
-
-On a `VaultConnection` becoming `Active`, the operator runs a one-time preflight
-against this path and emits a `Warning` event `ManagedMarkersPreflightFailed` if
-the grant is missing.
+A static-token `VaultConnection` has no auth mount and therefore no ownership
+identity; with markers on it emits a `Warning` event
+`OwnershipIdentityUnavailable` (unsupported for multi-operator Vaults).
 
 !!! warning "Used but not activated"
     If markers are OFF and a CR sets `conflictPolicy: Adopt` (or the annotation
@@ -374,23 +373,23 @@ the grant is missing.
     `--enable-webhooks` is set — the validating webhook **rejects the create at
     admission**. A plain or defaulted `conflictPolicy: Fail` is allowed silently.
 
-!!! danger "Migration — two breaking changes"
+!!! danger "Migration — breaking changes"
     1. **Default-off.** Deployments that relied on always-on markers (pre-0.8)
        **silently lose** ownership tracking, discovery, and orphan detection after
        upgrade unless they set `--managed-markers=true`.
-    2. **Path + storage moved.** Markers moved from KV v2 **data** at the old flat
-       path `secret/data/vault-access-operator/managed/{policies,roles}/…` to KV v2
-       **`custom_metadata`** at the new hierarchical path
-       `secret/metadata/vault-access-operator/managed/{cluster}/{kind}/…`. When you
-       enable `--managed-markers=true` after upgrade, the new path is empty, so
-       existing managed resources read as **unmanaged** → conflict under the default
-       `Fail` policy. The Vault policies/roles themselves are **untouched** (no data
+    2. **The marker subtree is gone.** The operator no longer uses
+       `secret/metadata/vault-access-operator/managed/*` (nor the older
+       `secret/data/…` variant) — remove that grant from the operator's Vault
+       policy and delete the inert subtree manually
+       (`vault kv metadata delete` per path). Policies written by earlier
+       versions read as **unmanaged** → conflict under the default `Fail`
+       policy. The Vault policies/roles themselves are **untouched** (no data
        loss); only ownership tracking resets. **Remedy:** set
-       `ConflictPolicy: Adopt` (or annotate `vault.platform.io/adopt=true`) while
-       enabling, let resources re-mark, then revert. Old inert markers under
-       `secret/data/vault-access-operator/managed/*` can be deleted manually.
+       `ConflictPolicy: Adopt` (or annotate `vault.platform.io/adopt=true`)
+       while enabling; each policy is then rewritten once with the in-band
+       header.
 
-    See [ADR 0007](adr/0007-hierarchical-metadata-only-managed-markers.md).
+    See [ADR 0008](adr/0008-in-band-ownership-markers.md).
 
 ---
 

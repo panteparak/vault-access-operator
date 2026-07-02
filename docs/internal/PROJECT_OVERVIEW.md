@@ -63,7 +63,7 @@ vault-access-operator/
 │   └── infrastructure/errors/  # TransientError, ValidationError, ConflictError, DependencyError
 │
 ├── pkg/                        # Importable utilities
-│   ├── vault/                  # Vault client wrapper: HCL gen, managed markers, client cache
+│   ├── vault/                  # Vault client wrapper: HCL gen, in-band ownership, client cache
 │   │   ├── auth/               # JWT/OIDC/AWS/GCP login data generators
 │   │   ├── bootstrap/          # One-time Vault setup (creates k8s auth mount, role, policy)
 │   │   └── token/              # TokenRequestProvider, MountedTokenProvider, lifecycle, rotation
@@ -102,7 +102,7 @@ make e2e-local-down                  # teardown
 | **Finalizer** | K8s metadata entry (`vault.platform.io/finalizer`) that blocks deletion until `Cleanup()` runs. |
 | **Drift** | Divergence between the declared spec and what exists in Vault. Three modes: `ignore`, `detect`, `correct`. |
 | **Adoption** | Taking ownership of a Vault resource that already existed. Opt-in via `vault.platform.io/adopt=true` annotation or `ConflictPolicy: Adopt`. |
-| **Managed marker** | KV-v2 `custom_metadata` (never `secret/data`) at the hierarchical path `secret/metadata/vault-access-operator/managed/{cluster}/{policies/{ns}\|roles/{mount}/{ns}}/{name}` storing the K8s owner reference. Used for orphan + discovery + conflict checks. Gated by `--managed-markers` (default off). |
+| **Managed marker** | In-band ownership record on the managed object itself (ADR 0008): policy comment header / KV `custom_metadata`; roles have none (CR status + one-cluster-per-auth-mount invariant). Used for orphan + discovery + conflict checks. Gated by `--managed-markers` (default off). |
 | **Bootstrap** | One-time setup using a high-privilege root/management token to enable the k8s auth mount, create the operator's own role + policy, then (optionally) self-revoke. |
 | **Binding** | `VaultResourceBinding` subresource in status linking a CR to its concrete Vault path (e.g., `sys/policies/acl/default-app`). |
 | **Adapter** | Interface (`PolicyAdapter`, `RoleAdapter`) unifying namespaced + cluster-scoped variants so one `Handler` services both. |
@@ -158,7 +158,6 @@ make e2e-local-down                  # teardown
 | `vault.platform.io/discovered-from=<connName>` | source connection for a discovered CR (raw string) |
 | `vault.platform.io/reconcile-now=<any value>` | force an immediate reconcile of the CR even when spec.generation didn't change. Cleared by the operator after a successful sync (single-shot trigger). Set via `kubectl annotate vaultpolicy foo vault.platform.io/reconcile-now="$(date -Iseconds)" --overwrite`. Constant `AnnotationReconcileNow`. |
 | `vault.platform.io/dry-run=true` | preview mode — operator skips ALL Vault writes (Write/Delete/MarkManaged) for this CR and surfaces the would-be operation via the `DryRun` status condition. Persistent (does NOT auto-clear); user removes when ready to apply. Combine with `DriftMode: correct` to preview what a correction WOULD overwrite. Constant `AnnotationDryRun` ([§I](IMPROVEMENTS.md#i-no-dry-run--plan-mode-still-missing)). |
-| `vault.platform.io/restore-managed-markers=true` *(VaultConnection only)* | one-shot mass re-adoption: the connection reconciler walks every dependent VaultPolicy/VaultClusterPolicy/VaultRole/VaultClusterRole and re-writes its managed-marker entry in Vault. Use after the `secret/metadata/vault-access-operator/managed/` custom_metadata tree is wiped (manual cleanup, snapshot restore, etc.) so dependents aren't conflict-blocked. Only relevant when `--managed-markers=true` (default off). Auto-clears on success; partial failures keep it set so the next reconcile retries. Constant `AnnotationRestoreManagedMarkers` ([§G](IMPROVEMENTS.md#g-no-backuprestore-story-for-managed-markers-still-missing)). |
 
 ## Document Index
 

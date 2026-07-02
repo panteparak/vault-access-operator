@@ -7,6 +7,56 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added
+
+- **In-band ownership markers (ADR 0008).** Ownership records now live ON the
+  managed Vault objects themselves instead of the dedicated KV marker subtree
+  that 0.8.0 introduced:
+  - **Policies** carry a structured comment header inside the policy document
+    (`managed-by`, `auth-mount`, `cluster`, `k8s-resource`, `k8s-kind`) — Vault
+    stores HCL verbatim, and drift comparison already strips comments.
+  - **KV secrets** (`VaultKVSecret`) keep their `custom_metadata` stamp,
+    enriched with `auth-mount`, `cluster`, `managed-at` (preserved across
+    re-stamps) and `last-updated`.
+  - **Roles** carry nothing (Vault auth roles have no metadata surface):
+    ownership memory is the owning CR's status plus the one-cluster-per-mount
+    invariant.
+  The operator's identity is the **auth mount path** its connection logged in
+  through. **Hard requirement on shared Vaults: one cluster per auth mount.**
+  Static-token connections have no identity → new `Warning` event
+  `OwnershipIdentityUnavailable` (unsupported for multi-operator Vaults).
+  `--managed-markers` keeps its opt-in semantics but now requires **no
+  additional Vault grant**.
+- **Cross-cluster collision safety.** Ownership comparison now requires the
+  managed-by sentinel **plus** the auth-mount identity **plus** the owning CR
+  (previously any operator instance passed). A foreign-owned policy: conflicts
+  are reported, adoption is blocked (even with `ConflictPolicy: Adopt`),
+  cleanup refuses to delete it (`Warning` event `ForeignPolicyNotDeleted`),
+  and discovery never offers it for adoption.
+
+### Changed
+
+- **BREAKING — the managed-marker KV subtree is gone (ADR 0008).** The
+  operator no longer writes, reads, or needs any grant on
+  `secret/metadata/vault-access-operator/managed/*`. Remove that grant from
+  operator Vault policies. **Migration from 0.8.0:** subtree markers are
+  inert — delete them manually (`vault kv metadata delete` under
+  `secret/metadata/vault-access-operator/managed/`). Policies written by
+  0.8.0 and earlier read as *unmanaged* until re-adopted (`ConflictPolicy:
+  Adopt` or the adopt annotation); the next sync then rewrites each policy
+  once with the in-band ownership header. Roles: existing Active CRs keep
+  ownership via their status; only fresh CRs pointing at pre-existing roles
+  need `Adopt`. KV secrets stamped before enrichment lack the identity key
+  and are conservatively retained (never deleted) by cleanup.
+
+### Removed
+
+- **`vault.platform.io/restore-managed-markers` annotation.** Obsolete under
+  in-band ownership: the policy header self-heals on every sync. The operator
+  now just clears the annotation with an explanatory log line.
+- **Managed-marker connection preflight** (`ManagedMarkersPreflightFailed`
+  event): there is no marker grant left to probe.
+
 ## [0.8.0] - 2026-07-02
 
 ### Added

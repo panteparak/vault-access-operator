@@ -73,9 +73,7 @@ type mockOps struct {
 	prepareErr       error
 	writeErr         error
 	readbackErr      error
-	markManagedErr   error
 	deleteErr        error
-	removeManagedErr error
 
 	// Configurable results
 	specHash      string
@@ -117,19 +115,9 @@ func (m *mockOps) ReadbackVerify(_ context.Context, _ VaultOpsClient) error {
 	return m.readbackErr
 }
 
-func (m *mockOps) MarkManaged(_ context.Context, _ VaultOpsClient) error {
-	m.calls = append(m.calls, "MarkManaged")
-	return m.markManagedErr
-}
-
 func (m *mockOps) DeleteFromVault(_ context.Context, _ VaultOpsClient) error {
 	m.calls = append(m.calls, "DeleteFromVault")
 	return m.deleteErr
-}
-
-func (m *mockOps) RemoveManaged(_ context.Context, _ VaultOpsClient) error {
-	m.calls = append(m.calls, "RemoveManaged")
-	return m.removeManagedErr
 }
 
 func (m *mockOps) ApplyActiveStatus(_ string, _ *metav1.Time) {

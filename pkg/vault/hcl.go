@@ -19,18 +19,11 @@ type PolicyParameters struct {
 	Required []string
 }
 
-// GeneratePolicyHCL generates an HCL policy document from rules
+// GeneratePolicyHCL generates an HCL policy document body from rules. The
+// ownership comment header (OwnershipHeader) is prepended by the caller —
+// it needs connection-scoped identity this function doesn't know.
 func GeneratePolicyHCL(rules []PolicyRule, namespace, name string) string {
 	var builder strings.Builder
-
-	// Add header comment
-	builder.WriteString("# Vault policy managed by vault-access-operator\n")
-	if namespace != "" {
-		fmt.Fprintf(&builder, "# Kubernetes resource: %s/%s\n", namespace, name)
-	} else {
-		fmt.Fprintf(&builder, "# Kubernetes resource: %s (cluster-scoped)\n", name)
-	}
-	builder.WriteString("\n")
 
 	for i, rule := range rules {
 		// Substitute variables in path

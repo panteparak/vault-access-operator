@@ -6,8 +6,8 @@ Roles bind a set of Kubernetes service accounts (or JWT identities) to a list of
 
 Like policy, role uses the shared `workflow.SyncWorkflow`. Unlike policy, role branches on the **auth backend** at several points — backend selection is driven by [`vault.ResolveAuthBackend(spec.authType, spec.authPath)`](../../pkg/vault/client.go): an explicit `spec.authType` (`kubernetes`/`jwt`) wins, otherwise the family is inferred from the mount-path name via `AuthBackendForPath`. The explicit override (IMPROVEMENTS §7) lets a role target a JWT/Kubernetes method mounted at an arbitrary path (e.g. `auth/custom-oidc`).
 
-!!! note "Managed markers gated by `--managed-markers` (default OFF)"
-    The conflict check (`GetRoleManagedBy`) and `MarkManaged` steps run **only when `--managed-markers=true`**. With markers off (the default), the operator writes the role and forgets it — no ownership marker is written or read, and conflict/ownership detection is skipped. When on, the marker is KV v2 `custom_metadata` (never `secret/data`) at `secret/metadata/vault-access-operator/managed/{cluster}/roles/{mount}/{ns}/{name}` (`{cluster}` omitted when unset; cluster-scoped roles use `_cluster` for `{ns}`). See [ADR 0007](../adr/0007-hierarchical-metadata-only-managed-markers.md), [CONTEXT.md `Managed marker`](CONTEXT.md#managed-marker).
+!!! note "Ownership tracking gated by `--managed-markers` (default OFF)"
+    The conflict check runs **only when `--managed-markers=true`**. With markers off (the default), the operator writes the role and forgets it. Roles carry **no Vault-side ownership record** (Vault auth roles have no metadata surface — ADR 0008): ownership memory is the CR's own status (a CR that has synced owns its role), and cross-cluster safety is structural — every cluster's operator authenticates through its own auth mount, so another cluster never reaches this mount's roles. Conflict = role exists in Vault AND this CR never synced it → adopt-or-fail. See [ADR 0008](../adr/0008-in-band-ownership-markers.md), [CONTEXT.md `Managed marker`](CONTEXT.md#managed-marker).
 
 ## Participants
 
@@ -19,7 +19,7 @@ Like policy, role uses the shared `workflow.SyncWorkflow`. Unlike policy, role b
 | 4 | `RoleAdapter` | [features/role/domain/adapter.go](../../features/role/domain/adapter.go) | interface over both role kinds |
 | 5 | `RoleOps` | [ops.go:37](../../features/role/controller/ops.go:37) | implements `workflow.ResourceOps` for roles |
 | 6 | `workflow.SyncWorkflow` | shared | same 9-step orchestration as policy |
-| 7 | `vault.Client` | pkg | `WriteKubernetesAuthRole`, `ReadKubernetesAuthRole`, `KubernetesAuthRoleExists`, `DeleteKubernetesAuthRole`, `MarkRoleManaged`, `GetRoleManagedBy`, `PolicyExists` |
+| 7 | `vault.Client` | pkg | `WriteKubernetesAuthRole`, `ReadKubernetesAuthRole`, `KubernetesAuthRoleExists`, `DeleteKubernetesAuthRole`, `PolicyExists` |
 | 8 | `drift.Comparator` | [drift/compare.go](../../shared/controller/drift/compare.go) | sort-insensitive field-by-field comparison |
 | 9 | `hash.FromMapDeterministic` | [hash/hash.go](../../shared/controller/hash/hash.go) | sorted-key hashing of role data map |
 
@@ -111,9 +111,7 @@ sequenceDiagram
         Ops-->>WF: TransientError
     end
 
-    WF->>Ops: MarkManaged (only when --managed-markers=true)
-    Ops->>VC: MarkRoleManaged(name, k8sResource)
-    VC->>V: WRITE custom_metadata at<br/>secret/metadata/vault-access-operator/managed/{cluster}/roles/{mount}/{ns}/{name}
+    Note over WF: no Vault-side ownership write —<br/>the CR's status IS the ownership memory (ADR 0008)
 
     WF->>Ops: ApplyBindings
     Ops->>Ops: adapter.SetBinding(VaultResourceBinding{authMount, path})
@@ -237,7 +235,7 @@ Loop `PolicyExists` for each resolved name. Missing policies emit a warning cond
 `hash.FromMapDeterministic(roleData)` — sorted keys, JSON marshal, SHA-256. Any change in bindings, policies, or TTLs produces a new hash.
 
 ### Step 7 onwards
-Same as policy: drift detection, write, readback, mark managed, apply bindings, status, event.
+Same as policy: drift detection, write, readback, apply bindings, status, event.
 
 ## Status Fields Set on Success
 

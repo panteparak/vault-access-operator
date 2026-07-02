@@ -118,7 +118,7 @@ func (w *SyncWorkflow) Execute(ctx context.Context, resource SyncableResource, o
 		return err
 	}
 
-	if shouldReturn := w.handleUnchangedResource(ctx, resource, ops, state); shouldReturn {
+	if shouldReturn := w.handleUnchangedResource(ctx, resource, state); shouldReturn {
 		return nil
 	}
 
@@ -272,7 +272,6 @@ func (w *SyncWorkflow) handleDriftModes(
 func (w *SyncWorkflow) handleUnchangedResource(
 	ctx context.Context,
 	resource SyncableResource,
-	ops ResourceOps,
 	state *syncExecutionState,
 ) bool {
 	if resource.GetLastAppliedHash() != state.specHash ||
@@ -282,9 +281,6 @@ func (w *SyncWorkflow) handleUnchangedResource(
 	}
 
 	state.log.V(1).Info("resource unchanged and no drift, skipping update", "resource", state.vaultResourceName)
-	if err := ops.MarkManaged(ctx, state.vaultClient); err != nil {
-		state.log.V(1).Info("failed to update managed marker (non-fatal)", "error", err)
-	}
 	_ = w.commitStatus(ctx, resource, "")
 
 	return true
@@ -296,10 +292,6 @@ func (w *SyncWorkflow) finalizeSuccessfulSync(
 	ops ResourceOps,
 	state *syncExecutionState,
 ) error {
-	if err := ops.MarkManaged(ctx, state.vaultClient); err != nil {
-		state.log.V(1).Info("failed to mark as managed (non-fatal)", "error", err)
-	}
-
 	ops.ApplyBindings()
 
 	if state.driftDetected {

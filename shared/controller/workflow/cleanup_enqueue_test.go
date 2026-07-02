@@ -145,9 +145,6 @@ func TestCleanupWorkflow_DoesNotEnqueueOnVault404(t *testing.T) {
 	// Managed marker removal should still run — 404 on the primary resource
 	// doesn't invalidate the cleanup attempt, just confirms the "already gone"
 	// state. Orphan detection would otherwise flag a ghost marker.
-	if !containsCall(ops.calls, "RemoveManaged") {
-		t.Error("expected RemoveManaged to run after 404")
-	}
 }
 
 // TestCleanupWorkflow_EnqueuesOnVault500 ensures generic Vault failures still

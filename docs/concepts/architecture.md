@@ -217,21 +217,19 @@ Features publish events via `EventBus.Publish()` (synchronous) or `EventBus.Publ
 
 ## Managed Markers and Orphan Detection
 
-Managed markers are opt-in via the `--managed-markers` flag (default off). When enabled, the operator tracks which Vault resources it manages using KV v2 **`custom_metadata`** — never `secret/data` — stored at a hierarchical path:
+Ownership tracking is opt-in via the `--managed-markers` flag (default off). Ownership records are **in-band** ([ADR 0008](../adr/0008-in-band-ownership-markers.md)) — stored ON the managed Vault objects themselves, so no extra Vault grant is needed:
 
-```
-secret/metadata/vault-access-operator/managed/{cluster}/policies/{namespace}/{name}
-secret/metadata/vault-access-operator/managed/{cluster}/roles/{mount}/{namespace}/{name}
-```
+- **Policies** carry a structured comment header inside the policy document (`managed-by`, `auth-mount`, `cluster`, `k8s-resource`, `k8s-kind`).
+- **KV secrets** carry `custom_metadata` on their own metadata path.
+- **Roles** carry nothing (Vault auth roles have no metadata surface); ownership memory is the owning CR's status.
 
-The `{cluster}` segment is the `--cluster-name` value and is omitted when unset; cluster-scoped resources use `_cluster` in place of `{namespace}`. When the flag is off, the operator writes no markers and skips ownership, discovery, and orphan detection entirely.
+The operator's identity is the **auth mount path** its connection logged in through. On a shared Vault, **each cluster's operator MUST authenticate through its own auth mount** (one cluster per mount) — the mount is what tells operators apart. When the flag is off, the operator skips ownership, discovery, and orphan detection entirely.
 
-These markers enable:
+These records enable:
 
-- **Orphan detection**: Periodic scans compare markers against existing K8s resources. A marker without a matching CR indicates an orphaned Vault resource (e.g., CR deleted while operator was down).
-- **Cleanup queue**: Orphaned resources are queued for cleanup with retry logic and exponential backoff.
-- **Conflict detection**: When creating a resource, the operator checks for existing markers to detect conflicts with other CRs.
-
+- **Orphan detection**: Periodic scans compare this operator's owned policies (by header) and own-mount roles (by CR-derived names) against existing K8s resources. An owned object without a matching CR indicates an orphan (e.g., CR deleted while the operator was down).
+- **Discovery**: Unmanaged Vault resources surface as adoption candidates; anything carrying another operator's header is excluded.
+- **Conflict detection**: When creating a resource, the operator checks the live object's ownership record; a foreign owner (different auth mount or CR) blocks the sync — adoption cannot steal it.
 ## Authentication Flow
 
 ```mermaid

@@ -165,12 +165,9 @@ func (w *CleanupWorkflow) Execute(ctx context.Context, resource SyncableResource
 			} else {
 				log.Info("deleted "+label+" from Vault", "resource", vaultResourceName)
 			}
-
-			// Step 6: Remove managed marker (best-effort, no enqueue — a stale
-			// marker shows up in orphan detection rather than corrupting state).
-			if err := ops.RemoveManaged(ctx, vaultClient); err != nil {
-				log.V(1).Info("failed to remove managed marker (non-fatal)", "error", err)
-			}
+			// No marker removal step: ownership is in-band (ADR 0008) — the
+			// policy header dies with the policy, KV custom_metadata dies with
+			// the secret, and roles have no Vault-side ownership record.
 		}
 	} else {
 		log.Info("DeletionPolicy is Retain, keeping "+label+" in Vault", "resource", vaultResourceName)

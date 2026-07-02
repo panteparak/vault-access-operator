@@ -129,7 +129,6 @@ func TestSyncWorkflow_HappyPath(t *testing.T) {
 		"PrepareContent",
 		"WriteToVault",
 		"ReadbackVerify",
-		"MarkManaged",
 		"ApplyBindings",
 		"ApplyActiveStatus",
 		"PublishSyncEvent",
@@ -353,49 +352,6 @@ func TestSyncWorkflow_ReadbackVerifyError(t *testing.T) {
 		t.Error("expected ReadbackVerify to be called")
 	}
 
-	// MarkManaged should NOT be called
-	if containsCall(ops.calls, "MarkManaged") {
-		t.Error("expected MarkManaged to NOT be called after ReadbackVerify error")
-	}
-}
-
-func TestSyncWorkflow_MarkManagedError_BestEffort(t *testing.T) {
-	t.Parallel()
-
-	policy := newTestPolicy()
-	conn := newTestVaultConnection()
-	k8s := newFakeK8sClient(t, policy, conn)
-	wf := newSyncWorkflowForTest(t, k8s)
-
-	res := newTestResource(policy)
-	ops := &mockOps{
-		specHash:       "abc123",
-		markManagedErr: errors.New("KV write failed"),
-	}
-
-	err := wf.Execute(context.Background(), res, ops)
-	if err != nil {
-		t.Fatalf("expected no error (best-effort), got: %v", err)
-	}
-
-	// All subsequent steps should still be called despite MarkManaged error
-	if !containsCall(ops.calls, "MarkManaged") {
-		t.Error("expected MarkManaged to be called")
-	}
-	if !containsCall(ops.calls, "ApplyBindings") {
-		t.Error("expected ApplyBindings to be called after MarkManaged error")
-	}
-	if !containsCall(ops.calls, "ApplyActiveStatus") {
-		t.Error("expected ApplyActiveStatus to be called after MarkManaged error")
-	}
-	if !containsCall(ops.calls, "PublishSyncEvent") {
-		t.Error("expected PublishSyncEvent to be called after MarkManaged error")
-	}
-
-	// Phase should be Active
-	if res.GetPhase() != vaultv1alpha1.PhaseActive {
-		t.Errorf("phase = %q, want %q", res.GetPhase(), vaultv1alpha1.PhaseActive)
-	}
 }
 
 func TestSyncWorkflow_DriftDetect_SkipIfHashMatches(t *testing.T) {
@@ -591,10 +547,6 @@ func TestSyncWorkflow_SkipIfUnchanged(t *testing.T) {
 		t.Error("expected WriteToVault to NOT be called for unchanged resource with no drift")
 	}
 
-	// MarkManaged should be called (best-effort marker update)
-	if !containsCall(ops.calls, "MarkManaged") {
-		t.Error("expected MarkManaged to be called for unchanged resource")
-	}
 }
 
 func TestSyncWorkflow_DriftIgnoreMode(t *testing.T) {

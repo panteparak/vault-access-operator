@@ -195,16 +195,17 @@ logging:
   # -- Enable stack trace in logs
   stacktraceLevel: error
 
-# -- Per-cluster prefix applied to every Vault resource name (policies, roles,
-# managed markers). Set a unique value per cluster when multiple operators share
-# one Vault server, so they don't collide on the global ACL policy store (Vault
-# CE has no namespaces). Empty disables prefixing (single-cluster default).
+# -- Per-cluster prefix applied to every Vault resource name (policies, roles).
+# Set a unique value per cluster when multiple operators share one Vault server,
+# so they don't collide on the global ACL policy store (Vault CE has no
+# namespaces). Empty disables prefixing (single-cluster default).
 clusterName: ""
 
-# Managed-marker ownership tracking (Vault KV v2 custom_metadata): conflict /
-# adoption detection, discovery, orphan detection, and safe cleanup. Disabled by
-# default (opt-in). When enabled, the operator's Vault policy needs
-# create,read,update,list,delete on secret/metadata/vault-access-operator/managed/*.
+# In-band ownership tracking (ADR 0008): conflict/adoption detection, discovery,
+# and orphan detection. Ownership travels ON the managed Vault objects (policy
+# comment header, KV custom_metadata) keyed to the connection's auth mount — no
+# extra Vault grant is required, but on a shared Vault every cluster MUST
+# authenticate through its own auth mount. Disabled by default (opt-in).
 managedMarkers:
   # -- Enable managed-marker tracking (sets the operator's --managed-markers flag).
   enabled: false

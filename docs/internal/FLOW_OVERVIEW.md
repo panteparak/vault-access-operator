@@ -110,7 +110,7 @@ Every `Reconcile` produces K8s events via `BaseReconciler.recordEvent`:
 | `*vault.Client` | outward | workflow → Vault | auth + CRUD |
 | `vault.PolicyRule` | outward | policy → HCL gen | Vault-native policy shape |
 | `map[string]interface{}` | outward | role → Vault API | role data (policies, bound SAs, TTLs, audiences) |
-| `ManagedResource` | inward | Vault → orphan / discovery | managed-marker metadata: `{k8sResource, connectionName}` |
+| `Ownership` | inward | Vault → conflict / orphan / discovery | in-band ownership record: `{managedBy, authMount, cluster, k8sResource, k8sKind}` |
 | `events.*Event` | lateral | publisher → subscriber | `ConnectionReady`, `PolicyCreated`, `RoleCreated`, `BootstrapCompleted`, `ConnectionDisconnected`, etc. |
 | `vaultv1alpha1.Condition` | outward | `conditions.Set` → status | K8s-style condition entry |
 | `VaultResourceBinding` | outward | `binding.New*` → status | foreign-key-like pointer to Vault path |
@@ -220,7 +220,7 @@ Primary callers: `role/controller/handler.go` (drift comparison for roles), poli
 
 ### Managed-marker schema
 
-Gated by `--managed-markers` (default OFF); when enabled, stored as KV v2 `custom_metadata` (never `secret/data`) at the hierarchical path `secret/metadata/vault-access-operator/managed/{cluster}/policies/{ns}/{name}` (policies) or `.../managed/{cluster}/roles/{mount}/{ns}/{name}` (roles) — `{cluster}` omitted when unset, `_cluster` sentinel for cluster-scoped CRs — via [pkg/vault/managed.go](../../pkg/vault/managed.go). See [ADR 0007](../adr/0007-hierarchical-metadata-only-managed-markers.md). The keys below are the `custom_metadata` fields:
+Gated by `--managed-markers` (default OFF). Ownership is **in-band** (ADR 0008) via [pkg/vault/managed.go](../../pkg/vault/managed.go): policies carry a structured comment header; KV secrets carry `custom_metadata` on their own path; roles carry nothing (CR status). The keys below appear in the policy header and the KV `custom_metadata`:
 
 ```json
 {
@@ -236,7 +236,7 @@ Gated by `--managed-markers` (default OFF); when enabled, stored as KV v2 `custo
 - `managed-at` is set once when the operator first claims ownership. Never re-written.
 - `last-updated` is bumped every successful MarkManaged (essentially every sync).
 
-**Two operators managing the same Vault path** — if two operator instances (different UIDs) write to the same marker, the last writer wins. There's no ownership lease. This is an unlikely-but-real multi-cluster scenario; see [IMPROVEMENTS.md §G](IMPROVEMENTS.md#g-no-backuprestore-story-for-managed-markers).
+**Two operators deriving the same Vault name** — ownership comparison includes the auth-mount identity (ADR 0008), so the second operator conflicts instead of silently overwriting; cleanup refuses to delete foreign-owned policies. The hard requirement is one auth mount per cluster; role fights on a *shared* mount remain undetectable (roles carry no record).
 
 ## Configuration Precedence
 
@@ -263,8 +263,8 @@ The operator itself **writes no files on disk**. All persistence is via K8s or V
 | `ServiceAccount` token | K8s object (virtual) | ✅ `TokenRequestProvider` | ❌ | short-lived |
 | `Event` | K8s object | ❌ | ✅ `BaseReconciler.recordEvent` | surfaced via `kubectl describe` |
 | `ConfigMap: vault-cleanup-queue` | K8s object | queue ([cleanup/queue.go](../../pkg/cleanup/queue.go)) | queue | JSON array of `Item` — **consumer not wired** |
-| Vault KV: `secret/metadata/vault-access-operator/managed/{cluster}/policies/{ns}/{name}` | Vault | ✅ conflict check, orphan, discovery | ✅ `MarkPolicyManaged` | `custom_metadata: {k8sResource, connectionName, ...}`; **only when `--managed-markers=true`** |
-| Vault KV: `secret/metadata/vault-access-operator/managed/{cluster}/roles/{mount}/{ns}/{name}` | Vault | ✅ conflict check, orphan, discovery | ✅ `MarkRoleManaged` | same shape; **only when `--managed-markers=true`** |
+| Vault: in-band ownership header inside `sys/policies/acl/{name}` | Vault | ✅ conflict check, orphan, discovery | ✅ written with every policy write | parsed via `ParseOwnership`; checked **only when `--managed-markers=true`** |
+| Roles: no Vault-side record (ADR 0008) | — | ✅ conflict = exists + CR never synced; orphan = own-mount vs CR set | — | ownership memory is the CR status |
 | Vault sys: `sys/policies/acl/{name}` | Vault | ✅ drift | ✅ policy sync | HCL content |
 | Vault sys: `auth/{mount}/role/{name}` | Vault | ✅ drift | ✅ role sync | role params |
 | `/var/run/secrets/.../namespace` | filesystem | ✅ `getOperatorNamespace` | ❌ | fallback only |

@@ -6,8 +6,8 @@ Policies declare what Vault paths a set of capabilities (read/write/etc.) can ac
 
 **All state transitions and Vault writes are driven by `workflow.SyncWorkflow`** ([shared/controller/workflow/sync.go](../../shared/controller/workflow/sync.go)), which both policy and role share.
 
-!!! note "Managed markers gated by `--managed-markers` (default OFF)"
-    The `CheckConflict` (`GetPolicyManagedBy`) and `MarkManaged` steps run **only when `--managed-markers=true`**. With markers off (the default), the workflow writes the policy and forgets it — no ownership marker is written or read, and conflict/ownership detection is skipped. When on, the marker is KV v2 `custom_metadata` (never `secret/data`) at `secret/metadata/vault-access-operator/managed/{cluster}/policies/{ns}/{name}`. See [ADR 0007](../adr/0007-hierarchical-metadata-only-managed-markers.md), [CONTEXT.md `Managed marker`](CONTEXT.md#managed-marker).
+!!! note "Ownership tracking gated by `--managed-markers` (default OFF)"
+    The `CheckConflict` ownership read runs **only when `--managed-markers=true`**. With markers off (the default), the workflow writes the policy and forgets it — conflict/ownership detection is skipped. Ownership is **in-band** (ADR 0008): a structured comment header inside the policy document itself (`managed-by`, `auth-mount`, `cluster`, `k8s-resource`, `k8s-kind`), written as part of every policy write and read back via `ReadPolicy` + `ParseOwnership`. There is no marker path and no marker-specific grant. See [ADR 0008](../adr/0008-in-band-ownership-markers.md), [CONTEXT.md `Managed marker`](CONTEXT.md#managed-marker).
 
 ## Participants
 
@@ -88,9 +88,9 @@ sequenceDiagram
     Ops->>VC: PolicyExists(name)
     VC->>V: GET /sys/policies/acl/{name}
     V-->>VC: exists?
-    alt exists (managed-by check only when --managed-markers=true)
+    alt exists (ownership check only when --managed-markers=true)
         Ops->>VC: GetPolicyManagedBy(name)
-        VC->>V: READ custom_metadata at<br/>secret/metadata/vault-access-operator/managed/{cluster}/policies/{ns}/{name}
+        VC->>V: READ sys/policies/acl/{name}<br/>parse in-band ownership header (ADR 0008)
         V-->>VC: managedBy string
         alt managedBy == ourResource
             Note over Ops: same owner, no conflict
@@ -134,7 +134,6 @@ sequenceDiagram
 
     WF->>WF: handleUnchangedResource
     alt hash == lastAppliedHash & Phase=Active & !drifted
-        WF->>Ops: MarkManaged (refresh metadata)
         WF->>K8s: Status.Update (best-effort)
         Note over WF: no write to Vault
         WF-->>H: nil
@@ -158,9 +157,8 @@ sequenceDiagram
         Ops-->>WF: TransientError("readback verification")
     end
 
-    WF->>Ops: MarkManaged (best-effort; only when --managed-markers=true)
+    Note over WF: ownership header travels inside the<br/>policy document itself (no separate write)
     Ops->>VC: MarkPolicyManaged(name, k8sResource, descriptions)
-    VC->>V: WRITE custom_metadata at<br/>secret/metadata/vault-access-operator/managed/{cluster}/policies/{ns}/{name}
 
     WF->>Ops: ApplyBindings
     Ops->>Ops: adapter.SetBinding(VaultResourceBinding)
@@ -202,7 +200,7 @@ Only if not already `Syncing` or `Active`. Avoids unnecessary status writes on r
 ### Step 5: Check conflict (Ops.CheckConflict) — only when `--managed-markers=true`
 With markers **off** (the default) this step is skipped entirely: the operator writes the policy and forgets it (write-and-forget). When markers are on:
 - If policy doesn't exist in Vault → no conflict.
-- If exists, read managed marker — KV v2 `custom_metadata` (never `secret/data`) at `secret/metadata/vault-access-operator/managed/{cluster}/policies/{ns}/{name}` (`{cluster}` omitted when unset; `_cluster` for `{ns}` on `VaultClusterPolicy`).
+- If exists, read the policy's in-band ownership header (`GetPolicyOwnership` = `ReadPolicy` + `ParseOwnership`). Ownership requires the sentinel + the same auth-mount identity + the same owning CR (`Ownership.SameOwner`); a header naming another operator or CR is foreign → conflict, adoption blocked.
   - Same K8s owner → OK.
   - Different owner → `ConflictError` (cannot adopt under another operator).
   - No owner (not managed) → `ConflictError` unless `shouldAdopt(adapter)` (annotation or `ConflictPolicy: Adopt`).
@@ -221,7 +219,7 @@ With markers **off** (the default) this step is skipped entirely: the operator w
 - **detect + changed hash**: proceed to Write (the user changed the spec, so this is a user-initiated update, not drift correction).
 - **correct + no `allow-destructive` annotation**: `Phase=Conflict`, block write, increment `safety_destructive_blocked_total`. User must add annotation to unlock.
 - **correct + annotation present**: proceed to Write (log "correcting drift with destructive annotation").
-- **unchanged spec, unchanged Vault, no drift**: skip write, refresh managed marker, update status.
+- **unchanged spec, unchanged Vault, no drift**: skip write, update status (the ownership header is part of the document — nothing to refresh).
 
 ### Step 9: Write + readback
 - `discovery-pending=true` annotation → skip write (preserves adopted placeholder policies).
@@ -229,7 +227,7 @@ With markers **off** (the default) this step is skipped entirely: the operator w
 - Readback mismatch returns `TransientError` — the next reconcile will retry.
 
 ### Step 10: Mark managed + apply bindings + active status
-- `MarkPolicyManaged` stores `{k8sResource, descriptions}` into the marker's KV v2 `custom_metadata` — **only when `--managed-markers=true`**; a no-op otherwise.
+- The ownership header is prepended by `PrepareContent` (`vault.OwnershipHeader`) and written together with the rules in `WriteToVault` — always emitted; only the *checking* is gated by `--managed-markers`.
 - `ApplyBindings` sets `Status.Binding = {vaultPath: sys/policies/acl/{name}, vaultResourceName: {name}}`.
 - `ApplyActiveStatus` sets `Status.VaultName` and `Status.RulesCount`.
 
@@ -249,7 +247,7 @@ flowchart TD
     DoDrift --> Drifted{drifted?}
     Drifted -->|no| NoChange{hash changed?}
     Drifted -->|yes| Mode{mode = correct?}
-    NoChange -->|no| Skip[no-op:<br/>MarkManaged + status]
+    NoChange -->|no| Skip[no-op:<br/>status refresh]
     NoChange -->|yes| Write
     Mode -->|no| Informational[set condition,<br/>warning event,<br/>return if hash unchanged]
     Mode -->|yes| Annot{has<br/>allow-destructive?}
@@ -263,7 +261,7 @@ flowchart TD
     Write[WriteToVault] --> Readback[ReadbackVerify]
     Readback --> Ok{match?}
     Ok -->|no| TransientErr[TransientError — retry]
-    Ok -->|yes| Mark[MarkManaged<br/>ApplyBindings<br/>Active status]
+    Ok -->|yes| Mark[ApplyBindings<br/>Active status]
     Mark --> PubEvent[Publish PolicyCreated]
     PubEvent --> Exit[end]
 ```
@@ -294,9 +292,8 @@ sequenceDiagram
             CW->>Ops: DeleteFromVault
             Ops->>VC: DeletePolicy(name)
             VC->>V: DELETE /sys/policies/acl/{name}
-            CW->>Ops: RemoveManaged (only when --managed-markers=true)
+            Note over CW: ownership gate — foreign header ⇒ skip delete<br/>(ForeignPolicyNotDeleted); record dies with the policy
             Ops->>VC: RemovePolicyManaged
-            VC->>V: DELETE custom_metadata at<br/>secret/metadata/vault-access-operator/managed/{cluster}/policies/{ns}/{name}
         else DeletionPolicy = Retain
             Note over CW: keep policy in Vault
         end
@@ -316,7 +313,7 @@ sequenceDiagram
 | # | Crossing | Port | Method | Data |
 |---|----------|------|--------|------|
 | 1 | Reconciler → Handler | `FeatureHandler[*VaultPolicy]` | `Sync`, `Cleanup` | CR |
-| 2 | Handler → Workflow | `ResourceOps` | `Validate`, `CheckConflict`, `PrepareContent`, `DetectDrift`, `WriteToVault`, `ReadbackVerify`, `MarkManaged`, `DeleteFromVault`, `RemoveManaged`, `ApplyActiveStatus`, `ApplyBindings`, `PublishSyncEvent`, `PublishDeleteEvent` | — |
+| 2 | Handler → Workflow | `ResourceOps` | `Validate`, `CheckConflict`, `PrepareContent`, `DetectDrift`, `WriteToVault`, `ReadbackVerify`, `DeleteFromVault`, `ApplyActiveStatus`, `ApplyBindings`, `PublishSyncEvent`, `PublishDeleteEvent` | — |
 | 3 | Workflow → driftmode | func | `Resolve(ctx, client, resMode, connRef)` | DriftMode |
 | 4 | Workflow → vaultclient | func | `Resolve(ctx, client, cache, connRef, resID)` | `*vault.Client` |
 | 5 | Ops → vault.Client | concrete | `PolicyExists`, `ReadPolicy`, `WritePolicy`, `DeletePolicy`, `GetPolicyManagedBy`, `MarkPolicyManaged`, `RemovePolicyManaged` | `string`, HCL |
@@ -341,7 +338,7 @@ sequenceDiagram
 | VaultPolicy / VaultClusterPolicy CR | R + status W | every reconcile |
 | VaultConnection CR | R | dependency resolution, driftmode |
 | Vault `/sys/policies/acl/{name}` | R (drift + readback + exists) + W (sync) + DELETE (cleanup) | WriteToVault, DetectDrift, ReadbackVerify, CheckConflict, DeleteFromVault |
-| Vault `secret/metadata/vault-access-operator/managed/{cluster}/policies/{ns}/{name}` (custom_metadata; **only when `--managed-markers=true`**) | R (GetPolicyManagedBy) + W (MarkPolicyManaged) + DELETE (RemoveManaged) | CheckConflict, MarkManaged, RemoveManaged |
+| Vault `sys/policies/acl/{name}` in-band ownership header (checked **only when `--managed-markers=true`**) | R (GetPolicyOwnership) — written as part of the policy document itself | CheckConflict, DeleteFromVault ownership gate |
 | K8s Event | W | at Syncing/Synced/SyncFailed/DriftDetected/DriftCorrected |
 
 ## Divergences from Role Flow
@@ -351,7 +348,7 @@ sequenceDiagram
 3. **Variable substitution** — policy rules support `{{namespace}}` and `{{name}}` via `vault.SubstituteVariables`; role data has no such templating.
 4. **No policy-existence verification** — role verifies each referenced policy exists in Vault; policy has no analog (no outward references).
 5. **`discovery-pending` write skip** — policy honors this annotation to avoid overwriting adopted placeholders; role does not (see [IMPROVEMENTS.md §4](IMPROVEMENTS.md#4-discovery-pending-annotation-inconsistency)).
-6. **MarkManaged payload** — policy persists `descriptions` map (per-path); role only persists owner.
+6. **Ownership record** — the policy carries its full in-band header (owner CR, kind, identity); roles carry nothing (CR status is the memory).
 
 ## Cross-References
 

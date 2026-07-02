@@ -149,6 +149,11 @@ type Client struct {
 	// evicts this client when the value drifts — that's how Secret
 	// rotation propagates to the cache despite the TTL-based reuse path.
 	authSourceHash string
+	// authMount is the bare auth mount path this client logged in through
+	// (e.g. "kubernetes", "k8s-prod-eu"). It is the operator's ownership
+	// identity (ADR 0008: one cluster per auth mount). Empty for static
+	// token auth — no mount, no identity.
+	authMount string
 }
 
 // ClientConfig holds configuration for creating a Vault client
@@ -236,6 +241,23 @@ func (c *Client) ConnectionName() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.connectionName
+}
+
+// AuthMount returns the bare auth mount path this client authenticated
+// through (e.g. "kubernetes"). It is the operator's ownership identity
+// (ADR 0008). Empty for static token auth.
+func (c *Client) AuthMount() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.authMount
+}
+
+// SetAuthMount records the auth mount path. Called by the login path; exposed
+// for tests that build clients without going through a real login.
+func (c *Client) SetAuthMount(mount string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.authMount = strings.Trim(mount, "/")
 }
 
 // IsAuthenticated returns whether the client has been authenticated
@@ -445,7 +467,13 @@ func (c *Client) authenticateWithLoginPayload(
 		return fmt.Errorf("%s auth failed: %w", methodName, err)
 	}
 
-	return c.handleAuthResponse(secret, methodName)
+	if err := c.handleAuthResponse(secret, methodName); err != nil {
+		return err
+	}
+	// The mount we logged in through is the operator's ownership identity
+	// (ADR 0008: one cluster per auth mount).
+	c.SetAuthMount(mountPath)
+	return nil
 }
 
 // AuthenticateKubernetesWithToken authenticates using the Kubernetes auth method.

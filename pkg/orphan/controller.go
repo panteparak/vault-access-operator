@@ -32,6 +32,7 @@ import (
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/pkg/metrics"
 	"github.com/panteparak/vault-access-operator/pkg/vault"
+	"github.com/panteparak/vault-access-operator/shared/naming"
 )
 
 // DefaultScanInterval is the default interval between orphan detection scans.
@@ -167,7 +168,7 @@ func (c *Controller) detectOrphansForConnection(ctx context.Context, connName st
 	}
 
 	// Detect orphaned policies
-	orphanedPolicies := c.detectOrphanedPolicies(ctx, vaultClient, connName)
+	orphanedPolicies := c.DetectOrphanedPolicies(ctx, vaultClient, connName)
 	metrics.SetOrphanedResources(connName, ResourceTypePolicy, len(orphanedPolicies))
 	if len(orphanedPolicies) > 0 {
 		c.log.Info("found orphaned policies", "connection", connName, "count", len(orphanedPolicies))
@@ -180,7 +181,7 @@ func (c *Controller) detectOrphansForConnection(ctx context.Context, connName st
 	}
 
 	// Detect orphaned roles
-	orphanedRoles := c.detectOrphanedRoles(ctx, vaultClient, connName)
+	orphanedRoles := c.DetectOrphanedRoles(ctx, vaultClient, connName)
 	metrics.SetOrphanedResources(connName, ResourceTypeRole, len(orphanedRoles))
 	if len(orphanedRoles) > 0 {
 		c.log.Info("found orphaned roles", "connection", connName, "count", len(orphanedRoles))
@@ -193,24 +194,35 @@ func (c *Controller) detectOrphansForConnection(ctx context.Context, connName st
 	}
 }
 
-// detectOrphanedPolicies finds policies in Vault that are marked as managed but
-// whose corresponding K8s resource no longer exists.
-func (c *Controller) detectOrphanedPolicies(
+// DetectOrphanedPolicies finds policies whose in-band ownership header (ADR
+// 0008) names THIS operator (same auth-mount identity) but whose owning K8s
+// resource no longer exists. Foreign-owned and unmanaged policies are never
+// flagged.
+func (c *Controller) DetectOrphanedPolicies(
 	ctx context.Context, vaultClient *vault.Client, connName string,
 ) []OrphanInfo {
-	managed, err := vaultClient.ListManaged(ctx, vault.MarkerPolicy)
+	names, err := vaultClient.ListPolicies(ctx)
 	if err != nil {
-		c.log.Error(err, "failed to list managed policies", "connection", connName)
+		c.log.Error(err, "failed to list policies", "connection", connName)
 		return nil
 	}
 
 	var orphans []OrphanInfo
-	for vaultName, metadata := range managed {
-		if !c.k8sResourceExists(ctx, metadata.K8sResource, ResourceTypePolicy) {
+	for _, vaultName := range names {
+		own, err := vaultClient.GetPolicyOwnership(ctx, vaultName)
+		if err != nil {
+			c.log.V(1).Info("failed to read policy ownership; skipping",
+				"policy", vaultName, "error", err.Error())
+			continue
+		}
+		if own == nil || own.AuthMount != vaultClient.AuthMount() {
+			continue // unmanaged or another operator's — not ours to flag
+		}
+		if !c.k8sResourceExists(ctx, own.K8sResource, ResourceTypePolicy) {
 			orphans = append(orphans, OrphanInfo{
 				VaultName:      vaultName,
 				ResourceType:   ResourceTypePolicy,
-				K8sResource:    metadata.K8sResource,
+				K8sResource:    own.K8sResource,
 				ConnectionName: connName,
 			})
 		}
@@ -218,29 +230,80 @@ func (c *Controller) detectOrphanedPolicies(
 	return orphans
 }
 
-// detectOrphanedRoles finds roles in Vault that are marked as managed but
-// whose corresponding K8s resource no longer exists.
-func (c *Controller) detectOrphanedRoles(
+// DetectOrphanedRoles finds roles on THIS operator's own auth mount that no
+// role CR derives to. Roles carry no in-band ownership record (ADR 0008);
+// under the one-cluster-per-mount invariant every role on our mount belongs
+// to this cluster, so a role with no matching CR is an orphan candidate. The
+// owning CR is unknowable (no record), so K8sResource is left empty.
+func (c *Controller) DetectOrphanedRoles(
 	ctx context.Context, vaultClient *vault.Client, connName string,
 ) []OrphanInfo {
-	managed, err := vaultClient.ListManaged(ctx, vault.MarkerRole)
-	if err != nil {
-		c.log.Error(err, "failed to list managed roles", "connection", connName)
+	mount := vaultClient.AuthMount()
+	if mount == "" {
+		// Static-token connection: no mount to scan, no identity to scope by.
+		c.log.V(1).Info("skipping role orphan scan — connection has no auth mount",
+			"connection", connName)
 		return nil
 	}
 
+	roles, err := vaultClient.ListKubernetesAuthRoles(ctx, mount)
+	if err != nil {
+		c.log.Error(err, "failed to list roles", "connection", connName, "mount", mount)
+		return nil
+	}
+
+	expected := c.expectedRoleNames(ctx, mount)
+	if expected == nil {
+		return nil // CR list failed — can't tell orphans apart, skip this pass
+	}
+
 	var orphans []OrphanInfo
-	for vaultName, metadata := range managed {
-		if !c.k8sResourceExists(ctx, metadata.K8sResource, ResourceTypeRole) {
-			orphans = append(orphans, OrphanInfo{
-				VaultName:      vaultName,
-				ResourceType:   ResourceTypeRole,
-				K8sResource:    metadata.K8sResource,
-				ConnectionName: connName,
-			})
+	for _, vaultName := range roles {
+		if _, ok := expected[vaultName]; ok {
+			continue
 		}
+		orphans = append(orphans, OrphanInfo{
+			VaultName:      vaultName,
+			ResourceType:   ResourceTypeRole,
+			ConnectionName: connName,
+		})
 	}
 	return orphans
+}
+
+// expectedRoleNames derives the Vault role names this cluster's role CRs map
+// to on the given mount. Returns nil (distinct from empty) when a CR list
+// fails, so the caller can skip the pass instead of flagging everything.
+func (c *Controller) expectedRoleNames(ctx context.Context, mount string) map[string]struct{} {
+	normalizedMount := vault.NormalizeAuthPath(mount)
+	expected := map[string]struct{}{}
+
+	var roles vaultv1alpha1.VaultRoleList
+	if err := c.k8sClient.List(ctx, &roles); err != nil {
+		c.log.V(1).Info("failed to list VaultRoles for orphan scan", "error", err.Error())
+		return nil
+	}
+	for i := range roles.Items {
+		r := &roles.Items[i]
+		if vault.NormalizeAuthPath(r.Spec.AuthPath) != normalizedMount {
+			continue
+		}
+		expected[naming.Vault(r.Namespace+"-"+r.Name)] = struct{}{}
+	}
+
+	var clusterRoles vaultv1alpha1.VaultClusterRoleList
+	if err := c.k8sClient.List(ctx, &clusterRoles); err != nil {
+		c.log.V(1).Info("failed to list VaultClusterRoles for orphan scan", "error", err.Error())
+		return nil
+	}
+	for i := range clusterRoles.Items {
+		r := &clusterRoles.Items[i]
+		if vault.NormalizeAuthPath(r.Spec.AuthPath) != normalizedMount {
+			continue
+		}
+		expected[naming.Vault(r.Name)] = struct{}{}
+	}
+	return expected
 }
 
 // k8sResourceExists checks if a K8s resource exists.

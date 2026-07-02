@@ -59,20 +59,17 @@ func setConditionHelper(
 // Role-side methods return explicit "not implemented" errors so that a
 // misrouted test call surfaces a clear error instead of a nil-panic.
 type mockVaultClient struct {
-	writePolicyErr     error
-	deletePolicyErr    error
-	policyExists       bool
-	policyExistsErr    error
-	markManagedErr     error
-	removeManagedErr   error
-	managedBy          string
-	managedByErr       error
-	authenticated      bool
-	writePolicyCalls   []writePolicyCall
-	deletePolicyCalls  []string
-	markManagedCalls   []markManagedCall
-	removeManagedCalls []string
-	mu                 sync.Mutex
+	writePolicyErr    error
+	deletePolicyErr   error
+	policyExists      bool
+	policyExistsErr   error
+	ownership         *vault.Ownership // in-band header of the live policy (nil = unmanaged/absent)
+	ownershipErr      error
+	authMount         string // this operator's identity (ADR 0008)
+	authenticated     bool
+	writePolicyCalls  []writePolicyCall
+	deletePolicyCalls []string
+	mu                sync.Mutex
 }
 
 type writePolicyCall struct {
@@ -80,20 +77,11 @@ type writePolicyCall struct {
 	hcl  string
 }
 
-type markManagedCall struct {
-	// name is the MarkerID.Name the caller supplied — for a policy that's the CR
-	// name (the vault-name derivation happens deeper, in the marker path).
-	name        string
-	k8sResource string
-}
-
 func newMockVaultClient() *mockVaultClient {
 	return &mockVaultClient{
-		authenticated:      true,
-		writePolicyCalls:   []writePolicyCall{},
-		deletePolicyCalls:  []string{},
-		markManagedCalls:   []markManagedCall{},
-		removeManagedCalls: []string{},
+		authenticated:     true,
+		writePolicyCalls:  []writePolicyCall{},
+		deletePolicyCalls: []string{},
 	}
 }
 
@@ -115,26 +103,12 @@ func (m *mockVaultClient) PolicyExists(_ context.Context, _ string) (bool, error
 	return m.policyExists, m.policyExistsErr
 }
 
-// MarkManaged / GetManagedBy / RemoveManaged implement the unified
-// vault.MarkerID-based marker surface of workflow.VaultOpsClient. The marker's
-// Kind (policy vs role) is carried by the id, so the same mock serves both; a
-// policy test builds a MarkerPolicy id.
-func (m *mockVaultClient) MarkManaged(_ context.Context, id vault.MarkerID, k8sResource string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.markManagedCalls = append(m.markManagedCalls, markManagedCall{name: id.Name, k8sResource: k8sResource})
-	return m.markManagedErr
-}
+// AuthMount / GetPolicyOwnership implement the in-band ownership surface of
+// workflow.VaultOpsClient (ADR 0008).
+func (m *mockVaultClient) AuthMount() string { return m.authMount }
 
-func (m *mockVaultClient) RemoveManaged(_ context.Context, id vault.MarkerID) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.removeManagedCalls = append(m.removeManagedCalls, id.Name)
-	return m.removeManagedErr
-}
-
-func (m *mockVaultClient) GetManagedBy(_ context.Context, _ vault.MarkerID) (string, error) {
-	return m.managedBy, m.managedByErr
+func (m *mockVaultClient) GetPolicyOwnership(_ context.Context, _ string) (*vault.Ownership, error) {
+	return m.ownership, m.ownershipErr
 }
 
 func (m *mockVaultClient) IsAuthenticated() bool {
@@ -586,11 +560,10 @@ func TestGeneratePolicyHCL(t *testing.T) {
 		if strings.Contains(hcl, "{{namespace}}") {
 			t.Error("expected no {{namespace}} placeholder for cluster-scoped")
 		}
-		if !strings.Contains(hcl, "global-policy") {
-			t.Error("expected policy name in HCL header")
-		}
-		if !strings.Contains(hcl, "cluster-scoped") {
-			t.Error("expected cluster-scoped indicator in header")
+		// Body-only generation (ADR 0008): the identity header is composed
+		// separately, so the body carries only the rules.
+		if !strings.Contains(hcl, `path "secret/data/global/*"`) {
+			t.Error("expected rule path in HCL body")
 		}
 	})
 
@@ -613,18 +586,19 @@ func TestGeneratePolicyHCL(t *testing.T) {
 	})
 }
 
-// TestBuildRuleDescriptions tests the description map builder
 // TestCheckConflict_MarkersDisabled pins the critical default: with managed
-// markers OFF, checkConflict short-circuits — it never touches Vault ownership
-// data (no GetManagedBy) and returns nil so the reconcile proceeds
-// write-and-forget, even when the policy already exists in Vault.
+// markers OFF, checkConflict short-circuits — it never reads Vault ownership
+// data and returns nil so the reconcile proceeds write-and-forget, even when
+// the policy already exists in Vault.
 func TestCheckConflict_MarkersDisabled(t *testing.T) {
 	// markers default OFF; assert it explicitly rather than relying on order.
 	markers.SetEnabled(false)
 
 	mockClient := newMockVaultClient()
-	mockClient.policyExists = true            // policy exists in Vault...
-	mockClient.managedBy = "someone-else/foo" // ...and looks foreign
+	mockClient.policyExists = true           // policy exists in Vault...
+	mockClient.ownership = &vault.Ownership{ // ...and looks foreign
+		ManagedBy: vault.KVManagedByValue, K8sResource: "someone-else/foo",
+	}
 
 	policy := createTestVaultPolicy(testPolicyName, testNamespace, testConnectionName, []vaultv1alpha1.PolicyRule{
 		{Path: "secret/*", Capabilities: []vaultv1alpha1.Capability{"read"}},
@@ -658,6 +632,13 @@ func TestCheckConflict_MarkersEnabled(t *testing.T) {
 		return domain.NewVaultPolicyAdapter(p)
 	}
 	selfOwner := testNamespace + "/" + testPolicyName
+	const mount = "k8s-test"
+	ownedBy := func(authMount, k8sResource string) *vault.Ownership {
+		return &vault.Ownership{
+			ManagedBy: vault.KVManagedByValue, AuthMount: authMount,
+			K8sResource: k8sResource, K8sKind: "VaultPolicy",
+		}
+	}
 
 	t.Run("absent policy: no conflict", func(t *testing.T) {
 		m := newMockVaultClient()
@@ -672,7 +653,8 @@ func TestCheckConflict_MarkersEnabled(t *testing.T) {
 	t.Run("owned by self: no conflict", func(t *testing.T) {
 		m := newMockVaultClient()
 		m.policyExists = true
-		m.managedBy = selfOwner
+		m.authMount = mount
+		m.ownership = ownedBy(mount, selfOwner)
 		a := newAdapter(nil)
 		h := &Handler{log: logr.Discard(), recorder: record.NewFakeRecorder(10)}
 		if err := h.checkConflict(context.Background(), m, a, a.GetVaultPolicyName()); err != nil {
@@ -680,10 +662,11 @@ func TestCheckConflict_MarkersEnabled(t *testing.T) {
 		}
 	})
 
-	t.Run("owned by another: conflict", func(t *testing.T) {
+	t.Run("owned by another CR: conflict", func(t *testing.T) {
 		m := newMockVaultClient()
 		m.policyExists = true
-		m.managedBy = "other-ns/other-policy"
+		m.authMount = mount
+		m.ownership = ownedBy(mount, "other-ns/other-policy")
 		a := newAdapter(nil)
 		h := &Handler{log: logr.Discard(), recorder: record.NewFakeRecorder(10)}
 		err := h.checkConflict(context.Background(), m, a, a.GetVaultPolicyName())
@@ -692,10 +675,29 @@ func TestCheckConflict_MarkersEnabled(t *testing.T) {
 		}
 	})
 
+	// The multi-operator collision (ADR 0008): another cluster's operator
+	// holds a CR with the SAME namespace/name coordinates — only the
+	// auth-mount identity tells the two apart. Even ConflictPolicy: Adopt
+	// must not steal it.
+	t.Run("same CR coords, foreign auth mount: conflict even with Adopt", func(t *testing.T) {
+		m := newMockVaultClient()
+		m.policyExists = true
+		m.authMount = mount
+		m.ownership = ownedBy("k8s-other-cluster", selfOwner)
+		a := newAdapter(func(p *vaultv1alpha1.VaultPolicy) {
+			p.Spec.ConflictPolicy = vaultv1alpha1.ConflictPolicyAdopt
+		})
+		h := &Handler{log: logr.Discard(), recorder: record.NewFakeRecorder(10)}
+		err := h.checkConflict(context.Background(), m, a, a.GetVaultPolicyName())
+		if !infraerrors.IsConflictError(err) {
+			t.Errorf("foreign-cluster policy must conflict (adoption blocked), got %v", err)
+		}
+	})
+
 	t.Run("exists unmanaged, Fail default: conflict", func(t *testing.T) {
 		m := newMockVaultClient()
 		m.policyExists = true
-		m.managedBy = "" // exists but no marker
+		m.ownership = nil // exists but no ownership header
 		a := newAdapter(nil)
 		h := &Handler{log: logr.Discard(), recorder: record.NewFakeRecorder(10)}
 		err := h.checkConflict(context.Background(), m, a, a.GetVaultPolicyName())
@@ -704,16 +706,50 @@ func TestCheckConflict_MarkersEnabled(t *testing.T) {
 		}
 	})
 
+	// A manual FULL replacement in Vault wipes the header along with the
+	// rules — the CR's status is the ownership memory then, so the sync
+	// proceeds and drift detection handles the divergence.
+	t.Run("headerless but CR previously synced: ours", func(t *testing.T) {
+		m := newMockVaultClient()
+		m.policyExists = true
+		m.ownership = nil
+		a := newAdapter(func(p *vaultv1alpha1.VaultPolicy) {
+			p.Status.LastAppliedHash = "previously-synced"
+		})
+		h := &Handler{log: logr.Discard(), recorder: record.NewFakeRecorder(10)}
+		if err := h.checkConflict(context.Background(), m, a, a.GetVaultPolicyName()); err != nil {
+			t.Errorf("previously-synced CR should own its headerless policy, got %v", err)
+		}
+	})
+
 	t.Run("exists unmanaged, Adopt policy: adopted", func(t *testing.T) {
 		m := newMockVaultClient()
 		m.policyExists = true
-		m.managedBy = ""
+		m.ownership = nil
 		a := newAdapter(func(p *vaultv1alpha1.VaultPolicy) {
 			p.Spec.ConflictPolicy = vaultv1alpha1.ConflictPolicyAdopt
 		})
 		h := &Handler{log: logr.Discard(), recorder: record.NewFakeRecorder(10)}
 		if err := h.checkConflict(context.Background(), m, a, a.GetVaultPolicyName()); err != nil {
 			t.Errorf("unmanaged policy with ConflictPolicy=Adopt should be adopted, got %v", err)
+		}
+	})
+
+	t.Run("ownership read error, Adopt: adopted; Fail: transient", func(t *testing.T) {
+		m := newMockVaultClient()
+		m.policyExists = true
+		m.ownershipErr = errors.New("boom")
+		h := &Handler{log: logr.Discard(), recorder: record.NewFakeRecorder(10)}
+
+		a := newAdapter(nil)
+		if err := h.checkConflict(context.Background(), m, a, a.GetVaultPolicyName()); !infraerrors.IsTransientError(err) {
+			t.Errorf("read error under Fail should be transient, got %v", err)
+		}
+		a = newAdapter(func(p *vaultv1alpha1.VaultPolicy) {
+			p.Spec.ConflictPolicy = vaultv1alpha1.ConflictPolicyAdopt
+		})
+		if err := h.checkConflict(context.Background(), m, a, a.GetVaultPolicyName()); err != nil {
+			t.Errorf("read error with Adopt should adopt, got %v", err)
 		}
 	})
 }

@@ -492,11 +492,12 @@ func TestGeneratePolicyHCL(t *testing.T) {
 			namespace: "default",
 			resName:   "my-app",
 			want: []string{
-				"# Vault policy managed by vault-access-operator",
-				"# Kubernetes resource: default/my-app",
 				`path "secret/data/app"`,
 				`capabilities = ["read"]`,
 			},
+			// Ownership header lives in OwnershipHeader (ADR 0008), not in
+			// the generated body.
+			notWant: []string{"#"},
 		},
 		{
 			name: "policy with variable substitution",
@@ -641,7 +642,7 @@ func TestGeneratePolicyHCL(t *testing.T) {
 			namespace: "",
 			resName:   "cluster-policy",
 			want: []string{
-				"# Kubernetes resource: cluster-policy (cluster-scoped)",
+				`path "secret/data/cluster/*"`,
 			},
 			notWant: []string{
 				"default/",
@@ -666,10 +667,8 @@ func TestGeneratePolicyHCL(t *testing.T) {
 			rules:     []PolicyRule{},
 			namespace: "default",
 			resName:   "my-app",
-			want: []string{
-				"# Vault policy managed by vault-access-operator",
-				"# Kubernetes resource: default/my-app",
-			},
+			// Body-only generation: no rules means an empty document.
+			notWant: []string{"path"},
 		},
 		{
 			name: "empty parameters struct",
@@ -731,9 +730,9 @@ func TestGeneratePolicyHCLFormat(t *testing.T) {
 	// Verify structure
 	lines := strings.Split(got, "\n")
 
-	// Should start with header comment
-	if !strings.HasPrefix(lines[0], "#") {
-		t.Error("Policy should start with a comment")
+	// Body-only generation: starts directly with the first path block.
+	if !strings.HasPrefix(lines[0], "path ") {
+		t.Errorf("Policy body should start with a path block, got %q", lines[0])
 	}
 
 	// Should contain properly quoted path
@@ -827,17 +826,12 @@ func TestGeneratePolicyHCL_DescriptionInjectionRegression(t *testing.T) {
 
 	hcl := GeneratePolicyHCL(rules, "default", "my-app")
 
-	// Verify no description comment lines (other than header)
+	// The generated body carries no comment lines at all (the ownership
+	// header is prepended separately via OwnershipHeader).
 	for _, line := range strings.Split(hcl, "\n") {
 		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
-			continue
-		}
 		if strings.HasPrefix(trimmed, "#") {
-			// Only allow the header comments
-			if !strings.Contains(trimmed, "vault-access-operator") && !strings.Contains(trimmed, "Kubernetes resource") {
-				t.Errorf("unexpected comment line in HCL: %q", trimmed)
-			}
+			t.Errorf("unexpected comment line in HCL body: %q", trimmed)
 		}
 	}
 
