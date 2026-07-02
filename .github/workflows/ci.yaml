@@ -166,17 +166,25 @@ jobs:
             ${{ runner.os }}-go-build-
       - name: Run integration tests
         run: |
-          # Integration tests require Docker for testcontainers
+          # Integration tests require Docker for testcontainers and envtest binaries
           # Generate JSON report for detailed test case summary
           # Use -count=1 to disable test caching (cached runs don't generate reports)
-          go test ./test/integration/... -count=1 -v -ginkgo.v -ginkgo.show-node-events \
-            -ginkgo.json-report=integration-report.json -timeout=10m 2>&1 | tee integration-output.txt || true
+          set -o pipefail
+          make envtest
+          K8S_VERSION=$(go list -m -f '{{ .Version }}' k8s.io/api | awk -F'[v.]' '{printf "1.%d", $3}')
+          KUBEBUILDER_ASSETS="$(bin/setup-envtest use "$K8S_VERSION" --bin-dir "$PWD/bin" -p path)"
+          export KUBEBUILDER_ASSETS
+
+          rc=0
+          go test -tags=integration ./test/integration/... -count=1 -v -ginkgo.v -ginkgo.show-node-events \
+            -ginkgo.json-report=integration-report.json -timeout=10m 2>&1 | tee integration-output.txt || rc=$?
 
           # Ginkgo writes JSON reports to each test package directory
           # Combine all sub-package reports into one (handle missing gracefully)
           if find test/integration -name "integration-report.json" | grep -q .; then
             find test/integration -name "integration-report.json" -exec cat {} + | jq -s 'add' > integration-report.json 2>/dev/null || true
           fi
+          exit $rc
       - name: Generate integration test summary
         if: always()
         run: |
@@ -729,15 +737,11 @@ jobs:
           echo "Results: lint=${{ needs.lint.result }} unit=${{ needs.unit-test.result }} integration=${{ needs.integration-test.result }} verify=${{ needs.verify.result }} docker=${{ needs.docker-build.result }} manifest=${{ needs.docker-manifest.result }}"
           if [[ "${{ needs.lint.result }}" != "success" ]] || \
              [[ "${{ needs.unit-test.result }}" != "success" ]] || \
+             [[ "${{ needs.integration-test.result }}" != "success" ]] || \
              [[ "${{ needs.verify.result }}" != "success" ]] || \
              [[ "${{ needs.docker-build.result }}" != "success" ]]; then
             echo "::error::One or more required jobs failed"
             exit 1
-          fi
-          # Integration tests are allowed to fail (may need Docker which isn't always available)
-          if [[ "${{ needs.integration-test.result }}" != "success" ]] && \
-             [[ "${{ needs.integration-test.result }}" != "skipped" ]]; then
-            echo "::warning::Integration tests did not pass (may need Docker)"
           fi
           # docker-manifest is skipped for PRs, so check it only if it ran
           if [[ "${{ needs.docker-manifest.result }}" != "success" ]] && \
@@ -755,7 +759,7 @@ jobs:
           echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
           echo "| Lint | ${{ needs.lint.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Unit Tests | ${{ needs.unit-test.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Integration Tests | ${{ needs.integration-test.result == 'success' && '✅ Passed' || (needs.integration-test.result == 'skipped' && '⏭️ Skipped' || '⚠️ Warning') }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Integration Tests | ${{ needs.integration-test.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Verify | ${{ needs.verify.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Docker Build | ${{ needs.docker-build.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
           if [[ "${{ needs.docker-manifest.result }}" != "skipped" ]]; then
@@ -799,14 +803,22 @@ jobs:
         run: |
           # Generate JSON report for detailed test case summary
           # Use -count=1 to disable test caching (cached runs don't generate reports)
-          go test ./test/integration/security/... -count=1 -v -ginkgo.v -ginkgo.show-node-events \
-            -ginkgo.json-report=security-report.json -timeout=10m 2>&1 | tee security-output.txt || true
+          set -o pipefail
+          make envtest
+          K8S_VERSION=$(go list -m -f '{{ .Version }}' k8s.io/api | awk -F'[v.]' '{printf "1.%d", $3}')
+          KUBEBUILDER_ASSETS="$(bin/setup-envtest use "$K8S_VERSION" --bin-dir "$PWD/bin" -p path)"
+          export KUBEBUILDER_ASSETS
+
+          rc=0
+          go test -tags=integration ./test/integration/security/... -count=1 -v -ginkgo.v -ginkgo.show-node-events \
+            -ginkgo.json-report=security-report.json -timeout=10m 2>&1 | tee security-output.txt || rc=$?
 
           # Ginkgo writes JSON reports to test package directory
           # Copy to working directory for summary step (handle missing gracefully)
           if [ -f test/integration/security/security-report.json ]; then
             cp test/integration/security/security-report.json security-report.json
           fi
+          exit $rc
       - name: Generate security test summary
         if: always()
         run: |
@@ -909,7 +921,8 @@ jobs:
             ${{ runner.os }}-go-build-
       - name: Run profiled integration tests
         run: |
-          make test-integration-report 2>&1 | tee profiled-output.txt || true
+          set -o pipefail
+          make test-integration-report 2>&1 | tee profiled-output.txt
       - name: Generate profiling summary
         if: always()
         run: |
