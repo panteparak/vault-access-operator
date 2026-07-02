@@ -5,7 +5,7 @@
 Discovery is an **inverse reconciliation**: instead of pushing K8s state to Vault, it pulls Vault state and identifies unmanaged resources so operators can adopt them into CRs (either manually or via auto-creation). It's driven by `VaultConnection.Spec.Discovery`, runs on a configurable interval (default 1h), and has its own reconciler that watches `VaultConnection` — separately from the connection-management reconciler.
 
 !!! note "Discovery requires `--managed-markers=true` (default OFF)"
-    Discovery depends on the managed-marker map to separate unmanaged Vault resources from ones the operator already owns, so it runs **only when `--managed-markers=true`**. With markers off (the default) the operator has no marker hierarchy to compare against and does not run the discovery reconciler. Because markers now live under a hierarchical path, `ListManagedPolicies` / `ListManagedRoles` enumerate them with a **recursive LIST** over `secret/metadata/vault-access-operator/managed/{cluster}/{policies|roles}/**` (then read each leaf's `custom_metadata`), rather than a single flat `LIST`. See [ADR 0007](../adr/0007-hierarchical-metadata-only-managed-markers.md).
+    Discovery separates unmanaged Vault resources from ones an operator already owns, so it runs **only when `--managed-markers=true`**. Ownership is read **in-band** (ADR 0008): each candidate policy (after system + pattern filters) is READ and its ownership comment header parsed — any operator-managed policy is skipped, whether owned by THIS operator or a **foreign** one (a foreign owner's policy must never become an adoption candidate on a shared Vault). Roles carry no in-band record: the managed set is derived from this cluster's `VaultRole`/`VaultClusterRole` CRs, and the scan only targets the connection's own auth mount. See [ADR 0008](../adr/0008-in-band-ownership-markers.md).
 
 Two reconcilers watch the same CRD. This is intentional (separation of concerns: connection auth vs discovery scanning) but creates a **status-write contention** handled with `retry.RetryOnConflict`. See [controller.go:286](../../features/discovery/controller/controller.go:286).
 
@@ -15,7 +15,7 @@ Two reconcilers watch the same CRD. This is intentional (separation of concerns:
 |---|-----------|--------|------|
 | 1 | `discovery.Reconciler` | [controller.go:61](../../features/discovery/controller/controller.go:61) | watches `VaultConnection` with `GenerationChangedPredicate` |
 | 2 | `Scanner` | [scanner.go:60](../../features/discovery/controller/scanner.go:60) | `Scan(ctx)` — pulls all policies + roles, filters, produces `ScanResult` |
-| 3 | `vault.Client` | pkg | `ListPolicies`, `ListKubernetesAuthRoles`, `ListManagedPolicies`, `ListManagedRoles` |
+| 3 | `vault.Client` | pkg | `ListPolicies`, `ListKubernetesAuthRoles`, `GetPolicyOwnership`, `AuthMount` |
 | 4 | `ClientCache` | shared | borrow `*vault.Client` by connection name |
 | 5 | K8s API | external | `VaultConnection` CR read + status update (with retry), `VaultPolicy`/`VaultRole` CR create |
 | 6 | `Recorder` | — | emits `DiscoveryScanComplete`, `AutoCreateFailed` |
@@ -63,10 +63,9 @@ sequenceDiagram
         S->>VC: ListPolicies(ctx)
         VC->>V: GET /v1/sys/policies/acl?list=true
         V-->>VC: [names]
-        S->>VC: ListManagedPolicies(ctx)
-        VC->>V: recursive LIST over secret/metadata/vault-access-operator/managed/{cluster}/policies/**
-        VC->>V: READ custom_metadata for each leaf — managedBy + connectionName
-        V-->>VC: map[name]ManagedResource
+        S->>VC: GetPolicyOwnership(name) per filtered candidate
+        VC->>V: READ sys/policies/acl/{name} — parse in-band header
+        V-->>VC: Ownership (nil = unmanaged)
         loop for each policy
             alt system policy & excludeSystemPolicies
                 Note over S: skip
@@ -82,8 +81,7 @@ sequenceDiagram
         S->>VC: ListKubernetesAuthRoles(authPath)
         VC->>V: LIST /auth/{authPath}/role
         V-->>VC: [names] or nil
-        S->>VC: ListManagedRoles(ctx)
-        VC->>V: recursive LIST over managed/{cluster}/roles/{mount}/** + READ custom_metadata
+        Note over S: managed-role set was derived from<br/>VaultRole/VaultClusterRole CRs by the reconciler
         loop for each role
             alt managed OR !matchesRolePatterns
                 Note over S: skip
@@ -124,8 +122,8 @@ sequenceDiagram
 flowchart TD
     All[Vault lists all policies/roles] --> SystemPol{System policy?<br/>root/default/response-wrapping<br/>or CustomSystemPolicies}
     SystemPol -->|yes & excludeSystemPolicies=true| Drop1[drop]
-    SystemPol -->|no| Managed{In managed-marker map?}
-    Managed -->|yes| Drop2[drop — already ours]
+    SystemPol -->|no| Managed{Operator-managed?<br/>policies: in-band header<br/>roles: CR-derived set}
+    Managed -->|yes| Drop2[drop — ours or foreign-managed]
     Managed -->|no| Pattern{Matches PolicyPatterns<br/>or RolePatterns?}
     Pattern -->|no| Drop3[drop]
     Pattern -->|yes| Keep[append to UnmanagedXxx,<br/>DiscoveredResource]
@@ -197,7 +195,7 @@ spec:
 | `ClientCache.Get` miss | pre-scan | requeue after `scanInterval`, no error returned |
 | `ListPolicies` fails | scanPolicies | recorded in `ScanResult.Error`, role scan still runs |
 | `ListKubernetesAuthRoles` fails | scanRoles | same — partial results still published |
-| `ListManagedPolicies/Roles` fails | scanner helpers | treated as empty map; everything looks unmanaged (false positives possible) |
+| Policy ownership read fails | scanner helpers | candidate skipped conservatively (never offered for adoption); CR list failure for roles yields an empty managed set — everything looks unmanaged (discovery never mutates Vault) |
 | `Status.Update` 409 | `updateDiscoveryStatus` | retries via `retry.RetryOnConflict` (re-fetch + re-apply) |
 | `autoCreateCRs` without `TargetNamespace` | autoCreateCRs | returns error; emits `AutoCreateFailed` event |
 | Create CR fails (e.g., duplicate) | createPolicyCR/createRoleCR | logged, loop continues for remaining items |

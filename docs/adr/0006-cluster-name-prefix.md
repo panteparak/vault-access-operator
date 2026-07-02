@@ -4,6 +4,8 @@
 - **Date:** 2026-06-29
 - **Related:** [`docs/configuration.md`](../configuration.md#sharing-one-vault-across-clusters), [`CONTEXT.md`](../internal/CONTEXT.md#managed-marker), [`IMPROVEMENTS.md §D`](../internal/IMPROVEMENTS.md), [ADR 0003](0003-two-level-drift-and-conflict-config.md)
 
+> **Note (ADR 0008):** the marker-path discussion below is historical — ownership records are now in-band on the managed objects, and the operator's cross-cluster *identity* is its auth mount path (one cluster per mount, a hard requirement on shared Vaults). The name prefix this ADR introduces remains the mechanism that *prevents* name collisions; the identity *detects and blocks* fights when names do collide.
+
 ## Context
 
 Operators may run **one instance per Kubernetes cluster against a single shared Vault server**. Vault Community Edition has no [namespaces](https://developer.hashicorp.com/vault/docs/enterprise/namespaces) (Enterprise-only), so:
