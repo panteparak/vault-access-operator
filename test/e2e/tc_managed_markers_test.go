@@ -134,9 +134,11 @@ var _ = Describe("Managed Markers", Ordered, Label("managed-markers"), func() {
 				g.Expect(own.ManagedBy).To(Equal(vault.KVManagedByValue))
 				g.Expect(own.K8sResource).To(Equal(testNamespace + "/" + mmOnPolicy))
 				g.Expect(own.K8sKind).To(Equal("VaultPolicy"))
-				// The operator authenticates via kubernetes auth on the e2e
-				// stack — its identity is the auth mount (ADR 0008).
-				g.Expect(own.AuthMount).NotTo(BeEmpty())
+				// The e2e stack's operator connection authenticates with a
+				// static token → no auth mount, no identity line (ADR 0008).
+				// The OwnershipIdentityUnavailable warning event covers that
+				// path; the header simply omits auth-mount here.
+				g.Expect(own.AuthMount).To(BeEmpty())
 			}, 60*time.Second, 5*time.Second).Should(Succeed())
 
 			By("verifying no dedicated marker subtree was created")
