@@ -10,7 +10,7 @@
       
       
       
-        <link rel="canonical" href="https://panteparak.github.io/vault-access-operator/adr/0006-cluster-name-prefix/">
+        <link rel="canonical" href="https://panteparak.github.io/vault-access-operator/adr/0008-in-band-ownership-markers/">
       
       
       
@@ -23,7 +23,7 @@
     
     
       
-        <title>ADR 0006: Per-cluster name prefix for Vault resources (CE multi-tenancy) - Vault Access Operator</title>
+        <title>ADR 0008: In-band ownership markers on the managed Vault objects - Vault Access Operator</title>
       
     
     
@@ -74,7 +74,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#adr-0006-per-cluster-name-prefix-for-vault-resources-ce-multi-tenancy" class="md-skip">
+        <a href="#adr-0008-in-band-ownership-markers-on-the-managed-vault-objects" class="md-skip">
           Skip to content
         </a>
       
@@ -110,7 +110,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              ADR 0006: Per-cluster name prefix for Vault resources (CE multi-tenancy)
+              ADR 0008: In-band ownership markers on the managed Vault objects
             
           </span>
         </div>
@@ -1297,6 +1297,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        References
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1314,7 +1325,7 @@
 
 
   
-    <a href="https://github.com/panteparak/vault-access-operator/edit/main/docs/adr/0006-cluster-name-prefix.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/panteparak/vault-access-operator/edit/main/docs/adr/0008-in-band-ownership-markers.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -1322,54 +1333,151 @@
   
 
 
-<h1 id="adr-0006-per-cluster-name-prefix-for-vault-resources-ce-multi-tenancy">ADR 0006: Per-cluster name prefix for Vault resources (CE multi-tenancy)<a class="headerlink" href="#adr-0006-per-cluster-name-prefix-for-vault-resources-ce-multi-tenancy" title="Permanent link">&para;</a></h1>
+<h1 id="adr-0008-in-band-ownership-markers-on-the-managed-vault-objects">ADR 0008: In-band ownership markers on the managed Vault objects<a class="headerlink" href="#adr-0008-in-band-ownership-markers-on-the-managed-vault-objects" title="Permanent link">&para;</a></h1>
 <ul>
-<li><strong>Status:</strong> Accepted</li>
-<li><strong>Date:</strong> 2026-06-29</li>
-<li><strong>Related:</strong> <a href="../../configuration/#sharing-one-vault-across-clusters"><code>docs/configuration.md</code></a>, <a href="../../internal/CONTEXT/#managed-marker"><code>CONTEXT.md</code></a>, <a href="../../internal/IMPROVEMENTS/"><code>IMPROVEMENTS.md §D</code></a>, <a href="../0003-two-level-drift-and-conflict-config/">ADR 0003</a></li>
+<li><strong>Status:</strong> Accepted (supersedes <a href="../0007-hierarchical-metadata-only-managed-markers/">ADR 0007</a>)</li>
+<li><strong>Date:</strong> 2026-07-02</li>
+<li><strong>Related:</strong> <a href="../0006-cluster-name-prefix/">ADR 0006</a>, <a href="../../internal/CONTEXT/#managed-marker"><code>CONTEXT.md</code></a>, <a href="../../internal/FLOW_POLICY/"><code>FLOW_POLICY.md</code></a>, <a href="../../internal/FLOW_ROLE/"><code>FLOW_ROLE.md</code></a>, <a href="../../internal/FLOW_DISCOVERY/"><code>FLOW_DISCOVERY.md</code></a>, <a href="../../internal/FLOW_DELETION/"><code>FLOW_DELETION.md</code></a>, <a href="../../internal/FLOW_KVSECRET/"><code>FLOW_KVSECRET.md</code></a></li>
 </ul>
-<blockquote>
-<p><strong>Note (ADR 0008):</strong> the marker-path discussion below is historical — ownership records are now in-band on the managed objects, and the operator's cross-cluster <em>identity</em> is its auth mount path (one cluster per mount, a hard requirement on shared Vaults). The name prefix this ADR introduces remains the mechanism that <em>prevents</em> name collisions; the identity <em>detects and blocks</em> fights when names do collide.</p>
-</blockquote>
 <h2 id="context">Context<a class="headerlink" href="#context" title="Permanent link">&para;</a></h2>
-<p>Operators may run <strong>one instance per Kubernetes cluster against a single shared Vault server</strong>. Vault Community Edition has no <a href="https://developer.hashicorp.com/vault/docs/enterprise/namespaces">namespaces</a> (Enterprise-only), so:</p>
+<p>ADR 0007 stored ownership markers in a <strong>dedicated KV v2 subtree</strong>
+(<code>secret/metadata/vault-access-operator/managed/{cluster}/{kind}/...</code>,
+custom_metadata only). That fixed the data-capability and isolation problems
+of the original flat path, but the subtree itself remained a liability:</p>
 <ul>
-<li><strong>ACL policies are global.</strong> <code>WritePolicy</code> targets <code>sys/policies/acl/{name}</code> — one store for the whole Vault, not scoped by mount or namespace.</li>
-<li><strong>Managed markers are global.</strong> The marker KV path is hardcoded under the <code>secret</code> mount (<code>secret/data/vault-access-operator/managed/...</code>).</li>
+<li>It requires a <strong>marker-specific Vault grant</strong> (<code>create,read,update,list,delete</code>
+  on the subtree) that exists only to serve the operator's bookkeeping.</li>
+<li>The marker lives <strong>apart from the object it describes</strong>: it can drift
+  (marker without policy, policy without marker), needs its own cleanup step,
+  and a wiped subtree loses all ownership memory (hence the
+  restore-managed-markers annotation).</li>
+<li>Enumeration is a recursive LIST walk over a synthetic hierarchy.</li>
 </ul>
-<p>Per-cluster <em>mounts</em> (which CE supports) isolate secrets engines and auth methods — and therefore KV secrets and auth <strong>roles</strong> — but they cannot isolate the policy store or the marker path. The operator derives a Vault name as <code>{namespace}-{name}</code> (or <code>{name}</code> for cluster-scoped CRs), which is <strong>identical across clusters</strong>. Two clusters that each define <code>VaultPolicy default/admin</code> would write the same global policy and the same marker, silently overwriting each other — and conflict detection cannot see it, because the owner identifier (<code>VaultPolicy/default/admin</code>) is byte-identical across clusters.</p>
-<p>HashiCorp's sanctioned CE multi-tenancy lever is <strong>naming conventions</strong>, not a Vault feature.</p>
+<p>Investigation of Vault's API surface (CE and Enterprise, through 1.20) found:</p>
+<ul>
+<li><strong>ACL policies</strong> carry exactly two fields (<code>name</code>, <code>policy</code>) — no metadata —
+  but Vault stores and returns the policy document <strong>verbatim</strong>, so HCL
+  comments round-trip byte-for-byte.</li>
+<li><strong>KV v2 secrets</strong> natively support <code>custom_metadata</code> on their own metadata
+  path (the <code>VaultKVSecret</code> feature already used this in-band).</li>
+<li><strong>Auth roles have no metadata surface at all</strong>: unknown parameters are
+  dropped by Vault's SDK framework; the only candidate (<code>alias_metadata</code>) is
+  Vault 1.21+, Enterprise-flagged, and leaks its keys into entity-alias
+  custom metadata at every login — unusable as a marker.</li>
+</ul>
 <h2 id="decision">Decision<a class="headerlink" href="#decision" title="Permanent link">&para;</a></h2>
-<p>Introduce an optional, operator-wide <strong>cluster-name prefix</strong> applied to every derived Vault resource name.</p>
+<p>Delete the marker subtree. Store ownership <strong>in-band, on the managed objects
+themselves</strong>, keyed to a new <strong>operator identity: the auth mount path</strong> the
+operator's connection logged in through.</p>
 <ul>
-<li>Configured via <code>--cluster-name</code> flag / <code>CLUSTER_NAME</code> env / <code>clusterName</code> Helm value. <strong>Empty (default) disables prefixing</strong>, preserving single-cluster behavior.</li>
-<li>A single helper, <a href="../../shared/naming/naming.go"><code>shared/naming</code></a>, holds the prefix (set once at startup) and exposes <code>Vault(base) = "{cluster}-{base}"</code>. Every name derivation routes through it: the policy/role adapters (<code>GetVaultPolicyName</code> / <code>GetVaultRoleName</code>), the role→policy binding (<code>binding.VaultPolicyName</code>, which keeps a role's <code>token_policies</code> consistent with the policies themselves), and the managed-marker restore handler.</li>
-<li>The prefix lands on the marker <strong>leaf name</strong>, not a new path segment or schema field. Because each cluster's markers sit at a distinct leaf (<code>…/policies/{cluster}-{ns}-{name}</code>), they no longer collide — so <strong>no marker-schema or conflict-logic change is needed</strong>. The owner identifier (<code>GetK8sResourceIdentifier</code>) is unchanged.</li>
+<li><strong>Deployment invariant (hard requirement):</strong> on a shared Vault, <strong>each
+  cluster's operator authenticates through its own auth mount</strong> (one cluster
+  per mount). Auth mount paths are global on a Vault server, so the mount
+  uniquely identifies the owning operator instance. A static-token connection
+  has no mount and therefore no identity (Warning event
+  <code>OwnershipIdentityUnavailable</code>; unsupported for multi-operator Vaults).</li>
+<li><strong>Policies:</strong> a structured comment header is prepended to every generated
+  policy document (stable identity fields only — no timestamps, so an
+  unchanged spec never re-hashes):</li>
 </ul>
-<p>The prefix is <strong>operator-level</strong>, not per-<code>VaultConnection</code>: one Kubernetes cluster has one identity for all the connections it manages.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># managed-by: vault-access-operator</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="c1"># auth-mount: k8s-prod-eu</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="c1"># cluster: prod-eu            &lt;- only when --cluster-name is set</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="c1"># k8s-resource: team-a/my-policy</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="c1"># k8s-kind: VaultPolicy</span>
+</code></pre></div>
+<p>Ownership checks read the policy and parse the header
+  (<code>vault.ParseOwnership</code>). Drift comparison already strips comments
+  (<code>normalizeHCL</code>), so the header is drift-neutral.
+- <strong>KV secrets:</strong> the existing custom_metadata stamp is enriched with
+  <code>auth-mount</code>, <code>cluster</code>, <code>managed-at</code> (preserved across re-stamps) and
+  <code>last-updated</code>; ownership checks compare identity + owning CR, not just the
+  <code>managed-by</code> sentinel.
+- <strong>Roles:</strong> no Vault-side record. Ownership memory is the owning CR's status
+  (a CR that has synced owns its role); cross-cluster safety is structural
+  (mount isolation). Conflict detection: role exists + CR never synced →
+  adopt-or-fail.
+- <strong>Ownership = sentinel + identity + owning CR.</strong> <code>Ownership.SameOwner</code>
+  requires all three; a policy whose header names another auth mount is
+  foreign — conflicts are reported, adoption is blocked, cleanup refuses to
+  delete it, and discovery never offers it for adoption.
+- <strong>Destructive-op gate:</strong> policy deletion re-reads the live header and skips
+  the delete (Warning event <code>ForeignPolicyNotDeleted</code>) when the object is
+  foreign-owned. Previously cleanup deleted unconditionally.
+- <strong><code>--managed-markers</code> keeps its opt-in semantics</strong> (default off:
+  write-and-forget, no ownership checks, no discovery/orphan controllers) —
+  but enabling it now requires <strong>no additional Vault grant</strong>.
+- <strong>Deleted with the subtree:</strong> <code>PreflightMarkers</code> (nothing to preflight),
+  the <code>vault.platform.io/restore-managed-markers</code> annotation (headers
+  self-heal on every sync), and the marker read/write/list client surface.</p>
+<p><code>--cluster-name</code> (ADR 0006) is orthogonal: it <em>prevents</em> name collisions by
+prefixing derived names; the identity <em>detects and blocks</em> fights when names
+do collide. Multi-operator deployments should still set it.</p>
 <h2 id="consequences">Consequences<a class="headerlink" href="#consequences" title="Permanent link">&para;</a></h2>
 <h3 id="positive">Positive<a class="headerlink" href="#positive" title="Permanent link">&para;</a></h3>
 <ul>
-<li><strong>Coexistence on one CE Vault.</strong> Multiple clusters manage their own <code>{cluster}-*</code> policies/roles with zero collisions and zero silent overwrites.</li>
-<li><strong>Tiny, low-risk change.</strong> One naming helper plus six derivation sites; the empty default is a perfect no-op, so existing installs and their tests are unaffected.</li>
-<li><strong>Role bindings stay correct for free</strong> — <code>token_policies</code> derive from the same prefixed helper as the policies.</li>
+<li><strong>Zero marker grant.</strong> The operator's Vault policy shrinks to exactly the
+  paths it manages; <code>--managed-markers</code> no longer changes the required policy.</li>
+<li><strong>No split-brain.</strong> The ownership record lives and dies with the object:
+  deleting a policy deletes its record; no orphaned markers, no restore
+  mechanism, no marker cleanup step.</li>
+<li><strong>Human-auditable.</strong> <code>vault read sys/policies/acl/&lt;name&gt;</code> shows the owner
+  directly; <code>vault kv metadata get</code> shows the enriched secret ownership.</li>
+<li><strong>Cross-cluster safety improved.</strong> Ownership comparison now includes the
+  operator identity, closing the collision blind spot where two clusters'
+  CRs with identical <code>namespace/name</code> coordinates were indistinguishable
+  (previously <code>IsOwnedBy</code> matched any operator instance).</li>
+<li>Discovery no longer offers foreign-operator policies as adoption candidates.</li>
 </ul>
 <h3 id="negative">Negative<a class="headerlink" href="#negative" title="Permanent link">&para;</a></h3>
 <ul>
-<li><strong>Renames Vault objects.</strong> Enabling the prefix on an existing install orphans the old unprefixed policies/roles/markers; operators must plan a cutover and repoint any external consumers that reference policies by name.</li>
-<li><strong>Soft, not enforced.</strong> Two clusters misconfigured with the same prefix collide again — the prefix is a naming convention, not a Vault-enforced boundary (CE offers none).</li>
+<li><strong>Roles have no Vault-side ownership record</strong> (Vault limitation, not a
+  choice). Reinstalling the cluster (recreating CRs) loses role-ownership
+  memory — pre-existing roles must be re-adopted (<code>ConflictPolicy: Adopt</code>).
+  Two operators violating the one-cluster-per-mount invariant on the same
+  mount cannot detect each other's role writes.</li>
+<li><strong>Discovery/orphan scans read each candidate policy</strong> (one GET per policy
+  that passes the filters) instead of one recursive LIST — more round-trips
+  on servers with many policies, bounded by running filters first.</li>
+<li><strong>Breaking migration.</strong> Existing subtree markers become inert (delete
+  manually: <code>vault kv metadata delete</code> under
+  <code>secret/metadata/vault-access-operator/managed/</code>). Policies written before
+  this change parse as unmanaged — re-adopt via <code>ConflictPolicy: Adopt</code> or
+  the adopt annotation; the next sync rewrites each policy once with the
+  structured header. KV secrets stamped before enrichment lack the identity
+  key and are conservatively retained (never deleted) by cleanup.</li>
 </ul>
 <h3 id="neutral">Neutral<a class="headerlink" href="#neutral" title="Permanent link">&para;</a></h3>
 <ul>
-<li>The prefix is carried as a process-wide value in <code>shared/naming</code> (set once before the manager starts) rather than threaded through every adapter constructor — a deliberate trade for a far smaller diff. Upgrade path: thread an explicit value if per-connection prefixes are ever needed.</li>
-<li>Admission webhooks are intentionally <strong>not</strong> prefixed: their collision checks are purely intra-cluster (K8s-side) comparisons where a uniform prefix cancels on both sides.</li>
+<li>The header adds ~5 comment lines to every managed policy document.</li>
+<li><code>managed-at</code>/<code>last-updated</code> timestamps exist only where they are free
+  (KV custom_metadata, CR status) — the policy header carries stable identity
+  only, so reconciles stay write-free when nothing changed.</li>
 </ul>
 <h2 id="alternatives-considered">Alternatives considered<a class="headerlink" href="#alternatives-considered" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>Cluster-id in the marker payload (fail-loud only).</strong> Keep names shared; add cluster identity so a second cluster touching the same policy gets a blocking <code>ConflictError</code> instead of a silent overwrite. Rejected as the primary approach: it gives <em>safety</em> but not <em>coexistence</em> (one cluster is locked out of any shared name), and both were wanted.</li>
-<li><strong>Cluster in the marker <em>path</em></strong> (<code>…/managed/policies/{cluster}/{name}</code>). Rejected: it isolates each cluster's markers so neither sees the other, which <em>hides</em> the still-shared global policy collision instead of solving it.</li>
-<li><strong>Vault namespaces.</strong> Not available in CE.</li>
-<li><strong>Separate Vault server per cluster.</strong> Fully isolates everything with no operator change, but the target topology shares one server.</li>
+<li><strong><code>alias_metadata</code> for roles</strong> (Vault 1.21+): stored on the role and
+  returned on read, but Enterprise-flagged in the changelog and its keys are
+  copied into entity-alias custom metadata for every workload that logs in —
+  an identity-store side effect a marker must not have. Rejected.</li>
+<li><strong>Keep a KV subtree for roles only</strong> (hybrid): preserves cross-reinstall
+  role-ownership memory at the cost of keeping the marker grant and the
+  split-brain failure modes for the one kind that benefits least. Rejected.</li>
+<li><strong>Name-prefix-only ownership</strong> (no header): cannot distinguish "ours" from
+  "another cluster's" when prefixes are unset/equal, and loses the owning-CR
+  record that orphan detection needs. Rejected.</li>
+</ul>
+<h2 id="references">References<a class="headerlink" href="#references" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Code: <code>pkg/vault/managed.go</code> (<code>Ownership</code>, <code>OwnershipHeader</code>,
+  <code>ParseOwnership</code>, <code>GetPolicyOwnership</code>), <code>pkg/vault/client.go</code>
+  (<code>Client.AuthMount</code>), <code>pkg/vault/kvsecret.go</code> (<code>KVOwnedBy</code>, enriched
+  <code>StampKVOwnership</code>), <code>features/*/controller/</code>, <code>pkg/orphan/</code>,
+  <code>features/discovery/controller/scanner.go</code>.</li>
+<li>Vault: <a href="https://developer.hashicorp.com/vault/api-docs/system/policies">Policies API</a>
+  (name + policy only), <a href="https://developer.hashicorp.com/vault/api-docs/secret/kv/kv-v2#create-update-metadata">KV v2 custom metadata</a>,
+  <a href="https://developer.hashicorp.com/vault/docs/internals/limits">Limits and maximums</a>
+  (custom_metadata: 64 keys × 128B × 512B).</li>
 </ul>
 
 
