@@ -22,8 +22,16 @@ limitations under the License.
 package conflict
 
 import (
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/record"
+
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 )
+
+// EventReasonMarkersDisabled is the event/condition reason used when a resource
+// requests ownership semantics while managed-marker tracking is disabled.
+const EventReasonMarkersDisabled = "ManagedMarkersDisabled"
 
 // AdoptCandidate is the minimal adapter surface shouldAdopt needs. Both
 // PolicyAdapter and RoleAdapter satisfy it. Interface defined in this
@@ -49,4 +57,20 @@ func ShouldAdopt(adapter AdoptCandidate) bool {
 	}
 	// Fall back to ConflictPolicy
 	return adapter.GetConflictPolicy() == vaultv1alpha1.ConflictPolicyAdopt
+}
+
+// WarnAdoptIntentInert emits a Warning event when a resource explicitly requests
+// adoption/ownership semantics (ConflictPolicy: Adopt or the adopt annotation)
+// while managed-marker tracking is disabled — in which case that intent has no
+// effect (there is no ownership data to adopt against). It is a no-op when there
+// is no such intent, or no recorder. Callers gate on markers.Enabled() == false
+// before calling; plain/defaulted ConflictPolicy: Fail is intentionally silent
+// (indistinguishable from the default at runtime).
+func WarnAdoptIntentInert(recorder record.EventRecorder, obj runtime.Object, c AdoptCandidate) {
+	if recorder == nil || obj == nil || !ShouldAdopt(c) {
+		return
+	}
+	recorder.Event(obj, corev1.EventTypeWarning, EventReasonMarkersDisabled,
+		"conflictPolicy: Adopt / vault.platform.io/adopt=true has no effect: "+
+			"managed-marker tracking is disabled (enable --managed-markers)")
 }

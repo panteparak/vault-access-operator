@@ -58,6 +58,7 @@ import (
 	"github.com/panteparak/vault-access-operator/pkg/orphan"
 	"github.com/panteparak/vault-access-operator/shared/controller/base"
 	"github.com/panteparak/vault-access-operator/shared/events"
+	"github.com/panteparak/vault-access-operator/shared/markers"
 	"github.com/panteparak/vault-access-operator/shared/naming"
 	// +kubebuilder:scaffold:imports
 )
@@ -121,6 +122,12 @@ func main() {
 		"Per-cluster prefix applied to every Vault resource name (policies, roles, managed "+
 			"markers), so multiple operators can share one Vault CE server without collisions. "+
 			"Empty (default) disables prefixing. Must match "+clusterNamePattern+".")
+	var managedMarkers bool
+	flag.BoolVar(&managedMarkers, "managed-markers", os.Getenv("MANAGED_MARKERS") == "true",
+		"Enable managed-marker ownership tracking (Vault KV v2 custom_metadata): conflict/adoption "+
+			"detection, discovery, orphan detection, and safe cleanup. Disabled by default (opt-in). "+
+			"When enabled the operator needs create,read,update,list,delete on "+
+			"secret/metadata/vault-access-operator/managed/*.")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -135,6 +142,11 @@ func main() {
 		os.Exit(1)
 	}
 	naming.SetCluster(clusterName)
+	markers.SetEnabled(managedMarkers)
+	if !managedMarkers {
+		setupLog.Info("managed-marker tracking disabled (opt-in via --managed-markers): " +
+			"ownership/conflict detection, discovery, and orphan detection are inactive")
+	}
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will
@@ -401,19 +413,23 @@ func main() {
 	}
 	setupLog.Info("Setup KVSecret feature")
 
-	// Discovery feature scans Vault for unmanaged resources
-	discoveryFeature := discovery.New(discovery.Config{
-		K8sClient:   mgr.GetClient(),
-		Scheme:      mgr.GetScheme(),
-		ClientCache: connFeature.ClientCache,
-		Log:         setupLog,
-		Recorder:    mgr.GetEventRecorderFor("discovery-controller"), //nolint:staticcheck
-	})
-	if err := discoveryFeature.SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to setup feature", "feature", "Discovery")
-		os.Exit(1)
+	// Discovery + orphan detection depend on managed markers (they scan the
+	// marker KV path); only register them when marker tracking is enabled.
+	if markers.Enabled() {
+		// Discovery feature scans Vault for unmanaged resources
+		discoveryFeature := discovery.New(discovery.Config{
+			K8sClient:   mgr.GetClient(),
+			Scheme:      mgr.GetScheme(),
+			ClientCache: connFeature.ClientCache,
+			Log:         setupLog,
+			Recorder:    mgr.GetEventRecorderFor("discovery-controller"), //nolint:staticcheck
+		})
+		if err := discoveryFeature.SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to setup feature", "feature", "Discovery")
+			os.Exit(1)
+		}
+		setupLog.Info("Setup Discovery feature")
 	}
-	setupLog.Info("Setup Discovery feature")
 
 	// Register the cleanup retry controller (IMPROVEMENTS §1). It drains items
 	// that CleanupWorkflow enqueues when a Vault delete fails at finalizer time;
@@ -451,17 +467,20 @@ func main() {
 
 	// Register the orphan detection controller (IMPROVEMENTS §1). It periodically
 	// scans Vault for resources carrying a managed-marker whose K8s owner is gone
-	// and emits metrics. Leader-gated for the same reasons as cleanup.
-	orphanCtrl := orphan.NewController(orphan.ControllerConfig{
-		K8sClient:   mgr.GetClient(),
-		ClientCache: connFeature.ClientCache,
-		Log:         setupLog.WithName("orphan"),
-	})
-	if err := mgr.Add(orphanCtrl); err != nil {
-		setupLog.Error(err, "unable to register orphan controller with manager")
-		os.Exit(1)
+	// and emits metrics. Leader-gated for the same reasons as cleanup. Only runs
+	// when managed-marker tracking is enabled.
+	if markers.Enabled() {
+		orphanCtrl := orphan.NewController(orphan.ControllerConfig{
+			K8sClient:   mgr.GetClient(),
+			ClientCache: connFeature.ClientCache,
+			Log:         setupLog.WithName("orphan"),
+		})
+		if err := mgr.Add(orphanCtrl); err != nil {
+			setupLog.Error(err, "unable to register orphan controller with manager")
+			os.Exit(1)
+		}
+		setupLog.Info("Registered orphan detection controller (leader-gated)")
 	}
-	setupLog.Info("Registered orphan detection controller (leader-gated)")
 
 	// Setup webhooks only if enabled
 	if enableWebhooks {

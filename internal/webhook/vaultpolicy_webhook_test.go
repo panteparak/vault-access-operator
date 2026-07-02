@@ -26,6 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
+	"github.com/panteparak/vault-access-operator/shared/markers"
 )
 
 func TestVaultPolicyValidator_ValidateCreate(t *testing.T) {
@@ -621,6 +622,65 @@ func TestVaultPolicyValidator_ValidateDelete(t *testing.T) {
 	}
 	if len(warnings) > 0 {
 		t.Errorf("ValidateDelete() unexpected warnings = %v", warnings)
+	}
+}
+
+// TestVaultPolicyValidator_AdoptIntentGatedOnMarkers pins the admission gate:
+// requesting adoption (ConflictPolicy: Adopt, or the adopt annotation) is
+// rejected when managed markers are disabled (the operator would silently
+// no-op the adopt at reconcile), and accepted when markers are enabled.
+// Plain/defaulted Fail is always allowed. Covers both VaultPolicy and
+// VaultClusterPolicy.
+func TestVaultPolicyValidator_AdoptIntentGatedOnMarkers(t *testing.T) {
+	validRule := []vaultv1alpha1.PolicyRule{
+		{Path: "secret/data/app/*", Capabilities: []vaultv1alpha1.Capability{vaultv1alpha1.CapabilityRead}},
+	}
+	adoptAnno := map[string]string{vaultv1alpha1.AnnotationAdopt: vaultv1alpha1.AnnotationValueTrue}
+
+	newPolicy := func(anno map[string]string, cp vaultv1alpha1.ConflictPolicy) *vaultv1alpha1.VaultPolicy {
+		return &vaultv1alpha1.VaultPolicy{
+			ObjectMeta: metav1.ObjectMeta{Name: "p", Namespace: "default", Annotations: anno},
+			Spec:       vaultv1alpha1.VaultPolicySpec{ConnectionRef: "c", ConflictPolicy: cp, Rules: validRule},
+		}
+	}
+	newClusterPolicy := func(anno map[string]string, cp vaultv1alpha1.ConflictPolicy) *vaultv1alpha1.VaultClusterPolicy {
+		return &vaultv1alpha1.VaultClusterPolicy{
+			ObjectMeta: metav1.ObjectMeta{Name: "cp", Annotations: anno},
+			Spec:       vaultv1alpha1.VaultClusterPolicySpec{ConnectionRef: "c", ConflictPolicy: cp, Rules: validRule},
+		}
+	}
+
+	cases := []struct {
+		name      string
+		anno      map[string]string
+		cp        vaultv1alpha1.ConflictPolicy
+		markersOn bool
+		wantErr   bool
+	}{
+		{name: "adopt annotation, markers off -> rejected", anno: adoptAnno, markersOn: false, wantErr: true},
+		{name: "ConflictPolicy Adopt, markers off -> rejected", cp: vaultv1alpha1.ConflictPolicyAdopt, markersOn: false, wantErr: true},
+		{name: "adopt annotation, markers on -> allowed", anno: adoptAnno, markersOn: true, wantErr: false},
+		{name: "ConflictPolicy Adopt, markers on -> allowed", cp: vaultv1alpha1.ConflictPolicyAdopt, markersOn: true, wantErr: false},
+		{name: "plain Fail, markers off -> allowed", cp: vaultv1alpha1.ConflictPolicyFail, markersOn: false, wantErr: false},
+	}
+
+	for _, tc := range cases {
+		t.Run("policy/"+tc.name, func(t *testing.T) {
+			markers.SetEnabled(tc.markersOn)
+			t.Cleanup(func() { markers.SetEnabled(false) })
+			_, err := (&VaultPolicyValidator{}).ValidateCreate(context.Background(), newPolicy(tc.anno, tc.cp))
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("ValidateCreate() err = %v, wantErr %v", err, tc.wantErr)
+			}
+		})
+		t.Run("clusterpolicy/"+tc.name, func(t *testing.T) {
+			markers.SetEnabled(tc.markersOn)
+			t.Cleanup(func() { markers.SetEnabled(false) })
+			_, err := (&VaultClusterPolicyValidator{}).ValidateCreate(context.Background(), newClusterPolicy(tc.anno, tc.cp))
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("ValidateCreate() err = %v, wantErr %v", err, tc.wantErr)
+			}
+		})
 	}
 }
 

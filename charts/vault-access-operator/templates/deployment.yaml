@@ -61,6 +61,9 @@ spec:
             {{- with .Values.clusterName }}
             - --cluster-name={{ . }}
             {{- end }}
+            {{- if .Values.managedMarkers.enabled }}
+            - --managed-markers
+            {{- end }}
             {{- with .Values.extraArgs }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

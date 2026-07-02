@@ -36,6 +36,7 @@ import (
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/pkg/vault"
+	"github.com/panteparak/vault-access-operator/shared/markers"
 )
 
 // newTestScheme creates a scheme with the required types registered.
@@ -50,86 +51,108 @@ func newTestScheme() *runtime.Scheme {
 // endpoints used by the discovery scanner.
 //
 // Parameters control what the server returns:
-//   - policies: list of policy names for GET /v1/sys/policies/acl
-//   - roles: list of role names for LIST /v1/auth/kubernetes/role
-//   - managedPolicies: list of managed policy keys for LIST /v1/secret/metadata/.../policies
-//   - managedRoles: list of managed role keys for LIST /v1/secret/metadata/.../roles
+//   - policies: policy names in Vault (GET /v1/sys/policies/acl)
+//   - roles: role names on the kubernetes auth mount (LIST /v1/auth/kubernetes/role)
+//   - managedPolicies: vault names of managed policies — seeded as markers so
+//     ListManaged(MarkerPolicy) keys them exactly (matched against policyName)
+//   - managedRoles: vault names of managed roles on the kubernetes mount —
+//     seeded so ListManaged(MarkerRole) keys them "kubernetes/{name}"
+//
+// Managed markers are custom_metadata only, at hierarchical metadata paths. Each
+// managed name is seeded as a cluster-scoped marker (_cluster segment) so its
+// derived ListManaged key is the bare vault name (roles gain the mount prefix).
 func newMockVaultServer(policies, roles, managedPolicies, managedRoles []string) *httptest.Server {
+	// Build the in-memory metadata tree keyed by "/v1"-stripped API path.
+	meta := map[string]map[string]interface{}{}
+	owner := func() map[string]interface{} {
+		return map[string]interface{}{
+			vault.KVManagedByKey:   vault.KVManagedByValue,
+			vault.KVK8sResourceKey: "test/test-resource",
+		}
+	}
+	for _, p := range managedPolicies {
+		meta["secret/metadata/vault-access-operator/managed/policies/_cluster/"+p] = owner()
+	}
+	for _, rl := range managedRoles {
+		meta["secret/metadata/vault-access-operator/managed/roles/kubernetes/_cluster/"+rl] = owner()
+	}
+
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		w.Header().Set("Content-Type", "application/json")
 
 		switch {
-		// ListPolicies: Vault SDK Sys().ListPoliciesWithContext
-		// The SDK sends GET /v1/sys/policies/acl?list=true and expects {"data":{"keys":[...]}} or {"policies":[...]}
+		// ListPolicies: GET /v1/sys/policies/acl?list=true → {"data":{"keys":[...]}}
 		case strings.HasPrefix(path, "/v1/sys/policies/acl"):
-			resp := map[string]interface{}{
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"policies": policies,
-				"data": map[string]interface{}{
-					"keys": policies,
-				},
-			}
-			_ = json.NewEncoder(w).Encode(resp)
+				"data":     map[string]interface{}{"keys": policies},
+			})
 
-		// ListKubernetesAuthRoles: Logical().ListWithContext → LIST or GET with ?list=true
+		// ListKubernetesAuthRoles: LIST /v1/auth/kubernetes/role
 		case path == "/v1/auth/kubernetes/role":
 			keys := make([]interface{}, len(roles))
 			for i, rl := range roles {
 				keys[i] = rl
 			}
-			resp := map[string]interface{}{
-				"data": map[string]interface{}{
-					"keys": keys,
-				},
-			}
-			_ = json.NewEncoder(w).Encode(resp)
-
-		// ListManagedPolicies: LIST /v1/secret/metadata/vault-access-operator/managed/policies
-		case strings.HasSuffix(path, "/secret/metadata/vault-access-operator/managed/policies"):
-			keys := make([]interface{}, len(managedPolicies))
-			for i, p := range managedPolicies {
-				keys[i] = p
-			}
-			resp := map[string]interface{}{
-				"data": map[string]interface{}{
-					"keys": keys,
-				},
-			}
-			_ = json.NewEncoder(w).Encode(resp)
-
-		// ListManagedRoles: LIST /v1/secret/metadata/vault-access-operator/managed/roles
-		case strings.HasSuffix(path, "/secret/metadata/vault-access-operator/managed/roles"):
-			keys := make([]interface{}, len(managedRoles))
-			for i, mr := range managedRoles {
-				keys[i] = mr
-			}
-			resp := map[string]interface{}{
-				"data": map[string]interface{}{
-					"keys": keys,
-				},
-			}
-			_ = json.NewEncoder(w).Encode(resp)
-
-		// getManaged (called for each key during listManaged): GET /v1/secret/data/vault-access-operator/managed/...
-		case strings.Contains(path, "/secret/data/vault-access-operator/managed/"):
-			metadata, _ := json.Marshal(map[string]interface{}{
-				"k8sResource": "test/test-resource",
-				"managedAt":   time.Now().Format(time.RFC3339),
-				"lastUpdated": time.Now().Format(time.RFC3339),
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"data": map[string]interface{}{"keys": keys},
 			})
-			resp := map[string]interface{}{
-				"data": map[string]interface{}{
-					"data": map[string]interface{}{
-						"metadata": string(metadata),
-					},
-				},
+
+		// Managed markers: recursive LIST + per-marker custom_metadata GET, all
+		// under secret/metadata/vault-access-operator/managed/.
+		case strings.Contains(path, "/secret/metadata/vault-access-operator/managed"):
+			rel := strings.TrimPrefix(path, "/v1/")
+			if r.URL.Query().Get("list") == "true" {
+				keys := discoveryChildKeys(meta, rel)
+				if keys == nil {
+					w.WriteHeader(http.StatusNotFound)
+					return
+				}
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"data": map[string]interface{}{"keys": keys},
+				})
+				return
 			}
-			_ = json.NewEncoder(w).Encode(resp)
+			cm, ok := meta[rel]
+			if !ok {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"data": map[string]interface{}{"custom_metadata": cm},
+			})
 
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
 	}))
+}
+
+// discoveryChildKeys mirrors Vault LIST over the hierarchical metadata tree:
+// intermediate segments get a trailing "/", leaf keys do not; nil → 404.
+func discoveryChildKeys(state map[string]map[string]interface{}, listPath string) []interface{} {
+	prefix := strings.TrimSuffix(strings.Split(listPath, "?")[0], "/")
+	seen := map[string]bool{}
+	for full := range state {
+		if full == prefix || !strings.HasPrefix(full, prefix+"/") {
+			continue
+		}
+		rest := strings.TrimPrefix(full, prefix+"/")
+		if i := strings.IndexByte(rest, '/'); i >= 0 {
+			seen[rest[:i]+"/"] = true
+		} else {
+			seen[rest] = true
+		}
+	}
+	if len(seen) == 0 {
+		return nil
+	}
+	out := make([]interface{}, 0, len(seen))
+	for k := range seen {
+		out = append(out, k)
+	}
+	return out
 }
 
 // newVaultClientFromServer creates a vault.Client connected to the test server
@@ -399,6 +422,10 @@ func TestReconcile_ConnectionNotFound(t *testing.T) {
 }
 
 func TestReconcile_FindsUnmanagedResources(t *testing.T) {
+	// Managed-set filtering only means anything with marker tracking on.
+	markers.SetEnabled(true)
+	t.Cleanup(func() { markers.SetEnabled(false) })
+
 	scheme := newTestScheme()
 	conn := newVaultConnection(&vaultv1alpha1.DiscoveryConfig{
 		Enabled:  true,

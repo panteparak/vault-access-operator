@@ -36,6 +36,7 @@ import (
 	"github.com/panteparak/vault-access-operator/shared/controller/workflow"
 	"github.com/panteparak/vault-access-operator/shared/events"
 	infraerrors "github.com/panteparak/vault-access-operator/shared/infrastructure/errors"
+	"github.com/panteparak/vault-access-operator/shared/markers"
 )
 
 // Kind labels for adoption + reconcile metrics. Constants because each label
@@ -334,6 +335,14 @@ func (h *Handler) checkConflict(
 	adapter domain.PolicyAdapter,
 	vaultPolicyName string,
 ) error {
+	// Managed markers disabled: no ownership data exists, so conflict detection
+	// can't run — proceed (write-and-forget). Explicit adopt-intent is surfaced
+	// separately (markerIntentDisabledWarning).
+	if !markers.Enabled() {
+		conflict.WarnAdoptIntentInert(h.recorder, adapter.GetObject(), adapter)
+		return nil
+	}
+
 	log := logr.FromContextOrDiscard(ctx)
 
 	exists, err := vaultClient.PolicyExists(ctx, vaultPolicyName)
@@ -346,7 +355,11 @@ func (h *Handler) checkConflict(
 	}
 
 	// Policy exists, check ownership
-	managedBy, err := vaultClient.GetPolicyManagedBy(ctx, vaultPolicyName)
+	managedBy, err := vaultClient.GetManagedBy(ctx, vault.MarkerID{
+		Kind:      vault.MarkerPolicy,
+		Namespace: adapter.GetNamespace(),
+		Name:      adapter.GetName(),
+	})
 	if err != nil {
 		// Can't determine ownership - check if adoption is allowed
 		if h.shouldAdopt(adapter) {
@@ -419,22 +432,6 @@ func (h *Handler) generatePolicyHCL(rules []vaultv1alpha1.PolicyRule, namespace,
 	}
 
 	return vault.GeneratePolicyHCL(vaultRules, namespace, name)
-}
-
-// buildRuleDescriptions builds a map of resolved path -> description for
-// rules that have descriptions. Returns an explicit empty map (not nil) when
-// no rules have descriptions — markManaged distinguishes nil ("preserve
-// existing") from empty-map ("clear"), and the policy reconciler always
-// wants to clear-and-rewrite to match the current spec.
-func (h *Handler) buildRuleDescriptions(rules []vaultv1alpha1.PolicyRule, namespace, name string) map[string]string {
-	descs := make(map[string]string)
-	for _, rule := range rules {
-		if rule.Description != "" {
-			resolvedPath := vault.SubstituteVariables(rule.Path, namespace, name)
-			descs[resolvedPath] = rule.Description
-		}
-	}
-	return descs
 }
 
 // calculateHash returns a SHA256 hash of the given HCL content using the

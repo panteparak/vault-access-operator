@@ -33,9 +33,6 @@ const (
 	// DefaultAuthMount is the default Kubernetes auth mount path
 	DefaultAuthMount = "kubernetes"
 
-	// ManagedResourcePrefix is the KV path prefix for managed resource metadata
-	ManagedResourcePrefix = "secret/data/vault-access-operator/managed"
-
 	// KindVaultPolicy is the kind name for VaultPolicy resources
 	KindVaultPolicy = "VaultPolicy"
 
@@ -62,14 +59,6 @@ func RolePath(authMount, roleName string) string {
 		authMount = DefaultAuthMount
 	}
 	return fmt.Sprintf("auth/%s/role/%s", authMount, roleName)
-}
-
-// ManagedMetadataPath returns the KV path where managed resource metadata is stored.
-// This is used to track which Vault resources are managed by the operator.
-// Example: ManagedMetadataPath("policy", "my-policy") returns
-// "secret/data/vault-access-operator/managed/policy/my-policy"
-func ManagedMetadataPath(resourceType, resourceName string) string {
-	return fmt.Sprintf("%s/%s/%s", ManagedResourcePrefix, resourceType, resourceName)
 }
 
 // PolicyK8sRef returns the K8s reference string for a policy.

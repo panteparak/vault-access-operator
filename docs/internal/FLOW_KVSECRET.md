@@ -127,7 +127,7 @@ If the `vault.platform.io/dry-run=true` annotation is present ([`dryrun.IsActive
 When `created==true`, [`StampKVOwnership`](../../pkg/vault/kvsecret.go) writes the secret's KV v2 `custom_metadata` via a non-destructive merge patch: `{managed-by: vault-access-operator, k8s-resource: <namespace/name>}`. This is the basis of the delete-if-untouched check. `status.seeded=true`, `status.seededVersion=version` (the baseline for the untouched check).
 
 ### Step 6: Finalize status + binding
-`Phase=Active`, `Managed=true`, and a `Binding` is set (`vaultPath=spec.path`, `vaultResourceName=<rel>`, `boundAt`/`lastVerifiedAt=now`, `bindingVerified=true`). The base then calls `updateStatus`, which sets `Ready=True` / `Synced=True` and `lastSyncedAt`, and persists status. The operator does NOT publish an event (no event bus integration for this feature) and does NOT write a managed-marker at `secret/data/vault-access-operator/managed/*` — ownership lives in the seeded secret's own `custom_metadata` instead.
+`Phase=Active`, `Managed=true`, and a `Binding` is set (`vaultPath=spec.path`, `vaultResourceName=<rel>`, `boundAt`/`lastVerifiedAt=now`, `bindingVerified=true`). The base then calls `updateStatus`, which sets `Ready=True` / `Synced=True` and `lastSyncedAt`, and persists status. The operator does NOT publish an event (no event bus integration for this feature) and does NOT write a managed-marker under `secret/metadata/vault-access-operator/managed/*` (the marker mechanism used by policies/roles, itself gated by `--managed-markers`) — ownership lives in the seeded secret's own `custom_metadata` instead.
 
 ## Branching Points
 
@@ -224,7 +224,7 @@ Because the operator never reads secret data values (existence is determined fro
 | 2 | Ownership model | Operator owns the artifact and reconciles it to spec on every pass | Operator owns only *creation*; the secret's data is abandoned after seeding |
 | 3 | Drift | Detect + (optionally) correct, gated by drift mode | **None** — create-only-if-absent deliberately has no drift management |
 | 4 | Write semantics | Always (re)writes to match spec | Writes **only** when the path is absent; never overwrites |
-| 5 | Managed marker | Separate KV path `secret/data/vault-access-operator/managed/{policies,roles}/{name}` | Native KV v2 `custom_metadata` on the seeded secret itself |
+| 5 | Managed marker | Separate KV v2 `custom_metadata` path `secret/metadata/vault-access-operator/managed/{cluster}/{policies\|roles}/…` (gated by `--managed-markers`, default off) | Native KV v2 `custom_metadata` on the seeded secret itself |
 | 6 | Conflict policy / adopt | `Fail` / `Adopt` + `vault.platform.io/adopt` annotation | N/A — a pre-existing path is simply skipped, never adopted or conflicted |
 | 7 | Cleanup | `workflow.CleanupWorkflow`, deletes unconditionally on `Delete` | Handler-owned **delete-if-untouched** (owned + unmodified-since-seed guard) |
 | 8 | Validation | Admission webhook | CEL `x-kubernetes-validations` (path immutability + `/data/` segment); no webhook |

@@ -32,17 +32,23 @@ The Vault key-value engine, version 2. Supports versioned secrets and **metadata
 
 ### Managed marker
 
-A KV v2 metadata entry the operator writes to claim ownership of a Vault resource. Path convention:
+A KV v2 **`custom_metadata`** entry the operator writes to claim ownership of a Vault resource. It is stored **only in metadata — never in `secret/data`** — under a hierarchical path:
 
 ```
-secret/data/vault-access-operator/managed/{policies|roles}/{vault-name}
+secret/metadata/vault-access-operator/managed/{cluster}/roles/{mount}/{ns}/{name}
+secret/metadata/vault-access-operator/managed/{cluster}/policies/{ns}/{name}
 ```
 
-The metadata records the K8s resource that owns the Vault object (e.g., `<namespace>/<name>` for a `VaultPolicy`). Used to detect conflicts (resource exists but is owned by someone else) and orphans (managed in Vault but no K8s owner anymore).
+- `{cluster}` = the operator's [Cluster name](#cluster-name); the segment is **omitted entirely when unset**.
+- `{mount}` = the bare auth-mount name (`kubernetes`, `jwt`, …) — **roles only**; policies have no mount segment.
+- `{ns}` = the CR's namespace; **cluster-scoped** CRs (`VaultClusterPolicy` / `VaultClusterRole`) use the sentinel `_cluster` in this slot.
+- `custom_metadata` keys: `managed-by=vault-access-operator`, `k8s-resource=<ns/name>`, `managed-at`, `last-updated`.
 
-`{vault-name}` is `{namespace}-{name}` (or `{name}` for cluster-scoped CRs), optionally prefixed with the operator's [Cluster name](#cluster-name) — `{cluster}-{namespace}-{name}` — when set.
+Used to detect conflicts (resource exists but is owned by someone else) and orphans (managed in Vault but no K8s owner anymore). The hierarchical layout lets an operator token be ACL-scoped per segment (e.g. limited to `.../managed/{cluster}/*`).
 
-> See [`shared/controller/binding/`](../../shared/controller/binding/), [`FLOW_DELETION.md`](FLOW_DELETION.md).
+The **entire mechanism is gated by the `--managed-markers` flag (default OFF)**. When off, the operator writes/reads no markers, skips conflict/ownership detection (write-and-forget), and does not run the discovery or orphan controllers — so it needs no grant on the marker KV path. See [`configuration.md`](../configuration.md#managed-markers).
+
+> See [`shared/controller/binding/`](../../shared/controller/binding/), [`FLOW_DELETION.md`](FLOW_DELETION.md), [ADR 0007](../adr/0007-hierarchical-metadata-only-managed-markers.md).
 
 ### Cluster name
 

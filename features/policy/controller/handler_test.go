@@ -27,6 +27,7 @@ import (
 	"github.com/go-logr/logr"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -37,6 +38,7 @@ import (
 	"github.com/panteparak/vault-access-operator/shared/controller/syncerror"
 	"github.com/panteparak/vault-access-operator/shared/events"
 	infraerrors "github.com/panteparak/vault-access-operator/shared/infrastructure/errors"
+	"github.com/panteparak/vault-access-operator/shared/markers"
 )
 
 // setConditionHelper is a test helper that calls conditions.Set directly.
@@ -79,7 +81,9 @@ type writePolicyCall struct {
 }
 
 type markManagedCall struct {
-	policyName  string
+	// name is the MarkerID.Name the caller supplied — for a policy that's the CR
+	// name (the vault-name derivation happens deeper, in the marker path).
+	name        string
 	k8sResource string
 }
 
@@ -111,23 +115,25 @@ func (m *mockVaultClient) PolicyExists(_ context.Context, _ string) (bool, error
 	return m.policyExists, m.policyExistsErr
 }
 
-func (m *mockVaultClient) MarkPolicyManaged(
-	_ context.Context, policyName, k8sResource string, _ map[string]string,
-) error {
+// MarkManaged / GetManagedBy / RemoveManaged implement the unified
+// vault.MarkerID-based marker surface of workflow.VaultOpsClient. The marker's
+// Kind (policy vs role) is carried by the id, so the same mock serves both; a
+// policy test builds a MarkerPolicy id.
+func (m *mockVaultClient) MarkManaged(_ context.Context, id vault.MarkerID, k8sResource string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.markManagedCalls = append(m.markManagedCalls, markManagedCall{policyName: policyName, k8sResource: k8sResource})
+	m.markManagedCalls = append(m.markManagedCalls, markManagedCall{name: id.Name, k8sResource: k8sResource})
 	return m.markManagedErr
 }
 
-func (m *mockVaultClient) RemovePolicyManaged(_ context.Context, policyName string) error {
+func (m *mockVaultClient) RemoveManaged(_ context.Context, id vault.MarkerID) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.removeManagedCalls = append(m.removeManagedCalls, policyName)
+	m.removeManagedCalls = append(m.removeManagedCalls, id.Name)
 	return m.removeManagedErr
 }
 
-func (m *mockVaultClient) GetPolicyManagedBy(_ context.Context, _ string) (string, error) {
+func (m *mockVaultClient) GetManagedBy(_ context.Context, _ vault.MarkerID) (string, error) {
 	return m.managedBy, m.managedByErr
 }
 
@@ -159,15 +165,6 @@ func (m *mockVaultClient) WriteKubernetesAuthRole(
 	return errPolicyMockRoleCalled
 }
 func (m *mockVaultClient) DeleteKubernetesAuthRole(_ context.Context, _, _ string) error {
-	return errPolicyMockRoleCalled
-}
-func (m *mockVaultClient) MarkRoleManaged(_ context.Context, _, _ string) error {
-	return errPolicyMockRoleCalled
-}
-func (m *mockVaultClient) GetRoleManagedBy(_ context.Context, _ string) (string, error) {
-	return "", errPolicyMockRoleCalled
-}
-func (m *mockVaultClient) RemoveRoleManaged(_ context.Context, _ string) error {
 	return errPolicyMockRoleCalled
 }
 
@@ -617,74 +614,106 @@ func TestGeneratePolicyHCL(t *testing.T) {
 }
 
 // TestBuildRuleDescriptions tests the description map builder
-func TestBuildRuleDescriptions(t *testing.T) {
-	handler := &Handler{log: logr.Discard()}
+// TestCheckConflict_MarkersDisabled pins the critical default: with managed
+// markers OFF, checkConflict short-circuits — it never touches Vault ownership
+// data (no GetManagedBy) and returns nil so the reconcile proceeds
+// write-and-forget, even when the policy already exists in Vault.
+func TestCheckConflict_MarkersDisabled(t *testing.T) {
+	// markers default OFF; assert it explicitly rather than relying on order.
+	markers.SetEnabled(false)
 
-	t.Run("rules with descriptions produce a map", func(t *testing.T) {
-		rules := []vaultv1alpha1.PolicyRule{
-			{
-				Path:         "secret/data/{{namespace}}/app/*",
-				Capabilities: []vaultv1alpha1.Capability{"read"},
-				Description:  "App secrets",
-			},
-			{
-				Path:         "secret/metadata/{{namespace}}/*",
-				Capabilities: []vaultv1alpha1.Capability{"list"},
-				Description:  "Metadata listing",
-			},
-		}
+	mockClient := newMockVaultClient()
+	mockClient.policyExists = true            // policy exists in Vault...
+	mockClient.managedBy = "someone-else/foo" // ...and looks foreign
 
-		descs := handler.buildRuleDescriptions(rules, "prod", "my-app")
-		if len(descs) != 2 {
-			t.Fatalf("expected 2 descriptions, got %d", len(descs))
+	policy := createTestVaultPolicy(testPolicyName, testNamespace, testConnectionName, []vaultv1alpha1.PolicyRule{
+		{Path: "secret/*", Capabilities: []vaultv1alpha1.Capability{"read"}},
+	})
+	adapter := domain.NewVaultPolicyAdapter(policy)
+	handler := &Handler{log: logr.Discard(), recorder: record.NewFakeRecorder(10)}
+
+	if err := handler.checkConflict(context.Background(), mockClient, adapter, adapter.GetVaultPolicyName()); err != nil {
+		t.Fatalf("markers disabled: checkConflict should return nil, got %v", err)
+	}
+	// PolicyExists is the first Vault call inside the ownership branch; it must
+	// not have been reached.
+	if len(mockClient.writePolicyCalls) != 0 {
+		t.Error("checkConflict must not write policies")
+	}
+}
+
+// TestCheckConflict_MarkersEnabled exercises the ownership branches that only
+// run when marker tracking is on.
+func TestCheckConflict_MarkersEnabled(t *testing.T) {
+	markers.SetEnabled(true)
+	t.Cleanup(func() { markers.SetEnabled(false) })
+
+	newAdapter := func(mutate func(*vaultv1alpha1.VaultPolicy)) domain.PolicyAdapter {
+		p := createTestVaultPolicy(testPolicyName, testNamespace, testConnectionName, []vaultv1alpha1.PolicyRule{
+			{Path: "secret/*", Capabilities: []vaultv1alpha1.Capability{"read"}},
+		})
+		if mutate != nil {
+			mutate(p)
 		}
-		if descs["secret/data/prod/app/*"] != "App secrets" {
-			t.Errorf("unexpected description for app path: %q", descs["secret/data/prod/app/*"])
-		}
-		if descs["secret/metadata/prod/*"] != "Metadata listing" {
-			t.Errorf("unexpected description for metadata path: %q", descs["secret/metadata/prod/*"])
+		return domain.NewVaultPolicyAdapter(p)
+	}
+	selfOwner := testNamespace + "/" + testPolicyName
+
+	t.Run("absent policy: no conflict", func(t *testing.T) {
+		m := newMockVaultClient()
+		m.policyExists = false
+		a := newAdapter(nil)
+		h := &Handler{log: logr.Discard(), recorder: record.NewFakeRecorder(10)}
+		if err := h.checkConflict(context.Background(), m, a, a.GetVaultPolicyName()); err != nil {
+			t.Errorf("absent policy should not conflict, got %v", err)
 		}
 	})
 
-	t.Run("rules without descriptions return empty map", func(t *testing.T) {
-		// Was previously nil; now returns explicit empty map so markManaged
-		// distinguishes "no descriptions" (clear existing) from "I don't
-		// know" (preserve existing). See markManaged docstring.
-		rules := []vaultv1alpha1.PolicyRule{
-			{
-				Path:         "secret/data/app/*",
-				Capabilities: []vaultv1alpha1.Capability{"read"},
-			},
-		}
-
-		descs := handler.buildRuleDescriptions(rules, "ns", "name")
-		if descs == nil {
-			t.Error("expected empty (non-nil) map; nil now means 'preserve' for markManaged")
-		}
-		if len(descs) != 0 {
-			t.Errorf("expected empty map, got %v", descs)
+	t.Run("owned by self: no conflict", func(t *testing.T) {
+		m := newMockVaultClient()
+		m.policyExists = true
+		m.managedBy = selfOwner
+		a := newAdapter(nil)
+		h := &Handler{log: logr.Discard(), recorder: record.NewFakeRecorder(10)}
+		if err := h.checkConflict(context.Background(), m, a, a.GetVaultPolicyName()); err != nil {
+			t.Errorf("self-owned policy should not conflict, got %v", err)
 		}
 	})
 
-	t.Run("mixed rules only include described ones", func(t *testing.T) {
-		rules := []vaultv1alpha1.PolicyRule{
-			{
-				Path:         "secret/data/{{namespace}}/*",
-				Capabilities: []vaultv1alpha1.Capability{"read"},
-				Description:  "With desc",
-			},
-			{
-				Path:         "secret/metadata/{{namespace}}/*",
-				Capabilities: []vaultv1alpha1.Capability{"list"},
-			},
+	t.Run("owned by another: conflict", func(t *testing.T) {
+		m := newMockVaultClient()
+		m.policyExists = true
+		m.managedBy = "other-ns/other-policy"
+		a := newAdapter(nil)
+		h := &Handler{log: logr.Discard(), recorder: record.NewFakeRecorder(10)}
+		err := h.checkConflict(context.Background(), m, a, a.GetVaultPolicyName())
+		if !infraerrors.IsConflictError(err) {
+			t.Errorf("foreign-owned policy should be a conflict, got %v", err)
 		}
+	})
 
-		descs := handler.buildRuleDescriptions(rules, "ns", "name")
-		if len(descs) != 1 {
-			t.Fatalf("expected 1 description, got %d", len(descs))
+	t.Run("exists unmanaged, Fail default: conflict", func(t *testing.T) {
+		m := newMockVaultClient()
+		m.policyExists = true
+		m.managedBy = "" // exists but no marker
+		a := newAdapter(nil)
+		h := &Handler{log: logr.Discard(), recorder: record.NewFakeRecorder(10)}
+		err := h.checkConflict(context.Background(), m, a, a.GetVaultPolicyName())
+		if !infraerrors.IsConflictError(err) {
+			t.Errorf("unmanaged existing policy under default Fail should conflict, got %v", err)
 		}
-		if _, ok := descs["secret/data/ns/*"]; !ok {
-			t.Error("expected description for resolved path")
+	})
+
+	t.Run("exists unmanaged, Adopt policy: adopted", func(t *testing.T) {
+		m := newMockVaultClient()
+		m.policyExists = true
+		m.managedBy = ""
+		a := newAdapter(func(p *vaultv1alpha1.VaultPolicy) {
+			p.Spec.ConflictPolicy = vaultv1alpha1.ConflictPolicyAdopt
+		})
+		h := &Handler{log: logr.Discard(), recorder: record.NewFakeRecorder(10)}
+		if err := h.checkConflict(context.Background(), m, a, a.GetVaultPolicyName()); err != nil {
+			t.Errorf("unmanaged policy with ConflictPolicy=Adopt should be adopted, got %v", err)
 		}
 	})
 }

@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -38,7 +39,57 @@ import (
 	"github.com/panteparak/vault-access-operator/features/role/domain"
 	"github.com/panteparak/vault-access-operator/pkg/vault"
 	"github.com/panteparak/vault-access-operator/shared/events"
+	"github.com/panteparak/vault-access-operator/shared/markers"
 )
+
+// roleMarkerPath returns the metadata path a role marker lands at. mount is the
+// bare auth-mount (e.g. "kubernetes"); nsSeg is the K8s namespace or "_cluster"
+// for a cluster-scoped role; name is the CR name (NOT the derived vault name).
+func roleMarkerPath(mount, nsSeg, name string) string {
+	return fmt.Sprintf("secret/metadata/vault-access-operator/managed/roles/%s/%s/%s", mount, nsSeg, name)
+}
+
+// enableMarkersForTest turns managed-marker tracking on for the test. Marker /
+// conflict assertions are gated on this (markers default OFF in production).
+func enableMarkersForTest(t *testing.T) {
+	t.Helper()
+	markers.SetEnabled(true)
+	t.Cleanup(func() { markers.SetEnabled(false) })
+}
+
+// managedChildKeys mirrors Vault LIST over a hierarchical metadata tree:
+// intermediate segments get a trailing "/", leaf keys do not. Returns nil when
+// the prefix has no descendants (→ 404). state keys are full "/v1"-stripped API
+// paths under secret/metadata/...; listPath is likewise a stripped API path.
+func managedChildKeys(state map[string]map[string]interface{}, listPath string) []interface{} {
+	prefix := strings.TrimSuffix(listPath, "/")
+	prefix = strings.TrimSuffix(strings.Split(prefix, "?")[0], "/")
+	seen := map[string]bool{}
+	for full := range state {
+		if full == prefix || !strings.HasPrefix(full, prefix+"/") {
+			continue
+		}
+		rest := strings.TrimPrefix(full, prefix+"/")
+		if i := strings.IndexByte(rest, '/'); i >= 0 {
+			seen[rest[:i]+"/"] = true
+		} else {
+			seen[rest] = true
+		}
+	}
+	if len(seen) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(seen))
+	for k := range seen {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	keys := make([]interface{}, len(out))
+	for i, k := range out {
+		keys[i] = k
+	}
+	return keys
+}
 
 // --- Mock Vault HTTP server infrastructure ---
 
@@ -96,63 +147,47 @@ func newMockVaultServer(cfg mockVaultServerConfig) *httptest.Server {
 		apiPath := strings.TrimPrefix(path, "/v1/")
 
 		switch {
-		// --- Managed metadata (KV v2) --- must match before role CRUD
-		case strings.HasPrefix(apiPath, "secret/data/vault-access-operator/managed/"):
-			metadataPath := apiPath
+		// --- Managed markers: KV v2 custom_metadata ONLY (never secret/data) ---
+		// All ops (write/read/delete/list) live under the hierarchical metadata
+		// path secret/metadata/vault-access-operator/managed/roles/{mount}/{ns|_cluster}/{name}.
+		// state.managed is keyed by that full API path.
+		case strings.HasPrefix(apiPath, "secret/metadata/vault-access-operator/managed/"):
 			cfg.state.mu.Lock()
 			defer cfg.state.mu.Unlock()
 
-			switch r.Method {
-			case http.MethodPut, http.MethodPost:
-				var body map[string]interface{}
-				_ = json.NewDecoder(r.Body).Decode(&body)
-				cfg.state.managed[metadataPath] = body
+			switch {
+			case r.Method == http.MethodGet && r.URL.Query().Get("list") == "true":
+				keys := managedChildKeys(cfg.state.managed, apiPath)
+				if keys == nil {
+					w.WriteHeader(http.StatusNotFound)
+					return
+				}
 				_ = json.NewEncoder(w).Encode(map[string]interface{}{
-					"data": map[string]interface{}{
-						"version": 1,
-					},
+					"data": map[string]interface{}{"keys": keys},
 				})
 
-			case http.MethodGet:
-				data, exists := cfg.state.managed[metadataPath]
+			case r.Method == http.MethodPut || r.Method == http.MethodPost:
+				var body struct {
+					CustomMetadata map[string]interface{} `json:"custom_metadata"`
+				}
+				_ = json.NewDecoder(r.Body).Decode(&body)
+				cfg.state.managed[apiPath] = body.CustomMetadata
+				w.WriteHeader(http.StatusNoContent)
+
+			case r.Method == http.MethodGet:
+				cm, exists := cfg.state.managed[apiPath]
 				if !exists {
 					w.WriteHeader(http.StatusNotFound)
 					return
 				}
 				_ = json.NewEncoder(w).Encode(map[string]interface{}{
-					"data": data,
+					"data": map[string]interface{}{"custom_metadata": cm},
 				})
 
-			case http.MethodDelete:
-				delete(cfg.state.managed, metadataPath)
+			case r.Method == http.MethodDelete:
+				delete(cfg.state.managed, apiPath)
 				w.WriteHeader(http.StatusNoContent)
 			}
-
-		// --- List managed metadata (KV v2) ---
-		case strings.HasPrefix(apiPath, "secret/metadata/vault-access-operator/managed/"):
-			cfg.state.mu.Lock()
-			defer cfg.state.mu.Unlock()
-
-			prefix := strings.Replace(apiPath, "secret/metadata/", "secret/data/", 1) + "/"
-
-			var keys []interface{}
-			for k := range cfg.state.managed {
-				if strings.HasPrefix(k, prefix) {
-					name := strings.TrimPrefix(k, prefix)
-					keys = append(keys, name)
-				}
-			}
-
-			if len(keys) == 0 {
-				w.WriteHeader(http.StatusNotFound)
-				return
-			}
-
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{
-				"data": map[string]interface{}{
-					"keys": keys,
-				},
-			})
 
 		// --- Kubernetes auth role CRUD ---
 		// Path format: auth/{mount}/role/{name}
@@ -369,6 +404,7 @@ func setupSyncRoleTest(
 // --- SyncRole Tests ---
 
 func TestSyncRole_Success_NewRole(t *testing.T) {
+	enableMarkersForTest(t)
 	state := newMockVaultState()
 	conn := newTestVaultConnection()
 	role := newTestVaultRole()
@@ -410,15 +446,18 @@ func TestSyncRole_Success_NewRole(t *testing.T) {
 		t.Error("expected bound_service_account_namespaces in role data")
 	}
 
-	// Verify managed marker was written
-	vaultRoleName := testNamespace + "-" + testRoleName
-	managedKey := fmt.Sprintf("secret/data/vault-access-operator/managed/roles/%s", vaultRoleName)
+	// Verify managed marker was written at the mount-qualified metadata path.
+	// Path segments: roles/{mount}/{ns}/{CR name} — not the derived vault name.
+	managedKey := roleMarkerPath("kubernetes", testNamespace, testRoleName)
 	state.mu.Lock()
-	_, markerExists := state.managed[managedKey]
+	cm, markerExists := state.managed[managedKey]
 	state.mu.Unlock()
 
 	if !markerExists {
-		t.Errorf("expected managed marker at %s, but not found", managedKey)
+		t.Fatalf("expected managed marker at %s, but not found; keys: %v", managedKey, keysOf(state.managed))
+	}
+	if cm[vault.KVManagedByKey] != vault.KVManagedByValue {
+		t.Errorf("marker managed-by = %v, want %q", cm[vault.KVManagedByKey], vault.KVManagedByValue)
 	}
 }
 
@@ -518,6 +557,7 @@ func TestSyncRole_Success_ClusterRole(t *testing.T) {
 }
 
 func TestSyncRole_ConflictError_Adopt(t *testing.T) {
+	enableMarkersForTest(t)
 	state := newMockVaultState()
 	// Pre-populate an existing role in Vault (unmanaged)
 	state.roles["auth/kubernetes/role/"+testNamespace+"-"+testRoleName] = map[string]interface{}{
@@ -543,21 +583,20 @@ func TestSyncRole_ConflictError_Adopt(t *testing.T) {
 }
 
 func TestSyncRole_ConflictError_Fail(t *testing.T) {
+	enableMarkersForTest(t)
 	state := newMockVaultState()
 	vaultRoleName := testNamespace + "-" + testRoleName
 	// Pre-populate an existing role managed by someone else
 	state.roles["auth/kubernetes/role/"+vaultRoleName] = map[string]interface{}{
 		"policies": []interface{}{"old-policy"},
 	}
-	// Mark as managed by a different resource
-	// The managed path uses full API path: secret/data/vault-access-operator/managed/roles/{name}
-	managedKey := fmt.Sprintf("secret/data/vault-access-operator/managed/roles/%s", vaultRoleName)
+	// Seed a foreign ownership marker at the hierarchical metadata path
+	// (custom_metadata): managed-by is the operator sentinel so it's read as
+	// ours, but k8s-resource points elsewhere → conflict under default Fail.
+	managedKey := roleMarkerPath("kubernetes", testNamespace, testRoleName)
 	state.managed[managedKey] = map[string]interface{}{
-		"data": map[string]interface{}{
-			"metadata": `{"k8sResource":"other-ns/other-role",` +
-				`"managedAt":"2026-01-01T00:00:00Z",` +
-				`"lastUpdated":"2026-01-01T00:00:00Z"}`,
-		},
+		vault.KVManagedByKey:   vault.KVManagedByValue,
+		vault.KVK8sResourceKey: "other-ns/other-role",
 	}
 
 	conn := newTestVaultConnection()
@@ -576,6 +615,46 @@ func TestSyncRole_ConflictError_Fail(t *testing.T) {
 
 	if !strings.Contains(err.Error(), "conflict") {
 		t.Errorf("expected conflict error, got: %v", err)
+	}
+}
+
+// TestSyncRole_MarkersDisabled_NoConflict pins the default: with managed markers
+// OFF, an existing role owned by another resource does NOT trigger a conflict —
+// the reconcile proceeds write-and-forget. Same setup as ConflictError_Fail but
+// without enabling markers.
+func TestSyncRole_MarkersDisabled_NoConflict(t *testing.T) {
+	// markers default OFF; assert explicitly rather than relying on order.
+	markers.SetEnabled(false)
+
+	state := newMockVaultState()
+	vaultRoleName := testNamespace + "-" + testRoleName
+	state.roles["auth/kubernetes/role/"+vaultRoleName] = map[string]interface{}{
+		"policies": []interface{}{"old-policy"},
+	}
+	// Foreign marker present — but markers are off, so it must be ignored.
+	state.managed[roleMarkerPath("kubernetes", testNamespace, testRoleName)] = map[string]interface{}{
+		vault.KVManagedByKey:   vault.KVManagedByValue,
+		vault.KVK8sResourceKey: "other-ns/other-role",
+	}
+
+	conn := newTestVaultConnection()
+	role := newTestVaultRole()
+
+	handler, server, _ := setupSyncRoleTest(t, role, conn, mockVaultServerConfig{state: state})
+	defer server.Close()
+
+	ctx := logr.NewContext(context.Background(), logr.Discard())
+	adapter := domain.NewVaultRoleAdapter(role)
+
+	if err := handler.SyncRole(ctx, adapter); err != nil {
+		t.Fatalf("markers disabled: SyncRole should not conflict, got %v", err)
+	}
+	// The role should have been (over)written — write-and-forget proceeds.
+	state.mu.Lock()
+	_, exists := state.roles["auth/kubernetes/role/"+vaultRoleName]
+	state.mu.Unlock()
+	if !exists {
+		t.Error("role should have been written under write-and-forget")
 	}
 }
 

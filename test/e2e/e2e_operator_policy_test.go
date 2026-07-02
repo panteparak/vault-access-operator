@@ -24,7 +24,7 @@ package e2e
 //   - auth/<backend>/role/* and /config — role + mount configuration
 //   - sys/auth/*         — enable/disable mounts during test setup
 //   - sys/health, sys/mounts — read-only diagnostics
-//   - secret/{data,metadata}/vault-access-operator/managed/* — managed-marker tracking
+//   - secret/metadata/vault-access-operator/managed/* — managed-marker tracking (custom_metadata only)
 const operatorPolicyHCL = `
 # Policy management - operator needs to create/update/delete policies
 path "sys/policies/acl/*" {
@@ -108,14 +108,11 @@ path "sys/mounts" {
   capabilities = ["read"]
 }
 
-# KV v2 managed resource metadata (ownership tracking)
-# The operator stores metadata about which K8s resource manages each Vault policy/role
-# KV v2 requires separate data/ and metadata/ path prefixes
-path "secret/data/vault-access-operator/managed/*" {
-  capabilities = ["create", "read", "update", "delete"]
-}
+# Managed markers: KV v2 custom_metadata ONLY (never secret/data). The operator
+# writes ownership records via PutMetadata, so it needs create/update alongside
+# read/list/delete — and no capability on secret/data (metadata-only least-privilege).
 path "secret/metadata/vault-access-operator/managed/*" {
-  capabilities = ["list", "read", "delete"]
+  capabilities = ["create", "read", "update", "list", "delete"]
 }
 
 # KV v2 secret seeding (VaultKVSecret). CREATE-ONLY on the data path — the

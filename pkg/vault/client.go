@@ -124,6 +124,14 @@ func NormalizeAuthPath(authPath string) string {
 	return "auth/" + p
 }
 
+// AuthMountName returns the bare auth-mount name (the single path segment Vault
+// mounts the method at) from an auth path in any accepted form: "kubernetes",
+// "auth/kubernetes", or "" (→ default kubernetes). This is the mount segment
+// used in a role's managed-marker path.
+func AuthMountName(authPath string) string {
+	return strings.TrimPrefix(NormalizeAuthPath(authPath), "auth/")
+}
+
 // Client wraps the Vault API client with additional metadata.
 // Mutable metadata fields are protected by mu for concurrent access
 // from reconciler goroutines and the token renewal background loop.
