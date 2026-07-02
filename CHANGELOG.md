@@ -7,6 +7,8 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-07-02
+
 ### Added
 
 - **In-band ownership markers (ADR 0008).** Ownership records now live ON the
