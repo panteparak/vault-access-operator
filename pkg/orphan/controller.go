@@ -168,7 +168,7 @@ func (c *Controller) detectOrphansForConnection(ctx context.Context, connName st
 	}
 
 	// Detect orphaned policies
-	orphanedPolicies := c.detectOrphanedPolicies(ctx, vaultClient, connName)
+	orphanedPolicies := c.DetectOrphanedPolicies(ctx, vaultClient, connName)
 	metrics.SetOrphanedResources(connName, ResourceTypePolicy, len(orphanedPolicies))
 	if len(orphanedPolicies) > 0 {
 		c.log.Info("found orphaned policies", "connection", connName, "count", len(orphanedPolicies))
@@ -181,7 +181,7 @@ func (c *Controller) detectOrphansForConnection(ctx context.Context, connName st
 	}
 
 	// Detect orphaned roles
-	orphanedRoles := c.detectOrphanedRoles(ctx, vaultClient, connName)
+	orphanedRoles := c.DetectOrphanedRoles(ctx, vaultClient, connName)
 	metrics.SetOrphanedResources(connName, ResourceTypeRole, len(orphanedRoles))
 	if len(orphanedRoles) > 0 {
 		c.log.Info("found orphaned roles", "connection", connName, "count", len(orphanedRoles))
@@ -194,11 +194,11 @@ func (c *Controller) detectOrphansForConnection(ctx context.Context, connName st
 	}
 }
 
-// detectOrphanedPolicies finds policies whose in-band ownership header (ADR
+// DetectOrphanedPolicies finds policies whose in-band ownership header (ADR
 // 0008) names THIS operator (same auth-mount identity) but whose owning K8s
 // resource no longer exists. Foreign-owned and unmanaged policies are never
 // flagged.
-func (c *Controller) detectOrphanedPolicies(
+func (c *Controller) DetectOrphanedPolicies(
 	ctx context.Context, vaultClient *vault.Client, connName string,
 ) []OrphanInfo {
 	names, err := vaultClient.ListPolicies(ctx)
@@ -230,12 +230,12 @@ func (c *Controller) detectOrphanedPolicies(
 	return orphans
 }
 
-// detectOrphanedRoles finds roles on THIS operator's own auth mount that no
+// DetectOrphanedRoles finds roles on THIS operator's own auth mount that no
 // role CR derives to. Roles carry no in-band ownership record (ADR 0008);
 // under the one-cluster-per-mount invariant every role on our mount belongs
 // to this cluster, so a role with no matching CR is an orphan candidate. The
 // owning CR is unknowable (no record), so K8sResource is left empty.
-func (c *Controller) detectOrphanedRoles(
+func (c *Controller) DetectOrphanedRoles(
 	ctx context.Context, vaultClient *vault.Client, connName string,
 ) []OrphanInfo {
 	mount := vaultClient.AuthMount()

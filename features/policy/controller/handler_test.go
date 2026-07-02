@@ -706,6 +706,22 @@ func TestCheckConflict_MarkersEnabled(t *testing.T) {
 		}
 	})
 
+	// A manual FULL replacement in Vault wipes the header along with the
+	// rules — the CR's status is the ownership memory then, so the sync
+	// proceeds and drift detection handles the divergence.
+	t.Run("headerless but CR previously synced: ours", func(t *testing.T) {
+		m := newMockVaultClient()
+		m.policyExists = true
+		m.ownership = nil
+		a := newAdapter(func(p *vaultv1alpha1.VaultPolicy) {
+			p.Status.LastAppliedHash = "previously-synced"
+		})
+		h := &Handler{log: logr.Discard(), recorder: record.NewFakeRecorder(10)}
+		if err := h.checkConflict(context.Background(), m, a, a.GetVaultPolicyName()); err != nil {
+			t.Errorf("previously-synced CR should own its headerless policy, got %v", err)
+		}
+	})
+
 	t.Run("exists unmanaged, Adopt policy: adopted", func(t *testing.T) {
 		m := newMockVaultClient()
 		m.policyExists = true

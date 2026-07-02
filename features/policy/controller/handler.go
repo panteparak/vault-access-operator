@@ -385,6 +385,17 @@ func (h *Handler) checkConflict(
 			fmt.Sprintf("already managed by %s", own.String()))
 	}
 
+	// No header, but this CR has synced the policy before: a manual FULL
+	// replacement in Vault wipes the in-band header along with the rules.
+	// The CR's own status is the ownership memory here (same rule as roles)
+	// — proceed, and let drift detection flag/correct the divergence (a
+	// corrective write re-stamps the header).
+	if adapter.GetLastAppliedHash() != "" {
+		log.Info("policy header missing but CR previously synced — treating as ours (manual overwrite?)",
+			"policyName", vaultPolicyName)
+		return nil
+	}
+
 	// Exists but carries no operator header - check if adoption is allowed
 	if h.shouldAdopt(adapter) {
 		log.Info("adopting existing Vault policy", "policyName", vaultPolicyName)

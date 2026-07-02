@@ -104,10 +104,10 @@ func ownedHCL(authMount, k8sResource string) string {
 	}) + "\npath \"secret/*\" {\n  capabilities = [\"read\"]\n}\n"
 }
 
-// TestController_detectOrphanedPolicies exercises the in-band ownership scan
+// TestController_DetectOrphanedPolicies exercises the in-band ownership scan
 // (ADR 0008): only OUR policies (matching auth-mount identity) whose owning
 // CR is gone are flagged.
-func TestController_detectOrphanedPolicies(t *testing.T) {
+func TestController_DetectOrphanedPolicies(t *testing.T) {
 	mock := &orphanVaultMock{policies: map[string]string{
 		// Ours, CR exists → not an orphan.
 		"default-live": ownedHCL("kubernetes", "default/live"),
@@ -126,7 +126,7 @@ func TestController_detectOrphanedPolicies(t *testing.T) {
 		log: logr.Discard(),
 	}
 
-	orphans := ctrl.detectOrphanedPolicies(context.Background(), vc, "conn")
+	orphans := ctrl.DetectOrphanedPolicies(context.Background(), vc, "conn")
 	if len(orphans) != 1 {
 		t.Fatalf("orphans = %+v, want exactly 1", orphans)
 	}
@@ -135,20 +135,20 @@ func TestController_detectOrphanedPolicies(t *testing.T) {
 	}
 }
 
-// TestController_detectOrphanedPolicies_ListError verifies a Vault list
+// TestController_DetectOrphanedPolicies_ListError verifies a Vault list
 // failure degrades to "no orphans" rather than an error or false positives.
-func TestController_detectOrphanedPolicies_ListError(t *testing.T) {
+func TestController_DetectOrphanedPolicies_ListError(t *testing.T) {
 	vc := newOrphanVaultClient(t, &orphanVaultMock{failList: true}, "kubernetes")
 	ctrl := &Controller{k8sClient: newOrphanK8sClient(), log: logr.Discard()}
-	if orphans := ctrl.detectOrphanedPolicies(context.Background(), vc, "conn"); orphans != nil {
+	if orphans := ctrl.DetectOrphanedPolicies(context.Background(), vc, "conn"); orphans != nil {
 		t.Errorf("orphans = %+v, want nil on list error", orphans)
 	}
 }
 
-// TestController_detectOrphanedRoles: under the one-cluster-per-mount
+// TestController_DetectOrphanedRoles: under the one-cluster-per-mount
 // invariant, any role on OUR mount with no deriving CR is an orphan
 // candidate; roles derived from live CRs are not.
-func TestController_detectOrphanedRoles(t *testing.T) {
+func TestController_DetectOrphanedRoles(t *testing.T) {
 	mock := &orphanVaultMock{roles: []string{"default-live", "stale-role"}}
 	vc := newOrphanVaultClient(t, mock, "kubernetes")
 	ctrl := &Controller{
@@ -159,7 +159,7 @@ func TestController_detectOrphanedRoles(t *testing.T) {
 		log: logr.Discard(),
 	}
 
-	orphans := ctrl.detectOrphanedRoles(context.Background(), vc, "conn")
+	orphans := ctrl.DetectOrphanedRoles(context.Background(), vc, "conn")
 	if len(orphans) != 1 {
 		t.Fatalf("orphans = %+v, want exactly 1", orphans)
 	}
@@ -172,12 +172,12 @@ func TestController_detectOrphanedRoles(t *testing.T) {
 	}
 }
 
-// TestController_detectOrphanedRoles_NoAuthMount: a static-token connection
+// TestController_DetectOrphanedRoles_NoAuthMount: a static-token connection
 // has no mount to scan — the role pass is skipped entirely.
-func TestController_detectOrphanedRoles_NoAuthMount(t *testing.T) {
+func TestController_DetectOrphanedRoles_NoAuthMount(t *testing.T) {
 	vc := newOrphanVaultClient(t, &orphanVaultMock{roles: []string{"anything"}}, "")
 	ctrl := &Controller{k8sClient: newOrphanK8sClient(), log: logr.Discard()}
-	if orphans := ctrl.detectOrphanedRoles(context.Background(), vc, "conn"); orphans != nil {
+	if orphans := ctrl.DetectOrphanedRoles(context.Background(), vc, "conn"); orphans != nil {
 		t.Errorf("orphans = %+v, want nil for mountless connection", orphans)
 	}
 }
