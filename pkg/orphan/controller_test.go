@@ -31,7 +31,8 @@ import (
 	"github.com/panteparak/vault-access-operator/pkg/vault"
 )
 
-// mockVaultClient implements a subset of vault.Client for testing
+// mockVaultClient implements the single ListManaged(kind) surface the orphan
+// scanner needs. It dispatches on MarkerKind, mirroring the real *vault.Client.
 type mockVaultClient struct {
 	managedPolicies map[string]vault.ManagedResource
 	managedRoles    map[string]vault.ManagedResource
@@ -39,24 +40,31 @@ type mockVaultClient struct {
 	listRolesErr    error
 }
 
-func (m *mockVaultClient) ListManagedPolicies(_ context.Context) (map[string]vault.ManagedResource, error) {
-	if m.listPoliciesErr != nil {
-		return nil, m.listPoliciesErr
-	}
-	if m.managedPolicies == nil {
+// ListManaged returns the managed markers of a kind, matching the production
+// signature vaultClient.ListManaged(ctx, vault.MarkerPolicy|MarkerRole).
+func (m *mockVaultClient) ListManaged(
+	_ context.Context, kind vault.MarkerKind,
+) (map[string]vault.ManagedResource, error) {
+	switch kind {
+	case vault.MarkerPolicy:
+		if m.listPoliciesErr != nil {
+			return nil, m.listPoliciesErr
+		}
+		if m.managedPolicies == nil {
+			return map[string]vault.ManagedResource{}, nil
+		}
+		return m.managedPolicies, nil
+	case vault.MarkerRole:
+		if m.listRolesErr != nil {
+			return nil, m.listRolesErr
+		}
+		if m.managedRoles == nil {
+			return map[string]vault.ManagedResource{}, nil
+		}
+		return m.managedRoles, nil
+	default:
 		return map[string]vault.ManagedResource{}, nil
 	}
-	return m.managedPolicies, nil
-}
-
-func (m *mockVaultClient) ListManagedRoles(_ context.Context) (map[string]vault.ManagedResource, error) {
-	if m.listRolesErr != nil {
-		return nil, m.listRolesErr
-	}
-	if m.managedRoles == nil {
-		return map[string]vault.ManagedResource{}, nil
-	}
-	return m.managedRoles, nil
 }
 
 // testableController extends Controller to allow injecting mock vault clients
@@ -106,7 +114,7 @@ func (c *testableController) detectOrphansForConnectionWithMock(
 func (c *testableController) detectOrphanedPoliciesWithMock(
 	ctx context.Context, mockClient *mockVaultClient, connName string,
 ) []OrphanInfo {
-	managed, err := mockClient.ListManagedPolicies(ctx)
+	managed, err := mockClient.ListManaged(ctx, vault.MarkerPolicy)
 	if err != nil {
 		return nil
 	}
@@ -128,7 +136,7 @@ func (c *testableController) detectOrphanedPoliciesWithMock(
 func (c *testableController) detectOrphanedRolesWithMock(
 	ctx context.Context, mockClient *mockVaultClient, connName string,
 ) []OrphanInfo {
-	managed, err := mockClient.ListManagedRoles(ctx)
+	managed, err := mockClient.ListManaged(ctx, vault.MarkerRole)
 	if err != nil {
 		return nil
 	}

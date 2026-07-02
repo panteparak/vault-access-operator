@@ -226,7 +226,7 @@ path "secret/metadata/*" {
 `spec.path` of each `VaultKVSecret`. The data path likewise needs **no** `read`,
 `update`, or `delete`. (The unrelated managed-marker tracking does `list` its own
 `secret/metadata/vault-access-operator/managed/*` prefix — that is separate from
-seeding and already covered by the operator's base policy.)
+seeding, metadata-only, and required only when [`--managed-markers=true`](#managed-markers).)
 
 **Least privilege:** scope both prefixes to the paths you actually seed (e.g.
 `secret/data/apps/*` and `secret/metadata/apps/*`) rather than the broad
@@ -264,6 +264,7 @@ The operator supports the following environment variables for runtime configurat
 | `OPERATOR_NAMESPACE` | (from downward API) | Namespace where the operator is running |
 | `OPERATOR_SERVICE_ACCOUNT` | (from downward API) | Service account name used by the operator |
 | `CLUSTER_NAME` | `""` | Per-cluster prefix for all Vault resource names (see [`--cluster-name`](#cli-flags) and [Sharing one Vault across clusters](#sharing-one-vault-across-clusters)). The `--cluster-name` flag takes precedence. |
+| `MANAGED_MARKERS` | `false` | Enable managed-marker ownership tracking, discovery, and orphan detection (see [`--managed-markers`](#cli-flags) and [Managed markers](#managed-markers)). The `--managed-markers` flag takes precedence. |
 
 These can be set via the `extraEnv` Helm value:
 
@@ -296,6 +297,7 @@ The operator binary accepts the following command-line flags:
 | `--enable-http2` | `false` | Enable HTTP/2 for metrics and webhook servers |
 | `--enable-webhooks` | `false` | Enable admission webhooks (requires certificate configuration) |
 | `--cluster-name` | `""` | Per-cluster prefix for all Vault resource names (policies, roles, managed markers). Set a unique value per cluster when multiple operators share one Vault server; empty disables prefixing. Also settable via the `CLUSTER_NAME` env var. See [Sharing one Vault across clusters](#sharing-one-vault-across-clusters). |
+| `--managed-markers` | `false` | Enable managed-marker ownership tracking, discovery, and orphan detection. Default OFF: the operator writes/reads no markers, skips conflict/ownership detection (write-and-forget), and does not run the discovery or orphan controllers. When ON, it also requires the metadata grant on `secret/metadata/vault-access-operator/managed/*`. Also settable via the `MANAGED_MARKERS` env var. See [Managed markers](#managed-markers). |
 
 ---
 
@@ -305,10 +307,10 @@ Vault Community Edition has no [namespaces](https://developer.hashicorp.com/vaul
 
 Set a unique **`--cluster-name`** (or `CLUSTER_NAME` env / `clusterName` Helm value) per cluster to prefix every derived Vault resource name:
 
-| Setting | `VaultPolicy` `default/admin` → Vault policy | Managed marker |
-|---------|----------------------------------------------|----------------|
-| `clusterName: east` | `east-default-admin` | `…/managed/policies/east-default-admin` |
-| `clusterName: west` | `west-default-admin` | `…/managed/policies/west-default-admin` |
+| Setting | `VaultPolicy` `default/admin` → Vault policy | Managed marker (when `--managed-markers=true`) |
+|---------|----------------------------------------------|------------------------------------------------|
+| `clusterName: east` | `east-default-admin` | `…/managed/east/policies/default/admin` |
+| `clusterName: west` | `west-default-admin` | `…/managed/west/policies/default/admin` |
 
 Both clusters then coexist on one Vault with no collisions. Notes:
 
@@ -316,6 +318,79 @@ Both clusters then coexist on one Vault with no collisions. Notes:
 - The prefix also applies to the policy names a `VaultRole` binds (`token_policies`), so role→policy references stay consistent automatically.
 - Enabling the prefix on an **existing** install renames the Vault objects: the operator creates the new prefixed policies/roles and the old unprefixed ones become orphaned. Plan a cutover (create prefixed → repoint external consumers → delete the old names).
 - Valid characters: `^[a-zA-Z0-9._-]+$` (the prefix becomes part of Vault policy names and KV paths).
+
+---
+
+## Managed markers
+
+A **managed marker** is a KV v2 `custom_metadata` record the operator writes to
+Vault to track the policies and roles it owns. Markers back three features:
+ownership/conflict detection (so two operators don't silently overwrite each
+other), discovery (adopting pre-existing Vault resources into CRs), and orphan
+detection (spotting resources whose K8s owner has vanished).
+
+**The whole mechanism is OFF by default** and gated behind a single toggle:
+
+| Setting | Default | Effect |
+|---------|---------|--------|
+| `--managed-markers` flag | `false` | See below |
+| `MANAGED_MARKERS` env var | `false` | Same; the flag takes precedence |
+| `managedMarkers.enabled` Helm value | `false` | Renders the flag |
+
+**When OFF (default):** the operator writes and reads **no** markers. It skips
+conflict/ownership detection entirely (write-and-forget) and does **not** run the
+discovery or orphan-detection controllers. It needs **no** grant on the marker KV
+path.
+
+**When ON:** full ownership tracking, discovery, and orphan detection. This
+requires a metadata grant in the operator's Vault policy:
+
+```hcl
+# Managed markers live in KV v2 custom_metadata only — never secret/data.
+path "secret/metadata/vault-access-operator/managed/*" {
+  capabilities = ["create", "read", "update", "list", "delete"]
+}
+```
+
+Markers are stored under a hierarchical path so a token can be ACL-scoped per
+segment. Multi-tenant operators (one per cluster, sharing one Vault CE server)
+can narrow the grant to their own subtree:
+
+```hcl
+path "secret/metadata/vault-access-operator/managed/{cluster}/*" {
+  capabilities = ["create", "read", "update", "list", "delete"]
+}
+```
+
+On a `VaultConnection` becoming `Active`, the operator runs a one-time preflight
+against this path and emits a `Warning` event `ManagedMarkersPreflightFailed` if
+the grant is missing.
+
+!!! warning "Used but not activated"
+    If markers are OFF and a CR sets `conflictPolicy: Adopt` (or the annotation
+    `vault.platform.io/adopt=true`), that CR is expressing ownership intent the
+    operator cannot honor. The controller emits a `Warning` event
+    `ManagedMarkersDisabled` (reconcile still proceeds), and — when
+    `--enable-webhooks` is set — the validating webhook **rejects the create at
+    admission**. A plain or defaulted `conflictPolicy: Fail` is allowed silently.
+
+!!! danger "Migration — two breaking changes"
+    1. **Default-off.** Deployments that relied on always-on markers (pre-0.8)
+       **silently lose** ownership tracking, discovery, and orphan detection after
+       upgrade unless they set `--managed-markers=true`.
+    2. **Path + storage moved.** Markers moved from KV v2 **data** at the old flat
+       path `secret/data/vault-access-operator/managed/{policies,roles}/…` to KV v2
+       **`custom_metadata`** at the new hierarchical path
+       `secret/metadata/vault-access-operator/managed/{cluster}/{kind}/…`. When you
+       enable `--managed-markers=true` after upgrade, the new path is empty, so
+       existing managed resources read as **unmanaged** → conflict under the default
+       `Fail` policy. The Vault policies/roles themselves are **untouched** (no data
+       loss); only ownership tracking resets. **Remedy:** set
+       `ConflictPolicy: Adopt` (or annotate `vault.platform.io/adopt=true`) while
+       enabling, let resources re-mark, then revert. Old inert markers under
+       `secret/data/vault-access-operator/managed/*` can be deleted manually.
+
+    See [ADR 0007](adr/0007-hierarchical-metadata-only-managed-markers.md).
 
 ---
 

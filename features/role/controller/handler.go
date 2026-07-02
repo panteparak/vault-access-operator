@@ -43,6 +43,7 @@ import (
 	"github.com/panteparak/vault-access-operator/shared/controller/workflow"
 	"github.com/panteparak/vault-access-operator/shared/events"
 	infraerrors "github.com/panteparak/vault-access-operator/shared/infrastructure/errors"
+	"github.com/panteparak/vault-access-operator/shared/markers"
 )
 
 // Kind labels used in adoption + reconcile metrics. Extracted as constants
@@ -136,6 +137,13 @@ func (h *Handler) checkConflict(
 	adapter domain.RoleAdapter,
 	authPath, vaultRoleName string,
 ) error {
+	// Managed markers disabled: no ownership data, so conflict detection can't
+	// run — proceed (write-and-forget). Explicit adopt-intent is surfaced separately.
+	if !markers.Enabled() {
+		conflict.WarnAdoptIntentInert(h.recorder, adapter.GetObject(), adapter)
+		return nil
+	}
+
 	log := logr.FromContextOrDiscard(ctx)
 
 	exists, err := vaultClient.KubernetesAuthRoleExists(ctx, authPath, vaultRoleName)
@@ -148,7 +156,12 @@ func (h *Handler) checkConflict(
 	}
 
 	// Role exists, check ownership
-	managedBy, err := vaultClient.GetRoleManagedBy(ctx, vaultRoleName)
+	managedBy, err := vaultClient.GetManagedBy(ctx, vault.MarkerID{
+		Kind:      vault.MarkerRole,
+		Mount:     vault.AuthMountName(authPath),
+		Namespace: adapter.GetNamespace(),
+		Name:      adapter.GetName(),
+	})
 	if err != nil {
 		// Can't determine ownership - check if adoption is allowed
 		if h.shouldAdopt(adapter) {

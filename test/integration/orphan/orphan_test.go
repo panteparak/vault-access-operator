@@ -10,7 +10,6 @@ package orphan
 
 import (
 	"context"
-	"encoding/json"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -75,7 +74,7 @@ var _ = Describe("Orphan Detection Integration Tests", func() {
 				Expect(vaultClient).NotTo(BeNil())
 
 				// The policy should be marked as managed in Vault
-				managedPolicies, err := vaultClient.ListManagedPolicies(ctx)
+				managedPolicies, err := vaultClient.ListManaged(ctx, vault.MarkerPolicy)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(managedPolicies).To(HaveKey("default-int-orp01-test-policy"))
 
@@ -130,7 +129,7 @@ var _ = Describe("Orphan Detection Integration Tests", func() {
 
 				By("Verifying managed metadata contains correct K8s resource reference")
 				vaultClient := testEnv.VaultClient
-				managedPolicies, err := vaultClient.ListManagedPolicies(ctx)
+				managedPolicies, err := vaultClient.ListManaged(ctx, vault.MarkerPolicy)
 				Expect(err).NotTo(HaveOccurred())
 
 				managedInfo, exists := managedPolicies["default-int-orp02-active-policy"]
@@ -220,9 +219,11 @@ var _ = Describe("Orphan Detection Integration Tests", func() {
 
 				By("Verifying the role is marked as managed in Vault")
 				vaultClient := testEnv.VaultClient
-				managedRoles, err := vaultClient.ListManagedRoles(ctx)
+				// Role markers are keyed "{mount}/{vaultName}"; the default auth
+				// mount is kubernetes.
+				managedRoles, err := vaultClient.ListManaged(ctx, vault.MarkerRole)
 				Expect(err).NotTo(HaveOccurred())
-				Expect(managedRoles).To(HaveKey("default-int-orp03-test-role"))
+				Expect(managedRoles).To(HaveKey("kubernetes/default-int-orp03-test-role"))
 
 				By("Cleaning up role and policy")
 				Expect(testEnv.K8sClient.Delete(ctx, role)).To(Succeed())
@@ -282,25 +283,20 @@ var _ = Describe("Orphan Detection Integration Tests", func() {
 					return createdPolicy.Status.Phase
 				}, 30*time.Second, time.Second).Should(Equal(vaultv1alpha1.PhaseActive))
 
-				By("Reading managed metadata directly from Vault")
+				By("Reading managed marker custom_metadata directly from Vault")
+				// Markers are KV v2 custom_metadata (no data version) at the
+				// hierarchical metadata path .../policies/{ns}/{name}.
 				vaultClient := testEnv.VaultClient
-				metadataPath := vault.ManagedPoliciesPath + "/default-int-orp04-metadata-policy"
-				secret, err := vaultClient.Logical().ReadWithContext(ctx, metadataPath)
+				md, err := vaultClient.ReadKVMetadata(
+					ctx, "secret", "vault-access-operator/managed/policies/default/int-orp04-metadata-policy")
 				Expect(err).NotTo(HaveOccurred())
-				Expect(secret).NotTo(BeNil())
-				Expect(secret.Data).To(HaveKey("data"))
+				Expect(md).NotTo(BeNil())
 
-				data := secret.Data["data"].(map[string]interface{})
-				Expect(data).To(HaveKey("metadata"))
-
-				var metadata vault.ManagedResource
-				err = json.Unmarshal([]byte(data["metadata"].(string)), &metadata)
-				Expect(err).NotTo(HaveOccurred())
-
-				By("Verifying metadata fields")
-				Expect(metadata.K8sResource).To(Equal("default/int-orp04-metadata-policy"))
-				Expect(metadata.ManagedAt).NotTo(BeZero())
-				Expect(metadata.LastUpdated).NotTo(BeZero())
+				By("Verifying custom_metadata fields")
+				Expect(md.CustomMetadata).To(HaveKeyWithValue(vault.KVManagedByKey, vault.KVManagedByValue))
+				Expect(md.CustomMetadata).To(HaveKeyWithValue(vault.KVK8sResourceKey, "default/int-orp04-metadata-policy"))
+				Expect(md.CustomMetadata).To(HaveKey("managed-at"))
+				Expect(md.CustomMetadata).To(HaveKey("last-updated"))
 
 				By("Cleaning up")
 				Expect(testEnv.K8sClient.Delete(ctx, policy)).To(Succeed())
@@ -350,7 +346,7 @@ var _ = Describe("Orphan Detection Integration Tests", func() {
 
 				By("Verifying metadata has cluster-scoped resource reference (no namespace)")
 				vaultClient := testEnv.VaultClient
-				managedPolicies, err := vaultClient.ListManagedPolicies(ctx)
+				managedPolicies, err := vaultClient.ListManaged(ctx, vault.MarkerPolicy)
 				Expect(err).NotTo(HaveOccurred())
 
 				managedInfo, exists := managedPolicies["int-orp05-cluster-metadata"]

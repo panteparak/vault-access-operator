@@ -367,7 +367,7 @@ kubectl logs -n vault-access-operator-system -l app=vault-access-operator | grep
 5. **Direct Vault introspection** (need Vault creds):
    ```bash
    vault read sys/policies/acl/<namespace>-<name>       # the policy itself
-   vault kv get secret/vault-access-operator/managed/policies/<namespace>-<name>  # the managed marker
+   vault kv metadata get secret/vault-access-operator/managed/policies/<namespace>/<name>  # managed marker (custom_metadata; prefix policies/ with <cluster>/ if --cluster-name set; only when --managed-markers=true)
    vault token lookup-self                               # what token the operator is using
    ```
 

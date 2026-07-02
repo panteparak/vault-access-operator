@@ -4,6 +4,9 @@
 
 Discovery is an **inverse reconciliation**: instead of pushing K8s state to Vault, it pulls Vault state and identifies unmanaged resources so operators can adopt them into CRs (either manually or via auto-creation). It's driven by `VaultConnection.Spec.Discovery`, runs on a configurable interval (default 1h), and has its own reconciler that watches `VaultConnection` — separately from the connection-management reconciler.
 
+!!! note "Discovery requires `--managed-markers=true` (default OFF)"
+    Discovery depends on the managed-marker map to separate unmanaged Vault resources from ones the operator already owns, so it runs **only when `--managed-markers=true`**. With markers off (the default) the operator has no marker hierarchy to compare against and does not run the discovery reconciler. Because markers now live under a hierarchical path, `ListManagedPolicies` / `ListManagedRoles` enumerate them with a **recursive LIST** over `secret/metadata/vault-access-operator/managed/{cluster}/{policies|roles}/**` (then read each leaf's `custom_metadata`), rather than a single flat `LIST`. See [ADR 0007](../adr/0007-hierarchical-metadata-only-managed-markers.md).
+
 Two reconcilers watch the same CRD. This is intentional (separation of concerns: connection auth vs discovery scanning) but creates a **status-write contention** handled with `retry.RetryOnConflict`. See [controller.go:286](../../features/discovery/controller/controller.go:286).
 
 ## Participants
@@ -61,8 +64,8 @@ sequenceDiagram
         VC->>V: GET /v1/sys/policies/acl?list=true
         V-->>VC: [names]
         S->>VC: ListManagedPolicies(ctx)
-        VC->>V: LIST secret/metadata/vault-access-operator/managed/policies/
-        VC->>V: GET for each — managedBy + connectionName
+        VC->>V: recursive LIST over secret/metadata/vault-access-operator/managed/{cluster}/policies/**
+        VC->>V: READ custom_metadata for each leaf — managedBy + connectionName
         V-->>VC: map[name]ManagedResource
         loop for each policy
             alt system policy & excludeSystemPolicies
@@ -80,7 +83,7 @@ sequenceDiagram
         VC->>V: LIST /auth/{authPath}/role
         V-->>VC: [names] or nil
         S->>VC: ListManagedRoles(ctx)
-        VC->>V: LIST + GET managed/roles
+        VC->>V: recursive LIST over managed/{cluster}/roles/{mount}/** + READ custom_metadata
         loop for each role
             alt managed OR !matchesRolePatterns
                 Note over S: skip

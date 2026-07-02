@@ -869,7 +869,7 @@ Why annotation instead of CLI:
 
 Annotation auto-clears after a successful pass. Partial failures (one bad write) keep the annotation set so the next reconcile retries; aggregate error message + `ManagedMarkersPartiallyRestored` k8s event surface which resources failed.
 
-Marker writes use the policy/role names directly (no rule descriptions for VaultPolicy markers — those are nice-to-have and re-populate on the next normal reconcile of each policy). This keeps the connection handler from depending on the policy feature's `buildRuleDescriptions` helper — single-direction dependency preserved.
+Marker writes go through the shared `MarkManaged(id, k8sResource)` client method: the restore builds a `MarkerID` per CR (kind, plus the bare auth mount for roles, namespace, and name) — the same identity the normal reconcile uses, so markers land at the hierarchical `secret/metadata/vault-access-operator/managed/…` custom_metadata path. The whole restore is gated behind `--managed-markers`; with marker tracking disabled (the default) it is a no-op.
 
 Tests: 4 cases in `restore_markers_test.go`:
 - `WritesMarkerForEveryDependent` — full coverage of all 4 CR kinds.

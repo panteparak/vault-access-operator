@@ -74,6 +74,10 @@ func (v *VaultClusterRoleValidator) SetupWebhookWithManager(mgr ctrl.Manager) er
 func (v *VaultRoleValidator) ValidateCreate(ctx context.Context, role *vaultv1alpha1.VaultRole) (admission.Warnings, error) {
 	vaultrolelog.Info("validating VaultRole create", "name", role.Name, "namespace", role.Namespace)
 
+	if err := rejectAdoptIntentWithoutMarkers(role.GetAnnotations(), role.Spec.ConflictPolicy); err != nil {
+		return nil, err
+	}
+
 	// Check for naming collision with VaultClusterRole
 	// VaultRole "namespace/name" maps to Vault role "{namespace}-{name}"
 	// VaultClusterRole "name" maps to Vault role "{name}"
@@ -299,6 +303,10 @@ func (v *VaultRoleValidator) checkPolicyExists(ctx context.Context, ref vaultv1a
 // ValidateCreate implements admission.Validator for VaultClusterRole
 func (v *VaultClusterRoleValidator) ValidateCreate(ctx context.Context, role *vaultv1alpha1.VaultClusterRole) (admission.Warnings, error) {
 	vaultrolelog.Info("validating VaultClusterRole create", "name", role.Name)
+
+	if err := rejectAdoptIntentWithoutMarkers(role.GetAnnotations(), role.Spec.ConflictPolicy); err != nil {
+		return nil, err
+	}
 
 	// Check for naming collision with VaultRole
 	// VaultClusterRole "name" maps to Vault role "{name}"

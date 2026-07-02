@@ -1054,9 +1054,13 @@ jobs:
           make e2e-import-operator \
             E2E_OPERATOR_IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.image-tag.outputs.tag }}
 
-      - name: Deploy operator
+      - name: Deploy operator (managed-markers enabled)
+        # The e2e suite exercises conflict / adoption / discovery / orphan and the
+        # opt-in managed-marker specs, all of which require ownership markers. Deploy
+        # with --managed-markers=true; the opt-out TC-MM specs self-skip via
+        # E2E_MANAGED_MARKERS and are covered by the Integration job (INT-MM04).
         run: |
-          make e2e-deploy-operator \
+          make e2e-deploy-operator-with-markers \
             E2E_OPERATOR_IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.image-tag.outputs.tag }}
 
       - name: Debug - Docker state (pre-test)
@@ -1095,6 +1099,9 @@ jobs:
           E2E_OPERATOR_IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.image-tag.outputs.tag }}
           E2E_SKIP_BUILD: "true"
           E2E_SKIP_IMAGE_LOAD: "true"
+          # Operator is deployed with --managed-markers=true (see Deploy step); tell the
+          # opt-in marker specs to run and let the opt-out specs self-skip.
+          E2E_MANAGED_MARKERS: "true"
         run: |
           set -o pipefail
 

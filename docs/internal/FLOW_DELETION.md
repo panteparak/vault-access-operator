@@ -6,9 +6,9 @@ Deletion of a CR goes through three mechanisms:
 
 1. **Finalizer-guarded cleanup** (every CRD) — standard K8s pattern: a finalizer blocks deletion until `Cleanup()` runs successfully.
 2. **Persistent cleanup queue** (`pkg/cleanup`) — ConfigMap-backed retry queue for failed deletions, meant to survive operator restarts. **⚠️ Not wired into main.go.**
-3. **Orphan detection** (`pkg/orphan`) — periodic scan for Vault resources marked as managed whose K8s owner has vanished. **⚠️ Not wired into main.go.**
+3. **Orphan detection** (`pkg/orphan`) — periodic scan for Vault resources marked as managed whose K8s owner has vanished. Gated behind `--managed-markers=true` (default OFF): with markers off there are no markers to scan, so the operator does not run the orphan controller.
 
-Only (1) is active today. (2) and (3) are complete implementations with tests but no one calls `Start(ctx)` on them. This is the single largest feature gap in the codebase.
+Only (1) is active today. (2) and (3) are complete implementations with tests. Orphan detection (3) is additionally gated on `--managed-markers` being enabled (it enumerates the managed-marker hierarchy).
 
 ## Finalizer-Guarded Cleanup (active)
 
@@ -180,7 +180,7 @@ sequenceDiagram
             C->>Cache: Get(connName)
             Cache-->>C: vaultClient
             C->>VC: ListManagedPolicies(ctx)
-            VC->>V: LIST + GET managed/policies
+            VC->>V: recursive LIST + READ custom_metadata over managed/{cluster}/policies/**
             V-->>VC: map[vaultName]ManagedResource{K8sResource, ...}
             loop each managed
                 C->>K8s: Get(VaultPolicy / VaultClusterPolicy) by k8sResource
@@ -207,12 +207,14 @@ The orphan controller **does not delete** — it only logs and publishes metrics
 
 ## Resource Type Matrix
 
-| CR kind | Cleanup calls | Vault path deleted | Managed marker path deleted |
-|---------|--------------|--------------------|-----------------------------|
-| `VaultPolicy` | `DeletePolicy`, `RemovePolicyManaged` | `sys/policies/acl/{namespace}-{name}` | `secret/data/vault-access-operator/managed/policies/{namespace}-{name}` |
-| `VaultClusterPolicy` | `DeletePolicy`, `RemovePolicyManaged` | `sys/policies/acl/{name}` | `secret/data/vault-access-operator/managed/policies/{name}` |
-| `VaultRole` | `DeleteKubernetesAuthRole`, `RemoveRoleManaged` | `auth/{mount}/role/{namespace}-{name}` | `secret/data/vault-access-operator/managed/roles/{namespace}-{name}` |
-| `VaultClusterRole` | same | `auth/{mount}/role/{name}` | `.../managed/roles/{name}` |
+Managed-marker deletes below run **only when `--managed-markers=true`** (default OFF); with markers off the `RemoveManaged` step is a no-op and no marker exists to remove. Marker paths are KV v2 `custom_metadata` (never `secret/data`); `{cluster}` is omitted when unset, and cluster-scoped CRs use the sentinel `_cluster` in the `{ns}` slot.
+
+| CR kind | Cleanup calls | Vault path deleted | Managed marker `custom_metadata` deleted (markers on) |
+|---------|--------------|--------------------|-------------------------------------------------------|
+| `VaultPolicy` | `DeletePolicy`, `RemovePolicyManaged` | `sys/policies/acl/{namespace}-{name}` | `secret/metadata/vault-access-operator/managed/{cluster}/policies/{ns}/{name}` |
+| `VaultClusterPolicy` | `DeletePolicy`, `RemovePolicyManaged` | `sys/policies/acl/{name}` | `secret/metadata/vault-access-operator/managed/{cluster}/policies/_cluster/{name}` |
+| `VaultRole` | `DeleteKubernetesAuthRole`, `RemoveRoleManaged` | `auth/{mount}/role/{namespace}-{name}` | `secret/metadata/vault-access-operator/managed/{cluster}/roles/{mount}/{ns}/{name}` |
+| `VaultClusterRole` | same | `auth/{mount}/role/{name}` | `.../managed/{cluster}/roles/{mount}/_cluster/{name}` |
 | `VaultConnection` | dependent-check → DisableAuth (opt-in) → RevokeSelf → Unregister × 2 → Cache.Delete → event | auth mount (opt-in), token revoke | — |
 
 ## Error Scenarios

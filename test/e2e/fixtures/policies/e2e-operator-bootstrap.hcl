@@ -30,9 +30,10 @@ path "sys/auth/*" { capabilities = ["sudo", "create", "read", "update", "delete"
 path "sys/mounts" { capabilities = ["read"] }
 path "sys/health" { capabilities = ["read"] }
 
-# KV v2 secrets for operator-managed data
-path "secret/data/vault-access-operator/managed/*" { capabilities = ["create", "read", "update", "delete"] }
-path "secret/metadata/vault-access-operator/managed/*" { capabilities = ["list", "read", "delete"] }
+# Managed markers: KV v2 custom_metadata ONLY (never secret/data). The operator
+# writes ownership records via PutMetadata, so it needs create/update in addition
+# to read/list/delete — and no capability on secret/data (metadata-only least-privilege).
+path "secret/metadata/vault-access-operator/managed/*" { capabilities = ["create", "read", "update", "list", "delete"] }
 
 # KV v2 secret seeding (VaultKVSecret). CREATE-ONLY on the data path: the operator
 # only ever creates new secrets — never overwrites or reads values — so Vault itself

@@ -44,7 +44,7 @@ import (
 	"github.com/panteparak/vault-access-operator/shared/controller/conditions"
 	"github.com/panteparak/vault-access-operator/shared/events"
 	infraerrors "github.com/panteparak/vault-access-operator/shared/infrastructure/errors"
-	"github.com/panteparak/vault-access-operator/shared/naming"
+	"github.com/panteparak/vault-access-operator/shared/markers"
 )
 
 // Default auth path constant.
@@ -211,6 +211,21 @@ func (h *Handler) Sync(ctx context.Context, conn *vaultv1alpha1.VaultConnection)
 	// Update health status on success
 	h.updateHealthStatus(conn, true, "")
 
+	// When managed-marker tracking is enabled, verify the operator actually holds
+	// the marker KV grant — but only on the transition into Active, to avoid a
+	// Vault round-trip every reconcile. Non-fatal: a failure surfaces as a warning
+	// (marker writes/reads would otherwise 403 per managed resource).
+	if markers.Enabled() && conn.Status.Phase != vaultv1alpha1.PhaseActive {
+		if err := vaultClient.PreflightMarkers(ctx); err != nil {
+			logr.FromContextOrDiscard(ctx).Error(err,
+				"managed-markers preflight failed", "connection", conn.Name)
+			if h.recorder != nil {
+				h.recorder.Event(conn, corev1.EventTypeWarning,
+					"ManagedMarkersPreflightFailed", err.Error())
+			}
+		}
+	}
+
 	// Update AuthStatus for Kubernetes auth
 	if conn.Spec.Auth.Kubernetes != nil {
 		h.updateAuthStatus(conn, vaultClient)
@@ -286,6 +301,9 @@ func (h *Handler) Sync(ctx context.Context, conn *vaultv1alpha1.VaultConnection)
 func (h *Handler) restoreManagedMarkers(
 	ctx context.Context, conn *vaultv1alpha1.VaultConnection, vaultClient *vault.Client,
 ) error {
+	if !markers.Enabled() {
+		return nil
+	}
 	log := logr.FromContextOrDiscard(ctx)
 	matcher := client.MatchingFields{IndexFieldConnectionRef: conn.Name}
 
@@ -305,9 +323,9 @@ func (h *Handler) restoreManagedMarkers(
 	} else {
 		for i := range policies.Items {
 			p := &policies.Items[i]
-			vaultName := naming.Vault(p.Namespace + "-" + p.Name)
 			k8sRef := p.Namespace + "/" + p.Name
-			if err := vaultClient.MarkPolicyManaged(ctx, vaultName, k8sRef, nil); err != nil {
+			id := vault.MarkerID{Kind: vault.MarkerPolicy, Namespace: p.Namespace, Name: p.Name}
+			if err := vaultClient.MarkManaged(ctx, id, k8sRef); err != nil {
 				errs = append(errs, fmt.Sprintf("VaultPolicy/%s: %v", k8sRef, err))
 				continue
 			}
@@ -321,7 +339,8 @@ func (h *Handler) restoreManagedMarkers(
 	} else {
 		for i := range clusterPolicies.Items {
 			p := &clusterPolicies.Items[i]
-			if err := vaultClient.MarkPolicyManaged(ctx, naming.Vault(p.Name), p.Name, nil); err != nil {
+			id := vault.MarkerID{Kind: vault.MarkerPolicy, Name: p.Name}
+			if err := vaultClient.MarkManaged(ctx, id, p.Name); err != nil {
 				errs = append(errs, fmt.Sprintf("VaultClusterPolicy/%s: %v", p.Name, err))
 				continue
 			}
@@ -335,9 +354,14 @@ func (h *Handler) restoreManagedMarkers(
 	} else {
 		for i := range roles.Items {
 			r := &roles.Items[i]
-			vaultName := naming.Vault(r.Namespace + "-" + r.Name)
 			k8sRef := r.Namespace + "/" + r.Name
-			if err := vaultClient.MarkRoleManaged(ctx, vaultName, k8sRef); err != nil {
+			id := vault.MarkerID{
+				Kind:      vault.MarkerRole,
+				Mount:     vault.AuthMountName(r.Spec.AuthPath),
+				Namespace: r.Namespace,
+				Name:      r.Name,
+			}
+			if err := vaultClient.MarkManaged(ctx, id, k8sRef); err != nil {
 				errs = append(errs, fmt.Sprintf("VaultRole/%s: %v", k8sRef, err))
 				continue
 			}
@@ -351,7 +375,12 @@ func (h *Handler) restoreManagedMarkers(
 	} else {
 		for i := range clusterRoles.Items {
 			r := &clusterRoles.Items[i]
-			if err := vaultClient.MarkRoleManaged(ctx, naming.Vault(r.Name), r.Name); err != nil {
+			id := vault.MarkerID{
+				Kind:  vault.MarkerRole,
+				Mount: vault.AuthMountName(r.Spec.AuthPath),
+				Name:  r.Name,
+			}
+			if err := vaultClient.MarkManaged(ctx, id, r.Name); err != nil {
 				errs = append(errs, fmt.Sprintf("VaultClusterRole/%s: %v", r.Name, err))
 				continue
 			}

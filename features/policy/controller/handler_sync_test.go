@@ -38,7 +38,24 @@ import (
 	"github.com/panteparak/vault-access-operator/features/policy/domain"
 	"github.com/panteparak/vault-access-operator/pkg/vault"
 	"github.com/panteparak/vault-access-operator/shared/events"
+	"github.com/panteparak/vault-access-operator/shared/markers"
 )
+
+// policyMarkerPath returns the metadata path a policy marker lands at.
+// nsSeg is the K8s namespace, or "_cluster" for a cluster-scoped policy; name
+// is the CR name (NOT the derived vault name).
+func policyMarkerPath(nsSeg, name string) string {
+	return fmt.Sprintf("secret/metadata/vault-access-operator/managed/policies/%s/%s", nsSeg, name)
+}
+
+// enableMarkersForTest turns managed-marker tracking on for the duration of a
+// test. Every marker/conflict assertion below is gated on this (markers default
+// OFF in production).
+func enableMarkersForTest(t *testing.T) {
+	t.Helper()
+	markers.SetEnabled(true)
+	t.Cleanup(func() { markers.SetEnabled(false) })
+}
 
 // --- Mock Vault HTTP server for policy tests ---
 
@@ -73,27 +90,30 @@ func newPolicyMockServer(cfg policyMockConfig) *httptest.Server {
 		apiPath := strings.TrimPrefix(r.URL.Path, "/v1/")
 
 		switch {
-		// --- Managed metadata (KV v2) --- must come before generic paths
-		case strings.HasPrefix(apiPath, "secret/data/vault-access-operator/managed/"):
+		// --- Managed markers: KV v2 custom_metadata ONLY (never secret/data) ---
+		// Full path: secret/metadata/vault-access-operator/managed/policies/{ns|_cluster}/{name}
+		case strings.HasPrefix(apiPath, "secret/metadata/vault-access-operator/managed/"):
 			cfg.state.mu.Lock()
 			defer cfg.state.mu.Unlock()
 
 			switch r.Method {
 			case http.MethodPut, http.MethodPost:
-				var body map[string]interface{}
+				var body struct {
+					CustomMetadata map[string]interface{} `json:"custom_metadata"`
+				}
 				_ = json.NewDecoder(r.Body).Decode(&body)
-				cfg.state.managed[apiPath] = body
-				_ = json.NewEncoder(w).Encode(map[string]interface{}{
-					"data": map[string]interface{}{"version": 1},
-				})
+				cfg.state.managed[apiPath] = body.CustomMetadata
+				w.WriteHeader(http.StatusNoContent)
 
 			case http.MethodGet:
-				data, exists := cfg.state.managed[apiPath]
+				cm, exists := cfg.state.managed[apiPath]
 				if !exists {
 					w.WriteHeader(http.StatusNotFound)
 					return
 				}
-				_ = json.NewEncoder(w).Encode(map[string]interface{}{"data": data})
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"data": map[string]interface{}{"custom_metadata": cm},
+				})
 
 			case http.MethodDelete:
 				delete(cfg.state.managed, apiPath)
@@ -280,6 +300,7 @@ func setupPolicySyncTest(
 // --- SyncPolicy Tests ---
 
 func TestSyncPolicy_Success_NewPolicy(t *testing.T) {
+	enableMarkersForTest(t)
 	state := newPolicyMockState()
 	conn := newPolicyTestConnection()
 	policy := newTestVaultPolicy()
@@ -310,18 +331,23 @@ func TestSyncPolicy_Success_NewPolicy(t *testing.T) {
 		t.Errorf("expected HCL to contain secret path, got: %s", hcl)
 	}
 
-	// Verify managed marker was written
-	managedKey := fmt.Sprintf("secret/data/vault-access-operator/managed/policies/%s", expectedName)
+	// Verify managed marker was written to the hierarchical metadata path.
+	// The path uses the K8s namespace + CR name, not the derived vault name.
+	managedKey := policyMarkerPath(policyTestNamespace, policyTestName)
 	state.mu.Lock()
-	_, markerExists := state.managed[managedKey]
+	cm, markerExists := state.managed[managedKey]
 	state.mu.Unlock()
 
 	if !markerExists {
-		t.Errorf("expected managed marker at %s, but not found; managed keys: %v", managedKey, managedKeys(state.managed))
+		t.Fatalf("expected managed marker at %s, but not found; managed keys: %v", managedKey, managedKeys(state.managed))
+	}
+	if cm[vault.KVManagedByKey] != vault.KVManagedByValue {
+		t.Errorf("marker managed-by = %v, want %q", cm[vault.KVManagedByKey], vault.KVManagedByValue)
 	}
 }
 
 func TestSyncPolicy_Success_ClusterPolicy(t *testing.T) {
+	enableMarkersForTest(t)
 	state := newPolicyMockState()
 	conn := newPolicyTestConnection()
 
@@ -374,14 +400,14 @@ func TestSyncPolicy_Success_ClusterPolicy(t *testing.T) {
 		t.Fatalf("cluster policy not written to Vault; policies: %v", policyKeys(state.policies))
 	}
 
-	// Verify managed marker was written
-	managedKey := "secret/data/vault-access-operator/managed/policies/admin-base"
+	// Cluster-scoped policy: marker lands under the _cluster sentinel segment.
+	managedKey := policyMarkerPath("_cluster", "admin-base")
 	state.mu.Lock()
 	_, markerExists := state.managed[managedKey]
 	state.mu.Unlock()
 
 	if !markerExists {
-		t.Errorf("expected managed marker at %s, but not found", managedKey)
+		t.Errorf("expected managed marker at %s, but not found; keys: %v", managedKey, managedKeys(state.managed))
 	}
 }
 
@@ -455,6 +481,7 @@ func TestSyncPolicy_NamespaceBoundaryViolation(t *testing.T) {
 }
 
 func TestSyncPolicy_ConflictError_Adopt(t *testing.T) {
+	enableMarkersForTest(t)
 	state := newPolicyMockState()
 	vaultPolicyName := policyTestNamespace + "-" + policyTestName
 	// Pre-populate an existing policy (unmanaged)
@@ -479,18 +506,19 @@ func TestSyncPolicy_ConflictError_Adopt(t *testing.T) {
 }
 
 func TestSyncPolicy_ConflictError_Fail(t *testing.T) {
+	enableMarkersForTest(t)
 	state := newPolicyMockState()
 	vaultPolicyName := policyTestNamespace + "-" + policyTestName
-	// Pre-populate an existing policy managed by someone else
+	// Pre-populate an existing policy managed by someone else. The marker is
+	// custom_metadata at the hierarchical metadata path — managed-by must be the
+	// operator sentinel (so it's recognized as ours to read), but k8s-resource
+	// points at a different owner → conflict under the default Fail policy.
 	state.policies[vaultPolicyName] = existingPolicyHCL
 
-	managedKey := fmt.Sprintf("secret/data/vault-access-operator/managed/policies/%s", vaultPolicyName)
+	managedKey := policyMarkerPath(policyTestNamespace, policyTestName)
 	state.managed[managedKey] = map[string]interface{}{
-		"data": map[string]interface{}{
-			"metadata": `{"k8sResource":"other-ns/other-policy",` +
-				`"managedAt":"2026-01-01T00:00:00Z",` +
-				`"lastUpdated":"2026-01-01T00:00:00Z"}`,
-		},
+		vault.KVManagedByKey:   vault.KVManagedByValue,
+		vault.KVK8sResourceKey: "other-ns/other-policy",
 	}
 
 	conn := newPolicyTestConnection()
@@ -885,9 +913,15 @@ func TestCleanupPolicy_RetainPolicy(t *testing.T) {
 }
 
 func TestCleanupPolicy_DeletePolicy(t *testing.T) {
+	enableMarkersForTest(t)
 	state := newPolicyMockState()
 	policyName := policyTestNamespace + "-" + policyTestName
 	state.policies[policyName] = existingPolicyHCL
+	// Seed the ownership marker so we can assert cleanup removes it.
+	state.managed[policyMarkerPath(policyTestNamespace, policyTestName)] = map[string]interface{}{
+		vault.KVManagedByKey:   vault.KVManagedByValue,
+		vault.KVK8sResourceKey: policyTestNamespace + "/" + policyTestName,
+	}
 
 	conn := newPolicyTestConnection()
 	policy := newTestVaultPolicy()
@@ -915,7 +949,7 @@ func TestCleanupPolicy_DeletePolicy(t *testing.T) {
 	}
 
 	// Verify managed marker was removed
-	managedKey := fmt.Sprintf("secret/data/vault-access-operator/managed/policies/%s", policyName)
+	managedKey := policyMarkerPath(policyTestNamespace, policyTestName)
 	state.mu.Lock()
 	_, markerExists := state.managed[managedKey]
 	state.mu.Unlock()

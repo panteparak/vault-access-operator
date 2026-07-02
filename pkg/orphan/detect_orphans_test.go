@@ -28,89 +28,109 @@ import (
 	"github.com/panteparak/vault-access-operator/pkg/vault"
 )
 
-// vaultManagedHarness builds an httptest server that serves Vault KV v2
-// metadata + data responses for the managed-marker tree. Used to drive
-// the production `detectOrphanedPolicies` / `detectOrphanedRoles` paths
-// against a real *vault.Client (instead of duplicating their logic in
-// `*WithMock` test helpers).
+// vaultManagedHarness builds an httptest server that serves the Vault KV v2
+// *metadata* tree backing managed markers, so the production
+// `detectOrphanedPolicies` / `detectOrphanedRoles` paths can run against a real
+// *vault.Client (rather than duplicating their logic in mock helpers).
 //
-// The harness understands the path layout used by `pkg/vault.listManaged`:
-//   - LIST: GET secret/metadata/vault-access-operator/managed/{policies,roles}/?list=true
-//   - GET:  GET secret/data/vault-access-operator/managed/{policies,roles}/<name>
+// Markers are custom_metadata ONLY, at hierarchical paths (see
+// pkg/vault/managed.go):
+//   - policies: secret/metadata/vault-access-operator/managed/policies/{ns|_cluster}/{name}
+//   - roles:    secret/metadata/vault-access-operator/managed/roles/{mount}/{ns|_cluster}/{name}
 //
-// Add an entry to .policies / .roles before starting; the server returns
-// keys for LIST and JSON ManagedResource bodies for GET.
+// Seed via seedPolicy / seedRole before running; the server answers recursive
+// LIST and per-marker custom_metadata GET exactly as the SDK expects.
 type vaultManagedHarness struct {
-	policies map[string]vault.ManagedResource
-	roles    map[string]vault.ManagedResource
-	server   *httptest.Server
+	meta   map[string]map[string]interface{} // full metadata path -> custom_metadata
+	server *httptest.Server
 }
+
+const orphanMetaPrefix = "/v1/secret/metadata/"
 
 func newVaultManagedHarness(t *testing.T) *vaultManagedHarness {
 	t.Helper()
-	h := &vaultManagedHarness{
-		policies: map[string]vault.ManagedResource{},
-		roles:    map[string]vault.ManagedResource{},
-	}
+	h := &vaultManagedHarness{meta: map[string]map[string]interface{}{}}
 	h.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		path := r.URL.Path
-		// Vault SDK's ListWithContext sends GET with ?list=true.
-		isList := r.URL.Query().Get("list") == "true"
-
-		// Determine which managed map we're servicing from the path.
-		var sourceMap map[string]vault.ManagedResource
-		switch {
-		case strings.Contains(path, "/managed/policies"):
-			sourceMap = h.policies
-		case strings.Contains(path, "/managed/roles"):
-			sourceMap = h.roles
-		default:
+		if !strings.HasPrefix(r.URL.Path, orphanMetaPrefix) {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
+		rel := strings.TrimPrefix(r.URL.Path, orphanMetaPrefix)
 
-		if isList {
-			keys := make([]string, 0, len(sourceMap))
-			for k := range sourceMap {
-				keys = append(keys, k)
+		if r.URL.Query().Get("list") == "true" {
+			keys := orphanChildKeys(h.meta, rel)
+			if keys == nil {
+				w.WriteHeader(http.StatusNotFound)
+				return
 			}
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
-				"data": map[string]interface{}{
-					"keys": keys,
-				},
+				"data": map[string]interface{}{"keys": keys},
 			})
 			return
 		}
-
-		// Single-key GET on the data path: secret/data/.../managed/<type>/<name>
-		// Extract the trailing name segment.
-		segs := strings.Split(strings.TrimRight(path, "/"), "/")
-		if len(segs) == 0 {
-			w.WriteHeader(http.StatusNotFound)
-			return
-		}
-		name := segs[len(segs)-1]
-		mr, ok := sourceMap[name]
+		cm, ok := h.meta[rel]
 		if !ok {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
-		// markManaged stores the ManagedResource as a JSON-encoded STRING
-		// under the `metadata` key inside the KV v2 data wrapper. getManaged
-		// then string-decodes it. Mirror that exact shape so the production
-		// path's `data["metadata"].(string)` cast succeeds.
-		mrJSON, _ := json.Marshal(mr)
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"data": map[string]interface{}{
-				"data": map[string]interface{}{
-					"metadata": string(mrJSON),
-				},
-				"metadata": map[string]interface{}{},
-			},
+			"data": map[string]interface{}{"custom_metadata": cm},
 		})
 	}))
 	t.Cleanup(h.server.Close)
 	return h
+}
+
+func ownerMeta(k8sResource string) map[string]interface{} {
+	return map[string]interface{}{
+		vault.KVManagedByKey:   vault.KVManagedByValue,
+		vault.KVK8sResourceKey: k8sResource,
+	}
+}
+
+func nsSeg(ns string) string {
+	if ns == "" {
+		return "_cluster"
+	}
+	return ns
+}
+
+// seedPolicy stamps a policy marker. ns=="" seeds a cluster-scoped marker.
+func (h *vaultManagedHarness) seedPolicy(ns, name, k8sResource string) {
+	rel := "vault-access-operator/managed/policies/" + nsSeg(ns) + "/" + name
+	h.meta[rel] = ownerMeta(k8sResource)
+}
+
+// seedRole stamps a role marker under a specific auth mount. ns=="" seeds a
+// cluster-scoped marker.
+func (h *vaultManagedHarness) seedRole(mount, ns, name, k8sResource string) {
+	rel := "vault-access-operator/managed/roles/" + mount + "/" + nsSeg(ns) + "/" + name
+	h.meta[rel] = ownerMeta(k8sResource)
+}
+
+// orphanChildKeys mirrors Vault LIST over the hierarchical metadata tree.
+func orphanChildKeys(state map[string]map[string]interface{}, listPath string) []interface{} {
+	prefix := strings.TrimSuffix(strings.Split(listPath, "?")[0], "/")
+	seen := map[string]bool{}
+	for full := range state {
+		if full == prefix || !strings.HasPrefix(full, prefix+"/") {
+			continue
+		}
+		rest := strings.TrimPrefix(full, prefix+"/")
+		if i := strings.IndexByte(rest, '/'); i >= 0 {
+			seen[rest[:i]+"/"] = true
+		} else {
+			seen[rest] = true
+		}
+	}
+	if len(seen) == 0 {
+		return nil
+	}
+	out := make([]interface{}, 0, len(seen))
+	for k := range seen {
+		out = append(out, k)
+	}
+	return out
 }
 
 func (h *vaultManagedHarness) vaultClient(t *testing.T) *vault.Client {
@@ -165,10 +185,8 @@ func TestDetectOrphanedPolicies_Production(t *testing.T) {
 	}
 	c := newDetectOrphansController(t, existing)
 	h := newVaultManagedHarness(t)
-	h.policies = map[string]vault.ManagedResource{
-		"ns-alive": {K8sResource: "ns/alive"},
-		"ns-gone":  {K8sResource: "ns/gone-policy"},
-	}
+	h.seedPolicy("ns", "alive", "ns/alive")
+	h.seedPolicy("ns", "gone-policy", "ns/gone-policy")
 
 	orphans := c.detectOrphanedPolicies(context.Background(), h.vaultClient(t), "test-conn")
 
@@ -176,8 +194,9 @@ func TestDetectOrphanedPolicies_Production(t *testing.T) {
 		t.Fatalf("expected exactly 1 orphan, got %d: %+v", len(orphans), orphans)
 	}
 	o := orphans[0]
-	if o.VaultName != "ns-gone" {
-		t.Errorf("expected VaultName=ns-gone, got %s", o.VaultName)
+	// Policy list keys are the derived vault name (no cluster prefix in tests).
+	if o.VaultName != "ns-gone-policy" {
+		t.Errorf("expected VaultName=ns-gone-policy, got %s", o.VaultName)
 	}
 	if o.K8sResource != "ns/gone-policy" {
 		t.Errorf("expected K8sResource=ns/gone-policy, got %s", o.K8sResource)
@@ -197,18 +216,17 @@ func TestDetectOrphanedRoles_Production(t *testing.T) {
 	}
 	c := newDetectOrphansController(t, existing)
 	h := newVaultManagedHarness(t)
-	h.roles = map[string]vault.ManagedResource{
-		"ns-alive": {K8sResource: "ns/alive"},
-		"ns-gone":  {K8sResource: "ns/gone-role"},
-	}
+	h.seedRole("kubernetes", "ns", "alive", "ns/alive")
+	h.seedRole("kubernetes", "ns", "gone-role", "ns/gone-role")
 
 	orphans := c.detectOrphanedRoles(context.Background(), h.vaultClient(t), "test-conn")
 
 	if len(orphans) != 1 {
 		t.Fatalf("expected exactly 1 orphan, got %d: %+v", len(orphans), orphans)
 	}
-	if orphans[0].VaultName != "ns-gone" {
-		t.Errorf("expected VaultName=ns-gone, got %s", orphans[0].VaultName)
+	// Role list keys are mount-qualified: "{mount}/{vaultName}".
+	if orphans[0].VaultName != "kubernetes/ns-gone-role" {
+		t.Errorf("expected VaultName=kubernetes/ns-gone-role, got %s", orphans[0].VaultName)
 	}
 	if orphans[0].ResourceType != ResourceTypeRole {
 		t.Errorf("expected ResourceType=role, got %s", orphans[0].ResourceType)
@@ -262,10 +280,9 @@ func TestDetectOrphanedPolicies_ClusterScopedResource(t *testing.T) {
 	}
 	c := newDetectOrphansController(t, existing)
 	h := newVaultManagedHarness(t)
-	h.policies = map[string]vault.ManagedResource{
-		"alive-cluster": {K8sResource: "alive-cluster"},
-		"gone-cluster":  {K8sResource: "gone-cluster"},
-	}
+	// Cluster-scoped markers: ns="" → _cluster sentinel segment.
+	h.seedPolicy("", "alive-cluster", "alive-cluster")
+	h.seedPolicy("", "gone-cluster", "gone-cluster")
 
 	orphans := c.detectOrphanedPolicies(context.Background(), h.vaultClient(t), "conn")
 	if len(orphans) != 1 {
@@ -289,13 +306,9 @@ func TestDetectOrphans_ScansAllConnections(t *testing.T) {
 
 	// Two separate marker harnesses, each backing a different connection.
 	h1 := newVaultManagedHarness(t)
-	h1.policies = map[string]vault.ManagedResource{
-		"conn1-orphan": {K8sResource: "ns/missing-from-conn1"},
-	}
+	h1.seedPolicy("ns", "orphan", "ns/missing-from-conn1")
 	h2 := newVaultManagedHarness(t)
-	h2.roles = map[string]vault.ManagedResource{
-		"conn2-orphan-role": {K8sResource: "ns/missing-role-conn2"},
-	}
+	h2.seedRole("kubernetes", "ns", "orphan-role", "ns/missing-role-conn2")
 
 	cache := vault.NewClientCache()
 	cache.Set("conn1", h1.vaultClient(t))

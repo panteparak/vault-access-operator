@@ -220,24 +220,21 @@ Primary callers: `role/controller/handler.go` (drift comparison for roles), poli
 
 ### Managed-marker schema
 
-Written to Vault KV v2 at `secret/data/vault-access-operator/managed/{policies|roles}/{vaultName}` via [pkg/vault/managed.go](../../pkg/vault/managed.go).
+Gated by `--managed-markers` (default OFF); when enabled, stored as KV v2 `custom_metadata` (never `secret/data`) at the hierarchical path `secret/metadata/vault-access-operator/managed/{cluster}/policies/{ns}/{name}` (policies) or `.../managed/{cluster}/roles/{mount}/{ns}/{name}` (roles) — `{cluster}` omitted when unset, `_cluster` sentinel for cluster-scoped CRs — via [pkg/vault/managed.go](../../pkg/vault/managed.go). See [ADR 0007](../adr/0007-hierarchical-metadata-only-managed-markers.md). The keys below are the `custom_metadata` fields:
 
 ```json
 {
-  "k8sResource": "VaultPolicy/my-namespace/my-policy",
-  "managedAt": "2026-04-18T12:34:56Z",
-  "lastUpdated": "2026-04-18T12:40:00Z",
-  "ruleDescriptions": {                    // policy only
-    "secret/data/app/*": "app secrets",
-    "secret/data/shared/*": "shared config"
-  }
+  "managed-by": "vault-access-operator",
+  "k8s-resource": "my-namespace/my-policy",
+  "managed-at": "2026-04-18T12:34:56Z",
+  "last-updated": "2026-04-18T12:40:00Z"
 }
 ```
 
-- `k8sResource` is the foreign-key-like identifier; `{Kind}/{namespace}/{name}` for namespaced, `{Kind}/{name}` for cluster-scoped.
-- `managedAt` is set once when the operator first claims ownership. Never re-written.
-- `lastUpdated` is bumped every successful MarkManaged (essentially every sync).
-- `ruleDescriptions` only populated for policies; gives discovery/orphan context.
+- `managed-by` is the ownership sentinel (`vault-access-operator`); `IsOwnedBy` checks it before any read/adopt.
+- `k8s-resource` is the foreign-key-like identifier: `{namespace}/{name}` for namespaced, `{name}` for cluster-scoped.
+- `managed-at` is set once when the operator first claims ownership. Never re-written.
+- `last-updated` is bumped every successful MarkManaged (essentially every sync).
 
 **Two operators managing the same Vault path** — if two operator instances (different UIDs) write to the same marker, the last writer wins. There's no ownership lease. This is an unlikely-but-real multi-cluster scenario; see [IMPROVEMENTS.md §G](IMPROVEMENTS.md#g-no-backuprestore-story-for-managed-markers).
 
@@ -266,8 +263,8 @@ The operator itself **writes no files on disk**. All persistence is via K8s or V
 | `ServiceAccount` token | K8s object (virtual) | ✅ `TokenRequestProvider` | ❌ | short-lived |
 | `Event` | K8s object | ❌ | ✅ `BaseReconciler.recordEvent` | surfaced via `kubectl describe` |
 | `ConfigMap: vault-cleanup-queue` | K8s object | queue ([cleanup/queue.go](../../pkg/cleanup/queue.go)) | queue | JSON array of `Item` — **consumer not wired** |
-| Vault KV: `secret/data/vault-access-operator/managed/policies/{name}` | Vault | ✅ conflict check, orphan, discovery | ✅ `MarkPolicyManaged` | metadata: `{k8sResource, connectionName, ...}` |
-| Vault KV: `secret/data/vault-access-operator/managed/roles/{name}` | Vault | ✅ conflict check, orphan, discovery | ✅ `MarkRoleManaged` | same shape |
+| Vault KV: `secret/metadata/vault-access-operator/managed/{cluster}/policies/{ns}/{name}` | Vault | ✅ conflict check, orphan, discovery | ✅ `MarkPolicyManaged` | `custom_metadata: {k8sResource, connectionName, ...}`; **only when `--managed-markers=true`** |
+| Vault KV: `secret/metadata/vault-access-operator/managed/{cluster}/roles/{mount}/{ns}/{name}` | Vault | ✅ conflict check, orphan, discovery | ✅ `MarkRoleManaged` | same shape; **only when `--managed-markers=true`** |
 | Vault sys: `sys/policies/acl/{name}` | Vault | ✅ drift | ✅ policy sync | HCL content |
 | Vault sys: `auth/{mount}/role/{name}` | Vault | ✅ drift | ✅ role sync | role params |
 | `/var/run/secrets/.../namespace` | filesystem | ✅ `getOperatorNamespace` | ❌ | fallback only |

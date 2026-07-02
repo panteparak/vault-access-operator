@@ -40,11 +40,8 @@ type VaultOpsClient interface {
 
 	// --- Policy operations ---
 	PolicyExists(ctx context.Context, name string) (bool, error)
-	GetPolicyManagedBy(ctx context.Context, name string) (string, error)
 	ReadPolicy(ctx context.Context, name string) (string, error)
 	WritePolicy(ctx context.Context, name, hcl string) error
-	MarkPolicyManaged(ctx context.Context, name, k8sResource string, descriptions map[string]string) error
-	RemovePolicyManaged(ctx context.Context, name string) error
 	DeletePolicy(ctx context.Context, name string) error
 
 	// --- Kubernetes auth role operations ---
@@ -52,7 +49,12 @@ type VaultOpsClient interface {
 	ReadKubernetesAuthRole(ctx context.Context, authPath, roleName string) (map[string]interface{}, error)
 	WriteKubernetesAuthRole(ctx context.Context, authPath, roleName string, data map[string]interface{}) error
 	DeleteKubernetesAuthRole(ctx context.Context, authPath, roleName string) error
-	MarkRoleManaged(ctx context.Context, name, k8sResource string) error
-	GetRoleManagedBy(ctx context.Context, name string) (string, error)
-	RemoveRoleManaged(ctx context.Context, name string) error
+
+	// --- Managed markers (shared; policy + role) ---
+	// The marker's structural identity (kind/mount/namespace/name) is carried
+	// by vault.MarkerID; callers build it from their adapter. Only invoked when
+	// managed-marker tracking is enabled (see shared/markers).
+	MarkManaged(ctx context.Context, id vault.MarkerID, k8sResource string) error
+	GetManagedBy(ctx context.Context, id vault.MarkerID) (string, error)
+	RemoveManaged(ctx context.Context, id vault.MarkerID) error
 }

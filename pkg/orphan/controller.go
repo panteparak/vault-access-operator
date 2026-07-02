@@ -198,7 +198,7 @@ func (c *Controller) detectOrphansForConnection(ctx context.Context, connName st
 func (c *Controller) detectOrphanedPolicies(
 	ctx context.Context, vaultClient *vault.Client, connName string,
 ) []OrphanInfo {
-	managed, err := vaultClient.ListManagedPolicies(ctx)
+	managed, err := vaultClient.ListManaged(ctx, vault.MarkerPolicy)
 	if err != nil {
 		c.log.Error(err, "failed to list managed policies", "connection", connName)
 		return nil
@@ -223,7 +223,7 @@ func (c *Controller) detectOrphanedPolicies(
 func (c *Controller) detectOrphanedRoles(
 	ctx context.Context, vaultClient *vault.Client, connName string,
 ) []OrphanInfo {
-	managed, err := vaultClient.ListManagedRoles(ctx)
+	managed, err := vaultClient.ListManaged(ctx, vault.MarkerRole)
 	if err != nil {
 		c.log.Error(err, "failed to list managed roles", "connection", connName)
 		return nil

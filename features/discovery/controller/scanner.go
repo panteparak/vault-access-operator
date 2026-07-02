@@ -127,7 +127,7 @@ func (s *Scanner) scanPolicies(ctx context.Context, result *ScanResult) error {
 	}
 
 	// Get managed policies
-	managedPolicies, err := s.vaultClient.ListManagedPolicies(ctx)
+	managedPolicies, err := s.vaultClient.ListManaged(ctx, vault.MarkerPolicy)
 	if err != nil {
 		s.log.V(1).Info("failed to list managed policies, assuming none exist", "error", err)
 		managedPolicies = make(map[string]vault.ManagedResource)
@@ -166,6 +166,7 @@ func (s *Scanner) scanPolicies(ctx context.Context, result *ScanResult) error {
 // scanRoles scans for unmanaged Kubernetes auth roles
 func (s *Scanner) scanRoles(ctx context.Context, result *ScanResult) error {
 	authPath := s.authPath
+	mount := vault.AuthMountName(authPath)
 
 	// List all roles in Vault
 	allRoles, err := s.vaultClient.ListKubernetesAuthRoles(ctx, authPath)
@@ -176,8 +177,9 @@ func (s *Scanner) scanRoles(ctx context.Context, result *ScanResult) error {
 		return nil
 	}
 
-	// Get managed roles
-	managedRoles, err := s.vaultClient.ListManagedRoles(ctx)
+	// Get managed roles. The map is keyed "{mount}/{vaultName}" — mount-qualified
+	// so same-name roles on different auth mounts stay distinct.
+	managedRoles, err := s.vaultClient.ListManaged(ctx, vault.MarkerRole)
 	if err != nil {
 		s.log.V(1).Info("failed to list managed roles, assuming none exist", "error", err)
 		managedRoles = make(map[string]vault.ManagedResource)
@@ -186,7 +188,7 @@ func (s *Scanner) scanRoles(ctx context.Context, result *ScanResult) error {
 	now := metav1.Now()
 	for _, roleName := range allRoles {
 		// Skip if already managed
-		if _, managed := managedRoles[roleName]; managed {
+		if _, managed := managedRoles[mount+"/"+roleName]; managed {
 			continue
 		}
 

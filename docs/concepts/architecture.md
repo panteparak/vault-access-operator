@@ -217,12 +217,14 @@ Features publish events via `EventBus.Publish()` (synchronous) or `EventBus.Publ
 
 ## Managed Markers and Orphan Detection
 
-The operator tracks which Vault resources it manages using KV v2 markers stored at:
+Managed markers are opt-in via the `--managed-markers` flag (default off). When enabled, the operator tracks which Vault resources it manages using KV v2 **`custom_metadata`** — never `secret/data` — stored at a hierarchical path:
 
 ```
-secret/data/vault-access-operator/managed/policies/{name}
-secret/data/vault-access-operator/managed/roles/{name}
+secret/metadata/vault-access-operator/managed/{cluster}/policies/{namespace}/{name}
+secret/metadata/vault-access-operator/managed/{cluster}/roles/{mount}/{namespace}/{name}
 ```
+
+The `{cluster}` segment is the `--cluster-name` value and is omitted when unset; cluster-scoped resources use `_cluster` in place of `{namespace}`. When the flag is off, the operator writes no markers and skips ownership, discovery, and orphan detection entirely.
 
 These markers enable:
 

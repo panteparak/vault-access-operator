@@ -1,12 +1,15 @@
 //go:build integration
 
 /*
-Package orphan provides integration tests for orphan detection.
+Package markers provides integration tests for managed-marker tracking.
 
-This file bootstraps the Ginkgo test suite for orphan detection tests.
+Tests use the naming convention: INT-MM{NN}_{Description}. They exercise the
+flag-gated marker behavior end to end against a real Vault (Testcontainers),
+mirroring the orphan-detection suite. Managed markers are enabled for the whole
+suite; the flag-OFF case (INT-MM04) toggles it within the spec.
 */
 
-package orphan
+package markers
 
 import (
 	"context"
@@ -20,13 +23,13 @@ import (
 	"github.com/panteparak/vault-access-operator/test/integration"
 )
 
-func TestOrphanSuite(t *testing.T) {
+func TestMarkersSuite(t *testing.T) {
 	RegisterFailHandler(Fail)
 
 	suiteConfig, reporterConfig := GinkgoConfiguration()
 	reporterConfig.Verbose = true
 
-	RunSpecs(t, "Orphan Integration Test Suite", suiteConfig, reporterConfig)
+	RunSpecs(t, "Managed Markers Integration Test Suite", suiteConfig, reporterConfig)
 }
 
 var _ = BeforeSuite(func() {
@@ -35,14 +38,14 @@ var _ = BeforeSuite(func() {
 		Skip("Docker daemon not available - skipping integration tests. Start Docker to run integration tests.")
 	}
 
-	By("Enabling managed markers (orphan detection depends on marker writes)")
+	By("Enabling managed markers for the suite")
 	markers.SetEnabled(true)
 
-	By("Setting up orphan test context")
+	By("Setting up markers test context")
 	ctx, cancel := context.WithCancel(context.Background())
 	integration.SetContext(ctx, cancel)
 
-	By("Creating orphan test environment")
+	By("Creating markers test environment")
 	env := integration.NewTestEnvironment(
 		integration.WithVaultOptions(
 			integration.WithOperatorPolicy(),
@@ -53,14 +56,14 @@ var _ = BeforeSuite(func() {
 	)
 	integration.SetTestEnv(env)
 
-	By("Starting orphan test environment")
+	By("Starting markers test environment")
 	Expect(env.Start()).To(Succeed(), "Failed to start test environment")
 
 	By("Waiting for Vault to be healthy")
 	Expect(env.WaitForVaultHealthy(30 * time.Second)).To(Succeed())
 
 	DeferCleanup(func() {
-		By("Stopping orphan test environment")
+		By("Stopping markers test environment")
 		testEnv := integration.GetTestEnv()
 		if testEnv != nil {
 			Expect(testEnv.Stop()).To(Succeed())
