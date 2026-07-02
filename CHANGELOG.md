@@ -9,15 +9,9 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ### Added
 
-- **`--managed-markers` flag — opt in to ownership tracking (default OFF).**
-  New toggle (`--managed-markers` flag / `MANAGED_MARKERS` env / `managedMarkers.enabled`
-  Helm value, default `false`) that gates ownership tracking. When OFF (default),
-  the operator skips conflict/ownership detection (write-and-forget) and does
-  **not** run the discovery or orphan-detection controllers. When ON, it does
-  full ownership tracking, discovery, and orphan detection — with **no
-  additional Vault grant required** (see the in-band ownership entry below).
 - **In-band ownership markers (ADR 0008).** Ownership records now live ON the
-  managed Vault objects themselves instead of a dedicated KV marker subtree:
+  managed Vault objects themselves instead of the dedicated KV marker subtree
+  that 0.8.0 introduced:
   - **Policies** carry a structured comment header inside the policy document
     (`managed-by`, `auth-mount`, `cluster`, `k8s-resource`, `k8s-kind`) — Vault
     stores HCL verbatim, and drift comparison already strips comments.
@@ -31,12 +25,59 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   through. **Hard requirement on shared Vaults: one cluster per auth mount.**
   Static-token connections have no identity → new `Warning` event
   `OwnershipIdentityUnavailable` (unsupported for multi-operator Vaults).
+  `--managed-markers` keeps its opt-in semantics but now requires **no
+  additional Vault grant**.
 - **Cross-cluster collision safety.** Ownership comparison now requires the
   managed-by sentinel **plus** the auth-mount identity **plus** the owning CR
   (previously any operator instance passed). A foreign-owned policy: conflicts
   are reported, adoption is blocked (even with `ConflictPolicy: Adopt`),
   cleanup refuses to delete it (`Warning` event `ForeignPolicyNotDeleted`),
   and discovery never offers it for adoption.
+
+### Changed
+
+- **BREAKING — the managed-marker KV subtree is gone (ADR 0008).** The
+  operator no longer writes, reads, or needs any grant on
+  `secret/metadata/vault-access-operator/managed/*`. Remove that grant from
+  operator Vault policies. **Migration from 0.8.0:** subtree markers are
+  inert — delete them manually (`vault kv metadata delete` under
+  `secret/metadata/vault-access-operator/managed/`). Policies written by
+  0.8.0 and earlier read as *unmanaged* until re-adopted (`ConflictPolicy:
+  Adopt` or the adopt annotation); the next sync then rewrites each policy
+  once with the in-band ownership header. Roles: existing Active CRs keep
+  ownership via their status; only fresh CRs pointing at pre-existing roles
+  need `Adopt`. KV secrets stamped before enrichment lack the identity key
+  and are conservatively retained (never deleted) by cleanup.
+
+### Removed
+
+- **`vault.platform.io/restore-managed-markers` annotation.** Obsolete under
+  in-band ownership: the policy header self-heals on every sync. The operator
+  now just clears the annotation with an explanatory log line.
+- **Managed-marker connection preflight** (`ManagedMarkersPreflightFailed`
+  event): there is no marker grant left to probe.
+
+## [0.8.0] - 2026-07-02
+
+### Added
+
+- **`--managed-markers` flag — opt in to ownership tracking (default OFF).**
+  New toggle (`--managed-markers` flag / `MANAGED_MARKERS` env / `managedMarkers.enabled`
+  Helm value, default `false`) that gates the entire managed-marker mechanism.
+  When OFF (default), the operator writes/reads no markers, skips
+  conflict/ownership detection (write-and-forget), and does **not** run the
+  discovery or orphan-detection controllers — so it needs no grant on the marker
+  KV path. When ON, it does full ownership tracking, discovery, and orphan
+  detection, and requires the metadata grant on
+  `secret/metadata/vault-access-operator/managed/*`. On a `VaultConnection`
+  becoming `Active` it runs a one-time preflight and emits a `Warning` event
+  `ManagedMarkersPreflightFailed` if that grant is missing. See
+  [ADR 0007](docs/adr/0007-hierarchical-metadata-only-managed-markers.md) and
+  [docs/configuration.md](docs/configuration.md#managed-markers).
+- **Per-cluster ACL scoping for markers.** Because markers now live under a
+  hierarchical path, multi-tenant operators (one per cluster, sharing one Vault
+  CE server) can scope the operator token's grant to their own subtree,
+  `secret/metadata/vault-access-operator/managed/{cluster}/*`.
 - **"Used but not activated" enforcement.** When `--managed-markers` is OFF and a
   CR sets `conflictPolicy: Adopt` (or annotation `vault.platform.io/adopt=true`),
   the controller emits a `Warning` event `ManagedMarkersDisabled` (reconcile
@@ -46,32 +87,35 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ### Changed
 
-- **BREAKING — the managed-marker KV subtree is gone (ADR 0008).** The
-  operator no longer writes, reads, or needs any grant on
-  `secret/metadata/vault-access-operator/managed/*` (nor the older
-  `secret/data/...` variant). Remove that grant from operator Vault policies.
-  **Migration:** old subtree markers are inert — delete them manually
-  (`vault kv metadata delete` under
-  `secret/metadata/vault-access-operator/managed/`). Policies written by
-  earlier versions read as *unmanaged* until re-adopted (`ConflictPolicy:
-  Adopt` or the adopt annotation); the next sync then rewrites each policy
-  once with the in-band ownership header. Roles: existing Active CRs keep
-  ownership via their status; only fresh CRs pointing at pre-existing roles
-  need `Adopt`. KV secrets stamped before enrichment lack the identity key
-  and are conservatively retained (never deleted) by cleanup.
-- **BREAKING — managed markers are now OFF by default.** Ownership tracking was
+- **BREAKING — managed-marker path + storage moved to KV v2 `custom_metadata`.**
+  Markers moved from KV v2 **data** at the old flat path
+  `secret/data/vault-access-operator/managed/{policies,roles}/{cluster}-{ns}-{name}`
+  to KV v2 **`custom_metadata` (never `secret/data`)** at a hierarchical path:
+  `secret/metadata/vault-access-operator/managed/{cluster}/roles/{mount}/{ns}/{name}`
+  and `secret/metadata/vault-access-operator/managed/{cluster}/policies/{ns}/{name}`
+  (`{cluster}` omitted when `--cluster-name` is unset; cluster-scoped CRs use the
+  sentinel `_cluster` in the `{ns}` slot; `{mount}` is roles-only). This enables
+  per-segment ACL scoping. **Migration:** when a deployment sets
+  `--managed-markers=true` after upgrade, the new metadata path is empty, so
+  existing managed resources read as *unmanaged* and conflict under the default
+  `Fail` policy. The Vault policies/roles themselves are untouched (no data loss);
+  only ownership tracking resets. Remedy: enable with `ConflictPolicy: Adopt`
+  (or annotate `vault.platform.io/adopt=true`), let resources re-mark, then
+  revert. Old inert markers under `secret/data/vault-access-operator/managed/*`
+  can be deleted manually.
+- **BREAKING — managed markers are now OFF by default.** Marker tracking was
   previously always on; it is now gated behind `--managed-markers` (default
   `false`, see Added above). Deployments that relied on always-on markers
   **silently lose** ownership tracking, discovery, and orphan detection after
   upgrade unless they set `--managed-markers=true`.
-
-### Removed
-
-- **`vault.platform.io/restore-managed-markers` annotation.** Obsolete under
-  in-band ownership: the policy header self-heals on every sync. The operator
-  now just clears the annotation with an explanatory log line.
-- **Managed-marker connection preflight** (`ManagedMarkersPreflightFailed`
-  event): there is no marker grant left to probe.
+- **Operator managed-marker Vault grant is now metadata-only.** The required
+  grant changes from `data: create/read/update/delete` +
+  `metadata: list/read/delete` on
+  `secret/{data,metadata}/vault-access-operator/managed/*` to **metadata-only**:
+  path `secret/metadata/vault-access-operator/managed/*` with capabilities
+  `create, read, update, list, delete` and **no `data` capability at all**. This
+  grant is required **only when `--managed-markers=true`**; multi-tenant
+  operators can scope it per cluster.
 
 ## [0.7.0] - 2026-06-30
 
