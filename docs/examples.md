@@ -351,6 +351,7 @@ spec:
   rules:
     - path: "secret/*"
       capabilities: [create, read, update, delete, list]
+    # "kubernetes" = auth mount name — substitute yours (vault auth list)
     - path: "auth/kubernetes/role/*"
       capabilities: [read, list]
     - path: "sys/policies/acl/*"
@@ -535,9 +536,9 @@ spec:
 
 **Multi-serviceAccount caveat**: JWT's `bound_subject` holds a single value.
 A JWT VaultRole with more than one `serviceAccount` must set
-`spec.jwt.boundSubject` or `spec.jwt.boundClaims` explicitly, otherwise
-the webhook rejects the resource. The three supported patterns for a
-multi-SA JWT role are:
+`spec.jwt.boundSubject`, `spec.jwt.boundClaims`, or `spec.jwt.boundClaimsList`
+explicitly, otherwise the webhook rejects the resource. The three supported
+patterns for a multi-SA JWT role are:
 
 #### Pattern A — one VaultRole per ServiceAccount (recommended)
 
@@ -583,30 +584,25 @@ spec:
 This only makes sense when your workloads actually share the SA — if
 each SA produces a different `sub`, Vault rejects the mismatched ones.
 
-#### Pattern C — `boundClaims` on a stable identity-token claim
+#### Pattern C — `boundClaimsList` on a stable identity-token claim
 
 When your IdP issues JWTs with a claim that identifies a team or
-project (not per-SA), match on that instead. Our CRD's
-`boundClaims` is `map[string]string`, so you provide one string per
-claim:
+project (not per-SA), match on that instead. `boundClaimsList` is
+`map[string][]string` — any value in the list matches:
 
 ```yaml
 spec:
   serviceAccounts: [reader-sa, writer-sa]  # informational only; not used in Vault match
   jwt:
-    boundClaims:
-      # Match any token whose `groups` claim is exactly "platform-team".
-      groups: platform-team
+    boundClaimsList:
+      # Match any token whose `sub` is one of the listed SAs
+      sub:
+        - system:serviceaccount:my-app:reader-sa
+        - system:serviceaccount:my-app:writer-sa
 ```
 
-#### Known limitation: list-valued `bound_claims`
-
-Vault's JWT backend natively accepts list-valued `bound_claims` (any
-match wins), e.g. `{"sub": ["sa1", "sa2"]}`. Our CRD schema currently
-models `boundClaims` as `map[string]string` and cannot emit the list
-form. If you need multi-value matching against a single claim, use
-Pattern A (one VaultRole per SA) until the CRD is widened to
-`map[string][]string`. Tracked in [IMPROVEMENTS.md §19](internal/IMPROVEMENTS.md#19-jwt-bound_subject-derivation-is-brittle).
+(The older scalar `boundClaims` field still works but is deprecated —
+see [Binding VaultRoles to JWT claims](auth-methods/jwt.md#binding-vaultroles-to-jwt-claims).)
 
 ---
 

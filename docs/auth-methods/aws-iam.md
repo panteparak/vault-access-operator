@@ -157,7 +157,9 @@ path "sys/policies/acl" {
   capabilities = ["list"]
 }
 
-# Manage Kubernetes auth roles
+# Role management is per auth MOUNT your VaultRole/VaultClusterRole resources
+# target — unrelated to how the operator logs in (AWS IAM here). "kubernetes" is
+# a mount name ("vault auth list"); substitute yours, or auth/jwt/role/* for JWT/OIDC.
 path "auth/kubernetes/role/*" {
   capabilities = ["create", "read", "update", "delete", "list"]
 }

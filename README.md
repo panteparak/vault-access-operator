@@ -107,6 +107,41 @@ helm install vault-access-operator \
 kubectl apply -f https://raw.githubusercontent.com/panteparak/vault-access-operator/main/dist/install.yaml
 ```
 
+### Configure Vault (one-time)
+
+Before the connection can come up, Vault needs an auth method for the operator to
+log in with, a least-privilege policy, and a login role bound to the operator's
+service account:
+
+```bash
+# 1. Enable an auth method. "kubernetes" below is the auth method MOUNT NAME —
+#    pick your own with `vault auth enable -path=my-mount kubernetes`
+#    and list existing mounts with `vault auth list`.
+vault auth enable kubernetes
+vault write auth/kubernetes/config \
+    kubernetes_host="https://$KUBERNETES_SERVICE_HOST:$KUBERNETES_SERVICE_PORT"
+
+# 2. Least-privilege operator policy: manage policies + auth roles, never read secrets.
+vault policy write vault-access-operator - <<'EOF'
+path "sys/policies/acl/*" { capabilities = ["create", "read", "update", "delete", "list"] }
+path "sys/policies/acl"   { capabilities = ["list"] }
+path "sys/health"         { capabilities = ["read"] }
+# One block per auth mount your VaultRole/VaultClusterRole resources target.
+# "kubernetes" is the mount name — substitute yours (e.g. auth/jwt/role/* for a JWT/OIDC mount).
+path "auth/kubernetes/role/*" { capabilities = ["create", "read", "update", "delete"] }
+EOF
+
+# 3. Login role for the operator's own service account.
+vault write auth/kubernetes/role/vault-access-operator \
+    bound_service_account_names=vault-access-operator-controller-manager \
+    bound_service_account_namespaces=vault-access-operator-system \
+    policies=vault-access-operator \
+    ttl=1h
+```
+
+See [Getting Started → Configure Vault](https://panteparak.github.io/vault-access-operator/getting-started/#configure-vault-for-the-operator)
+for JWT/OIDC mounts and the full permission table.
+
 ### Create a Vault Connection
 
 ```yaml
@@ -159,6 +194,21 @@ spec:
 ```bash
 kubectl apply -f policy-and-role.yaml
 kubectl get vaultpolicy,vaultrole -n my-app
+```
+
+The `spec.policies` list on the VaultRole is the policy↔role binding. In Vault
+(names are `<namespace>-<name>`, roles land on the mount from `spec.authPath`,
+default `auth/kubernetes`):
+
+```bash
+vault policy read my-app-app-secrets
+vault read auth/kubernetes/role/my-app-app-role   # policies=[my-app-app-secrets]
+```
+
+Pods using the bound service account can now log in:
+
+```bash
+vault login -method=kubernetes role=my-app-app-role
 ```
 
 ## Custom Resource Definitions
