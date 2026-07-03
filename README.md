@@ -139,8 +139,35 @@ vault write auth/kubernetes/role/vault-access-operator \
     ttl=1h
 ```
 
+<details>
+<summary><strong>Using a JWT / OIDC mount instead?</strong></summary>
+
+```bash
+# 1. Enable a JWT mount ("jwt" = mount name; pick your own with -path=my-idp)
+vault auth enable jwt
+vault write auth/jwt/config \
+    oidc_discovery_url="https://your-idp.example.com"
+
+# 2. In the operator policy above, swap the role-management grant for:
+#    path "auth/jwt/role/*" { capabilities = ["create", "read", "update", "delete"] }
+
+# 3. Login role on the JWT mount
+vault write auth/jwt/role/vault-access-operator \
+    role_type=jwt \
+    bound_audiences=vault \
+    bound_subject="system:serviceaccount:vault-access-operator-system:vault-access-operator-controller-manager" \
+    user_claim=sub \
+    policies=vault-access-operator \
+    ttl=1h
+```
+
+Then use `auth.jwt` in the `VaultConnection` (see [Authentication Methods](#authentication-methods) below).
+
+</details>
+
 See [Getting Started → Configure Vault](https://panteparak.github.io/vault-access-operator/getting-started/#configure-vault-for-the-operator)
-for JWT/OIDC mounts and the full permission table.
+for the full permission table and the [JWT](https://panteparak.github.io/vault-access-operator/auth-methods/jwt/) /
+[OIDC](https://panteparak.github.io/vault-access-operator/auth-methods/oidc/) guides for IdP-specific config.
 
 ### Create a Vault Connection
 
@@ -198,7 +225,8 @@ kubectl get vaultpolicy,vaultrole -n my-app
 
 The `spec.policies` list on the VaultRole is the policy↔role binding. In Vault
 (names are `<namespace>-<name>`, roles land on the mount from `spec.authPath`,
-default `auth/kubernetes`):
+default `auth/kubernetes`; for a JWT/OIDC mount set `authPath: auth/jwt` — plus
+`authType: jwt` when the mount name doesn't start with `jwt`):
 
 ```bash
 vault policy read my-app-app-secrets
@@ -235,6 +263,23 @@ The operator supports multiple authentication methods to connect to Vault:
 | **GCP IAM** | GKE with Workload Identity | GCP |
 | **Token** | Development/testing | Any |
 | **AppRole** | CI/CD pipelines | Any |
+
+### JWT Example
+
+```yaml
+apiVersion: vault.platform.io/v1alpha1
+kind: VaultConnection
+metadata:
+  name: vault-jwt
+spec:
+  address: https://vault.example.com:8200
+  auth:
+    jwt:
+      role: vault-access-operator
+      authPath: jwt          # your mount name
+      audiences: [vault]
+      # no jwtSecretRef → the operator's own SA token is used
+```
 
 ### AWS IAM (IRSA) Example
 
