@@ -2063,7 +2063,7 @@ resources target:</p>
 <h3 id="step-7-bind-workload-policies-to-roles-on-the-oidc-mount">Step 7: Bind workload policies to roles on the OIDC mount<a class="headerlink" href="#step-7-bind-workload-policies-to-roles-on-the-oidc-mount" title="Permanent link">&para;</a></h3>
 <p>Steps 1–6 covered the <strong>operator's own login</strong>. To grant <em>workloads</em> access,
 create a <code>VaultPolicy</code> plus a <code>VaultRole</code> targeting the OIDC mount. Because the
-mount name (<code>oidc</code>) doesn't start with <code>jwt</code>, you must set <code>authType: jwt</code>
+mount name (<code>oidc</code>) isn't <code>jwt</code> or a <code>jwt-</code>/<code>jwt_</code> submount, you must set <code>authType: jwt</code>
 explicitly — the OIDC method is Vault's JWT backend family:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault.platform.io/v1alpha1</span>
 <a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">VaultRole</span>
@@ -2073,7 +2073,7 @@ explicitly — the OIDC method is Vault's JWT backend family:</p>
 <a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="nt">spec</span><span class="p">:</span>
 <a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a><span class="w">  </span><span class="nt">connectionRef</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-oidc</span>
 <a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a><span class="w">  </span><span class="nt">authPath</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">auth/oidc</span><span class="w">     </span><span class="c1"># your mount name</span>
-<a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a><span class="w">  </span><span class="nt">authType</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">jwt</span><span class="w">           </span><span class="c1"># required: mount name doesn&#39;t start with &quot;jwt&quot;</span>
+<a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a><span class="w">  </span><span class="nt">authType</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">jwt</span><span class="w">           </span><span class="c1"># required: mount isn&#39;t named &quot;jwt&quot; or &quot;jwt-*&quot;/&quot;jwt_*&quot;</span>
 <a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a><span class="w">  </span><span class="nt">serviceAccounts</span><span class="p">:</span>
 <a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">default</span>
 <a id="__codelineno-9-12" name="__codelineno-9-12" href="#__codelineno-9-12"></a><span class="w">  </span><span class="nt">policies</span><span class="p">:</span>
