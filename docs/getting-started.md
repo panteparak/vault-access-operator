@@ -453,8 +453,8 @@ to — it defaults to `auth/kubernetes`.
     spec:
       connectionRef: vault-primary
       authPath: auth/jwt        # your JWT/OIDC mount name
-      # authType: jwt           # required when the mount name doesn't start with "jwt"
-      #                         # (e.g. authPath: auth/oidc or auth/custom-oidc)
+      # authType: jwt           # required unless the mount is named "jwt" or
+      #                         # "jwt-*"/"jwt_*" (e.g. authPath: auth/oidc, auth/custom-oidc)
       serviceAccounts:
         - default
       policies:

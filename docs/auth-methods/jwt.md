@@ -48,8 +48,9 @@ path in this guide uses it. Check existing mounts with `vault auth list` and
 substitute yours.
 
 !!! tip "Custom mount paths"
-    If your JWT/OIDC method is mounted at a non-standard path (one that does **not**
-    start with `jwt`, e.g. `vault auth enable -path=custom-oidc jwt`), set
+    Mount names are auto-recognized as JWT only when named exactly `jwt` or
+    prefixed `jwt-`/`jwt_` (e.g. `jwt-gitlab`). For any other name — `custom-oidc`,
+    or even `jwtgitlab` without a separator — set
     `spec.authType: jwt` on the `VaultRole`/`VaultClusterRole` alongside
     `authPath: auth/custom-oidc`. Without `authType`, the operator infers the backend
     from the path name and rejects unrecognized names. See the

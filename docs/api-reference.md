@@ -407,7 +407,7 @@ Manages namespace-scoped Kubernetes authentication roles in Vault.
 !!! warning "Supported auth backends"
     `VaultRole` currently writes role data to **Kubernetes auth** and **JWT auth** mounts only. Mounts of other backends (AWS IAM, GCP IAM, AppRole, OIDC, LDAP, etc.) are rejected by the admission webhook with a clear error — even though the operator itself can still *authenticate* to Vault via those methods (see [VaultConnection](#vaultconnection)). Tracked as [IMPROVEMENTS.md §7](internal/IMPROVEMENTS.md#7-role-backend-coverage-gap).
 
-    By default the backend family is inferred from the mount-path name (`auth/kubernetes*` or `auth/jwt*`). To target a method mounted at a **custom path** (e.g. an org JWT/OIDC mount named `custom-oidc`), set [`authType`](#spec-fields) explicitly — the path name is then ignored.
+    By default the backend family is inferred from the mount-path name: the mount must be named exactly `kubernetes` / `jwt`, or use a separator prefix (`kubernetes-prod`, `jwt-gitlab`, `jwt_ci`). To target a method mounted at any other name (e.g. `custom-oidc` — or `jwtgitlab`, which has no separator), set [`authType`](#spec-fields) explicitly — the path name is then ignored.
 
 ### Example
 
@@ -434,7 +434,7 @@ spec:
 | `connectionRef` | string | Yes | - | Name of VaultConnection to use |
 | `serviceAccounts` | []string | Yes | - | Service account names (same namespace) |
 | `policies` | []PolicyReference | Yes | - | Policies to attach (min 1) |
-| `authPath` | string | No | From connection | Vault auth mount path. Any path when `authType` is set; otherwise must resolve to `auth/kubernetes*` or `auth/jwt*` |
+| `authPath` | string | No | `auth/kubernetes` | Vault auth mount path. Any path when `authType` is set; otherwise the mount name must be `kubernetes`/`jwt` exactly or a `-`/`_`-separated submount (`jwt-gitlab`) |
 | `authType` | string | No | inferred from `authPath` | Explicit backend family: `kubernetes` or `jwt`. Overrides path-name inference so a custom-named mount works. Required to be paired with a non-empty `authPath` when set to `jwt` |
 | `conflictPolicy` | string | No | `Fail` | `Fail` or `Adopt` |
 | `deletionPolicy` | string | No | `Delete` | `Delete` or `Retain` |
@@ -520,7 +520,7 @@ spec:
 | `connectionRef` | string | Yes | - | Name of VaultConnection to use |
 | `serviceAccounts` | []ServiceAccountRef | Yes | - | Service accounts with namespace |
 | `policies` | []PolicyReference | Yes | - | Policies to attach (min 1) |
-| `authPath` | string | No | From connection | Vault auth mount path. Any path when `authType` is set; otherwise must resolve to `auth/kubernetes*` or `auth/jwt*` |
+| `authPath` | string | No | `auth/kubernetes` | Vault auth mount path. Any path when `authType` is set; otherwise the mount name must be `kubernetes`/`jwt` exactly or a `-`/`_`-separated submount (`jwt-gitlab`) |
 | `authType` | string | No | inferred from `authPath` | Explicit backend family: `kubernetes` or `jwt`. Overrides path-name inference so a custom-named mount works. Required to be paired with a non-empty `authPath` when set to `jwt` |
 | `conflictPolicy` | string | No | `Fail` | `Fail` or `Adopt` |
 | `deletionPolicy` | string | No | `Delete` | `Delete` or `Retain` |
