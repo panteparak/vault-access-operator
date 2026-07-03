@@ -40,7 +40,12 @@ This guide assumes:
 
 ```bash
 vault auth enable jwt
+# or at a custom mount name: vault auth enable -path=my-idp jwt
 ```
+
+`jwt` here is the auth method **mount name**, not the type — every `auth/jwt/...`
+path in this guide uses it. Check existing mounts with `vault auth list` and
+substitute yours.
 
 !!! tip "Custom mount paths"
     If your JWT/OIDC method is mounted at a non-standard path (one that does **not**
@@ -77,6 +82,10 @@ vault auth enable jwt
 
 ### Step 3: Create Vault Policy
 
+This is what the operator is allowed to *manage* — independent of how it logs in.
+Grant `auth/<mount>/role/*` for each mount your `VaultRole` / `VaultClusterRole`
+resources target:
+
 ```bash
 vault policy write vault-access-operator - <<EOF
 path "sys/policies/acl/*" {
@@ -85,12 +94,15 @@ path "sys/policies/acl/*" {
 path "sys/policies/acl" {
   capabilities = ["list"]
 }
-path "auth/kubernetes/role/*" {
-  capabilities = ["create", "read", "update", "delete", "list"]
+path "sys/health" {
+  capabilities = ["read"]
 }
-path "auth/kubernetes/role" {
-  capabilities = ["list"]
+# "jwt" = your JWT/OIDC mount name — substitute it
+path "auth/jwt/role/*" {
+  capabilities = ["create", "read", "update", "delete"]
 }
+# Managing roles on a Kubernetes mount too? Also grant:
+# path "auth/kubernetes/role/*" { capabilities = ["create", "read", "update", "delete"] }
 EOF
 ```
 

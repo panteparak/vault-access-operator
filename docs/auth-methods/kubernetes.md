@@ -56,7 +56,9 @@ This guide assumes:
 ### Step 1: Enable Kubernetes Auth in Vault
 
 ```bash
-# Enable the Kubernetes auth method
+# Enable the Kubernetes auth method. "kubernetes" is the MOUNT NAME every
+# auth/kubernetes/... path in this guide refers to — pick a custom one with
+# `vault auth enable -path=my-cluster kubernetes` (see `vault auth list`).
 vault auth enable kubernetes
 
 # Configure the auth method with the Kubernetes API server
@@ -89,7 +91,8 @@ path "sys/policies/acl" {
   capabilities = ["list"]
 }
 
-# Manage Kubernetes auth roles
+# Manage roles on the mount(s) your VaultRole/VaultClusterRole resources target
+# ("kubernetes" = mount name — substitute yours; add auth/jwt/role/* for JWT/OIDC mounts)
 path "auth/kubernetes/role/*" {
   capabilities = ["create", "read", "update", "delete", "list"]
 }

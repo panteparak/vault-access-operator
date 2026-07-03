@@ -2,6 +2,17 @@
 
 The Vault Access Operator supports multiple authentication methods to connect to HashiCorp Vault. Choose the method that best fits your environment and security requirements.
 
+!!! note "Two different roles — don't mix them up"
+    These guides configure the **operator's own login**: a hand-created Vault role
+    (`vault write auth/<mount>/role/vault-access-operator ...`) that
+    `VaultConnection.spec.auth` references. That is separate from the **workload
+    roles** the operator manages *for you* from `VaultRole` / `VaultClusterRole`
+    resources — those are written to `auth/<mount>/role/<namespace>-<name>` and
+    bound to policies via `spec.policies`. How the operator logs in does not
+    restrict which mounts its VaultRoles can target; the operator policy's
+    `auth/<mount>/role/*` grants do. In every path, `<mount>` is the auth method
+    **mount name** (`vault auth list`), not the method type.
+
 ## Quick Reference
 
 | Method | Best For | Cloud Provider | Complexity |
