@@ -2131,7 +2131,7 @@ func TestVaultRoleValidator_DependencyValidationOnUpdate(t *testing.T) {
 
 const authPathJWT = "auth/jwt"
 
-func TestIsJWTAuthPath(t *testing.T) {
+func TestResolveIsJWTFromPath(t *testing.T) {
 	cases := []struct {
 		path string
 		want bool
@@ -2143,12 +2143,18 @@ func TestIsJWTAuthPath(t *testing.T) {
 		{"auth/jwt/", true},
 		{"auth/jwt/gitlab", true},
 		{"auth/jwt-gitlab", true},
+		{"auth/jwt_gitlab", true},
+		// No `-`/`_` separator — NOT a jwt submount; must match sync-time
+		// resolution (hasBackendPrefix), which rejects it.
+		{"auth/jwtgitlab", false},
 		{"auth/approle", false},
-		{"jwt", false},
+		// Bare form is promoted to auth/jwt at sync time, so admission
+		// must treat it as JWT too.
+		{"jwt", true},
 	}
 	for _, tc := range cases {
-		if got := isJWTAuthPath(tc.path); got != tc.want {
-			t.Errorf("isJWTAuthPath(%q) = %v, want %v", tc.path, got, tc.want)
+		if got := resolveIsJWT("", tc.path); got != tc.want {
+			t.Errorf("resolveIsJWT(%q) = %v, want %v", tc.path, got, tc.want)
 		}
 	}
 }
@@ -2445,7 +2451,21 @@ func TestValidateAuthPathSupported(t *testing.T) {
 		{name: "full jwt path", authPath: "auth/jwt"},
 		{name: "kubernetes submount", authPath: "auth/kubernetes-prod"},
 		{name: "jwt submount", authPath: "auth/jwt/gitlab"},
+		{name: "jwt separator submount", authPath: "auth/jwt-gitlab"},
 		{name: "jwt path with trailing slash", authPath: "auth/jwt/"},
+		// Separator rule: no `-`/`_` after the family name → not a submount.
+		// Admission must reject these like sync-time resolution does, instead
+		// of accepting a role that then fails every reconcile.
+		{
+			name:             "jwt-prefixed name without separator rejected",
+			authPath:         "auth/jwtgitlab",
+			wantErrSubstring: "unsupported Vault auth backend",
+		},
+		{
+			name:             "kubernetes-prefixed name without separator rejected",
+			authPath:         "auth/kubernetestest",
+			wantErrSubstring: "unsupported Vault auth backend",
+		},
 		// authType override (§7): custom-named mounts are accepted when the
 		// backend family is declared explicitly.
 		{name: "authType jwt accepts custom path", authPath: "auth/custom-oidc", authType: "jwt"},

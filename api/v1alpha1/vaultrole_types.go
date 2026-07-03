@@ -29,8 +29,10 @@ type VaultRoleSpec struct {
 	// AuthPath is the mount path of the Vault auth method to manage this role in
 	// (e.g. `auth/kubernetes`, `auth/jwt`, or a custom mount like `auth/custom-oidc`).
 	// Defaults to `auth/kubernetes` when unset. When AuthType is unset the backend
-	// family is inferred from this path's name (which then must start with
-	// `kubernetes` or `jwt`); set AuthType to use an arbitrarily named mount.
+	// family is inferred from this path's name: the mount must be named exactly
+	// `kubernetes` / `jwt` or use a separator prefix (`kubernetes-prod`,
+	// `jwt-gitlab`, `jwt_ci`). Anything else (including `jwtgitlab` without a
+	// separator) requires an explicit AuthType.
 	// +optional
 	AuthPath string `json:"authPath,omitempty"`
 

@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
+	"github.com/panteparak/vault-access-operator/pkg/vault"
 )
 
 // log is for logging in this package.
@@ -442,22 +443,12 @@ func validateAuthPathSupported(authPath, authType string) string {
 		return ""
 	}
 
-	// No explicit authType — infer the family from the path name.
-	// Empty is the default — resolves to Kubernetes at sync time.
-	if authPath == "" {
-		return ""
-	}
-	// Accept both full (`auth/kubernetes`) and bare (`kubernetes`) forms.
-	// Strip the `auth/` prefix if present, then test against the known
-	// backend prefix set. This mirrors how AuthBackendForPath recognises
-	// submounts like `auth/kubernetes-prod`.
-	stripped := strings.TrimPrefix(authPath, "auth/")
-	stripped = strings.TrimRight(stripped, "/")
-	if stripped == "" {
-		return ""
-	}
-	seg, _, _ := strings.Cut(stripped, "/")
-	if strings.HasPrefix(seg, "kubernetes") || strings.HasPrefix(seg, "jwt") {
+	// No explicit authType — infer the family with the same helper reconcile
+	// uses, so admission and sync always agree. Note the separator rule: a
+	// submount only matches its family as `jwt` exact or `jwt-*`/`jwt_*`
+	// (likewise `kubernetes`), so e.g. `auth/jwtgitlab` is Unknown and needs
+	// an explicit authType.
+	if vault.AuthBackendForPath(authPath) != vault.AuthBackendUnknown {
 		return ""
 	}
 	return fmt.Sprintf(
@@ -573,32 +564,13 @@ func jwtClaimIsBound(jwt *vaultv1alpha1.VaultRoleJWTSpec, key string) bool {
 	return ok
 }
 
-// isJWTAuthPath returns true if the given authPath identifies a JWT auth mount.
-// Mirrors vault.AuthBackendForPath without taking a dependency on pkg/vault
-// from the webhook package.
 // resolveIsJWT reports whether a role targets a JWT auth mount, honoring an
 // explicit authType override and otherwise inferring from the path name.
-// Mirrors pkg/vault.ResolveAuthBackend so admission and reconcile agree.
+// Delegates to pkg/vault.ResolveAuthBackend so admission and reconcile agree —
+// a hand-rolled mirror here previously drifted (raw prefix match accepted
+// `auth/jwtgitlab`, which sync-time resolution rejects).
 func resolveIsJWT(authType, authPath string) bool {
-	switch authType {
-	case string(vaultv1alpha1.AuthBackendTypeJWT):
-		return true
-	case string(vaultv1alpha1.AuthBackendTypeKubernetes):
-		return false
-	default:
-		return isJWTAuthPath(authPath)
-	}
-}
-
-func isJWTAuthPath(authPath string) bool {
-	p := strings.TrimRight(authPath, "/")
-	const prefix = "auth/"
-	if !strings.HasPrefix(p, prefix) {
-		return false
-	}
-	rest := p[len(prefix):]
-	seg, _, _ := strings.Cut(rest, "/")
-	return seg == "jwt" || strings.HasPrefix(seg, "jwt")
+	return vault.ResolveAuthBackend(authType, authPath) == vault.AuthBackendJWT
 }
 
 // validateWithContext performs validation including dependency checks for VaultClusterRole

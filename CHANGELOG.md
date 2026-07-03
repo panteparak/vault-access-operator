@@ -7,6 +7,18 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Webhook auth-mount inference now matches reconcile-time resolution.** The
+  admission webhook used a raw prefix match, so a mount like `auth/jwtgitlab`
+  (no `-`/`_` separator after the family name) was accepted at admission but
+  rejected by every reconcile as an unsupported backend. The webhook now
+  delegates to the same `pkg/vault` resolution the controllers use: such
+  mounts are rejected at admission with a pointer to `spec.authType`. Bare
+  `jwt`/`kubernetes` paths (docs shorthand) are now also consistently
+  recognized as their families during `spec.jwt` validation. Docs updated to
+  state the exact rule (`jwt` exact, or `jwt-*`/`jwt_*`).
+
 ## [0.9.1] - 2026-07-02
 
 ## [0.9.0] - 2026-07-02

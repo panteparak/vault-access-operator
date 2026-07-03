@@ -214,7 +214,7 @@ kubectl get vaultconnection vault-oidc -o yaml
 
 Steps 1–6 covered the **operator's own login**. To grant *workloads* access,
 create a `VaultPolicy` plus a `VaultRole` targeting the OIDC mount. Because the
-mount name (`oidc`) doesn't start with `jwt`, you must set `authType: jwt`
+mount name (`oidc`) isn't `jwt` or a `jwt-`/`jwt_` submount, you must set `authType: jwt`
 explicitly — the OIDC method is Vault's JWT backend family:
 
 ```yaml
@@ -226,7 +226,7 @@ metadata:
 spec:
   connectionRef: vault-oidc
   authPath: auth/oidc     # your mount name
-  authType: jwt           # required: mount name doesn't start with "jwt"
+  authType: jwt           # required: mount isn't named "jwt" or "jwt-*"/"jwt_*"
   serviceAccounts:
     - default
   policies:
