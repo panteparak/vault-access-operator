@@ -1289,21 +1289,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#pattern-c-boundclaims-on-a-stable-identity-token-claim" class="md-nav__link">
+  <a href="#pattern-c-boundclaimslist-on-a-stable-identity-token-claim" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Pattern C — boundClaims on a stable identity-token claim
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#known-limitation-list-valued-bound_claims" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Known limitation: list-valued bound_claims
+        Pattern C — boundClaimsList on a stable identity-token claim
       
     </span>
   </a>
@@ -2153,21 +2142,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#pattern-c-boundclaims-on-a-stable-identity-token-claim" class="md-nav__link">
+  <a href="#pattern-c-boundclaimslist-on-a-stable-identity-token-claim" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Pattern C — boundClaims on a stable identity-token claim
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#known-limitation-list-valued-bound_claims" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Known limitation: list-valued bound_claims
+        Pattern C — boundClaimsList on a stable identity-token claim
       
     </span>
   </a>
@@ -2627,10 +2605,11 @@
 <a id="__codelineno-17-7" name="__codelineno-17-7" href="#__codelineno-17-7"></a><span class="w">  </span><span class="nt">rules</span><span class="p">:</span>
 <a id="__codelineno-17-8" name="__codelineno-17-8" href="#__codelineno-17-8"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;secret/*&quot;</span>
 <a id="__codelineno-17-9" name="__codelineno-17-9" href="#__codelineno-17-9"></a><span class="w">      </span><span class="nt">capabilities</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">create</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">read</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">update</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">delete</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">list</span><span class="p p-Indicator">]</span>
-<a id="__codelineno-17-10" name="__codelineno-17-10" href="#__codelineno-17-10"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;auth/kubernetes/role/*&quot;</span>
-<a id="__codelineno-17-11" name="__codelineno-17-11" href="#__codelineno-17-11"></a><span class="w">      </span><span class="nt">capabilities</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">read</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">list</span><span class="p p-Indicator">]</span>
-<a id="__codelineno-17-12" name="__codelineno-17-12" href="#__codelineno-17-12"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;sys/policies/acl/*&quot;</span>
-<a id="__codelineno-17-13" name="__codelineno-17-13" href="#__codelineno-17-13"></a><span class="w">      </span><span class="nt">capabilities</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">read</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">list</span><span class="p p-Indicator">]</span>
+<a id="__codelineno-17-10" name="__codelineno-17-10" href="#__codelineno-17-10"></a><span class="w">    </span><span class="c1"># &quot;kubernetes&quot; = auth mount name — substitute yours (vault auth list)</span>
+<a id="__codelineno-17-11" name="__codelineno-17-11" href="#__codelineno-17-11"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;auth/kubernetes/role/*&quot;</span>
+<a id="__codelineno-17-12" name="__codelineno-17-12" href="#__codelineno-17-12"></a><span class="w">      </span><span class="nt">capabilities</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">read</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">list</span><span class="p p-Indicator">]</span>
+<a id="__codelineno-17-13" name="__codelineno-17-13" href="#__codelineno-17-13"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;sys/policies/acl/*&quot;</span>
+<a id="__codelineno-17-14" name="__codelineno-17-14" href="#__codelineno-17-14"></a><span class="w">      </span><span class="nt">capabilities</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">read</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">list</span><span class="p p-Indicator">]</span>
 </code></pre></div>
 <h3 id="cicd-pipeline-secrets">CI/CD Pipeline Secrets<a class="headerlink" href="#cicd-pipeline-secrets" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault.platform.io/v1alpha1</span>
@@ -2783,9 +2762,9 @@ and <code>serviceAccounts</code>:</p>
 </code></pre></div>
 <p><strong>Multi-serviceAccount caveat</strong>: JWT's <code>bound_subject</code> holds a single value.
 A JWT VaultRole with more than one <code>serviceAccount</code> must set
-<code>spec.jwt.boundSubject</code> or <code>spec.jwt.boundClaims</code> explicitly, otherwise
-the webhook rejects the resource. The three supported patterns for a
-multi-SA JWT role are:</p>
+<code>spec.jwt.boundSubject</code>, <code>spec.jwt.boundClaims</code>, or <code>spec.jwt.boundClaimsList</code>
+explicitly, otherwise the webhook rejects the resource. The three supported
+patterns for a multi-SA JWT role are:</p>
 <h4 id="pattern-a-one-vaultrole-per-serviceaccount-recommended">Pattern A — one VaultRole per ServiceAccount (recommended)<a class="headerlink" href="#pattern-a-one-vaultrole-per-serviceaccount-recommended" title="Permanent link">&para;</a></h4>
 <p>Most explicit; no shared vault role; simplest to reason about. Each role
 issues a distinct Vault token with a distinct alias, so audit logs show
@@ -2821,25 +2800,21 @@ same SA after a controller swap), set the literal shared <code>sub</code> value:
 </code></pre></div>
 <p>This only makes sense when your workloads actually share the SA — if
 each SA produces a different <code>sub</code>, Vault rejects the mismatched ones.</p>
-<h4 id="pattern-c-boundclaims-on-a-stable-identity-token-claim">Pattern C — <code>boundClaims</code> on a stable identity-token claim<a class="headerlink" href="#pattern-c-boundclaims-on-a-stable-identity-token-claim" title="Permanent link">&para;</a></h4>
+<h4 id="pattern-c-boundclaimslist-on-a-stable-identity-token-claim">Pattern C — <code>boundClaimsList</code> on a stable identity-token claim<a class="headerlink" href="#pattern-c-boundclaimslist-on-a-stable-identity-token-claim" title="Permanent link">&para;</a></h4>
 <p>When your IdP issues JWTs with a claim that identifies a team or
-project (not per-SA), match on that instead. Our CRD's
-<code>boundClaims</code> is <code>map[string]string</code>, so you provide one string per
-claim:</p>
+project (not per-SA), match on that instead. <code>boundClaimsList</code> is
+<code>map[string][]string</code> — any value in the list matches:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="nt">spec</span><span class="p">:</span>
 <a id="__codelineno-28-2" name="__codelineno-28-2" href="#__codelineno-28-2"></a><span class="w">  </span><span class="nt">serviceAccounts</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">reader-sa</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">writer-sa</span><span class="p p-Indicator">]</span><span class="w">  </span><span class="c1"># informational only; not used in Vault match</span>
 <a id="__codelineno-28-3" name="__codelineno-28-3" href="#__codelineno-28-3"></a><span class="w">  </span><span class="nt">jwt</span><span class="p">:</span>
-<a id="__codelineno-28-4" name="__codelineno-28-4" href="#__codelineno-28-4"></a><span class="w">    </span><span class="nt">boundClaims</span><span class="p">:</span>
-<a id="__codelineno-28-5" name="__codelineno-28-5" href="#__codelineno-28-5"></a><span class="w">      </span><span class="c1"># Match any token whose `groups` claim is exactly &quot;platform-team&quot;.</span>
-<a id="__codelineno-28-6" name="__codelineno-28-6" href="#__codelineno-28-6"></a><span class="w">      </span><span class="nt">groups</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">platform-team</span>
+<a id="__codelineno-28-4" name="__codelineno-28-4" href="#__codelineno-28-4"></a><span class="w">    </span><span class="nt">boundClaimsList</span><span class="p">:</span>
+<a id="__codelineno-28-5" name="__codelineno-28-5" href="#__codelineno-28-5"></a><span class="w">      </span><span class="c1"># Match any token whose `sub` is one of the listed SAs</span>
+<a id="__codelineno-28-6" name="__codelineno-28-6" href="#__codelineno-28-6"></a><span class="w">      </span><span class="nt">sub</span><span class="p">:</span>
+<a id="__codelineno-28-7" name="__codelineno-28-7" href="#__codelineno-28-7"></a><span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">system:serviceaccount:my-app:reader-sa</span>
+<a id="__codelineno-28-8" name="__codelineno-28-8" href="#__codelineno-28-8"></a><span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">system:serviceaccount:my-app:writer-sa</span>
 </code></pre></div>
-<h4 id="known-limitation-list-valued-bound_claims">Known limitation: list-valued <code>bound_claims</code><a class="headerlink" href="#known-limitation-list-valued-bound_claims" title="Permanent link">&para;</a></h4>
-<p>Vault's JWT backend natively accepts list-valued <code>bound_claims</code> (any
-match wins), e.g. <code>{"sub": ["sa1", "sa2"]}</code>. Our CRD schema currently
-models <code>boundClaims</code> as <code>map[string]string</code> and cannot emit the list
-form. If you need multi-value matching against a single claim, use
-Pattern A (one VaultRole per SA) until the CRD is widened to
-<code>map[string][]string</code>. Tracked in <a href="../internal/IMPROVEMENTS/#19-jwt-bound_subject-derivation-is-brittle">IMPROVEMENTS.md §19</a>.</p>
+<p>(The older scalar <code>boundClaims</code> field still works but is deprecated —
+see <a href="../auth-methods/jwt/#binding-vaultroles-to-jwt-claims">Binding VaultRoles to JWT claims</a>.)</p>
 <hr />
 <h2 id="vaultclusterrole-examples">VaultClusterRole Examples<a class="headerlink" href="#vaultclusterrole-examples" title="Permanent link">&para;</a></h2>
 <h3 id="platform-services-role">Platform Services Role<a class="headerlink" href="#platform-services-role" title="Permanent link">&para;</a></h3>

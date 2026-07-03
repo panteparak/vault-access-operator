@@ -1582,6 +1582,18 @@
 
 <h1 id="authentication-methods">Authentication Methods<a class="headerlink" href="#authentication-methods" title="Permanent link">&para;</a></h1>
 <p>The Vault Access Operator supports multiple authentication methods to connect to HashiCorp Vault. Choose the method that best fits your environment and security requirements.</p>
+<div class="admonition note">
+<p class="admonition-title">Two different roles — don't mix them up</p>
+<p>These guides configure the <strong>operator's own login</strong>: a hand-created Vault role
+(<code>vault write auth/&lt;mount&gt;/role/vault-access-operator ...</code>) that
+<code>VaultConnection.spec.auth</code> references. That is separate from the <strong>workload
+roles</strong> the operator manages <em>for you</em> from <code>VaultRole</code> / <code>VaultClusterRole</code>
+resources — those are written to <code>auth/&lt;mount&gt;/role/&lt;namespace&gt;-&lt;name&gt;</code> and
+bound to policies via <code>spec.policies</code>. How the operator logs in does not
+restrict which mounts its VaultRoles can target; the operator policy's
+<code>auth/&lt;mount&gt;/role/*</code> grants do. In every path, <code>&lt;mount&gt;</code> is the auth method
+<strong>mount name</strong> (<code>vault auth list</code>), not the method type.</p>
+</div>
 <h2 id="quick-reference">Quick Reference<a class="headerlink" href="#quick-reference" title="Permanent link">&para;</a></h2>
 <table>
 <thead>

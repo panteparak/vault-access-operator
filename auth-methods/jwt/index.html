@@ -1935,7 +1935,11 @@
 <h2 id="step-by-step-setup">Step-by-Step Setup<a class="headerlink" href="#step-by-step-setup" title="Permanent link">&para;</a></h2>
 <h3 id="step-1-enable-jwt-auth-in-vault">Step 1: Enable JWT Auth in Vault<a class="headerlink" href="#step-1-enable-jwt-auth-in-vault" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>vault<span class="w"> </span>auth<span class="w"> </span><span class="nb">enable</span><span class="w"> </span>jwt
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="c1"># or at a custom mount name: vault auth enable -path=my-idp jwt</span>
 </code></pre></div>
+<p><code>jwt</code> here is the auth method <strong>mount name</strong>, not the type — every <code>auth/jwt/...</code>
+path in this guide uses it. Check existing mounts with <code>vault auth list</code> and
+substitute yours.</p>
 <div class="admonition tip">
 <p class="admonition-title">Custom mount paths</p>
 <p>If your JWT/OIDC method is mounted at a non-standard path (one that does <strong>not</strong>
@@ -1971,6 +1975,9 @@ from the path name and rejects unrecognized names. See the
 </div>
 </div>
 <h3 id="step-3-create-vault-policy">Step 3: Create Vault Policy<a class="headerlink" href="#step-3-create-vault-policy" title="Permanent link">&para;</a></h3>
+<p>This is what the operator is allowed to <em>manage</em> — independent of how it logs in.
+Grant <code>auth/&lt;mount&gt;/role/*</code> for each mount your <code>VaultRole</code> / <code>VaultClusterRole</code>
+resources target:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>vault<span class="w"> </span>policy<span class="w"> </span>write<span class="w"> </span>vault-access-operator<span class="w"> </span>-<span class="w"> </span><span class="s">&lt;&lt;EOF</span>
 <a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="s">path &quot;sys/policies/acl/*&quot; {</span>
 <a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="s">  capabilities = [&quot;create&quot;, &quot;read&quot;, &quot;update&quot;, &quot;delete&quot;, &quot;list&quot;]</span>
@@ -1978,13 +1985,16 @@ from the path name and rejects unrecognized names. See the
 <a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="s">path &quot;sys/policies/acl&quot; {</span>
 <a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="s">  capabilities = [&quot;list&quot;]</span>
 <a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="s">}</span>
-<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="s">path &quot;auth/kubernetes/role/*&quot; {</span>
-<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="s">  capabilities = [&quot;create&quot;, &quot;read&quot;, &quot;update&quot;, &quot;delete&quot;, &quot;list&quot;]</span>
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="s">path &quot;sys/health&quot; {</span>
+<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="s">  capabilities = [&quot;read&quot;]</span>
 <a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a><span class="s">}</span>
-<a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a><span class="s">path &quot;auth/kubernetes/role&quot; {</span>
-<a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a><span class="s">  capabilities = [&quot;list&quot;]</span>
-<a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a><span class="s">}</span>
-<a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a><span class="s">EOF</span>
+<a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a><span class="s"># &quot;jwt&quot; = your JWT/OIDC mount name — substitute it</span>
+<a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a><span class="s">path &quot;auth/jwt/role/*&quot; {</span>
+<a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a><span class="s">  capabilities = [&quot;create&quot;, &quot;read&quot;, &quot;update&quot;, &quot;delete&quot;]</span>
+<a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a><span class="s">}</span>
+<a id="__codelineno-4-15" name="__codelineno-4-15" href="#__codelineno-4-15"></a><span class="s"># Managing roles on a Kubernetes mount too? Also grant:</span>
+<a id="__codelineno-4-16" name="__codelineno-4-16" href="#__codelineno-4-16"></a><span class="s"># path &quot;auth/kubernetes/role/*&quot; { capabilities = [&quot;create&quot;, &quot;read&quot;, &quot;update&quot;, &quot;delete&quot;] }</span>
+<a id="__codelineno-4-17" name="__codelineno-4-17" href="#__codelineno-4-17"></a><span class="s">EOF</span>
 </code></pre></div>
 <h3 id="step-4-create-vault-role">Step 4: Create Vault Role<a class="headerlink" href="#step-4-create-vault-role" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>vault<span class="w"> </span>write<span class="w"> </span>auth/jwt/role/vault-access-operator<span class="w"> </span><span class="se">\</span>
