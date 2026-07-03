@@ -100,6 +100,7 @@ This guide assumes:
 ```bash
 # Enable OIDC auth (or JWT auth for more flexibility)
 vault auth enable oidc
+# or at a custom mount name: vault auth enable -path=my-idp oidc
 
 # Configure OIDC discovery
 vault write auth/oidc/config \
@@ -115,7 +116,14 @@ vault write auth/oidc/config \
 
     For Kubernetes workloads, either works. JWT auth is simpler for server-to-server auth.
 
+`oidc` in the paths above is the auth method **mount name** (`vault auth list`),
+not the type — substitute yours throughout this guide.
+
 ### Step 3: Create Vault Policy
+
+This is what the operator is allowed to *manage* — independent of how it logs in.
+Grant `auth/<mount>/role/*` for each mount your `VaultRole` / `VaultClusterRole`
+resources target:
 
 ```bash
 vault policy write vault-access-operator - <<EOF
@@ -126,14 +134,16 @@ path "sys/policies/acl/*" {
 path "sys/policies/acl" {
   capabilities = ["list"]
 }
+path "sys/health" {
+  capabilities = ["read"]
+}
 
-# Manage Kubernetes auth roles
-path "auth/kubernetes/role/*" {
-  capabilities = ["create", "read", "update", "delete", "list"]
+# "oidc" = your OIDC/JWT mount name — substitute it
+path "auth/oidc/role/*" {
+  capabilities = ["create", "read", "update", "delete"]
 }
-path "auth/kubernetes/role" {
-  capabilities = ["list"]
-}
+# Managing roles on a Kubernetes mount too? Also grant:
+# path "auth/kubernetes/role/*" { capabilities = ["create", "read", "update", "delete"] }
 EOF
 ```
 
@@ -199,6 +209,36 @@ kubectl get vaultconnection vault-oidc -o yaml
 #   phase: Active
 #   healthy: true
 ```
+
+### Step 7: Bind workload policies to roles on the OIDC mount
+
+Steps 1–6 covered the **operator's own login**. To grant *workloads* access,
+create a `VaultPolicy` plus a `VaultRole` targeting the OIDC mount. Because the
+mount name (`oidc`) doesn't start with `jwt`, you must set `authType: jwt`
+explicitly — the OIDC method is Vault's JWT backend family:
+
+```yaml
+apiVersion: vault.platform.io/v1alpha1
+kind: VaultRole
+metadata:
+  name: app-role
+  namespace: my-app
+spec:
+  connectionRef: vault-oidc
+  authPath: auth/oidc     # your mount name
+  authType: jwt           # required: mount name doesn't start with "jwt"
+  serviceAccounts:
+    - default
+  policies:
+    - kind: VaultPolicy
+      name: app-secrets
+```
+
+The operator writes `auth/oidc/role/my-app-app-role` (`<namespace>-<name>`) with
+`policies=[my-app-app-secrets]`. Claim bindings (`user_claim`, `bound_audiences`,
+`bound_claims`) default from `serviceAccounts` and the connection; override them
+via `spec.jwt` — see
+[Binding VaultRoles to JWT claims](jwt.md#binding-vaultroles-to-jwt-claims).
 
 ## Configuration Reference
 

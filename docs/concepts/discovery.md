@@ -288,7 +288,8 @@ path "sys/policies/acl" {
   capabilities = ["list"]
 }
 
-# For role discovery
+# For role discovery — one grant per auth mount you discover
+# ("kubernetes" = mount name, substitute yours)
 path "auth/kubernetes/role" {
   capabilities = ["list"]
 }

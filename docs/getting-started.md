@@ -25,11 +25,17 @@ To enable the Kubernetes auth method in Vault:
 
 ```bash
 vault auth enable kubernetes
+# or at a custom mount name: vault auth enable -path=my-cluster kubernetes
 
 vault write auth/kubernetes/config \
     kubernetes_host="https://$KUBERNETES_SERVICE_HOST:$KUBERNETES_SERVICE_PORT" \
     kubernetes_ca_cert=@/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
 ```
+
+Throughout these docs, the `kubernetes` / `jwt` / `oidc` segment in paths like
+`auth/kubernetes/role/*` is the auth method **mount name** — whatever you passed to
+`vault auth enable [-path=NAME] <type>` — not the method type. Check yours with
+`vault auth list` and substitute it everywhere.
 
 ### cert-manager (Optional)
 
@@ -162,6 +168,7 @@ the role-management block.
     path "sys/health"         { capabilities = ["read"] }
 
     # ── Kubernetes auth role lifecycle ────────────────────────────
+    # "kubernetes" = the mount name (`vault auth list`) — substitute yours
     path "auth/kubernetes/role/*" { capabilities = ["create", "read", "update", "delete"] }
     path "auth/kubernetes/role"   { capabilities = ["list"] }   # only with VaultDiscovery
     # config — only if the operator bootstraps the mount or rotates token_reviewer_jwt
@@ -180,6 +187,7 @@ the role-management block.
     path "sys/health"         { capabilities = ["read"] }
 
     # ── JWT auth role lifecycle (no config path needed) ───────────
+    # "jwt" = the mount name (`vault auth list`) — substitute yours (e.g. "oidc", "jwt-gitlab")
     path "auth/jwt/role/*" { capabilities = ["create", "read", "update", "delete"] }
     path "auth/jwt/role"   { capabilities = ["list"] }          # only with VaultDiscovery
 
@@ -395,29 +403,85 @@ kubectl apply -f app-secrets-policy.yaml
 kubectl get vaultpolicy -n my-app
 ```
 
-### Step 3: Create a VaultRole
+The operator writes the policy to Vault under `sys/policies/acl/` named
+`<namespace>-<name>` (prefixed with the cluster name when the operator runs with
+`--cluster-name`):
 
-```yaml
-# app-role.yaml
-apiVersion: vault.platform.io/v1alpha1
-kind: VaultRole
-metadata:
-  name: app-role
-  namespace: my-app
-spec:
-  connectionRef: vault-primary
-  serviceAccounts:
-    - default
-  policies:
-    - kind: VaultPolicy
-      name: app-secrets
-  tokenTTL: 1h
-  tokenMaxTTL: 4h
+```bash
+vault policy read my-app-app-secrets
 ```
+
+At this point the policy exists but grants access to **nobody** — that's what the
+role in the next step is for.
+
+### Step 3: Create a VaultRole (bind the policy to an identity)
+
+The `spec.policies` list is the binding: it becomes the `policies=` field on the
+Vault auth role. `spec.authPath` picks which auth **mount** the role is written
+to — it defaults to `auth/kubernetes`.
+
+=== "Kubernetes mount (default)"
+
+    ```yaml
+    # app-role.yaml
+    apiVersion: vault.platform.io/v1alpha1
+    kind: VaultRole
+    metadata:
+      name: app-role
+      namespace: my-app
+    spec:
+      connectionRef: vault-primary
+      # authPath: auth/kubernetes   # the default
+      serviceAccounts:
+        - default
+      policies:
+        - kind: VaultPolicy
+          name: app-secrets
+      tokenTTL: 1h
+      tokenMaxTTL: 4h
+    ```
+
+=== "JWT / OIDC mount"
+
+    ```yaml
+    # app-role.yaml
+    apiVersion: vault.platform.io/v1alpha1
+    kind: VaultRole
+    metadata:
+      name: app-role
+      namespace: my-app
+    spec:
+      connectionRef: vault-primary
+      authPath: auth/jwt        # your JWT/OIDC mount name
+      # authType: jwt           # required when the mount name doesn't start with "jwt"
+      #                         # (e.g. authPath: auth/oidc or auth/custom-oidc)
+      serviceAccounts:
+        - default
+      policies:
+        - kind: VaultPolicy
+          name: app-secrets
+      jwt:                      # optional claim-binding overrides; see the JWT guide
+        userClaim: sub
+      tokenTTL: 1h
+      tokenMaxTTL: 4h
+    ```
+
+    Defaults for `bound_subject`, `bound_audiences`, and `user_claim` are derived
+    from `serviceAccounts` and the referenced `VaultConnection` — see
+    [Binding VaultRoles to JWT claims](auth-methods/jwt.md#binding-vaultroles-to-jwt-claims).
 
 ```bash
 kubectl apply -f app-role.yaml
 kubectl get vaultrole -n my-app
+```
+
+The operator writes the role to `auth/<mount>/role/<namespace>-<name>` with the
+resolved policy names attached:
+
+```bash
+vault read auth/kubernetes/role/my-app-app-role
+# ...
+# policies    [my-app-app-secrets]
 ```
 
 ### Step 4: Test Authentication
@@ -442,8 +506,12 @@ spec:
 
 ```bash
 kubectl apply -f test-pod.yaml
+# role name = <namespace>-<name> from Step 3
 kubectl exec -it vault-test -n my-app -- vault login -method=kubernetes role=my-app-app-role
 ```
+
+For a role on a JWT/OIDC mount, log in against that mount instead:
+`vault write auth/jwt/login role=my-app-app-role jwt=$JWT`.
 
 ---
 
