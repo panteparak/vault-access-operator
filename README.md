@@ -226,7 +226,7 @@ kubectl get vaultpolicy,vaultrole -n my-app
 The `spec.policies` list on the VaultRole is the policy↔role binding. In Vault
 (names are `<namespace>-<name>`, roles land on the mount from `spec.authPath`,
 default `auth/kubernetes`; for a JWT/OIDC mount set `authPath: auth/jwt` — plus
-`authType: jwt` when the mount name doesn't start with `jwt`):
+`authType: jwt` unless the mount is named `jwt` or `jwt-*`/`jwt_*`):
 
 ```bash
 vault policy read my-app-app-secrets
