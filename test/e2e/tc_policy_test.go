@@ -88,16 +88,14 @@ var _ = Describe("VaultPolicy Tests", Ordered, Label("module"), func() {
 				)
 			}, 2*time.Minute, 5*time.Second).Should(Succeed())
 
-			By("verifying VaultPolicy has namespaced vaultName")
+			By("verifying VaultPolicy records the derived vaultName")
 			p, err := utils.GetVaultPolicy(ctx, policyName, testNamespace)
 			Expect(err).NotTo(HaveOccurred())
-			expectedVaultName := fmt.Sprintf(
-				"%s-%s", testNamespace, policyName,
-			)
+			expectedVaultName := nsVaultName(policyName)
 			Expect(p.Status.VaultName).To(Equal(expectedVaultName),
-				"Namespaced policy should have namespace-prefixed vaultName")
+				"Namespaced policy should record the ADR 0010 vaultName")
 
-			By("verifying policy exists in Vault with namespaced name")
+			By("verifying policy exists in Vault under the derived name")
 			vaultClient, err := utils.GetTestVaultClient()
 			Expect(err).NotTo(HaveOccurred())
 
@@ -112,9 +110,7 @@ var _ = Describe("VaultPolicy Tests", Ordered, Label("module"), func() {
 
 		It("TC-VP02: Substitute {{namespace}} variable in policy paths", func() {
 			nsSubstPolicyName := "tc-vp02-ns-subst"
-			expectedVaultName := fmt.Sprintf(
-				"%s-%s", testNamespace, nsSubstPolicyName,
-			)
+			expectedVaultName := nsVaultName(nsSubstPolicyName)
 			enforceNS := true
 
 			By("creating VaultPolicy with {{namespace}} variable")
@@ -230,9 +226,7 @@ var _ = Describe("VaultPolicy Tests", Ordered, Label("module"), func() {
 
 		It("TC-VP04-DEL: Handle VaultPolicy deletion with finalizer", func() {
 			tempPolicyName := "tc-vp04-temp"
-			expectedVaultName := fmt.Sprintf(
-				"%s-%s", testNamespace, tempPolicyName,
-			)
+			expectedVaultName := nsVaultName(tempPolicyName)
 
 			By("creating temporary VaultPolicy")
 			policy := &vaultv1alpha1.VaultPolicy{
@@ -300,9 +294,7 @@ var _ = Describe("VaultPolicy Tests", Ordered, Label("module"), func() {
 
 		It("TC-VP05-RET: Respect deletionPolicy=Retain", func() {
 			retainPolicyName := "tc-vp05-retain"
-			expectedVaultName := fmt.Sprintf(
-				"%s-%s", testNamespace, retainPolicyName,
-			)
+			expectedVaultName := nsVaultName(retainPolicyName)
 
 			By("creating VaultPolicy with deletionPolicy=Retain")
 			policy := &vaultv1alpha1.VaultPolicy{

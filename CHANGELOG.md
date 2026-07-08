@@ -7,6 +7,31 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING: structured Vault resource names + recorded-name authority
+  (ADR 0010).** Every derived Vault name now has the fixed 4-segment shape
+  `vao.{identity}.{namespace}.{name}` (`_` fills absent segments). The
+  identity segment is `--cluster-name` when set, else the connection's login
+  auth mount, else `_`; `--cluster-name` no longer permits dots. The
+  recorded `status.vaultName`/`status.vaultRoleName` is now authoritative
+  for deletion and rename detection: a naming config change migrates each
+  object on its next sync (write new name → verified → delete old name;
+  failures queue on the cleanup queue with a `StaleVaultNameQueued` event)
+  instead of orphaning it. Role→policy bindings resolve through the
+  referenced policy CR's recorded `status.vaultName` (a not-yet-synced
+  policy leaves the binding pending, `PoliciesResolved=False`, and the role
+  converges via watch). Auth roles now carry an in-band ownership record in
+  `alias_metadata` (kubernetes + jwt backends, Vault >= 1.21; older Vaults silently drop it), enabling real
+  role conflict detection and ownership-gated deletes; orphan scans only
+  consider `vao.`-prefixed role names, so hand-created roles are never
+  flagged. The admission webhooks' naming-collision checks are removed —
+  the injective name shape makes cross-scope and dash-join collisions
+  structurally impossible, so CR pairs the old webhook denied (e.g.
+  VaultClusterPolicy "ns-name" alongside VaultPolicy ns/name) are now
+  admitted and coexist under distinct Vault names. Supersedes ADR 0006;
+  amends ADR 0008.
+
 ## [0.10.0] - 2026-07-08
 
 ### Changed

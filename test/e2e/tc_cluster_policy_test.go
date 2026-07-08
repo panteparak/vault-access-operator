@@ -98,9 +98,10 @@ var _ = Describe("VaultClusterPolicy Tests", Ordered, Label("module"), func() {
 			)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(p.Status.VaultName).To(
-				Equal(clusterPolicyName),
-				"Cluster policy vaultName should match "+
-					"resource name",
+				Equal(clusterVaultName(clusterPolicyName)),
+				"Cluster policy vaultName should be the "+
+					"ADR 0010 shape with a placeholder "+
+					"namespace segment",
 			)
 
 			By("verifying rulesCount in status")
@@ -113,7 +114,7 @@ var _ = Describe("VaultClusterPolicy Tests", Ordered, Label("module"), func() {
 
 			Eventually(func(g Gomega) {
 				content, err := vaultClient.ReadPolicy(
-					ctx, clusterPolicyName,
+					ctx, clusterVaultName(clusterPolicyName),
 				)
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(content).To(
@@ -132,7 +133,7 @@ var _ = Describe("VaultClusterPolicy Tests", Ordered, Label("module"), func() {
 			Eventually(func(g Gomega) {
 				var readErr error
 				policyContent, readErr = vaultClient.ReadPolicy(
-					ctx, clusterPolicyName,
+					ctx, clusterVaultName(clusterPolicyName),
 				)
 				g.Expect(readErr).NotTo(HaveOccurred())
 			}, 30*time.Second, 2*time.Second).Should(Succeed())

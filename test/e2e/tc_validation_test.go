@@ -293,7 +293,7 @@ var _ = Describe("Input Validation Tests", Ordered, Label("validation"), func() 
 			ExpectPolicyActive(ctx, policyName)
 
 			// Verify policy was created in Vault
-			vaultPolicyName := testNamespace + "-" + policyName
+			vaultPolicyName := nsVaultName(policyName)
 			content, err := GetVaultPolicyContent(ctx, vaultPolicyName)
 			Expect(err).NotTo(HaveOccurred())
 			// Content should have "read" capability
@@ -342,7 +342,7 @@ var _ = Describe("Input Validation Tests", Ordered, Label("validation"), func() 
 			ExpectPolicyActive(ctx, policyName)
 
 			// Verify namespace was substituted in Vault
-			vaultPolicyName := testNamespace + "-" + policyName
+			vaultPolicyName := nsVaultName(policyName)
 			content, err := GetVaultPolicyContent(ctx, vaultPolicyName)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(content).To(ContainSubstring(testNamespace))

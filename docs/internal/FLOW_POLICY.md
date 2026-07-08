@@ -195,6 +195,9 @@ Only if not already `Syncing` or `Active`. Avoids unnecessary status writes on r
 
 `DependencyError` maps to `DependencyReady=False` with reason `ConnectionNotReady`. The resource remains in `Phase=Error` until the connection recovers; the **phase-changed predicate** will re-requeue this policy the moment the connection flips to Active.
 
+### Step 3b: Bind the Vault name (ADR 0010)
+Once the client is resolved, `Ops.BindVaultName` derives this sync's Vault-side name `vao.{identity}.{namespace}.{name}` — identity = `--cluster-name`, else the client's login auth mount, else `_` — and compares it with the RECORDED `status.vaultName`. A mismatch (naming config changed) arms a **rename**: `state.staleVaultName` remembers the old name; after readback succeeds the old-named object is deleted (ownership-checked; failure never fails the sync — the old name is queued on the ADR 0005 cleanup queue with a `StaleVaultNameQueued` warning event). Dry-run binds the recorded name and never deletes. Log line `"vault name changed, migrating"` (oldName/newName) is the rename audit trail.
+
 ### Step 4: Validate (Ops.Validate)
 - Namespaced VaultPolicy with `enforceNamespaceBoundary=true`: each `rules[i].path` must contain `{{namespace}}` and must NOT have `*` before `{{namespace}}` (would allow cross-namespace access).
 - VaultClusterPolicy: no-op.
@@ -221,7 +224,7 @@ With markers **off** (the default) this step is skipped entirely: the operator w
 - **detect + changed hash**: proceed to Write (the user changed the spec, so this is a user-initiated update, not drift correction).
 - **correct + no `allow-destructive` annotation**: `Phase=Conflict`, block write, increment `safety_destructive_blocked_total`. User must add annotation to unlock.
 - **correct + annotation present**: proceed to Write (log "correcting drift with destructive annotation").
-- **unchanged spec, unchanged Vault, no drift**: skip write, update status (the ownership header is part of the document — nothing to refresh).
+- **unchanged spec, unchanged Vault, no drift**: skip write, update status (the ownership header is part of the document — nothing to refresh). Exception: a pending rename (Step 3b) proceeds to Write even with an unchanged hash — a naming config change alone doesn't move the spec hash.
 
 ### Step 9: Write + readback
 - `discovery-pending=true` annotation → skip write (preserves adopted placeholder policies).
@@ -231,7 +234,7 @@ With markers **off** (the default) this step is skipped entirely: the operator w
 ### Step 10: Mark managed + apply bindings + active status
 - The ownership header is prepended by `PrepareContent` (`vault.OwnershipHeader`) and written together with the rules in `WriteToVault` — always emitted; only the *checking* is gated by `--managed-markers`.
 - `ApplyBindings` sets `Status.Binding = {vaultPath: sys/policies/acl/{name}, vaultResourceName: {name}}`.
-- `ApplyActiveStatus` sets `Status.VaultName` and `Status.RulesCount`.
+- `ApplyActiveStatus` records `Status.VaultName` = the bound name — the authoritative record cleanup and rename detection read (ADR 0010).
 
 ### Step 11: Finalize status + event
 - Phase=Active, Ready=True, Synced=True, Drifted=False, message="".

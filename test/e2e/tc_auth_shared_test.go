@@ -205,10 +205,7 @@ path "sys/health" {
 								"tc-shared-%s-crd-policy",
 								ap.name,
 							)
-							expectedVaultName := fmt.Sprintf(
-								"%s-%s",
-								testNamespace, policyName,
-							)
+							expectedVaultName := nsVaultName(policyName)
 
 							vaultClient, err :=
 								utils.GetTestVaultClient()
@@ -308,10 +305,7 @@ path "sys/health" {
 								"tc-shared-%s-crd-role-policy",
 								ap.name,
 							)
-							expectedVaultRoleName := fmt.Sprintf(
-								"%s-%s",
-								testNamespace, roleName,
-							)
+							expectedVaultRoleName := nsVaultName(roleName)
 
 							vaultClient, err :=
 								utils.GetTestVaultClient()

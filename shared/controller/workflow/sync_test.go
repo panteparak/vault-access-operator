@@ -651,3 +651,162 @@ func TestSyncWorkflow_DryRunCondition_False(t *testing.T) {
 		t.Errorf("DryRun status = %q, want False", dryRunCond.Status)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Rename flow (ADR 0010): recorded name != bound name migrates the object.
+// ---------------------------------------------------------------------------
+
+const (
+	renameOldName   = "old-name"
+	renameBoundName = "vao._.default.test-policy"
+	sameHash        = "same-hash"
+	priorHash       = "abc123"
+)
+
+// TestSyncWorkflow_RenameWritesNewThenDeletesOld pins the rename ordering:
+// the old-named object is deleted only AFTER the new-named object passed
+// ReadbackVerify, so Vault never has zero copies.
+func TestSyncWorkflow_RenameWritesNewThenDeletesOld(t *testing.T) {
+	t.Parallel()
+
+	policy := newTestPolicy()
+	policy.Status.Phase = vaultv1alpha1.PhaseActive
+	policy.Status.LastAppliedHash = priorHash
+
+	conn := newTestVaultConnection()
+	k8s := newFakeK8sClient(t, policy, conn)
+	wf := newSyncWorkflowForTest(t, k8s)
+
+	res := newTestResource(policy)
+	ops := &mockOps{
+		specHash:     "new-hash",
+		recordedName: renameOldName,
+		boundName:    renameBoundName,
+	}
+
+	if err := wf.Execute(context.Background(), res, ops); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expectedCalls := []string{
+		"Validate",
+		"CheckConflict",
+		"PrepareContent",
+		"DetectDrift", // phase Active + default drift mode
+		"WriteToVault",
+		"ReadbackVerify",
+		"DeleteFromVault", // stale old name — strictly after readback
+		"ApplyBindings",
+		"ApplyActiveStatus",
+		"PublishSyncEvent",
+	}
+	assertCallOrder(t, ops.calls, expectedCalls)
+
+	if len(ops.deletedNames) != 1 || ops.deletedNames[0] != renameOldName {
+		t.Errorf("deletedNames = %v, want [old-name]", ops.deletedNames)
+	}
+}
+
+// TestSyncWorkflow_RenameUnchangedHashStillWrites is load-bearing: a naming
+// config change alone doesn't alter the spec hash, so without the
+// staleVaultName guard the unchanged-resource early return would skip the
+// write and the rename would never happen.
+func TestSyncWorkflow_RenameUnchangedHashStillWrites(t *testing.T) {
+	t.Parallel()
+
+	policy := newTestPolicy()
+	policy.Status.Phase = vaultv1alpha1.PhaseActive
+	policy.Status.LastAppliedHash = sameHash
+
+	conn := newTestVaultConnection()
+	k8s := newFakeK8sClient(t, policy, conn)
+	wf := newSyncWorkflowForTest(t, k8s)
+
+	res := newTestResource(policy)
+	ops := &mockOps{
+		specHash:     sameHash,      // unchanged spec
+		recordedName: renameOldName, // …but the name moved
+		boundName:    renameBoundName,
+	}
+
+	if err := wf.Execute(context.Background(), res, ops); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !containsCall(ops.calls, "WriteToVault") {
+		t.Error("expected WriteToVault despite unchanged hash — rename pending")
+	}
+	if len(ops.deletedNames) != 1 || ops.deletedNames[0] != renameOldName {
+		t.Errorf("deletedNames = %v, want [old-name]", ops.deletedNames)
+	}
+}
+
+// TestSyncWorkflow_RenameDeleteFailureEnqueuesAndSucceeds pins that a failed
+// stale-name delete never fails the sync (the new object is live) and lands
+// the old name in the ADR 0005 cleanup queue for replay.
+func TestSyncWorkflow_RenameDeleteFailureEnqueuesAndSucceeds(t *testing.T) {
+	t.Parallel()
+
+	policy := newTestPolicy()
+	policy.Status.Phase = vaultv1alpha1.PhaseActive
+	policy.Status.LastAppliedHash = priorHash
+
+	conn := newTestVaultConnection()
+	k8s := newFakeK8sClient(t, policy, conn)
+	queue := &fakeQueue{}
+	wf := newSyncWorkflowForTest(t, k8s).WithCleanupQueue(queue)
+
+	res := newTestResource(policy)
+	ops := &mockOps{
+		specHash:     "new-hash",
+		recordedName: renameOldName,
+		boundName:    renameBoundName,
+		deleteErr:    errors.New("vault 500"),
+	}
+
+	if err := wf.Execute(context.Background(), res, ops); err != nil {
+		t.Fatalf("sync must not fail on stale-delete failure, got: %v", err)
+	}
+	if res.GetPhase() != vaultv1alpha1.PhaseActive {
+		t.Errorf("phase = %q, want Active", res.GetPhase())
+	}
+
+	items := queue.snapshot()
+	if len(items) != 1 {
+		t.Fatalf("expected 1 queue item for the stale name, got %d", len(items))
+	}
+	if items[0].VaultName != renameOldName {
+		t.Errorf("queue item VaultName = %q, want %q", items[0].VaultName, renameOldName)
+	}
+}
+
+// TestSyncWorkflow_DryRunNeverDeletesStaleName pins the workflow-level
+// dry-run guard: even with a pending rename, a dry-run must not delete the
+// old-named (only real) Vault object.
+func TestSyncWorkflow_DryRunNeverDeletesStaleName(t *testing.T) {
+	t.Parallel()
+
+	policy := newTestPolicy()
+	policy.Annotations = map[string]string{vaultv1alpha1.AnnotationDryRun: vaultv1alpha1.AnnotationValueTrue}
+	policy.Status.Phase = vaultv1alpha1.PhaseActive
+	policy.Status.LastAppliedHash = priorHash
+
+	conn := newTestVaultConnection()
+	k8s := newFakeK8sClient(t, policy, conn)
+	wf := newSyncWorkflowForTest(t, k8s)
+
+	res := newTestResource(policy)
+	ops := &mockOps{
+		specHash:     "new-hash",
+		recordedName: renameOldName,
+		boundName:    renameBoundName,
+	}
+
+	if err := wf.Execute(context.Background(), res, ops); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if containsCall(ops.calls, "DeleteFromVault") {
+		t.Error("dry-run must never delete the stale (pre-rename) Vault object")
+	}
+}

@@ -78,24 +78,10 @@ func (v *VaultRoleValidator) ValidateCreate(ctx context.Context, role *vaultv1al
 		return nil, err
 	}
 
-	// Check for naming collision with VaultClusterRole
-	// VaultRole "namespace/name" maps to Vault role "{namespace}-{name}"
-	// VaultClusterRole "name" maps to Vault role "{name}"
-	// Collision occurs if VaultClusterRole with name "{namespace}-{name}" exists
-	vaultRoleName := fmt.Sprintf("%s-%s", role.Namespace, role.Name)
-	if err := v.checkRoleNameCollision(ctx, vaultRoleName, role.Namespace, role.Name); err != nil {
-		return nil, err
-	}
-
-	// Check for naming collision with OTHER VaultRoles. The `namespace-name`
-	// join is ambiguous: "ns1/foo-bar" and "ns1-foo/bar" both compute to
-	// "ns1-foo-bar". Without this check, the second CR to be created would
-	// hit a runtime Phase=Conflict instead of a clear admission error, and
-	// with the adopt annotation both CRs would race on the same Vault
-	// resource (overwriting each other on every reconcile).
-	if err := v.checkVaultRoleCollision(ctx, vaultRoleName, role.Namespace, role.Name); err != nil {
-		return nil, err
-	}
+	// No naming-collision checks (ADR 0010): the fixed 4-segment shape
+	// vao.{identity}.{namespace}.{name} is injective — no two distinct CRs
+	// can derive the same Vault role name. The pre-0010 checks guarded the
+	// ambiguous "{namespace}-{name}" dash join.
 
 	return v.validateWithContext(ctx, role)
 }
@@ -333,13 +319,9 @@ func (v *VaultClusterRoleValidator) ValidateCreate(ctx context.Context, role *va
 		return nil, err
 	}
 
-	// Check for naming collision with VaultRole
-	// VaultClusterRole "name" maps to Vault role "{name}"
-	// VaultRole "namespace/name" maps to Vault role "{namespace}-{name}"
-	// Collision occurs if any VaultRole's Vault name equals this role's name
-	if err := v.checkClusterRoleNameCollision(ctx, role.Name); err != nil {
-		return nil, err
-	}
+	// No naming-collision check against VaultRole (ADR 0010): the "_"
+	// namespace segment of cluster-scoped names cannot equal a real
+	// namespace, so cross-scope collisions are structurally impossible.
 
 	return v.validateWithContext(ctx, role)
 }
@@ -615,94 +597,5 @@ func validatePolicyReference(ref vaultv1alpha1.PolicyReference, index int, allow
 		}
 	}
 
-	return nil
-}
-
-// checkRoleNameCollision checks if a VaultClusterRole exists that would create a naming collision
-// with the given VaultRole. A collision occurs when a VaultClusterRole has the same name as the
-// Vault role name that would be generated for this VaultRole (i.e., "{namespace}-{name}").
-func (v *VaultRoleValidator) checkRoleNameCollision(ctx context.Context, vaultRoleName, namespace, name string) error {
-	if v.client == nil {
-		// Client not available (e.g., in tests without client setup)
-		return nil
-	}
-
-	// Check if a VaultClusterRole exists with the name that matches the Vault role name
-	clusterRole := &vaultv1alpha1.VaultClusterRole{}
-	err := v.client.Get(ctx, types.NamespacedName{Name: vaultRoleName}, clusterRole)
-	if err == nil {
-		// VaultClusterRole exists with conflicting name
-		return fmt.Errorf("naming collision: VaultClusterRole %q already exists and would map to the same Vault role name %q as VaultRole %s/%s",
-			vaultRoleName, vaultRoleName, namespace, name)
-	}
-	if !apierrors.IsNotFound(err) {
-		// Unexpected error
-		return fmt.Errorf("failed to check for naming collision: %w", err)
-	}
-
-	// No collision
-	return nil
-}
-
-// checkVaultRoleCollision checks if any OTHER VaultRole in the cluster
-// computes to the same Vault role name. The `namespace-name` join is
-// ambiguous (see the collision example in ValidateCreate). Skipped on
-// update since the vaultName is derived from immutable fields — a
-// collision would have been caught at create.
-//
-// Compares namespace+name as a tuple to distinguish "this is me being
-// updated/recreated" (same namespace+name) from "there's another CR
-// that collides" (different namespace+name with same computed name).
-func (v *VaultRoleValidator) checkVaultRoleCollision(
-	ctx context.Context, vaultRoleName, namespace, name string,
-) error {
-	if v.client == nil {
-		return nil
-	}
-	roleList := &vaultv1alpha1.VaultRoleList{}
-	if err := v.client.List(ctx, roleList); err != nil {
-		return fmt.Errorf("failed to list VaultRoles for collision check: %w", err)
-	}
-	for _, r := range roleList.Items {
-		// Skip the CR being created/updated itself.
-		if r.Namespace == namespace && r.Name == name {
-			continue
-		}
-		existingVaultName := fmt.Sprintf("%s-%s", r.Namespace, r.Name)
-		if existingVaultName == vaultRoleName {
-			return fmt.Errorf(
-				"naming collision: VaultRole %s/%s already maps to Vault role name %q — "+
-					"rename this CR (or the existing one) so `<namespace>-<name>` is unique",
-				r.Namespace, r.Name, vaultRoleName)
-		}
-	}
-	return nil
-}
-
-// checkClusterRoleNameCollision checks if any VaultRole exists that would create a naming collision
-// with the given VaultClusterRole. A collision occurs when any VaultRole's generated Vault role name
-// (i.e., "{namespace}-{name}") matches this VaultClusterRole's name.
-func (v *VaultClusterRoleValidator) checkClusterRoleNameCollision(ctx context.Context, clusterRoleName string) error {
-	if v.client == nil {
-		// Client not available (e.g., in tests without client setup)
-		return nil
-	}
-
-	// List all VaultRoles and check if any would collide
-	roleList := &vaultv1alpha1.VaultRoleList{}
-	if err := v.client.List(ctx, roleList); err != nil {
-		return fmt.Errorf("failed to list VaultRoles for collision check: %w", err)
-	}
-
-	for _, r := range roleList.Items {
-		// Check if the VaultRole's Vault name would match this cluster role's name
-		vaultRoleName := fmt.Sprintf("%s-%s", r.Namespace, r.Name)
-		if vaultRoleName == clusterRoleName {
-			return fmt.Errorf("naming collision: VaultRole %s/%s already maps to Vault role name %q which conflicts with VaultClusterRole %q",
-				r.Namespace, r.Name, vaultRoleName, clusterRoleName)
-		}
-	}
-
-	// No collision
 	return nil
 }

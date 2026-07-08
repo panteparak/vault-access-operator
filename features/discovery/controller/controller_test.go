@@ -405,6 +405,9 @@ func TestReconcile_FindsUnmanagedResources(t *testing.T) {
 		// Ownership is derived via the connection: this CR references the
 		// scanned connection, whose defaults.authPath resolves the mount.
 		Spec: vaultv1alpha1.VaultClusterRoleSpec{ConnectionRef: testConnName},
+		// Discovery matches by the RECORDED status name (ADR 0010) — what
+		// the sync actually wrote, here the pre-ADR-0010 flat name.
+		Status: vaultv1alpha1.VaultClusterRoleStatus{VaultRoleName: "managed-role"},
 	}
 
 	k8sClient := fake.NewClientBuilder().

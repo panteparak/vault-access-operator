@@ -99,8 +99,9 @@ func TestPolicyOps_WriteToVault_SkipsDiscoveryPending(t *testing.T) {
 		vaultv1alpha1.AnnotationDiscoveryPending: vaultv1alpha1.AnnotationValueTrue,
 	})
 	ops := &PolicyOps{
-		adapter: adapter,
-		hcl:     "path \"placeholder\" { capabilities = [\"read\"] }",
+		adapter:   adapter,
+		vaultName: "test-vault-name",
+		hcl:       "path \"placeholder\" { capabilities = [\"read\"] }",
 	}
 
 	if err := ops.WriteToVault(context.Background(), h.vaultClient(t)); err != nil {
@@ -115,8 +116,9 @@ func TestPolicyOps_WriteToVault_WritesWhenAnnotationCleared(t *testing.T) {
 	h := newPolicyOpsTestHarness(t)
 	adapter := newPolicyAdapterWithAnnotations(nil)
 	ops := &PolicyOps{
-		adapter: adapter,
-		hcl:     "path \"ok\" { capabilities = [\"read\"] }",
+		adapter:   adapter,
+		vaultName: "test-vault-name",
+		hcl:       "path \"ok\" { capabilities = [\"read\"] }",
 	}
 
 	if err := ops.WriteToVault(context.Background(), h.vaultClient(t)); err != nil {
@@ -136,8 +138,9 @@ func TestPolicyOps_ReadbackVerify_SkipsDiscoveryPending(t *testing.T) {
 		vaultv1alpha1.AnnotationDiscoveryPending: vaultv1alpha1.AnnotationValueTrue,
 	})
 	ops := &PolicyOps{
-		adapter: adapter,
-		hcl:     "path \"placeholder\" { capabilities = [\"read\"] }",
+		adapter:   adapter,
+		vaultName: "test-vault-name",
+		hcl:       "path \"placeholder\" { capabilities = [\"read\"] }",
 	}
 
 	if err := ops.ReadbackVerify(context.Background(), h.vaultClient(t)); err != nil {
@@ -157,9 +160,10 @@ func TestPolicyOps_ReadbackVerify_RunsWhenAnnotationCleared(t *testing.T) {
 	// returns to avoid a TransientError.
 	handler := &Handler{}
 	ops := &PolicyOps{
-		adapter: adapter,
-		handler: handler,
-		hcl:     `path "different" { capabilities = ["read"] }`,
+		adapter:   adapter,
+		vaultName: "test-vault-name",
+		handler:   handler,
+		hcl:       `path "different" { capabilities = ["read"] }`,
 	}
 
 	if err := ops.ReadbackVerify(context.Background(), h.vaultClient(t)); err != nil {
@@ -182,9 +186,10 @@ func TestPolicyOps_DetectDrift_ProducesDiffPreview(t *testing.T) {
 	// Our expected HCL differs in both path and capabilities so the summary
 	// preview exercises both `-` (Vault side) and `+` (expected side) markers.
 	ops := &PolicyOps{
-		adapter: adapter,
-		handler: &Handler{},
-		hcl:     `path "ours" { capabilities = ["list"] }`,
+		adapter:   adapter,
+		vaultName: "test-vault-name",
+		handler:   &Handler{},
+		hcl:       `path "ours" { capabilities = ["list"] }`,
 	}
 
 	drifted, summary := ops.DetectDrift(context.Background(), h.vaultClient(t))
@@ -208,8 +213,9 @@ func TestPolicyOps_DetectDrift_NoDriftOnMatch(t *testing.T) {
 	h := newPolicyOpsTestHarness(t)
 	adapter := newPolicyAdapterWithAnnotations(nil)
 	ops := &PolicyOps{
-		adapter: adapter,
-		handler: &Handler{},
+		adapter:   adapter,
+		vaultName: "test-vault-name",
+		handler:   &Handler{},
 		// Match what the harness returns so normalizeHCL produces the same text.
 		hcl: `path "different" { capabilities = ["read"] }`,
 	}

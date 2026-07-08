@@ -26,7 +26,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
-	"github.com/panteparak/vault-access-operator/shared/naming"
 )
 
 const (
@@ -136,27 +135,15 @@ func NewPolicyBindingRef(
 		k8sRef = fmt.Sprintf("%s/%s", policyRef.Kind, policyRef.Name)
 	}
 
+	// An unresolved binding (referenced policy CR missing or not yet
+	// synced — ADR 0010 lookup model) has no Vault-side path yet.
+	vaultPolicyPath := ""
+	if vaultPolicyName != "" {
+		vaultPolicyPath = PolicyPath(vaultPolicyName)
+	}
 	return vaultv1alpha1.PolicyBinding{
 		K8sRef:          k8sRef,
-		VaultPolicyPath: PolicyPath(vaultPolicyName),
+		VaultPolicyPath: vaultPolicyPath,
 		Resolved:        resolved,
-	}
-}
-
-// VaultPolicyName computes the Vault policy name from a PolicyReference.
-// For VaultPolicy: "{namespace}-{name}"
-// For VaultClusterPolicy: "{name}"
-func VaultPolicyName(ref vaultv1alpha1.PolicyReference, defaultNamespace string) string {
-	switch ref.Kind {
-	case KindVaultPolicy:
-		ns := ref.Namespace
-		if ns == "" {
-			ns = defaultNamespace
-		}
-		return naming.Vault(fmt.Sprintf("%s-%s", ns, ref.Name))
-	case KindVaultClusterPolicy:
-		return naming.Vault(ref.Name)
-	default:
-		return naming.Vault(ref.Name)
 	}
 }

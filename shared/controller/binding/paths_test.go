@@ -20,7 +20,6 @@ import (
 	"testing"
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
-	"github.com/panteparak/vault-access-operator/shared/naming"
 )
 
 func TestPolicyPath(t *testing.T) {
@@ -309,6 +308,21 @@ func TestNewPolicyBindingRef(t *testing.T) {
 			wantK8sRef:      "VaultClusterPolicy/admin-base",
 			wantVaultPath:   "sys/policies/acl/admin-base",
 		},
+		{
+			// ADR 0010 lookup model: an unresolved binding (policy CR missing
+			// or not yet synced) has no Vault-side name and must not render a
+			// bogus sys/policies/acl/ path.
+			name: "unresolved binding has empty vault path",
+			policyRef: vaultv1alpha1.PolicyReference{
+				Kind: "VaultPolicy",
+				Name: "pending",
+			},
+			namespace:       "prod",
+			vaultPolicyName: "",
+			resolved:        false,
+			wantK8sRef:      "VaultPolicy/prod/pending",
+			wantVaultPath:   "",
+		},
 	}
 
 	for _, tt := range tests {
@@ -323,72 +337,6 @@ func TestNewPolicyBindingRef(t *testing.T) {
 			}
 			if binding.Resolved != tt.resolved {
 				t.Errorf("Resolved = %v, want %v", binding.Resolved, tt.resolved)
-			}
-		})
-	}
-}
-
-func TestVaultPolicyName_ClusterPrefix(t *testing.T) {
-	// Not parallel: mutates the process-wide naming.Cluster. Runs in the
-	// sequential phase, before any t.Parallel test resumes.
-	naming.SetCluster("east")
-	t.Cleanup(func() { naming.SetCluster("") })
-
-	// A namespaced VaultPolicy reference must yield the SAME prefixed name the
-	// policy is created under, so a role's token_policies stay valid.
-	nsRef := vaultv1alpha1.PolicyReference{Kind: "VaultPolicy", Name: "app", Namespace: "prod"}
-	if got, want := VaultPolicyName(nsRef, "default"), "east-prod-app"; got != want {
-		t.Errorf("VaultPolicyName(namespaced) = %q, want %q", got, want)
-	}
-
-	clusterRef := vaultv1alpha1.PolicyReference{Kind: "VaultClusterPolicy", Name: "admin"}
-	if got, want := VaultPolicyName(clusterRef, "prod"), "east-admin"; got != want {
-		t.Errorf("VaultPolicyName(cluster) = %q, want %q", got, want)
-	}
-}
-
-func TestVaultPolicyName(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name             string
-		ref              vaultv1alpha1.PolicyReference
-		defaultNamespace string
-		want             string
-	}{
-		{
-			name: "VaultPolicy with explicit namespace",
-			ref: vaultv1alpha1.PolicyReference{
-				Kind:      "VaultPolicy",
-				Name:      "app-read",
-				Namespace: "prod",
-			},
-			defaultNamespace: "default",
-			want:             "prod-app-read",
-		},
-		{
-			name: "VaultPolicy inherits default namespace",
-			ref: vaultv1alpha1.PolicyReference{
-				Kind: "VaultPolicy",
-				Name: "app-read",
-			},
-			defaultNamespace: "staging",
-			want:             "staging-app-read",
-		},
-		{
-			name: "VaultClusterPolicy has no namespace prefix",
-			ref: vaultv1alpha1.PolicyReference{
-				Kind: "VaultClusterPolicy",
-				Name: "admin-base",
-			},
-			defaultNamespace: "prod",
-			want:             "admin-base",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := VaultPolicyName(tt.ref, tt.defaultNamespace); got != tt.want {
-				t.Errorf("VaultPolicyName() = %q, want %q", got, tt.want)
 			}
 		})
 	}

@@ -69,6 +69,25 @@ func newFakeClient(objs ...client.Object) client.Client {
 		Build()
 }
 
+// syncedPolicy seeds a VaultPolicy CR whose status carries a recorded Vault
+// name — the lookup source for role binding resolution (ADR 0010).
+func syncedPolicy(name, namespace, vaultName string) *vaultv1alpha1.VaultPolicy {
+	return &vaultv1alpha1.VaultPolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+		Spec:       vaultv1alpha1.VaultPolicySpec{ConnectionRef: "test-connection"},
+		Status:     vaultv1alpha1.VaultPolicyStatus{VaultName: vaultName},
+	}
+}
+
+// syncedClusterPolicy is the cluster-scoped twin of syncedPolicy.
+func syncedClusterPolicy(name, vaultName string) *vaultv1alpha1.VaultClusterPolicy {
+	return &vaultv1alpha1.VaultClusterPolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: name},
+		Spec:       vaultv1alpha1.VaultClusterPolicySpec{ConnectionRef: "test-connection"},
+		Status:     vaultv1alpha1.VaultClusterPolicyStatus{VaultName: vaultName},
+	}
+}
+
 func newVaultRole(name, namespace string) *vaultv1alpha1.VaultRole {
 	return &vaultv1alpha1.VaultRole{
 		ObjectMeta: metav1.ObjectMeta{
@@ -191,22 +210,27 @@ func TestResolvePolicyNames_VaultPolicy(t *testing.T) {
 		{Kind: "VaultPolicy", Name: "write-data", Namespace: "production"},
 	}
 
-	fakeClient := newFakeClient(role)
+	fakeClient := newFakeClient(role,
+		syncedPolicy("read-secrets", "default", "vao._.default.read-secrets"),
+		syncedPolicy("write-data", "production", "vao._.production.write-data"),
+	)
 	handler := NewHandler(fakeClient, vault.NewClientCache(), nil, logr.Discard())
 	adapter := domain.NewVaultRoleAdapter(role)
 
-	policyNames, err := handler.resolvePolicyNames(ctx, adapter)
+	resolution, err := handler.resolvePolicyNames(ctx, adapter)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	expected := []string{"default-read-secrets", "production-write-data"}
-	if len(policyNames) != len(expected) {
-		t.Fatalf("expected %d policies, got %d", len(expected), len(policyNames))
+	// The resolved names are the policies' RECORDED status names, not
+	// re-derivations (ADR 0010).
+	expected := []string{"vao._.default.read-secrets", "vao._.production.write-data"}
+	if len(resolution) != len(expected) {
+		t.Fatalf("expected %d policies, got %d", len(expected), len(resolution))
 	}
 	for i, exp := range expected {
-		if policyNames[i] != exp {
-			t.Errorf("policy[%d]: expected %q, got %q", i, exp, policyNames[i])
+		if !resolution[i].Resolved || resolution[i].VaultName != exp {
+			t.Errorf("policy[%d]: expected resolved %q, got %+v", i, exp, resolution[i])
 		}
 	}
 }
@@ -219,22 +243,25 @@ func TestResolvePolicyNames_VaultClusterPolicy(t *testing.T) {
 		{Kind: "VaultClusterPolicy", Name: "readonly-policy"},
 	}
 
-	fakeClient := newFakeClient(role)
+	fakeClient := newFakeClient(role,
+		syncedClusterPolicy("admin-policy", "vao._._.admin-policy"),
+		syncedClusterPolicy("readonly-policy", "vao._._.readonly-policy"),
+	)
 	handler := NewHandler(fakeClient, vault.NewClientCache(), nil, logr.Discard())
 	adapter := domain.NewVaultRoleAdapter(role)
 
-	policyNames, err := handler.resolvePolicyNames(ctx, adapter)
+	resolution, err := handler.resolvePolicyNames(ctx, adapter)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	expected := []string{"admin-policy", "readonly-policy"}
-	if len(policyNames) != len(expected) {
-		t.Fatalf("expected %d policies, got %d", len(expected), len(policyNames))
+	expected := []string{"vao._._.admin-policy", "vao._._.readonly-policy"}
+	if len(resolution) != len(expected) {
+		t.Fatalf("expected %d policies, got %d", len(expected), len(resolution))
 	}
 	for i, exp := range expected {
-		if policyNames[i] != exp {
-			t.Errorf("policy[%d]: expected %q, got %q", i, exp, policyNames[i])
+		if !resolution[i].Resolved || resolution[i].VaultName != exp {
+			t.Errorf("policy[%d]: expected resolved %q, got %+v", i, exp, resolution[i])
 		}
 	}
 }
@@ -248,22 +275,26 @@ func TestResolvePolicyNames_MixedPolicies(t *testing.T) {
 		{Kind: "VaultPolicy", Name: "other-policy", Namespace: "other"},
 	}
 
-	fakeClient := newFakeClient(role)
+	fakeClient := newFakeClient(role,
+		syncedPolicy("ns-policy", "myns", "vao._.myns.ns-policy"),
+		syncedClusterPolicy("cluster-policy", "vao._._.cluster-policy"),
+		syncedPolicy("other-policy", "other", "vao._.other.other-policy"),
+	)
 	handler := NewHandler(fakeClient, vault.NewClientCache(), nil, logr.Discard())
 	adapter := domain.NewVaultRoleAdapter(role)
 
-	policyNames, err := handler.resolvePolicyNames(ctx, adapter)
+	resolution, err := handler.resolvePolicyNames(ctx, adapter)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	expected := []string{"myns-ns-policy", "cluster-policy", "other-other-policy"}
-	if len(policyNames) != len(expected) {
-		t.Fatalf("expected %d policies, got %d", len(expected), len(policyNames))
+	expected := []string{"vao._.myns.ns-policy", "vao._._.cluster-policy", "vao._.other.other-policy"}
+	if len(resolution) != len(expected) {
+		t.Fatalf("expected %d policies, got %d", len(expected), len(resolution))
 	}
 	for i, exp := range expected {
-		if policyNames[i] != exp {
-			t.Errorf("policy[%d]: expected %q, got %q", i, exp, policyNames[i])
+		if !resolution[i].Resolved || resolution[i].VaultName != exp {
+			t.Errorf("policy[%d]: expected resolved %q, got %+v", i, exp, resolution[i])
 		}
 	}
 }
@@ -317,13 +348,13 @@ func TestResolvePolicyNames_EmptyPolicies(t *testing.T) {
 	handler := NewHandler(fakeClient, vault.NewClientCache(), nil, logr.Discard())
 	adapter := domain.NewVaultRoleAdapter(role)
 
-	policyNames, err := handler.resolvePolicyNames(ctx, adapter)
+	resolution, err := handler.resolvePolicyNames(ctx, adapter)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if len(policyNames) != 0 {
-		t.Errorf("expected 0 policies, got %d", len(policyNames))
+	if len(resolution) != 0 {
+		t.Errorf("expected 0 policies, got %d", len(resolution))
 	}
 }
 
@@ -1475,27 +1506,6 @@ func TestGetServiceAccountBindings_VaultClusterRole(t *testing.T) {
 	}
 }
 
-// Test vault role name generation
-func TestVaultRoleName_VaultRole(t *testing.T) {
-	role := newVaultRole("my-role", "production")
-	adapter := domain.NewVaultRoleAdapter(role)
-
-	vaultRoleName := adapter.GetVaultRoleName()
-	if vaultRoleName != "production-my-role" {
-		t.Errorf("expected 'production-my-role', got %q", vaultRoleName)
-	}
-}
-
-func TestVaultRoleName_VaultClusterRole(t *testing.T) {
-	clusterRole := newVaultClusterRole("global-role")
-	adapter := domain.NewVaultClusterRoleAdapter(clusterRole)
-
-	vaultRoleName := adapter.GetVaultRoleName()
-	if vaultRoleName != "global-role" {
-		t.Errorf("expected 'global-role', got %q", vaultRoleName)
-	}
-}
-
 // Test K8s resource identifier
 func TestK8sResourceIdentifier_VaultRole(t *testing.T) {
 	role := newVaultRole("my-role", "production")
@@ -1970,19 +1980,22 @@ func TestResolvePolicyNames_DuplicatePolicyRefs(t *testing.T) {
 		{Kind: "VaultClusterPolicy", Name: "global"},
 	}
 
-	fakeClient := newFakeClient(role)
+	fakeClient := newFakeClient(role,
+		syncedPolicy("read-secrets", "default", "vao._.default.read-secrets"),
+		syncedClusterPolicy("global", "vao._._.global"),
+	)
 	handler := NewHandler(fakeClient, vault.NewClientCache(), nil, logr.Discard())
 	adapter := domain.NewVaultRoleAdapter(role)
 
-	policyNames, err := handler.resolvePolicyNames(ctx, adapter)
+	resolution, err := handler.resolvePolicyNames(ctx, adapter)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	// Current implementation doesn't deduplicate — document this behavior.
-	// Both references resolve to "default-read-secrets".
-	if len(policyNames) != 3 {
-		t.Errorf("expected 3 policy names (duplicates not deduped), got %d: %v", len(policyNames), policyNames)
+	// Both read-secrets references resolve to the same recorded name.
+	if len(resolution) != 3 {
+		t.Errorf("expected 3 entries (duplicates not deduped), got %d: %v", len(resolution), resolution)
 	}
 }
 
@@ -1997,14 +2010,15 @@ func TestResolvePolicyNames_EmptyPolicyName(t *testing.T) {
 	handler := NewHandler(fakeClient, vault.NewClientCache(), nil, logr.Discard())
 	adapter := domain.NewVaultRoleAdapter(role)
 
-	policyNames, err := handler.resolvePolicyNames(ctx, adapter)
+	resolution, err := handler.resolvePolicyNames(ctx, adapter)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Empty name still resolves (to "default-"), documenting the behavior
-	if len(policyNames) != 1 {
-		t.Errorf("expected 1 policy name, got %d", len(policyNames))
+	// An empty ref name can never match a CR — it stays unresolved instead
+	// of erroring, documenting the behavior (the webhook rejects it anyway).
+	if len(resolution) != 1 || resolution[0].Resolved {
+		t.Errorf("expected 1 unresolved entry, got %+v", resolution)
 	}
 }
 
@@ -2015,20 +2029,22 @@ func TestResolvePolicyNames_ClusterRoleWithNamespacedPolicyExplicitNamespace(t *
 		{Kind: "VaultPolicy", Name: "read-secrets", Namespace: "production"},
 	}
 
-	fakeClient := newFakeClient(role)
+	fakeClient := newFakeClient(role,
+		syncedPolicy("read-secrets", "production", "vao._.production.read-secrets"),
+	)
 	handler := NewHandler(fakeClient, vault.NewClientCache(), nil, logr.Discard())
 	adapter := domain.NewVaultClusterRoleAdapter(role)
 
-	policyNames, err := handler.resolvePolicyNames(ctx, adapter)
+	resolution, err := handler.resolvePolicyNames(ctx, adapter)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if len(policyNames) != 1 {
-		t.Fatalf("expected 1 policy, got %d", len(policyNames))
+	if len(resolution) != 1 {
+		t.Fatalf("expected 1 policy, got %d", len(resolution))
 	}
-	if policyNames[0] != "production-read-secrets" {
-		t.Errorf("expected 'production-read-secrets', got %q", policyNames[0])
+	if !resolution[0].Resolved || resolution[0].VaultName != "vao._.production.read-secrets" {
+		t.Errorf("expected resolved 'vao._.production.read-secrets', got %+v", resolution[0])
 	}
 }
 
@@ -2039,21 +2055,23 @@ func TestResolvePolicyNames_NamespacedRoleCrossNamespace(t *testing.T) {
 		{Kind: "VaultPolicy", Name: "read-secrets", Namespace: "other-ns"},
 	}
 
-	fakeClient := newFakeClient(role)
+	fakeClient := newFakeClient(role,
+		syncedPolicy("read-secrets", "other-ns", "vao._.other-ns.read-secrets"),
+	)
 	handler := NewHandler(fakeClient, vault.NewClientCache(), nil, logr.Discard())
 	adapter := domain.NewVaultRoleAdapter(role)
 
-	policyNames, err := handler.resolvePolicyNames(ctx, adapter)
+	resolution, err := handler.resolvePolicyNames(ctx, adapter)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	// Namespaced role can reference policies in other namespaces
-	if len(policyNames) != 1 {
-		t.Fatalf("expected 1 policy, got %d", len(policyNames))
+	if len(resolution) != 1 {
+		t.Fatalf("expected 1 policy, got %d", len(resolution))
 	}
-	if policyNames[0] != "other-ns-read-secrets" {
-		t.Errorf("expected 'other-ns-read-secrets', got %q", policyNames[0])
+	if !resolution[0].Resolved || resolution[0].VaultName != "vao._.other-ns.read-secrets" {
+		t.Errorf("expected resolved 'vao._.other-ns.read-secrets', got %+v", resolution[0])
 	}
 }
 
@@ -2082,5 +2100,51 @@ func TestNormalizeTTLToSeconds(t *testing.T) {
 					tt.input, result, result, tt.expected, tt.expected)
 			}
 		})
+	}
+}
+
+// TestResolvePolicyNames_MissingPolicyCR pins the pending-binding case: a
+// reference to a policy CR that doesn't exist yields an UNRESOLVED entry
+// (not an error) — the watch machinery requeues the role when it appears.
+func TestResolvePolicyNames_MissingPolicyCR(t *testing.T) {
+	ctx := context.Background()
+	role := newVaultRole("test-role", "default")
+	role.Spec.Policies = []vaultv1alpha1.PolicyReference{
+		{Kind: "VaultPolicy", Name: "not-created-yet"},
+	}
+
+	fakeClient := newFakeClient(role)
+	handler := NewHandler(fakeClient, vault.NewClientCache(), nil, logr.Discard())
+	adapter := domain.NewVaultRoleAdapter(role)
+
+	resolution, err := handler.resolvePolicyNames(ctx, adapter)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resolution) != 1 || resolution[0].Resolved || resolution[0].VaultName != "" {
+		t.Errorf("expected 1 unresolved entry with empty VaultName, got %+v", resolution)
+	}
+}
+
+// TestResolvePolicyNames_PolicyNotYetSynced pins the second pending case:
+// the policy CR exists but hasn't synced (empty status.vaultName) — the
+// binding stays unresolved until the policy's recorded name lands.
+func TestResolvePolicyNames_PolicyNotYetSynced(t *testing.T) {
+	ctx := context.Background()
+	role := newVaultRole("test-role", "default")
+	role.Spec.Policies = []vaultv1alpha1.PolicyReference{
+		{Kind: "VaultPolicy", Name: "pending-policy"},
+	}
+
+	fakeClient := newFakeClient(role, syncedPolicy("pending-policy", "default", ""))
+	handler := NewHandler(fakeClient, vault.NewClientCache(), nil, logr.Discard())
+	adapter := domain.NewVaultRoleAdapter(role)
+
+	resolution, err := handler.resolvePolicyNames(ctx, adapter)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resolution) != 1 || resolution[0].Resolved {
+		t.Errorf("expected 1 unresolved entry (policy not yet synced), got %+v", resolution)
 	}
 }

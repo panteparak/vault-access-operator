@@ -187,19 +187,22 @@ flowchart TD
     Start[policies list] --> Loop[for each ref]
     Loop --> Kind{ref.Kind}
     Kind -->|VaultPolicy| NamespaceCheck{namespace set?}
-    NamespaceCheck -->|yes| UseNS["policyName = namespace + '-' + name"]
+    NamespaceCheck -->|yes| Lookup["Get VaultPolicy CR<br/>read status.vaultName"]
     NamespaceCheck -->|no, role is namespaced| DefaultNS["namespace = role.Namespace"]
     NamespaceCheck -->|no, cluster role| Err["ValidationError:<br/>namespace required for<br/>VaultPolicy ref in cluster-scoped role"]
-    DefaultNS --> UseNS
-    Kind -->|VaultClusterPolicy| NameOnly["policyName = name"]
+    DefaultNS --> Lookup
+    Kind -->|VaultClusterPolicy| ClusterLookup["Get VaultClusterPolicy CR<br/>read status.vaultName"]
     Kind -->|other| KindErr["ValidationError:<br/>must be VaultPolicy or VaultClusterPolicy"]
-    UseNS --> Append
-    NameOnly --> Append
+    Lookup --> Resolved{recorded name<br/>present?}
+    ClusterLookup --> Resolved
+    Resolved -->|yes| Append["resolvedPolicyRef{Resolved: true}"]
+    Resolved -->|no — CR missing or<br/>not yet synced| Pending["resolvedPolicyRef{Resolved: false}"]
     Append --> Loop
-    Loop -.->|done| Return[return policyNames]
+    Pending --> Loop
+    Loop -.->|done| Return[return resolution]
 ```
 
-Note the **asymmetry**: VaultPolicy (namespaced) gets prefixed with its namespace to prevent collisions across namespaces (`prod-read` vs `staging-read`). VaultClusterPolicy keeps its raw name.
+**Lookup, not re-derivation (ADR 0010):** the policy's Vault-side name depends on the *policy's* connection identity, which the role cannot re-derive — so the role reads the referenced CR's RECORDED `status.vaultName`. An unresolved ref (missing CR, or policy not yet synced) does **not** block the sync: the role writes with the resolved subset, `PoliciesResolved=False` lists the pending refs, and the policy watch (`RoleRequestsForPolicy`) requeues the role the moment the policy's status lands.
 
 ## Drift Comparison Fields
 
@@ -230,10 +233,12 @@ The comparator uses `CompareStringSlices` (order-insensitive via sort) for list 
 [resolveRoleTarget](../../features/role/controller/handler.go:137) — fetch the referenced VaultConnection, call `conn.RoleMount()`. Connection NotFound → `DependencyError` (`Reason=ConnectionNotReady` — it may appear later); no role-capable mount → `ValidationError` (`Reason=ValidationFailed`, permanent until the connection is fixed). The webhook already denies the latter at admission; this is the reconcile backstop.
 
 ### Step 1: Resolve policy names
-Kind-aware: namespaced prefix for VaultPolicy, bare name for VaultClusterPolicy. Cluster roles referencing namespaced policies **must** specify `namespace` explicitly.
+Kind-aware lookup of each referenced policy CR's recorded `status.vaultName` (see Policy Resolution above). Cluster roles referencing namespaced policies **must** specify `namespace` explicitly.
 
 ### Step 2: Verify policies exist (warning, non-blocking)
-Loop `PolicyExists` for each resolved name. Missing policies emit a warning condition (`PoliciesResolved=False`) and a K8s event but **do not block** the sync — Vault permits binding non-existent policies. This supports workflows where you create the role CR first and the policy CRs catch up.
+Pending (unresolved) refs and resolved names missing from Vault (`PolicyExists`) both feed the `PoliciesResolved=False` condition ("policies not yet synced: …; policies not found in Vault: …") and a K8s Warning event, but **do not block** the sync — Vault permits binding non-existent policies. This supports workflows where you create the role CR first and the policy CRs catch up; the role converges automatically when the policies sync.
+
+The role's payload also carries its in-band ownership record in `alias_metadata` (ADR 0010): `managed-by`, `auth-mount` (login mount), `cluster`, `k8s-resource`, `k8s-kind`. Conflict detection and the stale-rename delete are gated on it, exactly like the policy comment header.
 
 ### Step 3: Service account bindings
 `RoleAdapter.GetServiceAccountBindings()` returns `[]string` of `"namespace/name"`:

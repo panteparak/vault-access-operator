@@ -130,12 +130,8 @@ var _ = Describe("Authentication Tests", Ordered, Label("auth"), func() {
 	Context("TC-AU01: Service Account Authentication", func() {
 		It("TC-AU01-01: Allow bound service account "+
 			"to authenticate with Vault", func() {
-			expectedPolicyName := fmt.Sprintf(
-				"%s-%s", testNamespace, authPolicyName,
-			)
-			expectedRoleName := fmt.Sprintf(
-				"%s-%s", testNamespace, authRoleName,
-			)
+			expectedPolicyName := nsVaultName(authPolicyName)
+			expectedRoleName := nsVaultName(authRoleName)
 
 			By("getting a JWT token for the service account")
 			saToken, err :=
@@ -187,9 +183,7 @@ var _ = Describe("Authentication Tests", Ordered, Label("auth"), func() {
 		It("TC-AU01-02: Reject authentication with "+
 			"incorrect service account", func() {
 			wrongSAName := "tc-au02-wrong-sa"
-			expectedRoleName := fmt.Sprintf(
-				"%s-%s", testNamespace, authRoleName,
-			)
+			expectedRoleName := nsVaultName(authRoleName)
 
 			By("creating a SA NOT bound to the role")
 			_ = utils.CreateServiceAccount(
@@ -223,9 +217,7 @@ var _ = Describe("Authentication Tests", Ordered, Label("auth"), func() {
 
 		It("TC-AU01-03: Reject authentication with "+
 			"invalid JWT token", func() {
-			expectedRoleName := fmt.Sprintf(
-				"%s-%s", testNamespace, authRoleName,
-			)
+			expectedRoleName := nsVaultName(authRoleName)
 
 			By("attempting Vault login with invalid JWT")
 			invalidJWT := "eyJhbGciOiJIUzI1NiIsInR5cCI6" +
@@ -243,9 +235,7 @@ var _ = Describe("Authentication Tests", Ordered, Label("auth"), func() {
 
 		It("TC-AU01-04: Successfully re-authenticate "+
 			"after token expiration", func() {
-			expectedRoleName := fmt.Sprintf(
-				"%s-%s", testNamespace, authRoleName,
-			)
+			expectedRoleName := nsVaultName(authRoleName)
 
 			vaultClient, err := utils.GetTestVaultClient()
 			Expect(err).NotTo(HaveOccurred())
@@ -301,9 +291,7 @@ var _ = Describe("Authentication Tests", Ordered, Label("auth"), func() {
 		It("TC-AU01-05: Verify multiple SAs can "+
 			"authenticate to the same role", func() {
 			additionalSAName := "tc-au01-05-additional-sa"
-			expectedRoleName := fmt.Sprintf(
-				"%s-%s", testNamespace, authRoleName,
-			)
+			expectedRoleName := nsVaultName(authRoleName)
 
 			By("creating an additional service account")
 			err := utils.CreateServiceAccount(

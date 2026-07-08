@@ -40,6 +40,7 @@ import (
 	"github.com/panteparak/vault-access-operator/pkg/vault"
 	"github.com/panteparak/vault-access-operator/shared/events"
 	"github.com/panteparak/vault-access-operator/shared/markers"
+	"github.com/panteparak/vault-access-operator/shared/naming"
 )
 
 // enableMarkersForTest turns managed-marker tracking on for the test. Marker /
@@ -380,10 +381,20 @@ func setupSyncRoleTest(
 	server := newMockVaultServer(serverCfg)
 
 	scheme := newTestScheme()
+	// The fixture role references VaultPolicy app-read; seed it with a
+	// recorded Vault name so lookup-based binding resolution (ADR 0010)
+	// resolves and the role's policy list is non-empty.
+	refPolicy := &vaultv1alpha1.VaultPolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "app-read", Namespace: testNamespace},
+		Spec:       vaultv1alpha1.VaultPolicySpec{ConnectionRef: testConnName},
+		Status: vaultv1alpha1.VaultPolicyStatus{
+			VaultName: naming.VaultName(naming.Placeholder, testNamespace, "app-read"),
+		},
+	}
 	k8sClient := fake.NewClientBuilder().
 		WithScheme(scheme).
-		WithObjects(conn, role).
-		WithStatusSubresource(conn, role).
+		WithObjects(conn, role, refPolicy).
+		WithStatusSubresource(conn, role, refPolicy).
 		Build()
 
 	cache := vault.NewClientCache()
@@ -417,7 +428,7 @@ func TestSyncRole_Success_NewRole(t *testing.T) {
 	}
 
 	// Verify role was written to mock Vault
-	expectedKey := "auth/kubernetes/role/" + testNamespace + "-" + testRoleName
+	expectedKey := "auth/kubernetes/role/" + naming.VaultName(naming.Placeholder, testNamespace, testRoleName)
 	state.mu.Lock()
 	roleData, exists := state.roles[expectedKey]
 	state.mu.Unlock()
@@ -465,7 +476,7 @@ func TestSyncRole_Success_WithTTL(t *testing.T) {
 	}
 
 	// Verify TTL fields
-	expectedKey := "auth/kubernetes/role/" + testNamespace + "-" + testRoleName
+	expectedKey := "auth/kubernetes/role/" + naming.VaultName(naming.Placeholder, testNamespace, testRoleName)
 	state.mu.Lock()
 	roleData := state.roles[expectedKey]
 	state.mu.Unlock()
@@ -525,7 +536,7 @@ func TestSyncRole_Success_ClusterRole(t *testing.T) {
 	}
 
 	// Cluster roles use just the name, not namespace-name
-	expectedKey := "auth/kubernetes/role/cluster-reader"
+	expectedKey := "auth/kubernetes/role/" + naming.VaultName(naming.Placeholder, "", "cluster-reader")
 	state.mu.Lock()
 	roleData, exists := state.roles[expectedKey]
 	state.mu.Unlock()
@@ -570,7 +581,7 @@ func TestSyncRole_ConflictError_Adopt(t *testing.T) {
 func TestSyncRole_ConflictError_Fail(t *testing.T) {
 	enableMarkersForTest(t)
 	state := newMockVaultState()
-	vaultRoleName := testNamespace + "-" + testRoleName
+	vaultRoleName := naming.VaultName(naming.Placeholder, testNamespace, testRoleName)
 	// Pre-populate an existing role managed by someone else
 	state.roles["auth/kubernetes/role/"+vaultRoleName] = map[string]interface{}{
 		"policies": []interface{}{"old-policy"},
@@ -606,7 +617,7 @@ func TestSyncRole_MarkersDisabled_NoConflict(t *testing.T) {
 	markers.SetEnabled(false)
 
 	state := newMockVaultState()
-	vaultRoleName := testNamespace + "-" + testRoleName
+	vaultRoleName := naming.VaultName(naming.Placeholder, testNamespace, testRoleName)
 	state.roles["auth/kubernetes/role/"+vaultRoleName] = map[string]interface{}{
 		"policies": []interface{}{"old-policy"},
 	}
@@ -657,10 +668,20 @@ func TestSyncRole_ConnectionNotReady(t *testing.T) {
 	role := newTestVaultRole()
 
 	scheme := newTestScheme()
+	// The fixture role references VaultPolicy app-read; seed it with a
+	// recorded Vault name so lookup-based binding resolution (ADR 0010)
+	// resolves and the role's policy list is non-empty.
+	refPolicy := &vaultv1alpha1.VaultPolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "app-read", Namespace: testNamespace},
+		Spec:       vaultv1alpha1.VaultPolicySpec{ConnectionRef: testConnName},
+		Status: vaultv1alpha1.VaultPolicyStatus{
+			VaultName: naming.VaultName(naming.Placeholder, testNamespace, "app-read"),
+		},
+	}
 	k8sClient := fake.NewClientBuilder().
 		WithScheme(scheme).
-		WithObjects(conn, role).
-		WithStatusSubresource(conn, role).
+		WithObjects(conn, role, refPolicy).
+		WithStatusSubresource(conn, role, refPolicy).
 		Build()
 
 	cache := vault.NewClientCache()
@@ -683,17 +704,27 @@ func TestSyncRole_ConnectionNotReady(t *testing.T) {
 
 func TestSyncRole_DriftDetect_NoDrift(t *testing.T) {
 	state := newMockVaultState()
-	vaultRoleName := testNamespace + "-" + testRoleName
+	vaultRoleName := naming.VaultName(naming.Placeholder, testNamespace, testRoleName)
 
 	conn := newTestVaultConnection()
 	role := newTestVaultRole()
 	role.Spec.DriftMode = vaultv1alpha1.DriftModeDetect
 
 	scheme := newTestScheme()
+	// The fixture role references VaultPolicy app-read; seed it with a
+	// recorded Vault name so lookup-based binding resolution (ADR 0010)
+	// resolves and the role's policy list is non-empty.
+	refPolicy := &vaultv1alpha1.VaultPolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "app-read", Namespace: testNamespace},
+		Spec:       vaultv1alpha1.VaultPolicySpec{ConnectionRef: testConnName},
+		Status: vaultv1alpha1.VaultPolicyStatus{
+			VaultName: naming.VaultName(naming.Placeholder, testNamespace, "app-read"),
+		},
+	}
 	k8sClient := fake.NewClientBuilder().
 		WithScheme(scheme).
-		WithObjects(conn, role).
-		WithStatusSubresource(conn, role).
+		WithObjects(conn, role, refPolicy).
+		WithStatusSubresource(conn, role, refPolicy).
 		Build()
 
 	cache := vault.NewClientCache()
@@ -739,7 +770,7 @@ func TestSyncRole_DriftDetect_NoDrift(t *testing.T) {
 
 func TestSyncRole_DriftDetect_WithDrift(t *testing.T) {
 	state := newMockVaultState()
-	vaultRoleName := testNamespace + "-" + testRoleName
+	vaultRoleName := naming.VaultName(naming.Placeholder, testNamespace, testRoleName)
 
 	conn := newTestVaultConnection()
 	role := newTestVaultRole()
@@ -748,10 +779,20 @@ func TestSyncRole_DriftDetect_WithDrift(t *testing.T) {
 	// Build the expected roleData and compute its hash to pre-seed the status.
 	// This simulates a role that was previously synced successfully.
 	scheme := newTestScheme()
+	// The fixture role references VaultPolicy app-read; seed it with a
+	// recorded Vault name so lookup-based binding resolution (ADR 0010)
+	// resolves and the role's policy list is non-empty.
+	refPolicy := &vaultv1alpha1.VaultPolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "app-read", Namespace: testNamespace},
+		Spec:       vaultv1alpha1.VaultPolicySpec{ConnectionRef: testConnName},
+		Status: vaultv1alpha1.VaultPolicyStatus{
+			VaultName: naming.VaultName(naming.Placeholder, testNamespace, "app-read"),
+		},
+	}
 	k8sClient := fake.NewClientBuilder().
 		WithScheme(scheme).
-		WithObjects(conn, role).
-		WithStatusSubresource(conn, role).
+		WithObjects(conn, role, refPolicy).
+		WithStatusSubresource(conn, role, refPolicy).
 		Build()
 
 	cache := vault.NewClientCache()
@@ -817,7 +858,7 @@ func TestSyncRole_DriftDetect_WithDrift(t *testing.T) {
 
 func TestSyncRole_DriftCorrect_WithAnnotation(t *testing.T) {
 	state := newMockVaultState()
-	vaultRoleName := testNamespace + "-" + testRoleName
+	vaultRoleName := naming.VaultName(naming.Placeholder, testNamespace, testRoleName)
 
 	conn := newTestVaultConnection()
 	role := newTestVaultRole()
@@ -827,10 +868,20 @@ func TestSyncRole_DriftCorrect_WithAnnotation(t *testing.T) {
 	}
 
 	scheme := newTestScheme()
+	// The fixture role references VaultPolicy app-read; seed it with a
+	// recorded Vault name so lookup-based binding resolution (ADR 0010)
+	// resolves and the role's policy list is non-empty.
+	refPolicy := &vaultv1alpha1.VaultPolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "app-read", Namespace: testNamespace},
+		Spec:       vaultv1alpha1.VaultPolicySpec{ConnectionRef: testConnName},
+		Status: vaultv1alpha1.VaultPolicyStatus{
+			VaultName: naming.VaultName(naming.Placeholder, testNamespace, "app-read"),
+		},
+	}
 	k8sClient := fake.NewClientBuilder().
 		WithScheme(scheme).
-		WithObjects(conn, role).
-		WithStatusSubresource(conn, role).
+		WithObjects(conn, role, refPolicy).
+		WithStatusSubresource(conn, role, refPolicy).
 		Build()
 
 	cache := vault.NewClientCache()
@@ -890,7 +941,7 @@ func TestSyncRole_DriftCorrect_WithAnnotation(t *testing.T) {
 
 func TestSyncRole_DriftCorrect_BlockedWithoutAnnotation(t *testing.T) {
 	state := newMockVaultState()
-	vaultRoleName := testNamespace + "-" + testRoleName
+	vaultRoleName := naming.VaultName(naming.Placeholder, testNamespace, testRoleName)
 
 	conn := newTestVaultConnection()
 	role := newTestVaultRole()
@@ -898,10 +949,20 @@ func TestSyncRole_DriftCorrect_BlockedWithoutAnnotation(t *testing.T) {
 	// No AnnotationAllowDestructive
 
 	scheme := newTestScheme()
+	// The fixture role references VaultPolicy app-read; seed it with a
+	// recorded Vault name so lookup-based binding resolution (ADR 0010)
+	// resolves and the role's policy list is non-empty.
+	refPolicy := &vaultv1alpha1.VaultPolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "app-read", Namespace: testNamespace},
+		Spec:       vaultv1alpha1.VaultPolicySpec{ConnectionRef: testConnName},
+		Status: vaultv1alpha1.VaultPolicyStatus{
+			VaultName: naming.VaultName(naming.Placeholder, testNamespace, "app-read"),
+		},
+	}
 	k8sClient := fake.NewClientBuilder().
 		WithScheme(scheme).
-		WithObjects(conn, role).
-		WithStatusSubresource(conn, role).
+		WithObjects(conn, role, refPolicy).
+		WithStatusSubresource(conn, role, refPolicy).
 		Build()
 
 	cache := vault.NewClientCache()
@@ -1016,7 +1077,7 @@ func TestSyncRole_EventPublished(t *testing.T) {
 	// Wait for async event delivery
 	select {
 	case e := <-eventCh:
-		expectedRoleName := testNamespace + "-" + testRoleName
+		expectedRoleName := naming.VaultName(naming.Placeholder, testNamespace, testRoleName)
 		if e.RoleName != expectedRoleName {
 			t.Errorf("expected RoleName=%s, got %s", expectedRoleName, e.RoleName)
 		}
@@ -1040,10 +1101,20 @@ func TestSyncRole_NoEventBus(t *testing.T) {
 	role := newTestVaultRole()
 
 	scheme := newTestScheme()
+	// The fixture role references VaultPolicy app-read; seed it with a
+	// recorded Vault name so lookup-based binding resolution (ADR 0010)
+	// resolves and the role's policy list is non-empty.
+	refPolicy := &vaultv1alpha1.VaultPolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "app-read", Namespace: testNamespace},
+		Spec:       vaultv1alpha1.VaultPolicySpec{ConnectionRef: testConnName},
+		Status: vaultv1alpha1.VaultPolicyStatus{
+			VaultName: naming.VaultName(naming.Placeholder, testNamespace, "app-read"),
+		},
+	}
 	k8sClient := fake.NewClientBuilder().
 		WithScheme(scheme).
-		WithObjects(conn, role).
-		WithStatusSubresource(conn, role).
+		WithObjects(conn, role, refPolicy).
+		WithStatusSubresource(conn, role, refPolicy).
 		Build()
 
 	cache := vault.NewClientCache()
@@ -1097,10 +1168,20 @@ func TestCleanupRole_VaultClientUnavailable(t *testing.T) {
 	role.Status.Phase = vaultv1alpha1.PhaseActive
 
 	scheme := newTestScheme()
+	// The fixture role references VaultPolicy app-read; seed it with a
+	// recorded Vault name so lookup-based binding resolution (ADR 0010)
+	// resolves and the role's policy list is non-empty.
+	refPolicy := &vaultv1alpha1.VaultPolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "app-read", Namespace: testNamespace},
+		Spec:       vaultv1alpha1.VaultPolicySpec{ConnectionRef: testConnName},
+		Status: vaultv1alpha1.VaultPolicyStatus{
+			VaultName: naming.VaultName(naming.Placeholder, testNamespace, "app-read"),
+		},
+	}
 	k8sClient := fake.NewClientBuilder().
 		WithScheme(scheme).
-		WithObjects(conn, role).
-		WithStatusSubresource(conn, role).
+		WithObjects(conn, role, refPolicy).
+		WithStatusSubresource(conn, role, refPolicy).
 		Build()
 
 	// Empty cache — no Vault client available
@@ -1140,7 +1221,7 @@ func TestCleanupRole_RoleNotInVault(t *testing.T) {
 
 func TestCleanupRole_RetainPolicy(t *testing.T) {
 	state := newMockVaultState()
-	rolePath := "auth/kubernetes/role/" + testNamespace + "-" + testRoleName
+	rolePath := "auth/kubernetes/role/" + naming.VaultName(naming.Placeholder, testNamespace, testRoleName)
 	state.roles[rolePath] = map[string]interface{}{
 		"policies": []interface{}{"test-policy"},
 	}
@@ -1201,7 +1282,7 @@ func TestSyncRole_InheritsLoginMount(t *testing.T) {
 		t.Fatalf("SyncRole failed: %v", err)
 	}
 
-	expectedKey := "auth/team-jwt/role/" + testNamespace + "-" + testRoleName
+	expectedKey := "auth/team-jwt/role/" + naming.VaultName(naming.Placeholder, testNamespace, testRoleName)
 	state.mu.Lock()
 	roleData, exists := state.roles[expectedKey]
 	state.mu.Unlock()
@@ -1232,7 +1313,7 @@ func TestSyncRole_DefaultsOverrideLoginMount(t *testing.T) {
 		t.Fatalf("SyncRole failed: %v", err)
 	}
 
-	expectedKey := "auth/kubernetes-pe/role/" + testNamespace + "-" + testRoleName
+	expectedKey := "auth/kubernetes-pe/role/" + naming.VaultName(naming.Placeholder, testNamespace, testRoleName)
 	state.mu.Lock()
 	roleData, exists := state.roles[expectedKey]
 	state.mu.Unlock()

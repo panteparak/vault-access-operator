@@ -23,7 +23,6 @@ import (
 	"strings"
 	"unicode"
 
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -105,23 +104,12 @@ func (v *VaultPolicyValidator) ValidateCreate(ctx context.Context, policy *vault
 		return nil, err
 	}
 
-	// Check for naming collision with VaultClusterPolicy
-	// VaultPolicy "namespace/name" maps to Vault policy "{namespace}-{name}"
-	// VaultClusterPolicy "name" maps to Vault policy "{name}"
-	// Collision occurs if VaultClusterPolicy with name "{namespace}-{name}" exists
-	vaultPolicyName := fmt.Sprintf("%s-%s", policy.Namespace, policy.Name)
-	if err := v.checkPolicyNameCollision(ctx, vaultPolicyName, policy.Namespace, policy.Name); err != nil {
-		return nil, err
-	}
-
-	// Check for naming collision with OTHER VaultPolicies. The
-	// `namespace-name` join is ambiguous: "ns1/foo-bar" and "ns1-foo/bar"
-	// both compute to "ns1-foo-bar". Without this admission check, the
-	// second CR would hit a runtime Phase=Conflict, or with the adopt
-	// annotation both CRs would race on the same Vault policy.
-	if err := v.checkVaultPolicyCollision(ctx, vaultPolicyName, policy.Namespace, policy.Name); err != nil {
-		return nil, err
-	}
+	// No naming-collision checks (ADR 0010): the fixed 4-segment shape
+	// vao.{identity}.{namespace}.{name} is injective — the CR name is the
+	// last segment and the namespace segment is dot-free (cluster-scoped
+	// CRs use the reserved "_", an invalid namespace label), so no two
+	// distinct CRs can derive the same Vault name. The pre-0010 checks
+	// guarded the ambiguous "{namespace}-{name}" dash join.
 
 	warnings, err := v.validateVaultPolicy(policy)
 	if err != nil {
@@ -190,13 +178,9 @@ func (v *VaultClusterPolicyValidator) ValidateCreate(ctx context.Context, policy
 		return nil, err
 	}
 
-	// Check for naming collision with VaultPolicy
-	// VaultClusterPolicy "name" maps to Vault policy "{name}"
-	// VaultPolicy "namespace/name" maps to Vault policy "{namespace}-{name}"
-	// Collision occurs if any VaultPolicy's Vault name equals this policy's name
-	if err := v.checkClusterPolicyNameCollision(ctx, policy.Name); err != nil {
-		return nil, err
-	}
+	// No naming-collision check against VaultPolicy (ADR 0010): the "_"
+	// namespace segment of cluster-scoped names cannot equal a real
+	// namespace, so cross-scope collisions are structurally impossible.
 
 	warnings, err := v.validateVaultClusterPolicy(policy)
 	if err != nil {
@@ -389,88 +373,5 @@ func checkConnectionRefSameAddress(ctx context.Context, c client.Client, oldRef,
 		)
 	}
 
-	return nil
-}
-
-// checkPolicyNameCollision checks if a VaultClusterPolicy exists that would create a naming collision
-// with the given VaultPolicy. A collision occurs when a VaultClusterPolicy has the same name as the
-// Vault policy name that would be generated for this VaultPolicy (i.e., "{namespace}-{name}").
-func (v *VaultPolicyValidator) checkPolicyNameCollision(ctx context.Context, vaultPolicyName, namespace, name string) error {
-	if v.client == nil {
-		// Client not available (e.g., in tests without client setup)
-		return nil
-	}
-
-	// Check if a VaultClusterPolicy exists with the name that matches the Vault policy name
-	clusterPolicy := &vaultv1alpha1.VaultClusterPolicy{}
-	err := v.client.Get(ctx, types.NamespacedName{Name: vaultPolicyName}, clusterPolicy)
-	if err == nil {
-		// VaultClusterPolicy exists with conflicting name
-		return fmt.Errorf("naming collision: VaultClusterPolicy %q already exists and would map to the same Vault policy name %q as VaultPolicy %s/%s",
-			vaultPolicyName, vaultPolicyName, namespace, name)
-	}
-	if !apierrors.IsNotFound(err) {
-		// Unexpected error
-		return fmt.Errorf("failed to check for naming collision: %w", err)
-	}
-
-	// No collision
-	return nil
-}
-
-// checkVaultPolicyCollision checks if any OTHER VaultPolicy in the cluster
-// computes to the same Vault policy name. The `namespace-name` join is
-// ambiguous (see the collision example in ValidateCreate). Skipped on
-// update since the vaultName is derived from immutable fields.
-func (v *VaultPolicyValidator) checkVaultPolicyCollision(
-	ctx context.Context, vaultPolicyName, namespace, name string,
-) error {
-	if v.client == nil {
-		return nil
-	}
-	policyList := &vaultv1alpha1.VaultPolicyList{}
-	if err := v.client.List(ctx, policyList); err != nil {
-		return fmt.Errorf("failed to list VaultPolicies for collision check: %w", err)
-	}
-	for _, p := range policyList.Items {
-		if p.Namespace == namespace && p.Name == name {
-			continue
-		}
-		existingVaultName := fmt.Sprintf("%s-%s", p.Namespace, p.Name)
-		if existingVaultName == vaultPolicyName {
-			return fmt.Errorf(
-				"naming collision: VaultPolicy %s/%s already maps to Vault policy name %q — "+
-					"rename this CR (or the existing one) so `<namespace>-<name>` is unique",
-				p.Namespace, p.Name, vaultPolicyName)
-		}
-	}
-	return nil
-}
-
-// checkClusterPolicyNameCollision checks if any VaultPolicy exists that would create a naming collision
-// with the given VaultClusterPolicy. A collision occurs when any VaultPolicy's generated Vault policy name
-// (i.e., "{namespace}-{name}") matches this VaultClusterPolicy's name.
-func (v *VaultClusterPolicyValidator) checkClusterPolicyNameCollision(ctx context.Context, clusterPolicyName string) error {
-	if v.client == nil {
-		// Client not available (e.g., in tests without client setup)
-		return nil
-	}
-
-	// List all VaultPolicies and check if any would collide
-	policyList := &vaultv1alpha1.VaultPolicyList{}
-	if err := v.client.List(ctx, policyList); err != nil {
-		return fmt.Errorf("failed to list VaultPolicies for collision check: %w", err)
-	}
-
-	for _, p := range policyList.Items {
-		// Check if the VaultPolicy's Vault name would match this cluster policy's name
-		vaultPolicyName := fmt.Sprintf("%s-%s", p.Namespace, p.Name)
-		if vaultPolicyName == clusterPolicyName {
-			return fmt.Errorf("naming collision: VaultPolicy %s/%s already maps to Vault policy name %q which conflicts with VaultClusterPolicy %q",
-				p.Namespace, p.Name, vaultPolicyName, clusterPolicyName)
-		}
-	}
-
-	// No collision
 	return nil
 }

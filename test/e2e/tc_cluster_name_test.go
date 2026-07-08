@@ -19,28 +19,29 @@ package e2e
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"github.com/panteparak/vault-access-operator/shared/naming"
 	"github.com/panteparak/vault-access-operator/test/utils"
 )
 
-// Cluster-name prefix tests (ADR 0006). These exercise the operator's
-// `--cluster-name` flag, which prefixes every derived Vault resource name so
-// multiple operators can share one Vault CE server without collisions.
+// Naming-variant tests (ADR 0006 / ADR 0010). These exercise the operator's
+// `--cluster-name` flag, which becomes the identity segment of every derived
+// Vault resource name — vao.{cluster}.{namespace}.{name} — so multiple
+// operators can share one Vault CE server without collisions.
 //
 // They require the operator to be deployed WITH `--cluster-name` set, which the
-// default E2E stack is NOT. The expected prefix is read from E2E_CLUSTER_NAME,
+// default E2E stack is NOT. The expected identity is read from E2E_CLUSTER_NAME,
 // set by the `e2e-local-test-cluster-name` target to the SAME value passed to
 // the operator's flag (`make e2e-local-up-with-cluster-name`). When
 // E2E_CLUSTER_NAME is empty (any normal run), the whole container skips — so
-// these prefixed-name assertions never run against an operator that isn't
-// prefixing, and the default suite is unaffected.
-var _ = Describe("Cluster Name Prefix", Ordered, Label("cluster-name"), func() {
+// these identity assertions never run against an operator that isn't
+// configured with a cluster name, and the default suite is unaffected.
+var _ = Describe("Cluster Name Identity", Ordered, Label("cluster-name"), func() {
 	const (
 		cnPolicyName = "tc-cn-policy"
 		cnRoleName   = "tc-cn-role"
@@ -72,10 +73,10 @@ var _ = Describe("Cluster Name Prefix", Ordered, Label("cluster-name"), func() {
 		_ = utils.DeleteServiceAccount(ctx, testNamespace, cnSAName)
 	})
 
-	Context("TC-CN: cluster-name prefix on Vault resource names", func() {
-		It("TC-CN01: VaultPolicy is created in Vault under the cluster-prefixed name", func() {
-			prefixedName := fmt.Sprintf("%s-%s-%s", clusterPrefix, testNamespace, cnPolicyName)
-			unprefixedName := fmt.Sprintf("%s-%s", testNamespace, cnPolicyName)
+	Context("TC-CN: cluster-name identity segment on Vault resource names", func() {
+		It("TC-CN01: VaultPolicy is created in Vault under the cluster-identity name", func() {
+			expectedName := utils.ExpectedVaultName(clusterPrefix, testNamespace, cnPolicyName)
+			placeholderName := utils.ExpectedVaultName(naming.Placeholder, testNamespace, cnPolicyName)
 
 			By("creating a VaultPolicy")
 			Expect(utils.CreateVaultPolicyCR(ctx, BuildTestPolicy(cnPolicyName))).To(Succeed())
@@ -83,27 +84,28 @@ var _ = Describe("Cluster Name Prefix", Ordered, Label("cluster-name"), func() {
 			By("waiting for the VaultPolicy to become Active")
 			ExpectPolicyActive(ctx, cnPolicyName)
 
-			By("verifying status.vaultName carries the cluster prefix")
+			By("verifying status.vaultName carries the cluster identity")
 			p, err := utils.GetVaultPolicy(ctx, cnPolicyName, testNamespace)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(p.Status.VaultName).To(Equal(prefixedName),
-				"status.vaultName should be {cluster}-{namespace}-{name}")
+			Expect(p.Status.VaultName).To(Equal(expectedName),
+				"status.vaultName should be vao.{cluster}.{namespace}.{name}")
 
-			By("verifying the prefixed policy exists in Vault")
-			ExpectPolicyInVault(ctx, prefixedName)
+			By("verifying the cluster-identity policy exists in Vault")
+			ExpectPolicyInVault(ctx, expectedName)
 
-			By("verifying the UNprefixed name does NOT exist in Vault")
+			By("verifying the placeholder-identity name does NOT exist in Vault")
 			vaultClient, err := utils.GetTestVaultClient()
 			Expect(err).NotTo(HaveOccurred())
-			exists, err := vaultClient.PolicyExists(ctx, unprefixedName)
+			exists, err := vaultClient.PolicyExists(ctx, placeholderName)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(exists).To(BeFalse(),
-				"unprefixed policy %q must not exist — the cluster prefix did not take effect", unprefixedName)
+				"placeholder-identity policy %q must not exist — the cluster name did not take effect", placeholderName)
 		})
 
-		It("TC-CN02: VaultRole binds the cluster-prefixed policy name (token_policies)", func() {
-			prefixedRoleName := fmt.Sprintf("%s-%s-%s", clusterPrefix, testNamespace, cnRoleName)
-			prefixedPolicyName := fmt.Sprintf("%s-%s-%s", clusterPrefix, testNamespace, cnPolicyName)
+		It("TC-CN02: VaultRole binds the cluster-identity policy name (token_policies)", func() {
+			expectedRoleName := utils.ExpectedVaultName(clusterPrefix, testNamespace, cnRoleName)
+			expectedPolicyName := utils.ExpectedVaultName(clusterPrefix, testNamespace, cnPolicyName)
+			placeholderRoleName := utils.ExpectedVaultName(naming.Placeholder, testNamespace, cnRoleName)
 
 			By("creating a VaultRole referencing the policy from TC-CN01")
 			Expect(utils.CreateVaultRoleCR(ctx, BuildTestRole(cnRoleName, cnSAName, cnPolicyName))).To(Succeed())
@@ -111,30 +113,36 @@ var _ = Describe("Cluster Name Prefix", Ordered, Label("cluster-name"), func() {
 			By("waiting for the VaultRole to become Active")
 			ExpectRoleActive(ctx, cnRoleName)
 
-			By("verifying status.vaultRoleName carries the cluster prefix")
+			By("verifying status.vaultRoleName carries the cluster identity")
 			r, err := utils.GetVaultRole(ctx, cnRoleName, testNamespace)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(r.Status.VaultRoleName).To(Equal(prefixedRoleName))
+			Expect(r.Status.VaultRoleName).To(Equal(expectedRoleName))
 
-			By("reading the role back from Vault at the prefixed name")
+			By("reading the role back from Vault at the cluster-identity name")
 			vaultClient, err := utils.GetTestVaultClient()
 			Expect(err).NotTo(HaveOccurred())
 			var roleData map[string]interface{}
 			Eventually(func(g Gomega) {
 				var readErr error
-				roleData, readErr = vaultClient.ReadAuthRole(ctx, "kubernetes", prefixedRoleName)
+				roleData, readErr = vaultClient.ReadAuthRole(ctx, "kubernetes", expectedRoleName)
 				g.Expect(readErr).NotTo(HaveOccurred())
 			}, 30*time.Second, 2*time.Second).Should(Succeed())
 
-			By("verifying token_policies references the PREFIXED policy name (linkage survives prefixing)")
+			By("verifying the placeholder-identity role name does NOT exist in Vault")
+			exists, err := vaultClient.RoleExists(ctx, "kubernetes", placeholderRoleName)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(exists).To(BeFalse(),
+				"placeholder-identity role %q must not exist — the cluster name did not take effect", placeholderRoleName)
+
+			By("verifying token_policies references the policy's full cluster-identity name")
 			dataJSON, err := json.Marshal(roleData)
 			Expect(err).NotTo(HaveOccurred())
 			var roleConfig struct {
 				Policies []string `json:"token_policies"`
 			}
 			Expect(json.Unmarshal(dataJSON, &roleConfig)).To(Succeed())
-			Expect(roleConfig.Policies).To(ContainElement(prefixedPolicyName),
-				"role token_policies must reference the cluster-prefixed policy name, not the bare {ns}-{name}")
+			Expect(roleConfig.Policies).To(ContainElement(expectedPolicyName),
+				"role token_policies must reference the cluster-identity policy name, not a placeholder-identity one")
 		})
 	})
 })

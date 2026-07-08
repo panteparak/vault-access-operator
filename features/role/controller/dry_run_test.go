@@ -98,8 +98,9 @@ func TestRoleOps_WriteToVault_SkipsDryRun(t *testing.T) {
 	})
 
 	ops := &RoleOps{
-		adapter:  adapter,
-		authPath: "auth/kubernetes",
+		adapter:   adapter,
+		vaultName: "test-vault-name",
+		authPath:  "auth/kubernetes",
 		roleData: map[string]interface{}{
 			"bound_service_account_names":      []string{"sa-1"},
 			"bound_service_account_namespaces": []string{"ns"},
@@ -121,8 +122,9 @@ func TestRoleOps_DeleteFromVault_SkipsDryRun(t *testing.T) {
 		vaultv1alpha1.AnnotationDryRun: vaultv1alpha1.AnnotationValueTrue,
 	})
 
-	ops := &RoleOps{adapter: adapter, authPath: "auth/kubernetes"}
-	if err := ops.DeleteFromVault(context.Background(), h.vaultClient(t)); err != nil {
+	ops := &RoleOps{adapter: adapter,
+		vaultName: "test-vault-name", authPath: "auth/kubernetes"}
+	if err := ops.DeleteFromVault(context.Background(), h.vaultClient(t), "vao._.default.dry-run-role"); err != nil {
 		t.Fatalf("DeleteFromVault returned error: %v", err)
 	}
 	if got := atomic.LoadInt32(&h.deleteHit); got != 0 {
@@ -137,8 +139,9 @@ func TestRoleOps_WriteToVault_NormalWhenAnnotationAbsent(t *testing.T) {
 	adapter := newDryRunRoleAdapter(nil)
 
 	ops := &RoleOps{
-		adapter:  adapter,
-		authPath: "auth/kubernetes",
+		adapter:   adapter,
+		vaultName: "test-vault-name",
+		authPath:  "auth/kubernetes",
 		roleData: map[string]interface{}{
 			"bound_service_account_names":      []string{"sa-1"},
 			"bound_service_account_namespaces": []string{"ns"},

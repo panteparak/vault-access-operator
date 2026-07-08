@@ -127,14 +127,12 @@ var _ = Describe("VaultRole Tests", Ordered, Label("module"), func() {
 				)
 			}, 2*time.Minute, 5*time.Second).Should(Succeed())
 
-			By("verifying VaultRole has namespaced vaultRoleName")
+			By("verifying VaultRole records the derived vaultRoleName")
 			r, err := utils.GetVaultRole(
 				ctx, roleName, testNamespace,
 			)
 			Expect(err).NotTo(HaveOccurred())
-			expectedRoleName := fmt.Sprintf(
-				"%s-%s", testNamespace, roleName,
-			)
+			expectedRoleName := nsVaultName(roleName)
 			Expect(r.Status.VaultRoleName).To(
 				Equal(expectedRoleName),
 			)
@@ -146,12 +144,8 @@ var _ = Describe("VaultRole Tests", Ordered, Label("module"), func() {
 		})
 
 		It("TC-VR02: Verify role configuration in Vault", func() {
-			expectedRoleName := fmt.Sprintf(
-				"%s-%s", testNamespace, roleName,
-			)
-			expectedPolicyName := fmt.Sprintf(
-				"%s-%s", testNamespace, rolePolicyName,
-			)
+			expectedRoleName := nsVaultName(roleName)
+			expectedPolicyName := nsVaultName(rolePolicyName)
 
 			By("reading role configuration from Vault")
 			vaultClient, err := utils.GetTestVaultClient()
@@ -192,10 +186,10 @@ var _ = Describe("VaultRole Tests", Ordered, Label("module"), func() {
 				"Role should only be bound to its own namespace",
 			)
 
-			By("verifying policies are attached with namespace prefix")
+			By("verifying policies are attached under their derived names")
 			Expect(roleConfig.Policies).To(
 				ContainElement(expectedPolicyName),
-				"Role should have namespaced policy attached",
+				"Role should have the derived policy name attached",
 			)
 
 			By("verifying token TTL configuration")
@@ -208,12 +202,8 @@ var _ = Describe("VaultRole Tests", Ordered, Label("module"), func() {
 			tempRoleName := "tc-vr03-temp"
 			tempPolicyName := "tc-vr03-policy"
 			tempSAName := "tc-vr03-sa"
-			expectedRoleVaultName := fmt.Sprintf(
-				"%s-%s", testNamespace, tempRoleName,
-			)
-			expectedPolicyVaultName := fmt.Sprintf(
-				"%s-%s", testNamespace, tempPolicyName,
-			)
+			expectedRoleVaultName := nsVaultName(tempRoleName)
+			expectedPolicyVaultName := nsVaultName(tempPolicyName)
 
 			By("creating a temporary service account")
 			_ = utils.CreateServiceAccount(

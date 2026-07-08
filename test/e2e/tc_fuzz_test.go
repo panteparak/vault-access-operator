@@ -124,7 +124,7 @@ var _ = Describe("Fuzz Tests", Ordered, Label("fuzz"), func() {
 					p, getErr := utils.GetVaultPolicy(ctx, item.Name, testNamespace)
 					if getErr == nil && p.Status.Phase == vaultv1alpha1.PhaseActive {
 						// If Active, verify namespace was substituted
-						vaultPolicyName := testNamespace + "-" + item.Name
+						vaultPolicyName := nsVaultName(item.Name)
 						content, contentErr := GetVaultPolicyContent(ctx, vaultPolicyName)
 						if contentErr == nil {
 							Expect(content).NotTo(ContainSubstring("{{namespace}}"),

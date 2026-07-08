@@ -59,7 +59,7 @@ var _ = Describe("Edge Case Tests", Ordered, Label("edge"), func() {
 			Expect(p.Status.RulesCount).To(Equal(ruleCount))
 
 			By("verifying policy exists in Vault with all rules")
-			vaultPolicyName := testNamespace + "-" + policyName
+			vaultPolicyName := nsVaultName(policyName)
 			content, err := GetVaultPolicyContent(ctx, vaultPolicyName)
 			Expect(err).NotTo(HaveOccurred())
 			// Check that content contains paths for many rules
@@ -283,7 +283,7 @@ var _ = Describe("Edge Case Tests", Ordered, Label("edge"), func() {
 			for _, rn := range roleNames {
 				r, err := utils.GetVaultRole(ctx, rn, testNamespace)
 				Expect(err).NotTo(HaveOccurred())
-				expectedPolicyVaultName := testNamespace + "-" + policyName
+				expectedPolicyVaultName := nsVaultName(policyName)
 				Expect(r.Status.ResolvedPolicies).To(ContainElement(expectedPolicyVaultName))
 			}
 		})
@@ -367,7 +367,7 @@ var _ = Describe("Edge Case Tests", Ordered, Label("edge"), func() {
 			ExpectPolicyActive(ctx, policyName)
 
 			By("verifying initial capabilities in Vault")
-			vaultPolicyName := testNamespace + "-" + policyName
+			vaultPolicyName := nsVaultName(policyName)
 			content, err := GetVaultPolicyContent(ctx, vaultPolicyName)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(content).To(ContainSubstring("read"))
@@ -421,7 +421,7 @@ var _ = Describe("Edge Case Tests", Ordered, Label("edge"), func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			By("verifying TTL was updated in Vault")
-			vaultRoleName := testNamespace + "-" + roleName
+			vaultRoleName := nsVaultName(roleName)
 			vaultClient, err := utils.GetTestVaultClient()
 			Expect(err).NotTo(HaveOccurred())
 

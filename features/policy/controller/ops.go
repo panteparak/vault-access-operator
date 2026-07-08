@@ -44,6 +44,7 @@ type PolicyOps struct {
 	handler   *Handler
 	namespace string // resolved namespace for HCL generation
 	hcl       string // generated HCL content (set by PrepareContent)
+	vaultName string // Vault-side name bound for this sync (set by BindVaultName)
 }
 
 // NewPolicyOps creates a new PolicyOps for a sync/cleanup operation.
@@ -67,7 +68,26 @@ func (o *PolicyOps) ResourceKind() string {
 }
 
 func (o *PolicyOps) VaultResourceName() string {
-	return o.adapter.GetVaultPolicyName()
+	if o.vaultName != "" {
+		return o.vaultName
+	}
+	return o.adapter.GetVaultName()
+}
+
+// RecordedVaultName returns the name recorded in status by the last sync.
+func (o *PolicyOps) RecordedVaultName() string { return o.adapter.GetVaultName() }
+
+// BindVaultName derives and caches this sync's Vault-side name (ADR 0010).
+// Under dry-run with a recorded name, the recorded name is bound instead —
+// a dry-run must never initiate a rename.
+func (o *PolicyOps) BindVaultName(vaultClient workflow.VaultOpsClient) string {
+	if dryrun.IsActive(o.adapter) && o.adapter.GetVaultName() != "" {
+		o.vaultName = o.adapter.GetVaultName()
+		return o.vaultName
+	}
+	identity := naming.Identity(naming.Cluster(), vaultClient.AuthMount())
+	o.vaultName = domain.DeriveVaultName(o.adapter, identity)
+	return o.vaultName
 }
 
 // AuthPath returns the empty string — policies don't live under a Vault auth
@@ -84,7 +104,7 @@ func (o *PolicyOps) Validate() error {
 
 // CheckConflict checks for conflicts with existing Vault policies.
 func (o *PolicyOps) CheckConflict(ctx context.Context, vaultClient workflow.VaultOpsClient) error {
-	return o.handler.checkConflict(ctx, vaultClient, o.adapter, o.adapter.GetVaultPolicyName())
+	return o.handler.checkConflict(ctx, vaultClient, o.adapter, o.vaultName)
 }
 
 // PrepareContent generates the policy document — the in-band ownership
@@ -122,10 +142,10 @@ func (o *PolicyOps) ownership(vaultClient workflow.VaultOpsClient) vault.Ownersh
 // verbosity. Previously logged at V(1) which is suppressed by default.
 func (o *PolicyOps) DetectDrift(ctx context.Context, vaultClient workflow.VaultOpsClient) (bool, string) {
 	log := logr.FromContextOrDiscard(ctx)
-	currentHCL, err := vaultClient.ReadPolicy(ctx, o.adapter.GetVaultPolicyName())
+	currentHCL, err := vaultClient.ReadPolicy(ctx, o.vaultName)
 	if err != nil {
 		log.Info("skipping drift detection — Vault read failed",
-			"policy", o.adapter.GetVaultPolicyName(),
+			"policy", o.vaultName,
 			"error", err.Error(),
 			"hint", "drift state preserved from last successful read; will retry on next reconcile",
 		)
@@ -150,17 +170,17 @@ func (o *PolicyOps) WriteToVault(ctx context.Context, vaultClient workflow.Vault
 	log := logr.FromContextOrDiscard(ctx)
 	if o.adapter.GetAnnotations()[vaultv1alpha1.AnnotationDiscoveryPending] == vaultv1alpha1.AnnotationValueTrue {
 		log.Info("skipping write for discovery-pending policy",
-			"policy", o.adapter.GetVaultPolicyName())
+			"policy", o.vaultName)
 		return nil
 	}
 	if dryrun.IsActive(o.adapter) {
 		log.Info("skipping WritePolicy due to dry-run annotation",
-			"policy", o.adapter.GetVaultPolicyName(),
+			"policy", o.vaultName,
 			"hclBytes", len(o.hcl),
 		)
 		return nil
 	}
-	return vaultClient.WritePolicy(ctx, o.adapter.GetVaultPolicyName(), o.hcl)
+	return vaultClient.WritePolicy(ctx, o.vaultName, o.hcl)
 }
 
 // ReadbackVerify reads back the policy from Vault and verifies content matches.
@@ -171,10 +191,10 @@ func (o *PolicyOps) ReadbackVerify(ctx context.Context, vaultClient workflow.Vau
 	log := logr.FromContextOrDiscard(ctx)
 	if o.adapter.GetAnnotations()[vaultv1alpha1.AnnotationDiscoveryPending] == vaultv1alpha1.AnnotationValueTrue {
 		log.V(1).Info("skipping readback for discovery-pending policy",
-			"policy", o.adapter.GetVaultPolicyName())
+			"policy", o.vaultName)
 		return nil
 	}
-	readbackHCL, readErr := vaultClient.ReadPolicy(ctx, o.adapter.GetVaultPolicyName())
+	readbackHCL, readErr := vaultClient.ReadPolicy(ctx, o.vaultName)
 	if readErr != nil {
 		log.V(1).Info("post-write readback failed (non-fatal)", "error", readErr)
 		return nil
@@ -196,9 +216,8 @@ func (o *PolicyOps) ReadbackVerify(ctx context.Context, vaultClient workflow.Vau
 // as instructed by DeletionPolicy. Read failures fall through to the delete —
 // its own error handling enqueues a retry, whereas skipping here would remove
 // the finalizer and leak the policy silently.
-func (o *PolicyOps) DeleteFromVault(ctx context.Context, vaultClient workflow.VaultOpsClient) error {
+func (o *PolicyOps) DeleteFromVault(ctx context.Context, vaultClient workflow.VaultOpsClient, name string) error {
 	log := logr.FromContextOrDiscard(ctx)
-	name := o.adapter.GetVaultPolicyName()
 	if dryrun.IsActive(o.adapter) {
 		log.Info("skipping DeletePolicy due to dry-run annotation", "policy", name)
 		return nil
@@ -219,13 +238,13 @@ func (o *PolicyOps) DeleteFromVault(ctx context.Context, vaultClient workflow.Va
 
 // ApplyActiveStatus sets policy-specific status fields.
 func (o *PolicyOps) ApplyActiveStatus(_ string, _ *metav1.Time) {
-	o.adapter.SetVaultName(o.adapter.GetVaultPolicyName())
+	o.adapter.SetVaultName(o.vaultName)
 	o.adapter.SetRulesCount(len(o.adapter.GetRules()))
 }
 
 // ApplyBindings sets the policy binding after sync.
 func (o *PolicyOps) ApplyBindings() {
-	policyBinding := binding.NewPolicyBinding(o.adapter.GetVaultPolicyName())
+	policyBinding := binding.NewPolicyBinding(o.vaultName)
 	o.adapter.SetBinding(policyBinding)
 }
 
@@ -237,7 +256,7 @@ func (o *PolicyOps) PublishSyncEvent(ctx context.Context, bus *events.EventBus) 
 		ClusterScoped:  !o.adapter.IsNamespaced(),
 		ConnectionName: o.adapter.GetConnectionRef(),
 	}
-	bus.PublishAsync(ctx, events.NewPolicyCreated(o.adapter.GetVaultPolicyName(), resource))
+	bus.PublishAsync(ctx, events.NewPolicyCreated(o.vaultName, resource))
 }
 
 // PublishDeleteEvent publishes a PolicyDeleted event.
@@ -248,5 +267,5 @@ func (o *PolicyOps) PublishDeleteEvent(ctx context.Context, bus *events.EventBus
 		ClusterScoped:  !o.adapter.IsNamespaced(),
 		ConnectionName: o.adapter.GetConnectionRef(),
 	}
-	bus.PublishAsync(ctx, events.NewPolicyDeleted(o.adapter.GetVaultPolicyName(), resource))
+	bus.PublishAsync(ctx, events.NewPolicyDeleted(o.VaultResourceName(), resource))
 }

@@ -107,8 +107,7 @@ For every entry in `spec.rules[]` ([validatePolicyRule](../../internal/webhook/v
 
 | Check | When | Source |
 |-------|------|--------|
-| Namespace-variant naming collision | `VaultPolicy` "ns/name" would map to Vault name "ns-name"; reject if a `VaultClusterPolicy` with that exact name already exists | [checkPolicyNameCollision](../../internal/webhook/vaultpolicy_webhook.go:348) |
-| Cluster-variant naming collision | `VaultClusterPolicy` "name" could collide with any `VaultPolicy` whose "{namespace}-{name}" equals "name" | [checkClusterPolicyNameCollision](../../internal/webhook/vaultpolicy_webhook.go:374) |
+| ~~Naming collisions~~ | **Removed (ADR 0010)**: the fixed 4-segment name shape `vao.{identity}.{namespace}.{name}` is injective — no two distinct CRs can derive the same Vault name, so the pre-0010 dash-join collision checks are gone | — |
 | `connectionRef` change (update only) | Allowed only if old+new connections both resolve AND have identical `spec.address` | [checkConnectionRefSameAddress](../../internal/webhook/vaultpolicy_webhook.go:319) |
 
 The `connectionRef` mutability rule is subtler than outright immutability: users migrating between two `VaultConnection` CRDs that target the **same** Vault server (e.g., rotating auth methods) are allowed, but moving a policy to a *different* Vault instance would silently orphan the original write and is rejected.
@@ -169,8 +168,7 @@ Policy's same-address relaxation does **not** apply to roles — `connectionRef`
 
 | Check | Direction | Source |
 |-------|-----------|--------|
-| `VaultRole` name collides with any `VaultClusterRole` | "ns-name" vs "name" | [checkRoleNameCollision](../../internal/webhook/vaultrole_webhook.go:443) |
-| `VaultClusterRole` name collides with any `VaultRole` | "name" vs every "ns-name" | [checkClusterRoleNameCollision](../../internal/webhook/vaultrole_webhook.go:469) |
+| ~~Role naming collisions~~ | **Removed (ADR 0010)**: injective name shape — see the policy webhook note | — |
 
 ## TLS & Cert Rotation
 
@@ -200,7 +198,6 @@ Policy's same-address relaxation does **not** apply to roles — `connectionRef`
 
 | Operation | File | When |
 |-----------|------|------|
-| Read `VaultPolicy`/`VaultClusterPolicy` | K8s cache | `checkPolicyNameCollision` / `checkClusterPolicyNameCollision` |
 | Read `VaultConnection` | K8s cache | `checkConnectionRefSameAddress` |
 | Read `VaultPolicy`/`VaultClusterPolicy` | K8s cache | `checkPolicyDependencies` on roles |
 | Read TLS cert/key | filesystem | `certwatcher` (every 10s) |
@@ -213,9 +210,7 @@ All reads go through the controller-runtime client cache, so they're fast and do
 |-------|--------|------------|
 | Path with invalid char | `validatePolicyRule` | `kubectl apply` immediate rejection |
 | Multi-SA JWT without override | `validateJWTSpec` | same |
-| Naming collision | `checkPolicyNameCollision` / role analog | same |
 | Connection address mismatch on update | `checkConnectionRefSameAddress` | same |
-| K8s API list failure during collision check | `checkClusterPolicyNameCollision` | *fail closed* — webhook rejects with "failed to list VaultPolicies" |
 | Webhook server down | — | `failurePolicy=fail` → API server rejects create/update |
 | Cert expired without rotation | file not updated | TLS handshake fails; API server retries per admission review, then rejects |
 

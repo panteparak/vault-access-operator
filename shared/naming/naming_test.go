@@ -16,35 +16,143 @@ limitations under the License.
 
 package naming
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
-func TestPrefixed(t *testing.T) {
-	cases := []struct {
-		name          string
-		cluster, base string
-		want          string
+func TestIdentity(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		clusterName string
+		authMount   string
+		want        string
 	}{
-		{"empty cluster is a no-op", "", "default-admin", "default-admin"},
-		{"namespaced name gets prefixed", "east", "default-admin", "east-default-admin"},
-		{"cluster-scoped name gets prefixed", "east", "admin", "east-admin"},
+		{name: "flag wins over mount", clusterName: "pe", authMount: "ep-digital-pe", want: "pe"},
+		{name: "mount fallback when flag empty", clusterName: "", authMount: "ep-digital-pe", want: "ep-digital-pe"},
+		{name: "both empty yields placeholder", clusterName: "", authMount: "", want: Placeholder},
+		{name: "nested mount slashes sanitized", clusterName: "", authMount: "teams/pe", want: "teams-pe"},
+		{name: "dotted mount sanitized", clusterName: "", authMount: "a.b", want: "a-b"},
+		{name: "bare underscore mount cannot impersonate placeholder", clusterName: "", authMount: "_", want: "-"},
+		{name: "kubernetes default mount", clusterName: "", authMount: "kubernetes", want: "kubernetes"},
 	}
-	for _, c := range cases {
-		if got := Prefixed(c.cluster, c.base); got != c.want {
-			t.Errorf("%s: Prefixed(%q, %q) = %q, want %q", c.name, c.cluster, c.base, got, c.want)
-		}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := Identity(tt.clusterName, tt.authMount); got != tt.want {
+				t.Errorf("Identity(%q, %q) = %q, want %q", tt.clusterName, tt.authMount, got, tt.want)
+			}
+		})
 	}
 }
 
-func TestVaultUsesConfiguredCluster(t *testing.T) {
-	t.Cleanup(func() { SetCluster("") })
-
-	SetCluster("")
-	if got := Vault("ns-name"); got != "ns-name" {
-		t.Errorf("Vault with empty cluster = %q, want %q", got, "ns-name")
+func TestVaultName(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		identity  string
+		namespace string
+		crName    string
+		want      string
+	}{
+		{
+			name: "namespaced with cluster identity", identity: "pe",
+			namespace: "default", crName: "app-secrets", want: "vao.pe.default.app-secrets",
+		},
+		{
+			name: "cluster-scoped with cluster identity", identity: "pe",
+			namespace: "", crName: "admin", want: "vao.pe._.admin",
+		},
+		{
+			name: "namespaced without identity", identity: Placeholder,
+			namespace: "default", crName: "app-secrets", want: "vao._.default.app-secrets",
+		},
+		{
+			name: "cluster-scoped without identity", identity: Placeholder,
+			namespace: "", crName: "admin", want: "vao._._.admin",
+		},
+		{
+			name: "dotted CR name stays last segment", identity: "pe",
+			namespace: "default", crName: "my.dotted.name", want: "vao.pe.default.my.dotted.name",
+		},
+		{
+			name: "mount-derived identity", identity: "ep-digital-pe",
+			namespace: "vault-access-operator", crName: "app-role",
+			want: "vao.ep-digital-pe.vault-access-operator.app-role",
+		},
 	}
-
-	SetCluster("west")
-	if got := Vault("ns-name"); got != "west-ns-name" {
-		t.Errorf("Vault with cluster=west = %q, want %q", got, "west-ns-name")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := VaultName(tt.identity, tt.namespace, tt.crName); got != tt.want {
+				t.Errorf("VaultName(%q, %q, %q) = %q, want %q", tt.identity, tt.namespace, tt.crName, got, tt.want)
+			}
+		})
 	}
+}
+
+// TestVaultName_ClusterScopedNeverCollidesWithNamespaced pins the injectivity
+// hole that killed the variable-arity design: a cluster-scoped CR with a
+// dotted name must not impersonate a namespaced (ns, name) pair.
+func TestVaultName_ClusterScopedNeverCollidesWithNamespaced(t *testing.T) {
+	t.Parallel()
+	clusterScoped := VaultName("pe", "", "default.admin")
+	namespaced := VaultName("pe", "default", "admin")
+	if clusterScoped == namespaced {
+		t.Errorf("cluster-scoped %q collides with namespaced %q", clusterScoped, namespaced)
+	}
+}
+
+func TestSetClusterAndCluster(t *testing.T) {
+	// Mutates package state — not parallel.
+	SetCluster("pe")
+	defer SetCluster("")
+	if got := Cluster(); got != "pe" {
+		t.Errorf("Cluster() = %q, want %q", got, "pe")
+	}
+}
+
+// FuzzVaultName asserts the injectivity contract (F12): the fixed 4-segment
+// shape must be losslessly parseable — splitting on the first 3 dots recovers
+// exactly (identity, namespace, name) — for every input the operator can
+// produce. identity/namespace are constrained to their real charsets by
+// mapping arbitrary fuzz input through the same rules production uses.
+func FuzzVaultName(f *testing.F) {
+	f.Add("pe", "default", "app-secrets")
+	f.Add("", "", "admin")
+	f.Add("_", "default", "my.dotted.name")
+	f.Add("ep-digital/pe", "kube-system", "a")
+	f.Add("a.b", "ns", "x_y")
+	f.Fuzz(func(t *testing.T, mount, namespace, name string) {
+		if name == "" {
+			t.Skip("CR names are never empty")
+		}
+		// Namespaces are RFC 1123 labels (no dots); emulate by running the
+		// fuzz input through the same charset mapping the mount sanitizer
+		// uses, discarding reserved results.
+		namespace = sanitizeMount(namespace)
+		if namespace == "-" || namespace == Placeholder {
+			namespace = ""
+		}
+		identity := Identity("", mount)
+
+		got := VaultName(identity, namespace, name)
+
+		parts := strings.SplitN(got, ".", 4)
+		if len(parts) != 4 {
+			t.Fatalf("VaultName(%q, %q, %q) = %q: want 4 dot segments", identity, namespace, name, got)
+		}
+		wantNS := namespace
+		if wantNS == "" {
+			wantNS = Placeholder
+		}
+		if parts[0] != Marker || parts[1] != identity || parts[2] != wantNS || parts[3] != name {
+			t.Fatalf("round-trip mismatch: %q parsed to %v, want [%s %s %s %s]",
+				got, parts, Marker, identity, wantNS, name)
+		}
+		if strings.Contains(identity, ".") {
+			t.Fatalf("identity %q contains a dot — segment charset violated", identity)
+		}
+	})
 }

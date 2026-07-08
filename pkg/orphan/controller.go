@@ -259,6 +259,12 @@ func (c *Controller) DetectOrphanedRoles(
 
 	var orphans []OrphanInfo
 	for _, vaultName := range roles {
+		// Only operator-shaped names are orphan candidates (ADR 0010):
+		// hand-created roles on the mount never carried the vao. marker,
+		// so flagging them would be a false positive.
+		if !strings.HasPrefix(vaultName, naming.Marker+".") {
+			continue
+		}
 		if _, ok := expected[vaultName]; ok {
 			continue
 		}
@@ -271,12 +277,15 @@ func (c *Controller) DetectOrphanedRoles(
 	return orphans
 }
 
-// expectedRoleNames derives the Vault role names this cluster's role CRs map
-// to on the given mount. Roles carry no mount of their own — a role CR maps
-// to the mount its referenced connection resolves to (VaultConnection.
-// RoleMount), so two connections sharing one mount both contribute. Returns
-// nil (distinct from empty) when a CR list fails, so the caller can skip
-// the pass instead of flagging everything.
+// expectedRoleNames collects the RECORDED Vault role names (status,
+// ADR 0010) this cluster's role CRs wrote on the given mount. The recorded
+// name is what the sync actually wrote — deriving here would go stale when
+// the naming config changes and mis-flag every managed role as an orphan.
+// Roles carry no mount of their own — a role CR maps to the mount its
+// referenced connection resolves to (VaultConnection.RoleMount), so two
+// connections sharing one mount both contribute. Returns nil (distinct from
+// empty) when a CR list fails, so the caller can skip the pass instead of
+// flagging everything.
 func (c *Controller) expectedRoleNames(ctx context.Context, mount string) map[string]struct{} {
 	bareMount := vault.AuthMountName(mount)
 	expected := map[string]struct{}{}
@@ -303,7 +312,10 @@ func (c *Controller) expectedRoleNames(ctx context.Context, mount string) map[st
 		if _, ok := connsOnMount[r.Spec.ConnectionRef]; !ok {
 			continue
 		}
-		expected[naming.Vault(r.Namespace+"-"+r.Name)] = struct{}{}
+		if r.Status.VaultRoleName == "" {
+			continue // never synced — nothing written to Vault yet
+		}
+		expected[r.Status.VaultRoleName] = struct{}{}
 	}
 
 	var clusterRoles vaultv1alpha1.VaultClusterRoleList
@@ -316,7 +328,10 @@ func (c *Controller) expectedRoleNames(ctx context.Context, mount string) map[st
 		if _, ok := connsOnMount[r.Spec.ConnectionRef]; !ok {
 			continue
 		}
-		expected[naming.Vault(r.Name)] = struct{}{}
+		if r.Status.VaultRoleName == "" {
+			continue // never synced — nothing written to Vault yet
+		}
+		expected[r.Status.VaultRoleName] = struct{}{}
 	}
 	return expected
 }

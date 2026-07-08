@@ -18,7 +18,6 @@ package e2e
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -39,7 +38,7 @@ var _ = Describe("Drift Detection Tests", Ordered, Label("drift"), func() {
 	Context("TC-DRIFT: Policy Drift Detection", func() {
 		It("TC-DRIFT01-IGNORE: DriftMode=ignore skips detection", func() {
 			policyName := "tc-drift01-ignore"
-			expectedVaultName := fmt.Sprintf("%s-%s", testNamespace, policyName)
+			expectedVaultName := nsVaultName(policyName)
 
 			By("creating VaultPolicy with driftMode=ignore")
 			policy := &vaultv1alpha1.VaultPolicy{
@@ -90,7 +89,7 @@ var _ = Describe("Drift Detection Tests", Ordered, Label("drift"), func() {
 
 		It("TC-DRIFT02-DETECT: DriftMode=detect reports but doesn't correct", func() {
 			policyName := "tc-drift02-detect"
-			expectedVaultName := fmt.Sprintf("%s-%s", testNamespace, policyName)
+			expectedVaultName := nsVaultName(policyName)
 
 			By("creating VaultPolicy with driftMode=detect")
 			policy := &vaultv1alpha1.VaultPolicy{
@@ -157,7 +156,7 @@ var _ = Describe("Drift Detection Tests", Ordered, Label("drift"), func() {
 
 		It("TC-DRIFT03-CORRECT: DriftMode=correct auto-corrects with annotation", func() {
 			policyName := "tc-drift03-correct"
-			expectedVaultName := fmt.Sprintf("%s-%s", testNamespace, policyName)
+			expectedVaultName := nsVaultName(policyName)
 
 			By("creating VaultPolicy with driftMode=correct and allow-destructive annotation")
 			policy := &vaultv1alpha1.VaultPolicy{
@@ -227,7 +226,7 @@ var _ = Describe("Drift Detection Tests", Ordered, Label("drift"), func() {
 
 		It("TC-DRIFT04-SAFETY: DriftMode=correct blocked without allow-destructive", func() {
 			policyName := "tc-drift04-safety"
-			expectedVaultName := fmt.Sprintf("%s-%s", testNamespace, policyName)
+			expectedVaultName := nsVaultName(policyName)
 
 			By("creating VaultPolicy with driftMode=correct but WITHOUT allow-destructive annotation")
 			policy := &vaultv1alpha1.VaultPolicy{

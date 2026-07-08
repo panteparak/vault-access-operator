@@ -1,6 +1,6 @@
 # ADR 0006: Per-cluster name prefix for Vault resources (CE multi-tenancy)
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR 0010](0010-structured-vault-names-and-recorded-name-authority.md)
 - **Date:** 2026-06-29
 - **Related:** [`docs/configuration.md`](../configuration.md#sharing-one-vault-across-clusters), [`CONTEXT.md`](../internal/CONTEXT.md#managed-marker), [`IMPROVEMENTS.md §D`](../internal/IMPROVEMENTS.md), [ADR 0003](0003-two-level-drift-and-conflict-config.md)
 

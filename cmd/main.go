@@ -68,9 +68,11 @@ var (
 	setupLog = ctrl.Log.WithName("setup")
 )
 
-// clusterNamePattern restricts --cluster-name to characters safe in a Vault
-// policy name and KV path segment (it becomes a prefix on both).
-const clusterNamePattern = `^[a-zA-Z0-9._-]+$`
+// clusterNamePattern restricts --cluster-name to a dot-free charset: it
+// becomes the identity segment of the dot-separated Vault name shape
+// vao.{identity}.{namespace}.{name} (ADR 0010), so dots would break segment
+// parsing and "_" is the reserved absent-segment placeholder.
+const clusterNamePattern = `^[a-zA-Z0-9-]+$`
 
 var clusterNameRE = regexp.MustCompile(clusterNamePattern)
 
@@ -119,9 +121,10 @@ func main() {
 			"IMPROVEMENTS Missing Features §A.")
 	var clusterName string
 	flag.StringVar(&clusterName, "cluster-name", os.Getenv("CLUSTER_NAME"),
-		"Per-cluster prefix applied to every Vault resource name (policies, roles), so multiple "+
-			"operators sharing one Vault CE server derive non-colliding names. "+
-			"Empty (default) disables prefixing. Must match "+clusterNamePattern+".")
+		"Per-cluster identity segment in every derived Vault resource name "+
+			"(vao.{identity}.{namespace}.{name}), so multiple operators sharing one Vault CE "+
+			"server derive non-colliding names. Empty (default) falls back to the connection's "+
+			"auth mount. Must match "+clusterNamePattern+".")
 	var managedMarkers bool
 	flag.BoolVar(&managedMarkers, "managed-markers", os.Getenv("MANAGED_MARKERS") == "true",
 		"Enable in-band ownership tracking (ADR 0008): conflict/adoption detection, discovery, and "+
@@ -135,7 +138,15 @@ func main() {
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
 
-	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+	logger := zap.New(zap.UseFlagOptions(&opts))
+	if clusterName != "" {
+		// Multiple operators (one per cluster) share a Vault server and often
+		// a log aggregator; CR names like "vault-aws" repeat across clusters.
+		// Tag every log line with the cluster so aggregated logs stay
+		// attributable.
+		logger = logger.WithValues("cluster", clusterName)
+	}
+	ctrl.SetLogger(logger)
 
 	if clusterName != "" && !clusterNameRE.MatchString(clusterName) {
 		setupLog.Error(nil, "invalid --cluster-name; must match "+clusterNamePattern,

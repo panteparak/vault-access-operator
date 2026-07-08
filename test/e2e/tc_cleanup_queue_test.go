@@ -175,7 +175,7 @@ var _ = Describe("Cleanup Queue Tests", Ordered, Label("cleanup"), func() {
 			By("verifying the Vault policy is actually deleted from Vault")
 			vaultClient, err := utils.GetTestVaultClient()
 			Expect(err).NotTo(HaveOccurred())
-			exists, err := vaultClient.PolicyExists(ctx, testNamespace+"-"+policyName)
+			exists, err := vaultClient.PolicyExists(ctx, nsVaultName(policyName))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(exists).To(BeFalse(),
 				"Vault policy must be removed by the cleanup controller after retry")

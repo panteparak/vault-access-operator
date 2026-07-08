@@ -242,6 +242,12 @@ func (h *Handler) Sync(ctx context.Context, conn *vaultv1alpha1.VaultConnection)
 		h.registerTokenReviewer(ctx, conn, vaultClient)
 	}
 
+	// Steady-state heartbeat (already Active, same Vault version) logs at
+	// V(1); only transitions log at Info so the default log level shows
+	// state changes, not a line per healthCheckInterval tick.
+	unchanged := conn.Status.Phase == vaultv1alpha1.PhaseActive &&
+		conn.Status.VaultVersion == version
+
 	// Update status to Active
 	conn.Status.Phase = vaultv1alpha1.PhaseActive
 	conn.Status.VaultVersion = version
@@ -273,7 +279,12 @@ func (h *Handler) Sync(ctx context.Context, conn *vaultv1alpha1.VaultConnection)
 		}
 	}
 
-	log.Info("VaultConnection synced successfully", "version", version)
+	syncLog := log
+	if unchanged {
+		syncLog = log.V(1)
+	}
+	syncLog.Info("VaultConnection synced successfully", "version", version,
+		"authMount", vaultClient.AuthMount(), "address", conn.Spec.Address)
 	return nil
 }
 

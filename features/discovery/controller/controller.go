@@ -42,7 +42,6 @@ import (
 	"github.com/panteparak/vault-access-operator/pkg/vault"
 	"github.com/panteparak/vault-access-operator/shared/controller/base"
 	"github.com/panteparak/vault-access-operator/shared/controller/conditions"
-	"github.com/panteparak/vault-access-operator/shared/naming"
 )
 
 const (
@@ -213,15 +212,17 @@ func (r *Reconciler) runScan(
 	return result
 }
 
-// managedRoleNames derives the set of Vault role names owned by this
-// cluster's role CRs on the scanned auth mount. Roles carry no in-band
-// ownership record (ADR 0008), so the CR set is the ownership source for
-// discovery. Roles carry no mount either — the connection is the sole
-// source — so a role CR counts when its referenced connection resolves to
-// the scanned mount (two connections sharing one mount both count; a naive
-// connectionRef match would mis-flag the second connection's roles as
-// unmanaged). A list failure yields an empty set — every role then surfaces
-// as unmanaged, which is safe (discovery never mutates Vault).
+// managedRoleNames collects the RECORDED Vault role names (status, ADR 0010)
+// owned by this cluster's role CRs on the scanned auth mount. The recorded
+// name is what the sync actually wrote — re-deriving here would go stale the
+// moment the naming config changes. A never-synced CR (empty record) has
+// written nothing, so it contributes nothing. Roles carry no mount — the
+// connection is the sole source — so a role CR counts when its referenced
+// connection resolves to the scanned mount (two connections sharing one
+// mount both count; a naive connectionRef match would mis-flag the second
+// connection's roles as unmanaged). A list failure yields an empty set —
+// every role then surfaces as unmanaged, which is safe (discovery never
+// mutates Vault).
 func (r *Reconciler) managedRoleNames(
 	ctx context.Context, authPath string, log logr.Logger,
 ) map[string]struct{} {
@@ -237,7 +238,10 @@ func (r *Reconciler) managedRoleNames(
 			if _, ok := connsOnMount[role.Spec.ConnectionRef]; !ok {
 				continue
 			}
-			managed[naming.Vault(role.Namespace+"-"+role.Name)] = struct{}{}
+			if role.Status.VaultRoleName == "" {
+				continue // never synced — nothing written to Vault yet
+			}
+			managed[role.Status.VaultRoleName] = struct{}{}
 		}
 	}
 
@@ -250,7 +254,10 @@ func (r *Reconciler) managedRoleNames(
 			if _, ok := connsOnMount[role.Spec.ConnectionRef]; !ok {
 				continue
 			}
-			managed[naming.Vault(role.Name)] = struct{}{}
+			if role.Status.VaultRoleName == "" {
+				continue // never synced — nothing written to Vault yet
+			}
+			managed[role.Status.VaultRoleName] = struct{}{}
 		}
 	}
 	return managed

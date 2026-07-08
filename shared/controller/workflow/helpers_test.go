@@ -80,11 +80,34 @@ type mockOps struct {
 	driftDetected bool
 	driftSummary  string
 	authPath      string
+	recordedName  string // status-recorded name; "" = never synced (ADR 0010)
+	boundName     string // name BindVaultName binds; "" defaults to default-test-policy
+
+	// deletedNames records every name passed to DeleteFromVault, in order.
+	deletedNames []string
 }
 
-func (m *mockOps) ResourceKind() string      { return "VaultPolicy" }
-func (m *mockOps) VaultResourceName() string { return "default-test-policy" }
-func (m *mockOps) AuthPath() string          { return m.authPath }
+func (m *mockOps) ResourceKind() string { return "VaultPolicy" }
+
+func (m *mockOps) VaultResourceName() string {
+	if m.boundName != "" {
+		return m.boundName
+	}
+	return "default-test-policy"
+}
+
+func (m *mockOps) RecordedVaultName() string { return m.recordedName }
+
+// BindVaultName is intentionally NOT recorded in calls — it runs during
+// initializeSync, before the 9-step sequence the ordering assertions pin.
+func (m *mockOps) BindVaultName(_ VaultOpsClient) string {
+	if m.boundName == "" {
+		m.boundName = "default-test-policy"
+	}
+	return m.boundName
+}
+
+func (m *mockOps) AuthPath() string { return m.authPath }
 
 func (m *mockOps) Validate() error {
 	m.calls = append(m.calls, "Validate")
@@ -116,8 +139,9 @@ func (m *mockOps) ReadbackVerify(_ context.Context, _ VaultOpsClient) error {
 	return m.readbackErr
 }
 
-func (m *mockOps) DeleteFromVault(_ context.Context, _ VaultOpsClient) error {
+func (m *mockOps) DeleteFromVault(_ context.Context, _ VaultOpsClient, name string) error {
 	m.calls = append(m.calls, "DeleteFromVault")
+	m.deletedNames = append(m.deletedNames, name)
 	return m.deleteErr
 }
 
