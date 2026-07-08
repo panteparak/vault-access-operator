@@ -433,6 +433,13 @@ const (
 	// the rarer case where Vault is reachable but `vault operator init`
 	// hasn't run yet. Same dashboard treatment, different remediation.
 	ReasonVaultNotInitialized = "VaultNotInitialized"
+
+	// ReasonPermissionDenied is set when Vault answers 403: the operator's
+	// own token lacks a policy grant on the target path. Permanent until a
+	// human extends the operator's Vault policy — distinct from
+	// ReasonFailed so dashboards and `kubectl get` surface the actual
+	// remediation instead of a generic retry loop.
+	ReasonPermissionDenied = "VaultPermissionDenied"
 )
 
 // ToSecretReference converts LocalSecretKeySelector to a corev1.SecretKeySelector

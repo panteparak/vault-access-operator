@@ -18,6 +18,15 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ### Fixed
 
+- **Vault 403s now surface as `VaultPermissionDenied` instead of a generic
+  transient failure.** When the operator's own Vault token lacks a policy
+  grant on the target path (e.g. `auth/<mount>/role/*`), the CR's Ready
+  condition now carries reason `VaultPermissionDenied` and the phase message
+  names the denied path, instead of the misleading
+  `transient error during write …` + `Failed` that retried every 30s with no
+  hint that a human must extend the operator's Vault policy. Retry cadence is
+  unchanged — fixing the Vault policy still self-heals without re-triggering.
+
 - **Production logs are JSON as documented.** `cmd/main.go` hardcoded zap
   `Development: true` and the Helm chart never rendered its documented
   `logging.*` values into flags. The binary now defaults to controller-runtime's
