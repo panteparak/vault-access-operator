@@ -38,6 +38,7 @@ import (
 	"github.com/panteparak/vault-access-operator/pkg/vault"
 	"github.com/panteparak/vault-access-operator/shared/events"
 	"github.com/panteparak/vault-access-operator/shared/markers"
+	"github.com/panteparak/vault-access-operator/shared/naming"
 )
 
 // enableMarkersForTest turns managed-marker tracking on for the duration of a
@@ -309,7 +310,7 @@ func TestSyncPolicy_Success_NewPolicy(t *testing.T) {
 	}
 
 	// Verify policy was written to Vault
-	expectedName := policyTestNamespace + "-" + policyTestName
+	expectedName := naming.VaultName(naming.Placeholder, policyTestNamespace, policyTestName)
 	state.mu.Lock()
 	hcl, exists := state.policies[expectedName]
 	state.mu.Unlock()
@@ -384,7 +385,7 @@ func TestSyncPolicy_Success_ClusterPolicy(t *testing.T) {
 
 	// Cluster policies use just the name
 	state.mu.Lock()
-	hcl, exists := state.policies["admin-base"]
+	hcl, exists := state.policies[naming.VaultName(naming.Placeholder, "", "admin-base")]
 	state.mu.Unlock()
 
 	if !exists {
@@ -421,7 +422,7 @@ func TestSyncPolicy_Success_WithNamespaceSubstitution(t *testing.T) {
 	}
 
 	// Verify {{namespace}} was substituted
-	expectedName := policyTestNamespace + "-" + policyTestName
+	expectedName := naming.VaultName(naming.Placeholder, policyTestNamespace, policyTestName)
 	state.mu.Lock()
 	hcl := state.policies[expectedName]
 	state.mu.Unlock()
@@ -476,7 +477,7 @@ func TestSyncPolicy_NamespaceBoundaryViolation(t *testing.T) {
 func TestSyncPolicy_ConflictError_Adopt(t *testing.T) {
 	enableMarkersForTest(t)
 	state := newPolicyMockState()
-	vaultPolicyName := policyTestNamespace + "-" + policyTestName
+	vaultPolicyName := naming.VaultName(naming.Placeholder, policyTestNamespace, policyTestName)
 	// Pre-populate an existing policy (unmanaged)
 	state.policies[vaultPolicyName] = existingPolicyHCL
 
@@ -501,7 +502,7 @@ func TestSyncPolicy_ConflictError_Adopt(t *testing.T) {
 func TestSyncPolicy_ConflictError_Fail(t *testing.T) {
 	enableMarkersForTest(t)
 	state := newPolicyMockState()
-	vaultPolicyName := policyTestNamespace + "-" + policyTestName
+	vaultPolicyName := naming.VaultName(naming.Placeholder, policyTestNamespace, policyTestName)
 	// Pre-populate an existing policy managed by someone else: its in-band
 	// header (ADR 0008) carries the operator sentinel but names a different
 	// owning CR → conflict under the default Fail policy.
@@ -609,7 +610,7 @@ func TestSyncPolicy_DriftDetect_ContentDiffers(t *testing.T) {
 	}
 
 	// Simulate drift by changing the HCL in Vault
-	vaultPolicyName := policyTestNamespace + "-" + policyTestName
+	vaultPolicyName := naming.VaultName(naming.Placeholder, policyTestNamespace, policyTestName)
 	state.mu.Lock()
 	state.policies[vaultPolicyName] = driftedPolicyHCL
 	state.mu.Unlock()
@@ -660,7 +661,7 @@ func TestSyncPolicy_DriftCorrect_WithAnnotation(t *testing.T) {
 	}
 
 	// Simulate drift
-	vaultPolicyName := policyTestNamespace + "-" + policyTestName
+	vaultPolicyName := naming.VaultName(naming.Placeholder, policyTestNamespace, policyTestName)
 	state.mu.Lock()
 	state.policies[vaultPolicyName] = driftedPolicyHCL
 	state.mu.Unlock()
@@ -709,7 +710,7 @@ func TestSyncPolicy_DriftCorrect_Blocked(t *testing.T) {
 	}
 
 	// Simulate drift
-	vaultPolicyName := policyTestNamespace + "-" + policyTestName
+	vaultPolicyName := naming.VaultName(naming.Placeholder, policyTestNamespace, policyTestName)
 	state.mu.Lock()
 	state.policies[vaultPolicyName] = driftedPolicyHCL
 	state.mu.Unlock()
@@ -774,7 +775,7 @@ func TestSyncPolicy_EventPublished(t *testing.T) {
 	// Wait for async event delivery
 	select {
 	case e := <-eventCh:
-		expectedPolicyName := policyTestNamespace + "-" + policyTestName
+		expectedPolicyName := naming.VaultName(naming.Placeholder, policyTestNamespace, policyTestName)
 		if e.PolicyName != expectedPolicyName {
 			t.Errorf("expected PolicyName=%s, got %s", expectedPolicyName, e.PolicyName)
 		}
@@ -873,7 +874,7 @@ func TestCleanupPolicy_PolicyNotInVault(t *testing.T) {
 
 func TestCleanupPolicy_RetainPolicy(t *testing.T) {
 	state := newPolicyMockState()
-	policyName := policyTestNamespace + "-" + policyTestName
+	policyName := naming.VaultName(naming.Placeholder, policyTestNamespace, policyTestName)
 	state.policies[policyName] = existingPolicyHCL
 
 	conn := newPolicyTestConnection()
@@ -905,7 +906,7 @@ func TestCleanupPolicy_RetainPolicy(t *testing.T) {
 func TestCleanupPolicy_DeletePolicy(t *testing.T) {
 	enableMarkersForTest(t)
 	state := newPolicyMockState()
-	policyName := policyTestNamespace + "-" + policyTestName
+	policyName := naming.VaultName(naming.Placeholder, policyTestNamespace, policyTestName)
 	state.policies[policyName] = existingPolicyHCL
 	conn := newPolicyTestConnection()
 	policy := newTestVaultPolicy()

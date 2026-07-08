@@ -18,7 +18,6 @@ package e2e
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -39,7 +38,7 @@ var _ = Describe("Metrics Validation Tests", Ordered, Label("metrics"), func() {
 	Context("TC-METRICS: Prometheus Metrics Content", func() {
 		It("TC-METRICS01: Drift detected metric is set after drift", func() {
 			policyName := uniqueName("tc-metrics01")
-			expectedVaultName := fmt.Sprintf("%s-%s", testNamespace, policyName)
+			expectedVaultName := nsVaultName(policyName)
 
 			By("creating VaultPolicy with driftMode=detect")
 			policy := &vaultv1alpha1.VaultPolicy{

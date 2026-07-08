@@ -51,10 +51,6 @@ type PolicyAdapter interface {
 	// GetConflictPolicy returns the conflict handling policy.
 	GetConflictPolicy() vaultv1alpha1.ConflictPolicy
 
-	// GetVaultPolicyName returns the policy name in Vault.
-	// For namespaced: {namespace}-{name}, for cluster: {name}.
-	GetVaultPolicyName() string
-
 	// GetK8sResourceIdentifier returns the identifier for tracking ownership.
 	// For namespaced: {namespace}/{name}, for cluster: {name}.
 	GetK8sResourceIdentifier() string
@@ -102,9 +98,6 @@ func (a *VaultPolicyAdapter) GetDeletionPolicy() vaultv1alpha1.DeletionPolicy {
 func (a *VaultPolicyAdapter) GetConflictPolicy() vaultv1alpha1.ConflictPolicy {
 	return a.Spec.ConflictPolicy
 }
-func (a *VaultPolicyAdapter) GetVaultPolicyName() string {
-	return naming.Vault(a.Namespace + "-" + a.Name)
-}
 func (a *VaultPolicyAdapter) GetK8sResourceIdentifier() string { return a.Namespace + "/" + a.Name }
 func (a *VaultPolicyAdapter) IsNamespaced() bool               { return true }
 func (a *VaultPolicyAdapter) IsEnforceNamespaceBoundary() bool {
@@ -139,7 +132,6 @@ func (a *VaultClusterPolicyAdapter) GetDeletionPolicy() vaultv1alpha1.DeletionPo
 func (a *VaultClusterPolicyAdapter) GetConflictPolicy() vaultv1alpha1.ConflictPolicy {
 	return a.Spec.ConflictPolicy
 }
-func (a *VaultClusterPolicyAdapter) GetVaultPolicyName() string       { return naming.Vault(a.Name) }
 func (a *VaultClusterPolicyAdapter) GetK8sResourceIdentifier() string { return a.Name }
 func (a *VaultClusterPolicyAdapter) IsNamespaced() bool               { return false }
 
@@ -152,3 +144,13 @@ func (a *VaultClusterPolicyAdapter) SetRulesCount(count int)               { a.S
 func (a *VaultClusterPolicyAdapter) GetUsedByRoles() []string              { return a.Status.UsedByRoles }
 func (a *VaultClusterPolicyAdapter) SetUsedByRoles(refs []string)          { a.Status.UsedByRoles = refs }
 func (a *VaultClusterPolicyAdapter) GetDriftMode() vaultv1alpha1.DriftMode { return a.Spec.DriftMode }
+
+// DeriveVaultName computes the ADR 0010 Vault-side policy name for the given
+// identity segment (see naming.Identity). Pure; the identity is resolved by
+// the caller because it may depend on the resolved connection's auth mount.
+func DeriveVaultName(a PolicyAdapter, identity string) string {
+	if a.IsNamespaced() {
+		return naming.VaultName(identity, a.GetNamespace(), a.GetName())
+	}
+	return naming.VaultName(identity, "", a.GetName())
+}

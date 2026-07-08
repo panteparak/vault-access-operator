@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
+	"github.com/panteparak/vault-access-operator/pkg/cleanup"
 	oplogger "github.com/panteparak/vault-access-operator/pkg/logger"
 	"github.com/panteparak/vault-access-operator/pkg/metrics"
 	"github.com/panteparak/vault-access-operator/shared/controller/conditions"
@@ -37,6 +38,7 @@ import (
 	"github.com/panteparak/vault-access-operator/shared/controller/syncerror"
 	"github.com/panteparak/vault-access-operator/shared/events"
 	infraerrors "github.com/panteparak/vault-access-operator/shared/infrastructure/errors"
+	"github.com/panteparak/vault-access-operator/shared/naming"
 )
 
 // VaultClientResolver resolves an authenticated Vault client for a connection.
@@ -51,7 +53,16 @@ type SyncWorkflow struct {
 	resolveClient VaultClientResolver
 	eventBus      *events.EventBus
 	recorder      record.EventRecorder
+	queue         CleanupQueuer // optional — retries failed stale-name deletes (ADR 0010 rename)
 	log           logr.Logger
+}
+
+// WithCleanupQueue attaches the ADR 0005 cleanup retry queue so a failed
+// delete of the old-named Vault object after a rename (ADR 0010) is replayed
+// later instead of leaking. Optional and nil-safe.
+func (w *SyncWorkflow) WithCleanupQueue(queue CleanupQueuer) *SyncWorkflow {
+	w.queue = queue
+	return w
 }
 
 type syncExecutionState struct {
@@ -63,6 +74,7 @@ type syncExecutionState struct {
 	driftDetected      bool
 	driftSummary       string
 	specHash           string
+	staleVaultName     string // recorded name that no longer matches the bound name (rename pending)
 	vaultClient        VaultOpsClient
 	log                logr.Logger
 	// usedAllowDestructive marks that the workflow consumed the
@@ -144,7 +156,55 @@ func (w *SyncWorkflow) Execute(ctx context.Context, resource SyncableResource, o
 		return w.handleSyncError(ctx, resource, err)
 	}
 
+	w.deleteStaleName(ctx, resource, ops, state)
+
 	return w.finalizeSuccessfulSync(ctx, resource, ops, state)
+}
+
+// deleteStaleName removes the old-named Vault object after a rename
+// (ADR 0010). Runs only after the new-named object passed ReadbackVerify, so
+// Vault never has zero copies. Failures never fail the sync — the new object
+// is live and status must record it; the stale delete is enqueued to the
+// ADR 0005 cleanup queue instead.
+func (w *SyncWorkflow) deleteStaleName(
+	ctx context.Context,
+	resource SyncableResource,
+	ops ResourceOps,
+	state *syncExecutionState,
+) {
+	if state.staleVaultName == "" || isDryRunResource(resource) {
+		return
+	}
+	err := ops.DeleteFromVault(ctx, state.vaultClient, state.staleVaultName)
+	if err == nil || isVaultNotFound(err) {
+		state.log.Info("removed stale vault object after rename",
+			"oldName", state.staleVaultName, "newName", state.vaultResourceName)
+		return
+	}
+	state.log.Error(err, "failed to delete stale vault object after rename — enqueuing for retry",
+		"oldName", state.staleVaultName, "newName", state.vaultResourceName)
+	if w.queue != nil {
+		item := cleanup.Item{
+			ID:             fmt.Sprintf("%s/%s", ops.ResourceKind(), state.staleVaultName),
+			ResourceType:   cleanupResourceType(ops.ResourceKind()),
+			VaultName:      state.staleVaultName,
+			ConnectionName: resource.GetConnectionRef(),
+			AuthPath:       ops.AuthPath(),
+			K8sNamespace:   resource.GetNamespace(),
+			K8sName:        resource.GetName(),
+			LastError:      err.Error(),
+		}
+		if qErr := w.queue.Enqueue(ctx, item); qErr != nil {
+			state.log.Error(qErr, "failed to enqueue stale vault name for retry",
+				"oldName", state.staleVaultName)
+		}
+	}
+	if w.recorder != nil {
+		w.recorder.Eventf(resource.GetObject(), corev1.EventTypeWarning,
+			"StaleVaultNameQueued",
+			"Vault object %q (pre-rename name) could not be deleted and was queued for retry; "+
+				"the object now lives at %q", state.staleVaultName, state.vaultResourceName)
+	}
 }
 
 func (w *SyncWorkflow) initializeSync(
@@ -155,7 +215,7 @@ func (w *SyncWorkflow) initializeSync(
 	state := &syncExecutionState{
 		now:                metav1.Now(),
 		effectiveDriftMode: driftmode.Resolve(ctx, w.client, resource.GetDriftMode(), resource.GetConnectionRef()),
-		vaultResourceName:  ops.VaultResourceName(),
+		vaultResourceName:  ops.VaultResourceName(), // recorded name until BindVaultName runs below
 		kind:               ops.ResourceKind(),
 		label:              resourceLabel(ops.ResourceKind()),
 		log:                logr.FromContextOrDiscard(ctx),
@@ -180,7 +240,34 @@ func (w *SyncWorkflow) initializeSync(
 	}
 	state.vaultClient = vaultClient
 
+	// Bind the Vault-side name now that the client (and thus the identity:
+	// --cluster-name, else auth mount) is known. A recorded name that no
+	// longer matches means the naming config changed — this sync migrates
+	// the object (write new, delete old). ADR 0010.
+	recorded := ops.RecordedVaultName()
+	state.vaultResourceName = ops.BindVaultName(vaultClient)
+	state.log.V(1).Info("bound vault name",
+		"resource", state.vaultResourceName, "identitySource", identitySource(vaultClient))
+	if recorded != "" && recorded != state.vaultResourceName {
+		state.staleVaultName = recorded
+		state.log.Info("vault name changed, migrating",
+			"oldName", recorded, "newName", state.vaultResourceName)
+	}
+
 	return state, nil
+}
+
+// identitySource labels where the naming identity segment came from, for
+// debug logs ("why did it pick this name").
+func identitySource(vaultClient VaultOpsClient) string {
+	switch {
+	case naming.Cluster() != "":
+		return "cluster-name"
+	case vaultClient.AuthMount() != "":
+		return "auth-mount"
+	default:
+		return "none"
+	}
 }
 
 func (w *SyncWorkflow) handleDriftDetection(
@@ -289,7 +376,12 @@ func (w *SyncWorkflow) handleUnchangedResource(
 ) bool {
 	if resource.GetLastAppliedHash() != state.specHash ||
 		resource.GetPhase() != vaultv1alpha1.PhaseActive ||
-		state.driftDetected {
+		state.driftDetected ||
+		// A pending rename must proceed to the write even when the spec
+		// hash is unchanged — a naming config change alone doesn't touch
+		// the spec, and skipping here would leave the object under its
+		// old name forever (ADR 0010).
+		state.staleVaultName != "" {
 		return false
 	}
 

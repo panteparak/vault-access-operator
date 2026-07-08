@@ -35,71 +35,29 @@ func boolPtr(b bool) *bool {
 // VaultPolicyAdapter Tests
 // =============================================================================
 
-func TestPolicyAdapter_GetVaultPolicyName_ClusterPrefix(t *testing.T) {
-	naming.SetCluster("east")
-	t.Cleanup(func() { naming.SetCluster("") })
-
+func TestDeriveVaultName(t *testing.T) {
 	nsAdapter := NewVaultPolicyAdapter(&vaultv1alpha1.VaultPolicy{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "prod", Name: "app"},
 	})
-	if got, want := nsAdapter.GetVaultPolicyName(), "east-prod-app"; got != want {
-		t.Errorf("VaultPolicy GetVaultPolicyName() = %q, want %q", got, want)
-	}
-
 	clusterAdapter := NewVaultClusterPolicyAdapter(&vaultv1alpha1.VaultClusterPolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: "admin"},
 	})
-	if got, want := clusterAdapter.GetVaultPolicyName(), "east-admin"; got != want {
-		t.Errorf("VaultClusterPolicy GetVaultPolicyName() = %q, want %q", got, want)
-	}
-}
 
-func TestVaultPolicyAdapter_GetVaultPolicyName(t *testing.T) {
 	tests := []struct {
-		name       string
-		namespace  string
-		policyName string
-		want       string
+		name     string
+		adapter  PolicyAdapter
+		identity string
+		want     string
 	}{
-		{
-			name:       "standard namespace and name",
-			namespace:  "default",
-			policyName: "my-policy",
-			want:       "default-my-policy",
-		},
-		{
-			name:       "production namespace",
-			namespace:  "production",
-			policyName: "api-secrets",
-			want:       "production-api-secrets",
-		},
-		{
-			name:       "hyphenated namespace and name",
-			namespace:  "my-namespace",
-			policyName: "my-policy-name",
-			want:       "my-namespace-my-policy-name",
-		},
-		{
-			name:       "single character namespace and name",
-			namespace:  "a",
-			policyName: "b",
-			want:       "a-b",
-		},
+		{"namespaced with identity", nsAdapter, "east", "vao.east.prod.app"},
+		{"namespaced without identity", nsAdapter, naming.Placeholder, "vao._.prod.app"},
+		{"cluster-scoped with identity", clusterAdapter, "east", "vao.east._.admin"},
+		{"cluster-scoped without identity", clusterAdapter, naming.Placeholder, "vao._._.admin"},
 	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			policy := &vaultv1alpha1.VaultPolicy{
-				ObjectMeta: metav1.ObjectMeta{
-					Namespace: tt.namespace,
-					Name:      tt.policyName,
-				},
-			}
-			adapter := NewVaultPolicyAdapter(policy)
-
-			got := adapter.GetVaultPolicyName()
-			if got != tt.want {
-				t.Errorf("GetVaultPolicyName() = %q, want %q", got, tt.want)
+			if got := DeriveVaultName(tt.adapter, tt.identity); got != tt.want {
+				t.Errorf("DeriveVaultName(%s, %q) = %q, want %q", tt.name, tt.identity, got, tt.want)
 			}
 		})
 	}
@@ -578,46 +536,6 @@ func TestVaultPolicyAdapter_StatusAccessors(t *testing.T) {
 // =============================================================================
 // VaultClusterPolicyAdapter Tests
 // =============================================================================
-
-func TestVaultClusterPolicyAdapter_GetVaultPolicyName(t *testing.T) {
-	tests := []struct {
-		name       string
-		policyName string
-		want       string
-	}{
-		{
-			name:       "standard name",
-			policyName: "my-cluster-policy",
-			want:       "my-cluster-policy",
-		},
-		{
-			name:       "hyphenated name",
-			policyName: "global-read-policy",
-			want:       "global-read-policy",
-		},
-		{
-			name:       "single character name",
-			policyName: "x",
-			want:       "x",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			policy := &vaultv1alpha1.VaultClusterPolicy{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: tt.policyName,
-				},
-			}
-			adapter := NewVaultClusterPolicyAdapter(policy)
-
-			got := adapter.GetVaultPolicyName()
-			if got != tt.want {
-				t.Errorf("GetVaultPolicyName() = %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
 
 func TestVaultClusterPolicyAdapter_GetK8sResourceIdentifier(t *testing.T) {
 	tests := []struct {
@@ -1135,21 +1053,6 @@ func TestPolicyAdapters_NamespaceVsClusterScoped(t *testing.T) {
 
 	namespacedAdapter := NewVaultPolicyAdapter(namespacedPolicy)
 	clusterAdapter := NewVaultClusterPolicyAdapter(clusterPolicy)
-
-	t.Run("VaultPolicyName differs by namespace prefix", func(t *testing.T) {
-		namespacedName := namespacedAdapter.GetVaultPolicyName()
-		clusterName := clusterAdapter.GetVaultPolicyName()
-
-		expectedNamespaced := "production-app-secrets"
-		expectedCluster := "app-secrets"
-
-		if namespacedName != expectedNamespaced {
-			t.Errorf("Namespaced GetVaultPolicyName() = %q, want %q", namespacedName, expectedNamespaced)
-		}
-		if clusterName != expectedCluster {
-			t.Errorf("Cluster GetVaultPolicyName() = %q, want %q", clusterName, expectedCluster)
-		}
-	})
 
 	t.Run("K8sResourceIdentifier differs by namespace", func(t *testing.T) {
 		namespacedID := namespacedAdapter.GetK8sResourceIdentifier()

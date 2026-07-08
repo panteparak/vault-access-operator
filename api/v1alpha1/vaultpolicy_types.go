@@ -58,7 +58,9 @@ type VaultPolicyStatus struct {
 	ReconcileStatus `json:",inline"`
 	SyncStatus      `json:",inline"`
 
-	// VaultName is the name of the policy in Vault (namespace-name format)
+	// VaultName is the RECORDED name of the policy in Vault, in the ADR 0010
+	// shape vao.{identity}.{namespace}.{name}. Authoritative for cleanup and
+	// rename detection — it names what the last sync actually wrote.
 	// +optional
 	VaultName string `json:"vaultName,omitempty"`
 

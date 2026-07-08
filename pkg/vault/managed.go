@@ -13,9 +13,10 @@ import (
 //   - ACL policies carry a structured comment header inside the policy
 //     document (Vault stores HCL verbatim, so comments round-trip).
 //   - KV secrets carry custom_metadata on their own path (kvsecret.go).
-//   - Auth roles carry nothing — Vault has no role metadata surface. Role
-//     ownership lives in the owning CR's status plus the one-cluster-per-
-//     auth-mount deployment invariant.
+//   - Auth roles carry the same record in alias_metadata (ADR 0010): both
+//     kubernetes and jwt auth roles store it (Vault >=1.21; older Vaults
+//     silently drop the parameter) and echo it on read; Vault additionally
+//     copies it onto entity aliases at login.
 //
 // The operator's identity is the auth mount path it logged in through
 // (Client.AuthMount): on a shared Vault every cluster authenticates via its
@@ -126,6 +127,52 @@ func ParseOwnership(hcl string) (Ownership, bool) {
 		case OwnershipK8sKindKey:
 			o.K8sKind = value
 		}
+	}
+	return o, o.ManagedBy == KVManagedByValue
+}
+
+// RoleAliasMetadataKey is the auth-role payload field carrying the ownership
+// record (ADR 0010, amending ADR 0008's "roles carry nothing"). Supported by
+// the kubernetes and jwt auth backends on Vault >= 1.21; older Vaults
+// (verified on 1.17) silently drop the parameter, degrading roles back to
+// no in-band ownership.
+const RoleAliasMetadataKey = "alias_metadata"
+
+// OwnershipAliasMetadata renders the ownership record as the alias_metadata
+// map for role writes — the same vocabulary as the policy comment header.
+// Only stable identity fields, so an unchanged spec hashes identically.
+func OwnershipAliasMetadata(o Ownership) map[string]string {
+	m := map[string]string{KVManagedByKey: KVManagedByValue}
+	if o.AuthMount != "" {
+		m[OwnershipAuthMountKey] = o.AuthMount
+	}
+	if o.Cluster != "" {
+		m[OwnershipClusterKey] = o.Cluster
+	}
+	if o.K8sResource != "" {
+		m[KVK8sResourceKey] = o.K8sResource
+	}
+	if o.K8sKind != "" {
+		m[OwnershipK8sKindKey] = o.K8sKind
+	}
+	return m
+}
+
+// ParseAliasMetadata extracts the ownership record from a role's read-back
+// data. ok=false when the role carries no operator sentinel (hand-created,
+// pre-ADR-0010, or written to a Vault that dropped alias_metadata).
+func ParseAliasMetadata(roleData map[string]interface{}) (Ownership, bool) {
+	raw, _ := roleData[RoleAliasMetadataKey].(map[string]interface{})
+	get := func(k string) string {
+		v, _ := raw[k].(string)
+		return v
+	}
+	o := Ownership{
+		ManagedBy:   get(KVManagedByKey),
+		AuthMount:   get(OwnershipAuthMountKey),
+		Cluster:     get(OwnershipClusterKey),
+		K8sResource: get(KVK8sResourceKey),
+		K8sKind:     get(OwnershipK8sKindKey),
 	}
 	return o, o.ManagedBy == KVManagedByValue
 }

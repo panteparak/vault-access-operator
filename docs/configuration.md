@@ -296,7 +296,7 @@ The operator binary accepts the following command-line flags:
 | `--metrics-cert-key` | `tls.key` | Metrics key file name |
 | `--enable-http2` | `false` | Enable HTTP/2 for metrics and webhook servers |
 | `--enable-webhooks` | `false` | Enable admission webhooks (requires certificate configuration) |
-| `--cluster-name` | `""` | Per-cluster prefix for all Vault resource names (policies, roles). Set a unique value per cluster when multiple operators share one Vault server; empty disables prefixing. Also settable via the `CLUSTER_NAME` env var. See [Sharing one Vault across clusters](#sharing-one-vault-across-clusters). |
+| `--cluster-name` | `""` | Per-cluster prefix for all Vault resource names (policies, roles). Set a unique value per cluster when multiple operators share one Vault server; empty disables prefixing. When set, every operator log line also carries a `cluster` field so aggregated logs from multiple clusters stay attributable. Also settable via the `CLUSTER_NAME` env var. See [Sharing one Vault across clusters](#sharing-one-vault-across-clusters). |
 | `--managed-markers` | `false` | Enable in-band ownership tracking, discovery, and orphan detection (ADR 0008). Default OFF: the operator skips conflict/ownership detection (write-and-forget) and does not run the discovery or orphan controllers. When ON, ownership travels on the managed objects themselves — no extra Vault grant. Also settable via the `MANAGED_MARKERS` env var. See [Managed markers](#managed-markers). |
 
 ---
@@ -305,22 +305,25 @@ The operator binary accepts the following command-line flags:
 
 Vault Community Edition has no [namespaces](https://developer.hashicorp.com/vault/docs/enterprise/namespaces) (an Enterprise feature), so ACL policies live in a single global store (`sys/policies/acl/`). If you run **one operator per Kubernetes cluster against the same Vault server**, two clusters that define a policy with the same name (e.g. `default/admin`) would otherwise derive the same Vault object name.
 
-Two settings work together (see [ADR 0008](adr/0008-in-band-ownership-markers.md)):
+Two settings work together (see [ADR 0008](adr/0008-in-band-ownership-markers.md) and [ADR 0010](adr/0010-structured-vault-names-and-recorded-name-authority.md)):
 
 1. **One auth mount per cluster — hard requirement.** Each cluster's operator MUST authenticate through its own auth mount (e.g. `auth/k8s-east`, `auth/k8s-west`). The mount path is the operator's **ownership identity**: it is stamped into every in-band ownership record, so cross-cluster fights are *detected and blocked* (conflict instead of silent overwrite) even when names collide. Roles are additionally isolated structurally — they live under their cluster's own mount.
-2. **`--cluster-name`** (or `CLUSTER_NAME` env / `clusterName` Helm value) — a unique per-cluster prefix on every derived Vault resource name that *prevents* the collision in the first place:
+2. **Structured names** (ADR 0010) — every derived Vault resource name has the fixed 4-segment shape `vao.{identity}.{namespace}.{name}` (`_` fills an absent segment). The identity segment is `--cluster-name` when set, **else the connection's login auth mount** — so on a properly-partitioned shared Vault the names cannot collide even with no configuration at all:
 
 | Setting | `VaultPolicy` `default/admin` → Vault policy |
 |---------|----------------------------------------------|
-| `clusterName: east` | `east-default-admin` |
-| `clusterName: west` | `west-default-admin` |
+| `clusterName: east` | `vao.east.default.admin` |
+| `clusterName: west` | `vao.west.default.admin` |
+| no cluster-name, login mount `k8s-east` | `vao.k8s-east.default.admin` |
+| no cluster-name, static token | `vao._.default.admin` |
+| cluster-scoped CR (`VaultClusterPolicy` `admin`), `clusterName: east` | `vao.east._.admin` |
 
 Both clusters then coexist on one Vault with no collisions. Notes:
 
-- **Empty (default) = no prefix** — existing single-cluster installs are unaffected.
-- The prefix also applies to the policy names a `VaultRole` binds (`token_policies`), so role→policy references stay consistent automatically.
-- Enabling the prefix on an **existing** install renames the Vault objects: the operator creates the new prefixed policies/roles and the old unprefixed ones become orphaned. Plan a cutover (create prefixed → repoint external consumers → delete the old names).
-- Valid characters: `^[a-zA-Z0-9._-]+$` (the prefix becomes part of Vault policy names and KV paths).
+- The identity also applies to the policy names a `VaultRole` binds (`token_policies`) — role→policy references resolve through the referenced policy CR's recorded `status.vaultName`, so they stay consistent automatically, including across connections.
+- **Renames are migrated, not orphaned**: the name each sync actually wrote is recorded in `status.vaultName`/`status.vaultRoleName` and is authoritative for deletion. Changing `--cluster-name` (or upgrading to the ADR 0010 scheme) makes the next sync write the new name and clean up the old one; if that cleanup fails it is queued for retry (see the cleanup queue) and surfaced via a `StaleVaultNameQueued` warning event.
+- A **static-token** connection has no auth mount, so with no `--cluster-name` its identity is the placeholder `_` — fine for a single-cluster Vault, unsupported for shared Vaults (no ownership identity either; see managed markers below).
+- Valid `--cluster-name` characters: `^[a-zA-Z0-9-]+$` — no dots (they separate name segments) and not the reserved `_`.
 
 ---
 
@@ -339,7 +342,7 @@ Where the record lives:
 |--------|----------------|
 | ACL policy | Structured comment header inside the policy document (`# managed-by`, `# auth-mount`, `# cluster`, `# k8s-resource`, `# k8s-kind`) |
 | KV secret (`VaultKVSecret`) | `custom_metadata` on the secret's own path (`managed-by`, `k8s-resource`, `auth-mount`, `cluster`, `managed-at`, `last-updated`) |
-| Auth role | None — Vault auth roles have no metadata surface. Ownership memory is the owning CR's status plus the one-cluster-per-auth-mount invariant |
+| Auth role | `alias_metadata` on the role (`managed-by`, `auth-mount`, `cluster`, `k8s-resource`, `k8s-kind`) — supported by the kubernetes and jwt auth backends on Vault ≥ 1.21 (older Vaults silently drop the parameter) ([ADR 0010](adr/0010-structured-vault-names-and-recorded-name-authority.md)); Vault also copies these keys onto entity aliases at login. On older Vaults the parameter is dropped and ownership falls back to the owning CR's status plus the one-cluster-per-auth-mount invariant |
 
 The operator's **identity** is the auth mount path its connection logged in
 through. Ownership requires the sentinel **+ the same identity + the same

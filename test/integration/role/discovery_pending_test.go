@@ -33,6 +33,7 @@ import (
 	rolectrl "github.com/panteparak/vault-access-operator/features/role/controller"
 	roledomain "github.com/panteparak/vault-access-operator/features/role/domain"
 	"github.com/panteparak/vault-access-operator/pkg/vault"
+	"github.com/panteparak/vault-access-operator/shared/naming"
 	"github.com/panteparak/vault-access-operator/test/integration"
 )
 
@@ -44,14 +45,15 @@ var _ = Describe("INT-DISC-PEND: Discovery-pending role adoption safety (IMPROVE
 	)
 
 	const (
-		// Adapter derives Vault name as "{namespace}-{name}" for namespaced roles.
-		// Pre-populate Vault with this exact name so the CR we construct below
-		// targets the same role.
 		realNamespace = "int-disc-pend"
 		realName      = "real-role"
-		realRoleName  = realNamespace + "-" + realName
 		authPath      = "auth/kubernetes"
 	)
+	// ADR 0010 name: the suite's vault client is token-auth (no auth mount)
+	// and no --cluster-name is set, so the identity segment is the
+	// placeholder. Pre-populate Vault with this exact name so the CR we
+	// construct below targets the same role.
+	realRoleName := naming.VaultName(naming.Placeholder, realNamespace, realName)
 
 	BeforeEach(func() {
 		ctx = integration.GetContext()
@@ -101,8 +103,6 @@ var _ = Describe("INT-DISC-PEND: Discovery-pending role adoption safety (IMPROVE
 				},
 			}
 			adapter := roledomain.NewVaultRoleAdapter(role)
-			Expect(adapter.GetVaultRoleName()).To(Equal(realRoleName),
-				"test setup: adapter-derived name must match pre-populated Vault role")
 
 			ops := rolectrl.NewRoleOpsForTest(adapter, authPath,
 				map[string]interface{}{
@@ -110,6 +110,8 @@ var _ = Describe("INT-DISC-PEND: Discovery-pending role adoption safety (IMPROVE
 					"bound_service_account_names":      []string{"discovery-placeholder-replace-me"},
 					"bound_service_account_namespaces": []string{realNamespace},
 				})
+			Expect(ops.BindVaultName(vaultClient)).To(Equal(realRoleName),
+				"test setup: derived name must match pre-populated Vault role")
 
 			By("invoking WriteToVault while discovery-pending is set")
 			Expect(ops.WriteToVault(ctx, vaultClient)).To(Succeed())
@@ -150,7 +152,6 @@ var _ = Describe("INT-DISC-PEND: Discovery-pending role adoption safety (IMPROVE
 				},
 			}
 			adapter := roledomain.NewVaultRoleAdapter(role)
-			Expect(adapter.GetVaultRoleName()).To(Equal(realRoleName))
 
 			ops := rolectrl.NewRoleOpsForTest(adapter, authPath,
 				map[string]interface{}{
@@ -158,6 +159,7 @@ var _ = Describe("INT-DISC-PEND: Discovery-pending role adoption safety (IMPROVE
 					"bound_service_account_names":      []string{"svc-newapp"},
 					"bound_service_account_namespaces": []string{realNamespace},
 				})
+			Expect(ops.BindVaultName(vaultClient)).To(Equal(realRoleName))
 
 			By("invoking WriteToVault — should proceed")
 			Expect(ops.WriteToVault(ctx, vaultClient)).To(Succeed())

@@ -18,7 +18,6 @@ package e2e
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -39,7 +38,7 @@ var _ = Describe("Adoption Tests", Ordered, Label("adoption"), func() {
 	Context("TC-ADOPT: Annotation-Based Adoption", func() {
 		It("TC-ADOPT01-POLICY: Adopt existing policy via annotation", func() {
 			policyName := "tc-adopt01-policy"
-			expectedVaultName := fmt.Sprintf("%s-%s", testNamespace, policyName)
+			expectedVaultName := nsVaultName(policyName)
 			existingHCL := `path "secret/data/existing/*" { capabilities = ["read", "list"] }`
 
 			By("creating policy directly in Vault (unmanaged)")
@@ -97,7 +96,7 @@ var _ = Describe("Adoption Tests", Ordered, Label("adoption"), func() {
 
 		It("TC-ADOPT02-ROLE: Adopt existing role via annotation", func() {
 			roleName := "tc-adopt02-role"
-			expectedVaultRoleName := fmt.Sprintf("%s-%s", testNamespace, roleName)
+			expectedVaultRoleName := nsVaultName(roleName)
 			authPath := "kubernetes"
 
 			By("creating role directly in Vault (unmanaged)")
@@ -163,7 +162,7 @@ var _ = Describe("Adoption Tests", Ordered, Label("adoption"), func() {
 
 		It("TC-ADOPT03-FAIL: Adoption fails when resource doesn't exist", func() {
 			policyName := "tc-adopt03-nonexistent"
-			expectedVaultName := fmt.Sprintf("%s-%s", testNamespace, policyName)
+			expectedVaultName := nsVaultName(policyName)
 
 			By("ensuring policy does NOT exist in Vault")
 			vaultClient, err := utils.GetTestVaultClient()

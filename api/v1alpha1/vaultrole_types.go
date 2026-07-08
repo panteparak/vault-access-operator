@@ -74,7 +74,9 @@ type VaultRoleStatus struct {
 	ReconcileStatus `json:",inline"`
 	SyncStatus      `json:",inline"`
 
-	// VaultRoleName is the name of the role in Vault (namespace-name format)
+	// VaultRoleName is the RECORDED name of the role in Vault, in the ADR 0010
+	// shape vao.{identity}.{namespace}.{name}. Authoritative for cleanup and
+	// rename detection — it names what the last sync actually wrote.
 	// +optional
 	VaultRoleName string `json:"vaultRoleName,omitempty"`
 

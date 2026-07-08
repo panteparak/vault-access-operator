@@ -112,9 +112,10 @@ func TestRoleOps_WriteToVault_SkipsDiscoveryPending(t *testing.T) {
 		vaultv1alpha1.AnnotationDiscoveryPending: vaultv1alpha1.AnnotationValueTrue,
 	})
 	ops := &RoleOps{
-		adapter:  adapter,
-		authPath: vault.DefaultKubernetesAuthPath,
-		roleData: map[string]interface{}{"policies": []string{"p"}},
+		adapter:   adapter,
+		vaultName: "test-vault-name",
+		authPath:  vault.DefaultKubernetesAuthPath,
+		roleData:  map[string]interface{}{"policies": []string{"p"}},
 	}
 
 	if err := ops.WriteToVault(context.Background(), h.vaultClient(t)); err != nil {
@@ -132,9 +133,10 @@ func TestRoleOps_WriteToVault_WritesWhenAnnotationCleared(t *testing.T) {
 	// no annotations, no discovery-pending
 	adapter := newRoleAdapterWithAnnotations(nil)
 	ops := &RoleOps{
-		adapter:  adapter,
-		authPath: vault.DefaultKubernetesAuthPath,
-		roleData: map[string]interface{}{"policies": []string{"p"}},
+		adapter:   adapter,
+		vaultName: "test-vault-name",
+		authPath:  vault.DefaultKubernetesAuthPath,
+		roleData:  map[string]interface{}{"policies": []string{"p"}},
 	}
 
 	if err := ops.WriteToVault(context.Background(), h.vaultClient(t)); err != nil {
@@ -154,7 +156,8 @@ func TestRoleOps_ReadbackVerify_SkipsDiscoveryPending(t *testing.T) {
 		vaultv1alpha1.AnnotationDiscoveryPending: vaultv1alpha1.AnnotationValueTrue,
 	})
 	// No handler needed — the skip check is evaluated before detectRoleDrift.
-	ops := &RoleOps{adapter: adapter, authPath: "kubernetes"}
+	ops := &RoleOps{adapter: adapter,
+		vaultName: "test-vault-name", authPath: "kubernetes"}
 
 	if err := ops.ReadbackVerify(context.Background(), h.vaultClient(t)); err != nil {
 		t.Fatalf("ReadbackVerify with discovery-pending returned error: %v", err)
@@ -172,9 +175,10 @@ func TestRoleOps_ReadbackVerify_RunsWhenAnnotationCleared(t *testing.T) {
 	adapter := newRoleAdapterWithAnnotations(nil)
 	handler := &Handler{} // detectRoleDrift is a method on Handler but relies only on the Vault client
 	ops := &RoleOps{
-		adapter:  adapter,
-		handler:  handler,
-		authPath: vault.DefaultKubernetesAuthPath,
+		adapter:   adapter,
+		vaultName: "test-vault-name",
+		handler:   handler,
+		authPath:  vault.DefaultKubernetesAuthPath,
 		// roleData empty → drift.Comparator reports no drift because no expected
 		// fields are set (CompareValuesIfExpected is a no-op for empty expected).
 		roleData: map[string]interface{}{},

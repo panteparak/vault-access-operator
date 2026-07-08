@@ -18,7 +18,6 @@ package e2e
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -39,9 +38,7 @@ var _ = Describe("Conflict Policy Tests", Ordered, Label("module"), func() {
 	Context("TC-CF: Policy Conflict Resolution", func() {
 		It("TC-CF01-ADOPT: Adopt existing unmanaged policy", func() {
 			adoptPolicyName := "tc-cf01-adopt"
-			expectedVaultName := fmt.Sprintf(
-				"%s-%s", testNamespace, adoptPolicyName,
-			)
+			expectedVaultName := nsVaultName(adoptPolicyName)
 			unmanagedHCL := `path "secret/data/unmanaged/*"` +
 				` { capabilities = ["read"] }`
 
@@ -117,9 +114,7 @@ var _ = Describe("Conflict Policy Tests", Ordered, Label("module"), func() {
 		It("TC-CF02-FAIL: Fail when policy exists "+
 			"and conflictPolicy=Fail", func() {
 			failPolicyName := "tc-cf02-fail"
-			expectedVaultName := fmt.Sprintf(
-				"%s-%s", testNamespace, failPolicyName,
-			)
+			expectedVaultName := nsVaultName(failPolicyName)
 			unmanagedHCL := `path "secret/data/preexisting/*"` +
 				` { capabilities = ["read"] }`
 
@@ -193,9 +188,7 @@ var _ = Describe("Conflict Policy Tests", Ordered, Label("module"), func() {
 		It("TC-CF03-NORM: Create policy normally "+
 			"when no conflict exists", func() {
 			newPolicyName := "tc-cf03-new"
-			expectedVaultName := fmt.Sprintf(
-				"%s-%s", testNamespace, newPolicyName,
-			)
+			expectedVaultName := nsVaultName(newPolicyName)
 
 			By("ensuring policy does NOT exist in Vault")
 			vaultClient, err := utils.GetTestVaultClient()

@@ -138,7 +138,12 @@ func (w *CleanupWorkflow) Execute(ctx context.Context, resource SyncableResource
 		deletionPolicy = vaultv1alpha1.DeletionPolicyDelete // explicit default
 	}
 	if deletionPolicy == vaultv1alpha1.DeletionPolicyDelete {
+		// The RECORDED status name is authoritative for deletion (ADR 0010):
+		// it names what the last sync actually wrote, which may differ from
+		// what today's config would derive. Only a never-synced CR (empty
+		// record) falls back to deriving — and only when a client is at hand.
 		vaultClient, err := w.getVaultClient(resource.GetConnectionRef())
+		deleteName := ops.RecordedVaultName()
 		switch {
 		case err != nil:
 			// IMPROVEMENTS §2: previously this path logged + proceeded with
@@ -146,29 +151,33 @@ func (w *CleanupWorkflow) Execute(ctx context.Context, resource SyncableResource
 			// so the cleanup controller retries later when Vault is reachable.
 			log.Info("failed to get Vault client during deletion — enqueuing for retry",
 				"error", err, "resource", vaultResourceName)
-			w.enqueueForRetry(ctx, resource, ops, err)
+			w.enqueueForRetry(ctx, resource, ops, deleteName, err)
 		case !vaultClient.IsAuthenticated():
 			// Cached client exists but has no valid token — same fate: queue it.
 			log.Info("cached Vault client is unauthenticated — enqueuing for retry",
 				"resource", vaultResourceName)
-			w.enqueueForRetry(ctx, resource, ops, errors.New("vault client unauthenticated"))
+			w.enqueueForRetry(ctx, resource, ops, deleteName, errors.New("vault client unauthenticated"))
 		default:
+			if deleteName == "" {
+				deleteName = ops.BindVaultName(vaultClient)
+			}
 			// Step 5: Delete resource from Vault. Treat 404 as success —
 			// the resource is already gone and retries would only generate noise.
-			if err := ops.DeleteFromVault(ctx, vaultClient); err != nil {
+			if err := ops.DeleteFromVault(ctx, vaultClient, deleteName); err != nil {
 				if isVaultNotFound(err) {
 					log.V(1).Info("vault resource already absent (404 treated as success)",
-						"resource", vaultResourceName)
+						"resource", deleteName)
 				} else {
-					log.Error(err, "failed to delete "+label+" from Vault — enqueuing for retry")
-					w.enqueueForRetry(ctx, resource, ops, err)
+					log.Error(err, "failed to delete "+label+" from Vault — enqueuing for retry",
+						"resource", deleteName)
+					w.enqueueForRetry(ctx, resource, ops, deleteName, err)
 				}
 			} else {
-				log.Info("deleted "+label+" from Vault", "resource", vaultResourceName)
+				log.Info("deleted "+label+" from Vault", "resource", deleteName)
 			}
 			// No marker removal step: ownership is in-band (ADR 0008) — the
 			// policy header dies with the policy, KV custom_metadata dies with
-			// the secret, and roles have no Vault-side ownership record.
+			// the secret, and roles carry theirs in alias_metadata.
 		}
 	} else {
 		log.Info("DeletionPolicy is Retain, keeping "+label+" in Vault", "resource", vaultResourceName)
@@ -205,7 +214,7 @@ func (w *CleanupWorkflow) Execute(ctx context.Context, resource SyncableResource
 // level; passing cause here is for correlating the queue item with the
 // triggering condition in future log searches.
 func (w *CleanupWorkflow) enqueueForRetry(
-	ctx context.Context, resource SyncableResource, ops ResourceOps, cause error,
+	ctx context.Context, resource SyncableResource, ops ResourceOps, name string, cause error,
 ) {
 	if w.queue == nil {
 		// Pre-§2 behavior — no queue wired (e.g., unit tests). The finalizer
@@ -214,10 +223,17 @@ func (w *CleanupWorkflow) enqueueForRetry(
 		// the §2 wiring pass a queue.
 		return
 	}
+	if name == "" {
+		// Never synced: nothing was recorded because nothing was written —
+		// there is no Vault object to retry deleting.
+		logr.FromContextOrDiscard(ctx).Info(
+			"skipping cleanup enqueue — resource never synced, nothing recorded to delete")
+		return
+	}
 	item := cleanup.Item{
-		ID:             fmt.Sprintf("%s/%s", ops.ResourceKind(), ops.VaultResourceName()),
+		ID:             fmt.Sprintf("%s/%s", ops.ResourceKind(), name),
 		ResourceType:   cleanupResourceType(ops.ResourceKind()),
-		VaultName:      ops.VaultResourceName(),
+		VaultName:      name,
 		ConnectionName: resource.GetConnectionRef(),
 		AuthPath:       ops.AuthPath(),
 		K8sNamespace:   resource.GetNamespace(),

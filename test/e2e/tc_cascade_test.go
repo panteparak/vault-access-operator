@@ -18,7 +18,6 @@ package e2e
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -36,8 +35,8 @@ var _ = Describe("Cascade Deletion Tests", Ordered, Label("cascade"), func() {
 		It("TC-CASCADE01: Delete VaultPolicy referenced by VaultRole", func() {
 			policyName := uniqueName("tc-cascade01-pol")
 			roleName := uniqueName("tc-cascade01-role")
-			expectedVaultPolicyName := fmt.Sprintf("%s-%s", testNamespace, policyName)
-			expectedVaultRoleName := fmt.Sprintf("%s-%s", testNamespace, roleName)
+			expectedVaultPolicyName := nsVaultName(policyName)
+			expectedVaultRoleName := nsVaultName(roleName)
 
 			By("creating a VaultPolicy")
 			policy := BuildTestPolicy(policyName)

@@ -127,7 +127,7 @@ var _ = Describe("Managed Markers", Ordered, Label("managed-markers"), func() {
 			vc, err := utils.GetTestVaultClient()
 			Expect(err).NotTo(HaveOccurred())
 			Eventually(func(g Gomega) {
-				hcl, readErr := vc.ReadPolicy(ctx, testNamespace+"-"+mmOnPolicy)
+				hcl, readErr := vc.ReadPolicy(ctx, nsVaultName(mmOnPolicy))
 				g.Expect(readErr).NotTo(HaveOccurred())
 				own, ok := vault.ParseOwnership(hcl)
 				g.Expect(ok).To(BeTrue(), "expected in-band ownership header, got:\n%s", hcl)
@@ -157,7 +157,7 @@ var _ = Describe("Managed Markers", Ordered, Label("managed-markers"), func() {
 				K8sResource: "other-ns/foreign-owner",
 				K8sKind:     "VaultPolicy",
 			}) + "\npath \"secret/*\" { capabilities = [\"read\"] }"
-			Expect(vc.WritePolicy(ctx, testNamespace+"-"+mmConflictPol, foreign)).To(Succeed())
+			Expect(vc.WritePolicy(ctx, nsVaultName(mmConflictPol), foreign)).To(Succeed())
 
 			By("creating the CR → expect a non-Active (Conflict) phase")
 			Expect(utils.CreateVaultPolicyCR(ctx, BuildTestPolicy(mmConflictPol))).To(Succeed())
@@ -181,7 +181,7 @@ var _ = Describe("Managed Markers", Ordered, Label("managed-markers"), func() {
 			}, 20*time.Second, 5*time.Second).Should(Succeed())
 
 			By("verifying the foreign policy content was never overwritten")
-			hcl, readErr := vc.ReadPolicy(ctx, testNamespace+"-"+mmConflictPol)
+			hcl, readErr := vc.ReadPolicy(ctx, nsVaultName(mmConflictPol))
 			Expect(readErr).NotTo(HaveOccurred())
 			own, ok := vault.ParseOwnership(hcl)
 			Expect(ok).To(BeTrue())

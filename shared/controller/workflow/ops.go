@@ -31,8 +31,23 @@ type ResourceOps interface {
 	// ResourceKind returns "VaultPolicy", "VaultClusterPolicy", "VaultRole", or "VaultClusterRole".
 	ResourceKind() string
 
-	// VaultResourceName returns the Vault-side name (e.g., "default-my-policy").
+	// VaultResourceName returns the Vault-side name currently in effect:
+	// the name bound by BindVaultName if it ran, else the recorded status
+	// name, else "". Used for logging and cleanup-queue IDs.
 	VaultResourceName() string
+
+	// RecordedVaultName returns the Vault-side name recorded in the CR's
+	// status by the last successful sync ("" before the first sync). The
+	// recorded name is AUTHORITATIVE for cleanup and rename detection
+	// (ADR 0010) — never re-derive a name to delete by.
+	RecordedVaultName() string
+
+	// BindVaultName derives the Vault-side name for this sync from the
+	// resolved client's identity (--cluster-name, else auth mount), caches
+	// it, and returns it. Under an active dry-run with a recorded name, the
+	// recorded name is bound instead — a dry-run must never initiate a
+	// rename. Call once per sync, after the client resolves.
+	BindVaultName(vaultClient VaultOpsClient) string
 
 	// AuthPath returns the Vault auth mount for roles (e.g., "auth/kubernetes")
 	// and the empty string for resources that don't live under an auth mount
@@ -67,10 +82,11 @@ type ResourceOps interface {
 	// Read failures are non-fatal (return nil); content mismatches are fatal.
 	ReadbackVerify(ctx context.Context, vaultClient VaultOpsClient) error
 
-	// DeleteFromVault removes the resource from Vault. Best-effort during
-	// cleanup. Implementations verify in-band ownership before destructive
-	// writes where the object family supports it (ADR 0008).
-	DeleteFromVault(ctx context.Context, vaultClient VaultOpsClient) error
+	// DeleteFromVault removes the named resource from Vault. Best-effort
+	// during cleanup; also used to remove the stale old-named object after
+	// a rename (ADR 0010). Implementations verify in-band ownership of the
+	// PASSED name before destructive writes (ADR 0008).
+	DeleteFromVault(ctx context.Context, vaultClient VaultOpsClient, name string) error
 
 	// --- Status/binding updates ---
 

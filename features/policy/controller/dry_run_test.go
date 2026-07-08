@@ -95,8 +95,9 @@ func TestPolicyOps_WriteToVault_SkipsDryRun(t *testing.T) {
 	}
 
 	ops := &PolicyOps{
-		adapter: adapter,
-		hcl:     `path "ours" { capabilities = ["read"] }`,
+		adapter:   adapter,
+		vaultName: "test-vault-name",
+		hcl:       `path "ours" { capabilities = ["read"] }`,
 	}
 	if err := ops.WriteToVault(context.Background(), c); err != nil {
 		t.Fatalf("WriteToVault returned error: %v", err)
@@ -119,8 +120,8 @@ func TestPolicyOps_DeleteFromVault_SkipsDryRun(t *testing.T) {
 		t.Fatalf("vault.NewClient: %v", err)
 	}
 
-	ops := &PolicyOps{adapter: adapter}
-	if err := ops.DeleteFromVault(context.Background(), c); err != nil {
+	ops := &PolicyOps{adapter: adapter, vaultName: "test-vault-name"}
+	if err := ops.DeleteFromVault(context.Background(), c, "vao._.default.dry-run-policy"); err != nil {
 		t.Fatalf("DeleteFromVault returned error: %v", err)
 	}
 	if got := atomic.LoadInt32(&h.deleteHit); got != 0 {
@@ -143,8 +144,9 @@ func TestPolicyOps_WriteToVault_NormalWhenAnnotationAbsent(t *testing.T) {
 	}
 
 	ops := &PolicyOps{
-		adapter: adapter,
-		hcl:     `path "ours" { capabilities = ["read"] }`,
+		adapter:   adapter,
+		vaultName: "test-vault-name",
+		hcl:       `path "ours" { capabilities = ["read"] }`,
 	}
 	if err := ops.WriteToVault(context.Background(), c); err != nil {
 		t.Fatalf("WriteToVault returned error: %v", err)
@@ -169,8 +171,9 @@ func TestPolicyOps_WriteToVault_DryRunFalsyValueWrites(t *testing.T) {
 	}
 
 	ops := &PolicyOps{
-		adapter: adapter,
-		hcl:     `path "ours" { capabilities = ["read"] }`,
+		adapter:   adapter,
+		vaultName: "test-vault-name",
+		hcl:       `path "ours" { capabilities = ["read"] }`,
 	}
 	if err := ops.WriteToVault(context.Background(), c); err != nil {
 		t.Fatalf("WriteToVault returned error: %v", err)
@@ -184,3 +187,32 @@ func TestPolicyOps_WriteToVault_DryRunFalsyValueWrites(t *testing.T) {
 // (TestIsDryRun moved to shared/controller/dryrun/dryrun_test.go after the
 // helper was lifted into a shared package — the per-feature integration
 // tests above still pin the per-op behavior end-to-end.)
+
+// TestPolicyOps_BindVaultName_DryRunBindsRecordedName pins the ops-level
+// rename guard (ADR 0010): under dry-run, BindVaultName returns the RECORDED
+// status name instead of deriving — a dry-run must never initiate a rename.
+func TestPolicyOps_BindVaultName_DryRunBindsRecordedName(t *testing.T) {
+	h := newDryRunHarness(t)
+	c, err := vault.NewClient(vault.ClientConfig{Address: h.server.URL})
+	if err != nil {
+		t.Fatalf("vault.NewClient: %v", err)
+	}
+
+	adapter := newDryRunPolicy(map[string]string{
+		vaultv1alpha1.AnnotationDryRun: vaultv1alpha1.AnnotationValueTrue,
+	})
+	adapter.SetVaultName("legacy-recorded-name")
+
+	ops := &PolicyOps{adapter: adapter}
+	if got := ops.BindVaultName(c); got != "legacy-recorded-name" {
+		t.Errorf("BindVaultName under dry-run = %q, want recorded %q", got, "legacy-recorded-name")
+	}
+
+	// Without dry-run the same adapter derives the ADR 0010 shape.
+	plain := newDryRunPolicy(nil)
+	plain.SetVaultName("legacy-recorded-name")
+	ops2 := &PolicyOps{adapter: plain}
+	if got := ops2.BindVaultName(c); got == "legacy-recorded-name" {
+		t.Errorf("BindVaultName without dry-run must derive, got recorded name %q", got)
+	}
+}

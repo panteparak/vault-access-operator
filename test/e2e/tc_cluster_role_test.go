@@ -183,20 +183,18 @@ var _ = Describe("VaultClusterRole Tests", Ordered, Label("module"), func() {
 			)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(r.Status.VaultRoleName).To(
-				Equal(clusterRoleName),
+				Equal(clusterVaultName(clusterRoleName)),
 			)
 
 			By("verifying resolved policies")
 			Expect(r.Status.ResolvedPolicies).To(
-				ContainElement(clusterRolePolicyName),
+				ContainElement(clusterVaultName(clusterRolePolicyName)),
 			)
 		})
 
 		It("TC-CR02: Verify cluster role configuration "+
 			"in Vault", func() {
-			expectedNSPolicyName := fmt.Sprintf(
-				"%s-%s", testNamespace, namespacedPolicyName,
-			)
+			expectedNSPolicyName := nsVaultName(namespacedPolicyName)
 
 			By("reading role configuration from Vault")
 			vaultClient, err := utils.GetTestVaultClient()
@@ -206,7 +204,8 @@ var _ = Describe("VaultClusterRole Tests", Ordered, Label("module"), func() {
 			Eventually(func(g Gomega) {
 				var readErr error
 				roleData, readErr = vaultClient.ReadAuthRole(
-					ctx, "kubernetes", clusterRoleName,
+					ctx, "kubernetes",
+					clusterVaultName(clusterRoleName),
 				)
 				g.Expect(readErr).NotTo(HaveOccurred())
 			}, 30*time.Second, 2*time.Second).Should(Succeed())
@@ -241,7 +240,7 @@ var _ = Describe("VaultClusterRole Tests", Ordered, Label("module"), func() {
 
 			By("verifying policies are attached")
 			Expect(roleConfig.Policies).To(
-				ContainElement(clusterRolePolicyName),
+				ContainElement(clusterVaultName(clusterRolePolicyName)),
 				"Should have cluster policy attached",
 			)
 			Expect(roleConfig.Policies).To(
@@ -302,7 +301,8 @@ var _ = Describe("VaultClusterRole Tests", Ordered, Label("module"), func() {
 
 			Eventually(func(g Gomega) {
 				exists, err := vaultClient.RoleExists(
-					ctx, "kubernetes", tempClusterRoleName,
+					ctx, "kubernetes",
+					clusterVaultName(tempClusterRoleName),
 				)
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(exists).To(BeTrue())
@@ -317,7 +317,8 @@ var _ = Describe("VaultClusterRole Tests", Ordered, Label("module"), func() {
 			By("verifying role is removed from Vault")
 			Eventually(func(g Gomega) {
 				exists, err := vaultClient.RoleExists(
-					ctx, "kubernetes", tempClusterRoleName,
+					ctx, "kubernetes",
+					clusterVaultName(tempClusterRoleName),
 				)
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(exists).To(BeFalse(),

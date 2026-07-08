@@ -19,7 +19,6 @@ package controller
 import (
 	"context"
 	"fmt"
-	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -115,6 +114,9 @@ func (h *Handler) SetCleanupQueue(q workflow.CleanupQueuer) {
 	h.cleanupWorkflow = workflow.NewCleanupWorkflowWithQueue(
 		h.client, cleanupGetter, h.eventBus, q, h.log,
 	).WithRecorder(h.recorder)
+	// The sync workflow shares the queue: a failed delete of the old-named
+	// object after a rename (ADR 0010) is replayed the same way.
+	h.syncWorkflow.WithCleanupQueue(q)
 }
 
 // roleTarget is the resolved write destination for a role: which auth
@@ -191,12 +193,13 @@ func (h *Handler) CleanupRole(ctx context.Context, adapter domain.RoleAdapter) e
 
 // checkConflict checks for conflicts with existing Vault roles.
 //
-// Roles carry no in-band ownership record — Vault auth roles have no metadata
-// surface (ADR 0008). Ownership memory is the CR's own status: a CR that has
-// previously synced (LastAppliedHash set) owns its role. Cross-cluster safety
-// comes from the one-cluster-per-auth-mount invariant: another cluster's
-// operator authenticates through its own mount and never reaches this one.
-// Supports adoption via annotation (vault.platform.io/adopt: "true") or ConflictPolicy.
+// Roles carry their in-band ownership record in alias_metadata (ADR 0010,
+// amending ADR 0008's "roles carry nothing"): a record naming this operator
+// and CR proves the role is ours even when the CR's status memory is gone; a
+// record naming someone else is a hard conflict regardless of adoption
+// settings. A record-less role (hand-created or pre-ADR-0010) falls back to
+// the old rules: CR status memory (LastAppliedHash) then adoption intent,
+// backstopped by the one-cluster-per-auth-mount invariant.
 func (h *Handler) checkConflict(
 	ctx context.Context,
 	vaultClient workflow.VaultOpsClient,
@@ -212,13 +215,24 @@ func (h *Handler) checkConflict(
 
 	log := logr.FromContextOrDiscard(ctx)
 
-	exists, err := vaultClient.KubernetesAuthRoleExists(ctx, authPath, vaultRoleName)
+	data, err := vaultClient.ReadKubernetesAuthRole(ctx, authPath, vaultRoleName)
 	if err != nil {
 		return infraerrors.NewTransientError("check role existence", err)
 	}
 
-	if !exists {
+	if data == nil {
 		return nil
+	}
+
+	if own, ok := vault.ParseAliasMetadata(data); ok {
+		if own.SameOwner(vaultClient.AuthMount(), adapter.GetK8sResourceIdentifier()) {
+			return nil
+		}
+		return infraerrors.NewConflictError(
+			"role",
+			vaultRoleName,
+			fmt.Sprintf("already exists in Vault and is owned by %s", own.String()),
+		)
 	}
 
 	// This CR has synced the role before — it's ours.
@@ -237,8 +251,8 @@ func (h *Handler) checkConflict(
 		"role",
 		vaultRoleName,
 		"already exists in Vault and is not tracked by this resource "+
-			"(roles carry no in-band ownership record; set ConflictPolicy: Adopt "+
-			"or the vault.platform.io/adopt annotation to take it over)",
+			"(set ConflictPolicy: Adopt or the vault.platform.io/adopt "+
+			"annotation to take it over)",
 	)
 }
 
@@ -332,19 +346,14 @@ func compareJWTRoleFields(c *drift.Comparator, expected, current map[string]inte
 	}
 }
 
-// buildPolicyBindings creates PolicyBinding entries for tracking.
-func (h *Handler) buildPolicyBindings(
-	adapter domain.RoleAdapter, resolvedPolicies []string,
-) []vaultv1alpha1.PolicyBinding {
-	policyRefs := adapter.GetPolicies()
-	bindings := make([]vaultv1alpha1.PolicyBinding, len(policyRefs))
-
-	for i, ref := range policyRefs {
-		vaultPolicyName := binding.VaultPolicyName(ref, adapter.GetNamespace())
-		resolved := slices.Contains(resolvedPolicies, vaultPolicyName)
-		bindings[i] = binding.NewPolicyBindingRef(ref, adapter.GetNamespace(), vaultPolicyName, resolved)
+// buildPolicyBindings creates PolicyBinding entries for tracking, straight
+// from the lookup resolution (ADR 0010): the Vault-side name comes from the
+// referenced policy's recorded status, never re-derived.
+func (h *Handler) buildPolicyBindings(resolution []resolvedPolicyRef) []vaultv1alpha1.PolicyBinding {
+	bindings := make([]vaultv1alpha1.PolicyBinding, len(resolution))
+	for i, r := range resolution {
+		bindings[i] = binding.NewPolicyBindingRef(r.Ref, r.Namespace, r.VaultName, r.Resolved)
 	}
-
 	return bindings
 }
 
@@ -389,36 +398,51 @@ func (h *Handler) emitPolicyResolvedEvents(
 // UpperCamelCase per k8s convention.
 const eventReasonPolicyResolved = "PolicyResolved"
 
-// verifyPoliciesExistInVault checks that each resolved policy actually exists in Vault.
-// Missing policies are reported as a warning condition and event, but do NOT block the sync.
-// Vault allows binding non-existent policies; this is informational for the user.
+// verifyPoliciesExistInVault checks the resolution: refs whose policy CR is
+// missing or not yet synced are "pending" (ADR 0010 lookup model); resolved
+// names are additionally checked for existence in Vault. Both classes are
+// reported via the PoliciesResolved condition and a Warning event, but do
+// NOT block the sync — Vault allows binding non-existent policies, and the
+// role converges once the policy's status lands (watch-driven requeue).
 func (h *Handler) verifyPoliciesExistInVault(
 	ctx context.Context,
 	vaultClient workflow.VaultOpsClient,
 	adapter domain.RoleAdapter,
-	policyNames []string,
+	resolution []resolvedPolicyRef,
 ) {
 	log := logr.FromContextOrDiscard(ctx)
-	var missing []string
+	var missing, pending []string
 
-	for _, name := range policyNames {
-		exists, err := vaultClient.PolicyExists(ctx, name)
+	for _, r := range resolution {
+		if !r.Resolved {
+			pending = append(pending, binding.PolicyK8sRef(string(r.Ref.Kind), r.Namespace, r.Ref.Name))
+			continue
+		}
+		exists, err := vaultClient.PolicyExists(ctx, r.VaultName)
 		if err != nil {
-			log.V(1).Info("failed to check policy existence (non-fatal)", "policy", name, "error", err)
+			log.V(1).Info("failed to check policy existence (non-fatal)", "policy", r.VaultName, "error", err)
 			continue
 		}
 		if !exists {
-			missing = append(missing, name)
+			missing = append(missing, r.VaultName)
 		}
 	}
 
 	gen := adapter.GetGeneration()
 	conds := adapter.GetConditions()
-	if len(missing) > 0 {
-		msg := fmt.Sprintf("policies not found in Vault: %s", strings.Join(missing, ", "))
+	if len(missing) > 0 || len(pending) > 0 {
+		var parts []string
+		if len(pending) > 0 {
+			parts = append(parts, "policies not yet synced: "+strings.Join(pending, ", "))
+		}
+		if len(missing) > 0 {
+			parts = append(parts, "policies not found in Vault: "+strings.Join(missing, ", "))
+		}
+		msg := strings.Join(parts, "; ")
 		conds = conditions.Set(conds, gen, "PoliciesResolved",
 			metav1.ConditionFalse, vaultv1alpha1.ReasonPolicyNotInVault, msg)
-		log.Info("warning: role references policies not yet in Vault", "missing", missing)
+		log.Info("warning: role has unresolved policy references",
+			"pending", pending, "missing", missing)
 		if h.recorder != nil {
 			h.recorder.Event(adapter.GetObject(), corev1.EventTypeWarning,
 				"PolicyNotInVault", msg)
@@ -430,22 +454,24 @@ func (h *Handler) verifyPoliciesExistInVault(
 	adapter.SetConditions(conds)
 }
 
-// resolvePolicyNames resolves PolicyReferences to Vault policy names. The
-// name-mapping switch used to live inline here, duplicating the logic in
-// binding.VaultPolicyName (IMPROVEMENTS §20). Now we validate the kind and
-// namespace inputs here, then delegate the actual mapping to the binding
-// package — single source of truth for "given a PolicyReference, what's the
-// Vault name?".
-//
-// Validation-vs-mapping split:
-//   - binding.VaultPolicyName is a pure, error-less helper. It returns the
-//     mapped name or falls back to ref.Name for unknown kinds.
-//   - The validations below (unknown kind, missing namespace on cluster role)
-//     are caller-specific policy that `binding` can't enforce without
-//     coupling itself to the role feature.
-func (h *Handler) resolvePolicyNames(_ context.Context, adapter domain.RoleAdapter) ([]string, error) {
+// resolvedPolicyRef is one PolicyReference after lookup against the K8s API
+// (ADR 0010): the referenced policy CR's RECORDED status.vaultName is the
+// only truth about its Vault-side name — re-deriving it here would guess
+// wrong whenever the policy's connection identity differs from the role's.
+type resolvedPolicyRef struct {
+	Ref       vaultv1alpha1.PolicyReference
+	Namespace string // effective namespace (VaultPolicy refs only)
+	VaultName string // recorded name; "" when the CR is missing or not yet synced
+	Resolved  bool
+}
+
+// resolvePolicyNames validates each PolicyReference and looks up the
+// referenced policy CR's recorded Vault name. A missing CR or empty status
+// yields an unresolved entry (the binding machinery requeues the role when
+// the policy's status lands); API errors other than NotFound are transient.
+func (h *Handler) resolvePolicyNames(ctx context.Context, adapter domain.RoleAdapter) ([]resolvedPolicyRef, error) {
 	policies := adapter.GetPolicies()
-	policyNames := make([]string, 0, len(policies))
+	resolution := make([]resolvedPolicyRef, 0, len(policies))
 
 	for _, policyRef := range policies {
 		switch string(policyRef.Kind) {
@@ -459,9 +485,8 @@ func (h *Handler) resolvePolicyNames(_ context.Context, adapter domain.RoleAdapt
 			)
 		}
 
-		// Compute the default namespace to pass to binding.VaultPolicyName.
-		// For VaultClusterPolicy this is unused; for VaultPolicy it's the
-		// role's own namespace when ref.Namespace is empty.
+		// Effective namespace: for VaultPolicy it's the ref's namespace,
+		// else the role's own; cluster-scoped roles must be explicit.
 		defaultNs := ""
 		if policyRef.Kind == binding.KindVaultPolicy {
 			defaultNs = policyRef.Namespace
@@ -477,10 +502,48 @@ func (h *Handler) resolvePolicyNames(_ context.Context, adapter domain.RoleAdapt
 			}
 		}
 
-		policyNames = append(policyNames, binding.VaultPolicyName(policyRef, defaultNs))
+		vaultName := ""
+		if policyRef.Name != "" {
+			var err error
+			vaultName, err = h.lookupPolicyVaultName(ctx, policyRef, defaultNs)
+			if err != nil {
+				return nil, err
+			}
+		}
+		resolution = append(resolution, resolvedPolicyRef{
+			Ref:       policyRef,
+			Namespace: defaultNs,
+			VaultName: vaultName,
+			Resolved:  vaultName != "",
+		})
 	}
 
-	return policyNames, nil
+	return resolution, nil
+}
+
+// lookupPolicyVaultName fetches the referenced policy CR and returns its
+// recorded status.vaultName ("" when the CR is absent or not yet synced).
+func (h *Handler) lookupPolicyVaultName(
+	ctx context.Context, ref vaultv1alpha1.PolicyReference, namespace string,
+) (string, error) {
+	if string(ref.Kind) == binding.KindVaultClusterPolicy {
+		var p vaultv1alpha1.VaultClusterPolicy
+		if err := h.client.Get(ctx, client.ObjectKey{Name: ref.Name}, &p); err != nil {
+			if apierrors.IsNotFound(err) {
+				return "", nil
+			}
+			return "", infraerrors.NewTransientError("resolve policy reference", err)
+		}
+		return p.Status.VaultName, nil
+	}
+	var p vaultv1alpha1.VaultPolicy
+	if err := h.client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: ref.Name}, &p); err != nil {
+		if apierrors.IsNotFound(err) {
+			return "", nil
+		}
+		return "", infraerrors.NewTransientError("resolve policy reference", err)
+	}
+	return p.Status.VaultName, nil
 }
 
 // buildRoleData constructs the data map for the Vault role write, branching

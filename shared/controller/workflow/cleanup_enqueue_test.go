@@ -85,7 +85,9 @@ func TestCleanupWorkflow_EnqueuesOnVaultUnreachable(t *testing.T) {
 	}
 	bus := events.NewEventBus(logr.Discard())
 	queue := &fakeQueue{}
-	ops := &mockOps{}
+	// A recorded name marks the resource as previously synced — the enqueue
+	// must target exactly that name (ADR 0010).
+	ops := &mockOps{recordedName: "default-test-policy"}
 
 	wf := NewCleanupWorkflowWithQueue(k8sClient, getter, bus, queue, logr.Discard())
 	if err := wf.Execute(context.Background(), resource, ops); err != nil {
@@ -217,10 +219,40 @@ func TestCleanupWorkflow_FinalizerNotBlockedByQueueFailure(t *testing.T) {
 	}
 	bus := events.NewEventBus(logr.Discard())
 	queue := &fakeQueue{err: errors.New("queue ConfigMap write failed")}
-	ops := &mockOps{}
+	// Recorded name so the enqueue path (and its failure) is actually reached.
+	ops := &mockOps{recordedName: "default-test-policy"}
 
 	wf := NewCleanupWorkflowWithQueue(k8sClient, getter, bus, queue, logr.Discard())
 	if err := wf.Execute(context.Background(), resource, ops); err != nil {
 		t.Fatalf("Execute must not propagate queue-write errors (got %v)", err)
+	}
+}
+
+// TestCleanupWorkflow_NeverSyncedSkipsEnqueue pins ADR 0010: a CR that never
+// synced has no recorded Vault name — nothing was written, so an unreachable
+// Vault at cleanup time must NOT enqueue a retry (there is nothing to delete
+// and no name to delete by).
+func TestCleanupWorkflow_NeverSyncedSkipsEnqueue(t *testing.T) {
+	t.Parallel()
+
+	policy := newPolicyForCleanup(t)
+	k8sClient := newFakeK8sClient(t, policy)
+	resource := newTestResource(policy)
+
+	getter := func(_ string) (VaultOpsClient, error) {
+		return nil, errors.New("vault unreachable")
+	}
+	bus := events.NewEventBus(logr.Discard())
+	queue := &fakeQueue{}
+	ops := &mockOps{} // recordedName empty = never synced
+
+	wf := NewCleanupWorkflowWithQueue(k8sClient, getter, bus, queue, logr.Discard())
+	if err := wf.Execute(context.Background(), resource, ops); err != nil {
+		t.Fatalf("Execute returned unexpected error: %v", err)
+	}
+
+	if items := queue.snapshot(); len(items) != 0 {
+		t.Errorf("expected 0 queue items (never synced → nothing to delete), got %d: %+v",
+			len(items), items)
 	}
 }

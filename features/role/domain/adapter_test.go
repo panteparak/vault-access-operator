@@ -106,66 +106,29 @@ func TestNewVaultRoleAdapter(t *testing.T) {
 	}
 }
 
-func TestRoleAdapter_GetVaultRoleName_ClusterPrefix(t *testing.T) {
-	naming.SetCluster("east")
-	t.Cleanup(func() { naming.SetCluster("") })
-
+func TestDeriveVaultName(t *testing.T) {
 	nsAdapter := NewVaultRoleAdapter(&vaultv1alpha1.VaultRole{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "prod", Name: "app"},
 	})
-	if got, want := nsAdapter.GetVaultRoleName(), "east-prod-app"; got != want {
-		t.Errorf("VaultRole GetVaultRoleName() = %q, want %q", got, want)
-	}
-
 	clusterAdapter := NewVaultClusterRoleAdapter(&vaultv1alpha1.VaultClusterRole{
 		ObjectMeta: metav1.ObjectMeta{Name: "admin"},
 	})
-	if got, want := clusterAdapter.GetVaultRoleName(), "east-admin"; got != want {
-		t.Errorf("VaultClusterRole GetVaultRoleName() = %q, want %q", got, want)
-	}
-}
 
-func TestVaultRoleAdapter_GetVaultRoleName(t *testing.T) {
 	tests := []struct {
-		name      string
-		namespace string
-		roleName  string
-		expected  string
+		name     string
+		adapter  RoleAdapter
+		identity string
+		want     string
 	}{
-		{
-			name:      "standard namespace and name",
-			namespace: "default",
-			roleName:  "my-role",
-			expected:  "default-my-role",
-		},
-		{
-			name:      "production namespace",
-			namespace: "production",
-			roleName:  "app-role",
-			expected:  "production-app-role",
-		},
-		{
-			name:      "complex names",
-			namespace: "my-namespace",
-			roleName:  "my-complex-role-name",
-			expected:  "my-namespace-my-complex-role-name",
-		},
+		{"namespaced with identity", nsAdapter, "east", "vao.east.prod.app"},
+		{"namespaced without identity", nsAdapter, naming.Placeholder, "vao._.prod.app"},
+		{"cluster-scoped with identity", clusterAdapter, "east", "vao.east._.admin"},
+		{"cluster-scoped without identity", clusterAdapter, naming.Placeholder, "vao._._.admin"},
 	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			role := &vaultv1alpha1.VaultRole{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      tt.roleName,
-					Namespace: tt.namespace,
-				},
-			}
-			adapter := NewVaultRoleAdapter(role)
-
-			result := adapter.GetVaultRoleName()
-
-			if result != tt.expected {
-				t.Errorf("GetVaultRoleName() = %q, want %q", result, tt.expected)
+			if got := DeriveVaultName(tt.adapter, tt.identity); got != tt.want {
+				t.Errorf("DeriveVaultName(%s, %q) = %q, want %q", tt.name, tt.identity, got, tt.want)
 			}
 		})
 	}
@@ -570,42 +533,6 @@ func TestNewVaultClusterRoleAdapter(t *testing.T) {
 
 	if adapter.VaultClusterRole != role {
 		t.Error("expected adapter to wrap the provided VaultClusterRole")
-	}
-}
-
-func TestVaultClusterRoleAdapter_GetVaultRoleName(t *testing.T) {
-	tests := []struct {
-		name     string
-		roleName string
-		expected string
-	}{
-		{
-			name:     "simple name",
-			roleName: "my-role",
-			expected: "my-role",
-		},
-		{
-			name:     "complex name",
-			roleName: "my-complex-cluster-role",
-			expected: "my-complex-cluster-role",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			role := &vaultv1alpha1.VaultClusterRole{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: tt.roleName,
-				},
-			}
-			adapter := NewVaultClusterRoleAdapter(role)
-
-			result := adapter.GetVaultRoleName()
-
-			if result != tt.expected {
-				t.Errorf("GetVaultRoleName() = %q, want %q", result, tt.expected)
-			}
-		})
 	}
 }
 
@@ -1035,22 +962,6 @@ func TestVaultRoleAdapter_VsVaultClusterRoleAdapter(t *testing.T) {
 
 	roleAdapter := NewVaultRoleAdapter(vaultRole)
 	clusterRoleAdapter := NewVaultClusterRoleAdapter(vaultClusterRole)
-
-	t.Run("GetVaultRoleName differs", func(t *testing.T) {
-		// VaultRole: namespace-name format
-		roleResult := roleAdapter.GetVaultRoleName()
-		expectedRole := "my-namespace-shared-role"
-		if roleResult != expectedRole {
-			t.Errorf("VaultRoleAdapter.GetVaultRoleName() = %q, want %q", roleResult, expectedRole)
-		}
-
-		// VaultClusterRole: just name
-		clusterResult := clusterRoleAdapter.GetVaultRoleName()
-		expectedCluster := "shared-role"
-		if clusterResult != expectedCluster {
-			t.Errorf("VaultClusterRoleAdapter.GetVaultRoleName() = %q, want %q", clusterResult, expectedCluster)
-		}
-	})
 
 	t.Run("GetK8sResourceIdentifier differs", func(t *testing.T) {
 		// VaultRole: namespace/name format

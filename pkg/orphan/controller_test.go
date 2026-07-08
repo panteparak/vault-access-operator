@@ -146,12 +146,22 @@ func TestController_DetectOrphanedPolicies_ListError(t *testing.T) {
 }
 
 // TestController_DetectOrphanedRoles: under the one-cluster-per-mount
-// invariant, any role on OUR mount with no deriving CR is an orphan
-// candidate; roles derived from live CRs are not. A role CR maps to a
-// mount via its connection (roles carry no mount fields).
+// invariant, any OPERATOR-SHAPED role (vao. marker, ADR 0010) on OUR mount
+// with no recording CR is an orphan candidate; roles recorded by live CRs
+// and hand-created (non-vao) roles are not. A role CR maps to a mount via
+// its connection (roles carry no mount fields).
 func TestController_DetectOrphanedRoles(t *testing.T) {
-	mock := &orphanVaultMock{roles: []string{"default-live", "stale-role"}}
+	mock := &orphanVaultMock{roles: []string{
+		"vao._.default.live", // recorded by the live CR below
+		"vao._._.stale-role", // operator-shaped, no CR → orphan
+		"hand-made-role",     // no vao. marker → never a candidate
+	}}
 	vc := newOrphanVaultClient(t, mock, "kubernetes")
+	liveRole := &vaultv1alpha1.VaultRole{
+		ObjectMeta: metav1.ObjectMeta{Name: "live", Namespace: "default"},
+		Spec:       vaultv1alpha1.VaultRoleSpec{ConnectionRef: "conn"},
+		Status:     vaultv1alpha1.VaultRoleStatus{VaultRoleName: "vao._.default.live"},
+	}
 	ctrl := &Controller{
 		k8sClient: newOrphanK8sClient(
 			&vaultv1alpha1.VaultConnection{
@@ -162,10 +172,7 @@ func TestController_DetectOrphanedRoles(t *testing.T) {
 					},
 				},
 			},
-			&vaultv1alpha1.VaultRole{
-				ObjectMeta: metav1.ObjectMeta{Name: "live", Namespace: "default"},
-				Spec:       vaultv1alpha1.VaultRoleSpec{ConnectionRef: "conn"},
-			}),
+			liveRole),
 		log: logr.Discard(),
 	}
 
@@ -173,8 +180,8 @@ func TestController_DetectOrphanedRoles(t *testing.T) {
 	if len(orphans) != 1 {
 		t.Fatalf("orphans = %+v, want exactly 1", orphans)
 	}
-	if orphans[0].VaultName != "stale-role" {
-		t.Errorf("orphan = %+v, want stale-role", orphans[0])
+	if orphans[0].VaultName != "vao._._.stale-role" {
+		t.Errorf("orphan = %+v, want vao._._.stale-role", orphans[0])
 	}
 	// No in-band record exists for roles, so the owner is unknowable.
 	if orphans[0].K8sResource != "" {

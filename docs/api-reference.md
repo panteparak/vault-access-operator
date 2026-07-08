@@ -325,7 +325,7 @@ All synced resources include a `binding` field in their status that acts as a fo
 | Field | Type | Description |
 |-------|------|-------------|
 | `phase` | string | `Pending`, `Syncing`, `Active`, `Conflict`, `Error`, `Deleting` |
-| `vaultName` | string | Name of policy in Vault |
+| `vaultName` | string | Recorded name of the policy in Vault (`vao.{identity}.{namespace}.{name}`, ADR 0010) — authoritative for cleanup/rename |
 | `rulesCount` | int | Number of rules |
 | `lastSyncedAt` | time | Time of last successful sync |
 | `lastAppliedHash` | string | Hash of the last applied policy content |
@@ -470,7 +470,7 @@ See [JWT for GitLab CI](auth-methods/jwt-gitlab.md) for an end-to-end example.
 | Field | Type | Description |
 |-------|------|-------------|
 | `phase` | string | `Pending`, `Syncing`, `Active`, `Conflict`, `Error`, `Deleting` |
-| `vaultRoleName` | string | Name of role in Vault |
+| `vaultRoleName` | string | Recorded name of the role in Vault (`vao.{identity}.{namespace}.{name}`, ADR 0010) — authoritative for cleanup/rename |
 | `boundServiceAccounts` | []string | Resolved service account names |
 | `resolvedPolicies` | []string | Resolved Vault policy names |
 

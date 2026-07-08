@@ -34,6 +34,24 @@ import (
 )
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Vault-Side Naming (ADR 0010)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// nsVaultName is the expected Vault-side name for a namespaced CR in
+// testNamespace synced through a connection with no login auth mount (every
+// connection this suite creates is token-auth): vao.{identity}.{ns}.{name},
+// where identity is E2E_CLUSTER_NAME or the "_" placeholder.
+func nsVaultName(name string) string {
+	return utils.ExpectedVaultName(utils.DefaultIdentity(), testNamespace, name)
+}
+
+// clusterVaultName is nsVaultName for cluster-scoped CRs: the namespace
+// segment renders as the "_" placeholder.
+func clusterVaultName(name string) string {
+	return utils.ExpectedVaultName(utils.DefaultIdentity(), "", name)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Test Resource Builders
 // ─────────────────────────────────────────────────────────────────────────────
 

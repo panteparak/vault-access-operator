@@ -39,6 +39,7 @@ import (
 	"github.com/panteparak/vault-access-operator/shared/events"
 	infraerrors "github.com/panteparak/vault-access-operator/shared/infrastructure/errors"
 	"github.com/panteparak/vault-access-operator/shared/markers"
+	"github.com/panteparak/vault-access-operator/shared/naming"
 )
 
 // setConditionHelper is a test helper that calls conditions.Set directly.
@@ -606,7 +607,9 @@ func TestCheckConflict_MarkersDisabled(t *testing.T) {
 	adapter := domain.NewVaultPolicyAdapter(policy)
 	handler := &Handler{log: logr.Discard(), recorder: record.NewFakeRecorder(10)}
 
-	if err := handler.checkConflict(context.Background(), mockClient, adapter, adapter.GetVaultPolicyName()); err != nil {
+	err := handler.checkConflict(
+		context.Background(), mockClient, adapter, domain.DeriveVaultName(adapter, naming.Placeholder))
+	if err != nil {
 		t.Fatalf("markers disabled: checkConflict should return nil, got %v", err)
 	}
 	// PolicyExists is the first Vault call inside the ownership branch; it must
@@ -645,7 +648,7 @@ func TestCheckConflict_MarkersEnabled(t *testing.T) {
 		m.policyExists = false
 		a := newAdapter(nil)
 		h := &Handler{log: logr.Discard(), recorder: record.NewFakeRecorder(10)}
-		if err := h.checkConflict(context.Background(), m, a, a.GetVaultPolicyName()); err != nil {
+		if err := h.checkConflict(context.Background(), m, a, domain.DeriveVaultName(a, naming.Placeholder)); err != nil {
 			t.Errorf("absent policy should not conflict, got %v", err)
 		}
 	})
@@ -657,7 +660,7 @@ func TestCheckConflict_MarkersEnabled(t *testing.T) {
 		m.ownership = ownedBy(mount, selfOwner)
 		a := newAdapter(nil)
 		h := &Handler{log: logr.Discard(), recorder: record.NewFakeRecorder(10)}
-		if err := h.checkConflict(context.Background(), m, a, a.GetVaultPolicyName()); err != nil {
+		if err := h.checkConflict(context.Background(), m, a, domain.DeriveVaultName(a, naming.Placeholder)); err != nil {
 			t.Errorf("self-owned policy should not conflict, got %v", err)
 		}
 	})
@@ -669,7 +672,7 @@ func TestCheckConflict_MarkersEnabled(t *testing.T) {
 		m.ownership = ownedBy(mount, "other-ns/other-policy")
 		a := newAdapter(nil)
 		h := &Handler{log: logr.Discard(), recorder: record.NewFakeRecorder(10)}
-		err := h.checkConflict(context.Background(), m, a, a.GetVaultPolicyName())
+		err := h.checkConflict(context.Background(), m, a, domain.DeriveVaultName(a, naming.Placeholder))
 		if !infraerrors.IsConflictError(err) {
 			t.Errorf("foreign-owned policy should be a conflict, got %v", err)
 		}
@@ -688,7 +691,7 @@ func TestCheckConflict_MarkersEnabled(t *testing.T) {
 			p.Spec.ConflictPolicy = vaultv1alpha1.ConflictPolicyAdopt
 		})
 		h := &Handler{log: logr.Discard(), recorder: record.NewFakeRecorder(10)}
-		err := h.checkConflict(context.Background(), m, a, a.GetVaultPolicyName())
+		err := h.checkConflict(context.Background(), m, a, domain.DeriveVaultName(a, naming.Placeholder))
 		if !infraerrors.IsConflictError(err) {
 			t.Errorf("foreign-cluster policy must conflict (adoption blocked), got %v", err)
 		}
@@ -700,7 +703,7 @@ func TestCheckConflict_MarkersEnabled(t *testing.T) {
 		m.ownership = nil // exists but no ownership header
 		a := newAdapter(nil)
 		h := &Handler{log: logr.Discard(), recorder: record.NewFakeRecorder(10)}
-		err := h.checkConflict(context.Background(), m, a, a.GetVaultPolicyName())
+		err := h.checkConflict(context.Background(), m, a, domain.DeriveVaultName(a, naming.Placeholder))
 		if !infraerrors.IsConflictError(err) {
 			t.Errorf("unmanaged existing policy under default Fail should conflict, got %v", err)
 		}
@@ -717,7 +720,7 @@ func TestCheckConflict_MarkersEnabled(t *testing.T) {
 			p.Status.LastAppliedHash = "previously-synced"
 		})
 		h := &Handler{log: logr.Discard(), recorder: record.NewFakeRecorder(10)}
-		if err := h.checkConflict(context.Background(), m, a, a.GetVaultPolicyName()); err != nil {
+		if err := h.checkConflict(context.Background(), m, a, domain.DeriveVaultName(a, naming.Placeholder)); err != nil {
 			t.Errorf("previously-synced CR should own its headerless policy, got %v", err)
 		}
 	})
@@ -730,7 +733,7 @@ func TestCheckConflict_MarkersEnabled(t *testing.T) {
 			p.Spec.ConflictPolicy = vaultv1alpha1.ConflictPolicyAdopt
 		})
 		h := &Handler{log: logr.Discard(), recorder: record.NewFakeRecorder(10)}
-		if err := h.checkConflict(context.Background(), m, a, a.GetVaultPolicyName()); err != nil {
+		if err := h.checkConflict(context.Background(), m, a, domain.DeriveVaultName(a, naming.Placeholder)); err != nil {
 			t.Errorf("unmanaged policy with ConflictPolicy=Adopt should be adopted, got %v", err)
 		}
 	})
@@ -742,13 +745,14 @@ func TestCheckConflict_MarkersEnabled(t *testing.T) {
 		h := &Handler{log: logr.Discard(), recorder: record.NewFakeRecorder(10)}
 
 		a := newAdapter(nil)
-		if err := h.checkConflict(context.Background(), m, a, a.GetVaultPolicyName()); !infraerrors.IsTransientError(err) {
+		err := h.checkConflict(context.Background(), m, a, domain.DeriveVaultName(a, naming.Placeholder))
+		if !infraerrors.IsTransientError(err) {
 			t.Errorf("read error under Fail should be transient, got %v", err)
 		}
 		a = newAdapter(func(p *vaultv1alpha1.VaultPolicy) {
 			p.Spec.ConflictPolicy = vaultv1alpha1.ConflictPolicyAdopt
 		})
-		if err := h.checkConflict(context.Background(), m, a, a.GetVaultPolicyName()); err != nil {
+		if err := h.checkConflict(context.Background(), m, a, domain.DeriveVaultName(a, naming.Placeholder)); err != nil {
 			t.Errorf("read error with Adopt should adopt, got %v", err)
 		}
 	})
@@ -939,8 +943,8 @@ func TestCheckConflict(t *testing.T) {
 		// or refactor the handler to use an interface
 
 		// For now, verify the adapter methods work correctly
-		vaultPolicyName := adapter.GetVaultPolicyName()
-		expectedName := testNamespace + "-" + testPolicyName
+		vaultPolicyName := domain.DeriveVaultName(adapter, naming.Placeholder)
+		expectedName := "vao._." + testNamespace + "." + testPolicyName
 		if vaultPolicyName != expectedName {
 			t.Errorf("expected vault policy name %s, got %s", expectedName, vaultPolicyName)
 		}
@@ -1173,13 +1177,6 @@ func TestClusterPolicyAdapter(t *testing.T) {
 		}
 	})
 
-	t.Run("GetVaultPolicyName returns just the name", func(t *testing.T) {
-		expected := "global-policy"
-		if adapter.GetVaultPolicyName() != expected {
-			t.Errorf("expected %s, got %s", expected, adapter.GetVaultPolicyName())
-		}
-	})
-
 	t.Run("GetK8sResourceIdentifier returns just the name", func(t *testing.T) {
 		expected := "global-policy"
 		if adapter.GetK8sResourceIdentifier() != expected {
@@ -1211,13 +1208,6 @@ func TestNamespacedPolicyAdapter(t *testing.T) {
 	t.Run("GetNamespace returns the namespace", func(t *testing.T) {
 		if adapter.GetNamespace() != testNamespace {
 			t.Errorf("expected %s, got %s", testNamespace, adapter.GetNamespace())
-		}
-	})
-
-	t.Run("GetVaultPolicyName returns namespace-name format", func(t *testing.T) {
-		expected := testNamespace + "-" + testPolicyName
-		if adapter.GetVaultPolicyName() != expected {
-			t.Errorf("expected %s, got %s", expected, adapter.GetVaultPolicyName())
 		}
 	})
 

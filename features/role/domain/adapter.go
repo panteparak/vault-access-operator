@@ -66,10 +66,6 @@ type RoleAdapter interface {
 	// GetDeletionPolicy returns the deletion policy.
 	GetDeletionPolicy() vaultv1alpha1.DeletionPolicy
 
-	// GetVaultRoleName returns the role name in Vault.
-	// For namespaced: {namespace}-{name}, for cluster: {name}.
-	GetVaultRoleName() string
-
 	// GetK8sResourceIdentifier returns the identifier for tracking ownership.
 	// For namespaced: {namespace}/{name}, for cluster: {name}.
 	GetK8sResourceIdentifier() string
@@ -78,6 +74,10 @@ type RoleAdapter interface {
 	IsNamespaced() bool
 
 	// Role-specific status fields.
+	// GetVaultRoleNameStatus returns the RECORDED Vault-side role name from
+	// status (ADR 0010: the recorded name is authoritative for cleanup and
+	// rename detection). Empty until the first successful sync.
+	GetVaultRoleNameStatus() string
 	SetVaultRoleName(name string)
 	SetBoundServiceAccounts(accounts []string)
 	SetResolvedPolicies(policies []string)
@@ -123,14 +123,12 @@ func (a *VaultRoleAdapter) GetJWT() *vaultv1alpha1.VaultRoleJWTSpec      { retur
 func (a *VaultRoleAdapter) GetDeletionPolicy() vaultv1alpha1.DeletionPolicy {
 	return a.Spec.DeletionPolicy
 }
-func (a *VaultRoleAdapter) GetVaultRoleName() string {
-	return naming.Vault(a.Namespace + "-" + a.Name)
-}
 func (a *VaultRoleAdapter) GetK8sResourceIdentifier() string { return a.Namespace + "/" + a.Name }
 func (a *VaultRoleAdapter) IsNamespaced() bool               { return true }
 
 // Role-specific status fields
-func (a *VaultRoleAdapter) SetVaultRoleName(name string) { a.Status.VaultRoleName = name }
+func (a *VaultRoleAdapter) GetVaultRoleNameStatus() string { return a.Status.VaultRoleName }
+func (a *VaultRoleAdapter) SetVaultRoleName(name string)   { a.Status.VaultRoleName = name }
 func (a *VaultRoleAdapter) SetBoundServiceAccounts(accounts []string) {
 	a.Status.BoundServiceAccounts = accounts
 }
@@ -184,12 +182,12 @@ func (a *VaultClusterRoleAdapter) GetJWT() *vaultv1alpha1.VaultRoleJWTSpec {
 func (a *VaultClusterRoleAdapter) GetDeletionPolicy() vaultv1alpha1.DeletionPolicy {
 	return a.Spec.DeletionPolicy
 }
-func (a *VaultClusterRoleAdapter) GetVaultRoleName() string         { return naming.Vault(a.Name) }
 func (a *VaultClusterRoleAdapter) GetK8sResourceIdentifier() string { return a.Name }
 func (a *VaultClusterRoleAdapter) IsNamespaced() bool               { return false }
 
 // Role-specific status fields
-func (a *VaultClusterRoleAdapter) SetVaultRoleName(name string) { a.Status.VaultRoleName = name }
+func (a *VaultClusterRoleAdapter) GetVaultRoleNameStatus() string { return a.Status.VaultRoleName }
+func (a *VaultClusterRoleAdapter) SetVaultRoleName(name string)   { a.Status.VaultRoleName = name }
 func (a *VaultClusterRoleAdapter) SetBoundServiceAccounts(accounts []string) {
 	a.Status.BoundServiceAccounts = accounts
 }
@@ -203,3 +201,13 @@ func (a *VaultClusterRoleAdapter) SetPolicyBindings(bindings []vaultv1alpha1.Pol
 	a.Status.PolicyBindings = bindings
 }
 func (a *VaultClusterRoleAdapter) GetDriftMode() vaultv1alpha1.DriftMode { return a.Spec.DriftMode }
+
+// DeriveVaultName computes the ADR 0010 Vault-side role name for the given
+// identity segment (see naming.Identity). Pure; the identity is resolved by
+// the caller because it may depend on the resolved connection's auth mount.
+func DeriveVaultName(a RoleAdapter, identity string) string {
+	if a.IsNamespaced() {
+		return naming.VaultName(identity, a.GetNamespace(), a.GetName())
+	}
+	return naming.VaultName(identity, "", a.GetName())
+}

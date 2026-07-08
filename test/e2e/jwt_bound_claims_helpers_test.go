@@ -72,11 +72,6 @@ const (
 	// one entry — fixed in the JWT plan; until then this is the workaround.
 	jwtGitlabSA = "tc-au08-sa"
 
-	// expectedPolicyName is the Vault-side name the operator generates from
-	// the (namespace, policyName) pair. Used to assert the role payload
-	// references the right policy.
-	expectedPolicyName = "e2e-test-tc-au08-policy"
-
 	// roleActiveTimeout / pollInterval are the budget for waiting on
 	// reconciliation. 2 minutes covers cold-start operator latency.
 	roleActiveTimeout    = 2 * time.Minute
@@ -246,10 +241,18 @@ func buildJWTGitlabRole(
 	}
 }
 
+// expectedPolicyName is the Vault-side name the operator generates for the
+// TC-AU08 policy (ADR 0010). The policy syncs through the shared static-token
+// connection, so the identity segment is the suite default. Used to assert
+// the role payload references the right policy.
+var expectedPolicyName = nsVaultName(jwtGitlabPolicy)
+
 // vaultRoleNameOf maps a CR name to the Vault-side role name the operator
-// generates: "{namespace}-{crName}". Avoids fmt.Sprintf duplication.
+// generates (ADR 0010). The jwt-gitlab connection is token-auth (its
+// defaults.authPath is the ROLE mount, not a login mount), so the identity
+// segment is the suite default, same as the shared connection.
 func vaultRoleNameOf(crName string) string {
-	return fmt.Sprintf("%s-%s", testNamespace, crName)
+	return nsVaultName(crName)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -123,6 +123,9 @@ func (h *Handler) SetCleanupQueue(q workflow.CleanupQueuer) {
 	h.cleanupWorkflow = workflow.NewCleanupWorkflowWithQueue(
 		h.client, cleanupGetter, h.eventBus, q, h.log,
 	).WithRecorder(h.recorder)
+	// The sync workflow shares the queue: a failed delete of the old-named
+	// object after a rename (ADR 0010) is replayed the same way.
+	h.syncWorkflow.WithCleanupQueue(q)
 }
 
 // SyncPolicy synchronizes a policy to Vault. After a successful sync,

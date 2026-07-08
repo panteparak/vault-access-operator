@@ -6,7 +6,7 @@ Deletion of a CR goes through three mechanisms:
 
 1. **Finalizer-guarded cleanup** (every CRD) — standard K8s pattern: a finalizer blocks deletion until `Cleanup()` runs successfully.
 2. **Persistent cleanup queue** (`pkg/cleanup`) — ConfigMap-backed retry queue for failed deletions, meant to survive operator restarts. **⚠️ Not wired into main.go.**
-3. **Orphan detection** (`pkg/orphan`) — periodic scan for Vault resources this operator owns whose K8s owner has vanished. Policies are scanned by their in-band ownership header (ADR 0008); roles by comparing the operator's own auth mount against the CR-derived name set. Gated behind `--managed-markers=true` (default OFF).
+3. **Orphan detection** (`pkg/orphan`) — periodic scan for Vault resources this operator owns whose K8s owner has vanished. Policies are scanned by their in-band ownership header (ADR 0008); roles by comparing `vao.`-prefixed names on the operator's own mount against the CRs' RECORDED `status.vaultRoleName` set (ADR 0010 — hand-created roles are never candidates). Gated behind `--managed-markers=true` (default OFF).
 
 Only (1) is active today. (2) and (3) are complete implementations with tests. Orphan detection (3) is additionally gated on `--managed-markers` being enabled.
 
@@ -46,7 +46,8 @@ sequenceDiagram
     alt DeletionPolicy = Delete (default)
         CW->>Cache: Get (lightweight — no validation)
         alt client authenticated
-            CW->>Ops: DeleteFromVault
+            CW->>Ops: DeleteFromVault(recordedName)
+            Note over CW: name = status.vaultName/.vaultRoleName<br/>(ADR 0010 — never re-derived)
             Ops->>VC: DeletePolicy/DeleteKubernetesAuthRole
             VC->>V: DELETE
             alt V returns error
@@ -190,7 +191,7 @@ sequenceDiagram
             end
             C->>C: metric: vault_orphaned_resources{type=policy}
 
-            C->>VC: ListKubernetesAuthRoles(own mount) vs CR-derived name set
+            C->>VC: ListKubernetesAuthRoles(own mount) — vao.* names vs recorded status name set
             Note over C: same loop for roles
             C->>C: metric: vault_orphaned_resources{type=role}
         end
