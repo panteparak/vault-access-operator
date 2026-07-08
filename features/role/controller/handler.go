@@ -209,7 +209,7 @@ func (h *Handler) detectRoleDrift(
 		// Vault is clearly broken" needs to find this. Mirrors the
 		// PolicyOps.DetectDrift visibility fix.
 		log.Info("skipping role drift detection — Vault read failed",
-			"role", roleName, "authPath", authPath,
+			"role", roleName,
 			"error", err.Error(),
 			"hint", "drift state preserved from last successful read; will retry on next reconcile",
 		)

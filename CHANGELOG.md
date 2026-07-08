@@ -7,6 +7,24 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added
+
+- **Traceable log context on every workflow line.** The sync and cleanup
+  workflows now enrich the context logger once per reconcile with
+  `vaultConnection` and (for auth-mount resources) `authPath`, so every
+  downstream log line identifies the failure source alongside the existing
+  `reconcileID` — no per-call-site fields. The discovery controller joins the
+  context-logger chain (its scans now carry a `reconcileID` too).
+
+### Fixed
+
+- **Production logs are JSON as documented.** `cmd/main.go` hardcoded zap
+  `Development: true` and the Helm chart never rendered its documented
+  `logging.*` values into flags. The binary now defaults to controller-runtime's
+  production config (JSON, info) and the chart passes `logging.*` through as
+  `--zap-log-level` / `--zap-devel` / `--zap-encoder` / `--zap-stacktrace-level`.
+  The local e2e stack keeps human-readable console logs.
+
 ## [0.9.2] - 2026-07-03
 
 ### Fixed

@@ -64,6 +64,10 @@ spec:
             {{- if .Values.managedMarkers.enabled }}
             - --managed-markers
             {{- end }}
+            - --zap-log-level={{ .Values.logging.level }}
+            - --zap-devel={{ .Values.logging.development }}
+            - --zap-encoder={{ .Values.logging.encoder }}
+            - --zap-stacktrace-level={{ .Values.logging.stacktraceLevel }}
             {{- with .Values.extraArgs }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

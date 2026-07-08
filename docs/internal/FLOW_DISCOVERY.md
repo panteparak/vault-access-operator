@@ -9,6 +9,8 @@ Discovery is an **inverse reconciliation**: instead of pushing K8s state to Vaul
 
 Two reconcilers watch the same CRD. This is intentional (separation of concerns: connection auth vs discovery scanning) but creates a **status-write contention** handled with `retry.RetryOnConflict`. See [controller.go:286](../../features/discovery/controller/controller.go:286).
 
+`Reconcile` takes its logger from the context (controller-runtime's per-reconcile `reconcileID`) and enriches it with `vaultConnection` and, once the client is resolved, `authPath` — so scan log lines are traceable like the sync workflows. See `.claude/skills/logging-context/SKILL.md`.
+
 ## Participants
 
 | # | Component | Source | Role |

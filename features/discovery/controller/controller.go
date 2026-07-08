@@ -34,9 +34,11 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
+	oplogger "github.com/panteparak/vault-access-operator/pkg/logger"
 	"github.com/panteparak/vault-access-operator/pkg/vault"
 	"github.com/panteparak/vault-access-operator/shared/controller/base"
 	"github.com/panteparak/vault-access-operator/shared/controller/conditions"
@@ -124,7 +126,9 @@ func NewReconciler(cfg ReconcilerConfig) *Reconciler {
 
 // Reconcile handles discovery for a VaultConnection.
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	log := r.Log.WithValues("vaultconnection", req.Name)
+	// Context logger carries controller-runtime's per-reconcile reconcileID;
+	// the struct logger r.Log is kept for non-reconcile paths only.
+	log := logf.FromContext(ctx).WithValues(oplogger.KeyVaultConnection, req.Name)
 
 	var conn vaultv1alpha1.VaultConnection
 	if err := r.Get(ctx, req.NamespacedName, &conn); err != nil {
@@ -153,6 +157,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		log.Error(err, "failed to get Vault client")
 		return ctrl.Result{RequeueAfter: scanInterval}, nil
 	}
+	log = log.WithValues(oplogger.KeyAuthPath, vault.NormalizeAuthPath(vaultClient.AuthMount()))
 
 	log.Info("starting discovery scan")
 	result := r.runScan(ctx, &conn, vaultClient, log)
