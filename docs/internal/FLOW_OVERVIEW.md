@@ -88,7 +88,7 @@ Every `Reconcile` produces K8s events via `BaseReconciler.recordEvent`:
 | `SyncableResource` | [shared/controller/workflow/resource.go:33](../../shared/controller/workflow/resource.go:33) | 30+ status/spec accessors | `VaultPolicyAdapter`, `VaultClusterPolicyAdapter`, `VaultRoleAdapter`, `VaultClusterRoleAdapter` | workflow → feature |
 | `ResourceOps` | [shared/controller/workflow/ops.go:31](../../shared/controller/workflow/ops.go:31) | `Validate`, `CheckConflict`, `PrepareContent`, `DetectDrift`, `WriteToVault`, `ReadbackVerify`, `MarkManaged`, `DeleteFromVault`, `RemoveManaged`, `ApplyActiveStatus`, `ApplyBindings`, `PublishSyncEvent`, `PublishDeleteEvent` | `PolicyOps`, `RoleOps` | workflow → feature-specific ops |
 | `PolicyAdapter` | [features/policy/domain/adapter.go:27](../../features/policy/domain/adapter.go:27) | `GetRules`, `GetVaultPolicyName`, `IsEnforceNamespaceBoundary`, etc. | `VaultPolicyAdapter`, `VaultClusterPolicyAdapter` | handler → domain object |
-| `RoleAdapter` | [features/role/domain/adapter.go:29](../../features/role/domain/adapter.go:29) | `GetServiceAccountBindings`, `GetPolicies`, `GetAuthPath`, `GetJWT`, etc. | `VaultRoleAdapter`, `VaultClusterRoleAdapter` | handler → domain object |
+| `RoleAdapter` | [features/role/domain/adapter.go:29](../../features/role/domain/adapter.go:29) | `GetServiceAccountBindings`, `GetPolicies`, `GetJWT`, etc. | `VaultRoleAdapter`, `VaultClusterRoleAdapter` | handler → domain object |
 | `TokenProvider` | [pkg/vault/token/provider.go:36](../../pkg/vault/token/provider.go:36) | `GetToken(opts) (*TokenInfo, error)` | `TokenRequestProvider`, `MountedTokenProvider` | auth → K8s |
 | `LifecycleController` | [pkg/vault/token/lifecycle.go](../../pkg/vault/token/lifecycle.go) | `Register`, `Unregister`, `Start` | concrete `lifecycleController` struct | scheduled token renewal |
 | `TokenReviewerController` | [pkg/vault/token/rotator.go](../../pkg/vault/token/rotator.go) | `Register`, `Unregister`, `Start` | concrete reviewer rotator | K8s auth reviewer JWT rotation |
@@ -244,7 +244,7 @@ Settings flow from multiple sources. The precedence order, from lowest to highes
 
 | Source | Where | Can override | Example |
 |--------|-------|--------------|---------|
-| kubebuilder default | `+kubebuilder:default=` in `api/v1alpha1/*_types.go` | yes by any higher source | `authPath: "auth/kubernetes"` on VaultRole |
+| kubebuilder default | `+kubebuilder:default=` in `api/v1alpha1/*_types.go` | yes by any higher source | `driftMode: detect` on VaultConnection defaults |
 | env var | read in feature/base constructors | yes by CLI flag | `OPERATOR_REQUEUE_SUCCESS_INTERVAL=60s` |
 | CLI flag | parsed in `cmd/main.go` | yes by spec | `--leader-elect=true` |
 | Spec field | per-CR in `spec.*` | yes by annotation | `VaultConnection.spec.defaults.driftMode: correct` |

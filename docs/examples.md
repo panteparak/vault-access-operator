@@ -482,9 +482,42 @@ spec:
 
 ### JWT-Backed Role (ESO workloads)
 
-When `authPath` targets a JWT auth mount (e.g. `auth/jwt`), the operator writes
-a JWT role to Vault. Defaults are derived from the referenced `VaultConnection`
-and `serviceAccounts`:
+When the referenced `VaultConnection` resolves to a JWT auth mount, the operator
+writes a JWT role to Vault. The mount comes from the connection — its own
+JWT/OIDC login mount, or an explicit `defaults.authPath`:
+
+```yaml
+apiVersion: vault.platform.io/v1alpha1
+kind: VaultConnection
+metadata:
+  name: vault-jwt
+spec:
+  address: https://vault.example.com:8200
+  auth:
+    jwt:                      # login mount "jwt" → roles land on auth/jwt
+      role: my-jwt-role
+      audiences: ["vault"]
+```
+
+To write roles to a JWT mount the operator doesn't log in through (e.g.
+`jwt-gitlab`), create a dedicated connection for that mount:
+
+```yaml
+apiVersion: vault.platform.io/v1alpha1
+kind: VaultConnection
+metadata:
+  name: vault-jwt-gitlab
+spec:
+  address: https://vault.example.com:8200
+  auth:
+    kubernetes:
+      role: vault-access-operator
+  defaults:
+    authPath: jwt-gitlab      # roles land on auth/jwt-gitlab
+```
+
+Role defaults are derived from the referenced `VaultConnection` and
+`serviceAccounts`:
 
 - `role_type=jwt`
 - `user_claim=sub`
@@ -500,7 +533,6 @@ metadata:
   namespace: my-app
 spec:
   connectionRef: vault-jwt
-  authPath: auth/jwt
   serviceAccounts:
     - my-app-eso
   policies:
@@ -520,7 +552,6 @@ metadata:
   namespace: my-app
 spec:
   connectionRef: vault-jwt
-  authPath: auth/jwt
   serviceAccounts:
     - my-app-eso
   policies:
@@ -552,7 +583,6 @@ kind: VaultRole
 metadata: { name: eso-reader, namespace: my-app }
 spec:
   connectionRef: vault-jwt
-  authPath: auth/jwt
   serviceAccounts: [eso-reader]
   policies:
     - { kind: VaultPolicy, name: app-secrets-reader }
@@ -562,7 +592,6 @@ kind: VaultRole
 metadata: { name: eso-writer, namespace: my-app }
 spec:
   connectionRef: vault-jwt
-  authPath: auth/jwt
   serviceAccounts: [eso-writer]
   policies:
     - { kind: VaultPolicy, name: app-secrets-writer }

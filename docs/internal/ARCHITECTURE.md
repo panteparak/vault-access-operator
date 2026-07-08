@@ -200,16 +200,14 @@ erDiagram
         string driftMode
     }
     VaultRole {
-        string connectionRef
-        string authPath "auth/kubernetes | auth/jwt"
+        string connectionRef "sole source of auth mount (ADR 0009)"
         string[] serviceAccounts "names only"
         PolicyReference policies
         duration tokenTTL
         VaultRoleJWTSpec jwt "optional JWT overrides"
     }
     VaultClusterRole {
-        string connectionRef
-        string authPath
+        string connectionRef "sole source of auth mount (ADR 0009)"
         ServiceAccountRef serviceAccounts "ns + name"
         PolicyReference policies
     }

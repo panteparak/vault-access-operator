@@ -48,12 +48,14 @@ path in this guide uses it. Check existing mounts with `vault auth list` and
 substitute yours.
 
 !!! tip "Custom mount paths"
-    Mount names are auto-recognized as JWT only when named exactly `jwt` or
-    prefixed `jwt-`/`jwt_` (e.g. `jwt-gitlab`). For any other name — `custom-oidc`,
-    or even `jwtgitlab` without a separator — set
-    `spec.authType: jwt` on the `VaultRole`/`VaultClusterRole` alongside
-    `authPath: auth/custom-oidc`. Without `authType`, the operator infers the backend
-    from the path name and rejects unrecognized names. See the
+    `VaultRole` / `VaultClusterRole` resources referencing this connection are
+    written as JWT roles on its login mount automatically — no naming rules
+    apply. Names only matter when the connection declares a *different*
+    workload mount via `spec.defaults.authPath`: mounts are auto-recognized as
+    JWT only when named exactly `jwt` or prefixed `jwt-`/`jwt_` (e.g.
+    `jwt-gitlab`). For any other name — `custom-oidc`, or even `jwtgitlab`
+    without a separator — also set `spec.defaults.authType: jwt` on the
+    connection; unrecognized names are rejected at admission. See the
     [API reference](../api-reference.md#spec-fields).
 
 ### Step 2: Configure JWT Validation
@@ -84,8 +86,9 @@ substitute yours.
 ### Step 3: Create Vault Policy
 
 This is what the operator is allowed to *manage* — independent of how it logs in.
-Grant `auth/<mount>/role/*` for each mount your `VaultRole` / `VaultClusterRole`
-resources target:
+Grant `auth/<mount>/role/*` for the mount each connection resolves for its
+`VaultRole` / `VaultClusterRole` resources (the login mount, or
+`spec.defaults.authPath` when set):
 
 ```bash
 vault policy write vault-access-operator - <<EOF
@@ -102,7 +105,7 @@ path "sys/health" {
 path "auth/jwt/role/*" {
   capabilities = ["create", "read", "update", "delete"]
 }
-# Managing roles on a Kubernetes mount too? Also grant:
+# Managing roles on a Kubernetes mount too (via a second connection)? Also grant:
 # path "auth/kubernetes/role/*" { capabilities = ["create", "read", "update", "delete"] }
 EOF
 ```
@@ -261,7 +264,7 @@ Error: claim "sub" not found in token
 
 ## Binding `VaultRole`s to JWT claims
 
-The `spec.jwt` sub-object on `VaultRole` / `VaultClusterRole` controls the Vault JWT-auth role payload — `user_claim`, `bound_audiences`, `bound_subject`, `bound_claims`, and `bound_claims_type`.
+The `spec.jwt` sub-object on `VaultRole` / `VaultClusterRole` controls the Vault JWT-auth role payload — `user_claim`, `bound_audiences`, `bound_subject`, `bound_claims`, and `bound_claims_type`. The mount and backend family come from the referenced connection (its JWT/OIDC login mount, or `spec.defaults.authPath`) — the role itself carries no mount fields, and `spec.jwt` applies because the connection resolves to the JWT family.
 
 ### Multi-value claim matching
 

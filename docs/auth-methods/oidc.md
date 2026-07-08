@@ -122,8 +122,9 @@ not the type — substitute yours throughout this guide.
 ### Step 3: Create Vault Policy
 
 This is what the operator is allowed to *manage* — independent of how it logs in.
-Grant `auth/<mount>/role/*` for each mount your `VaultRole` / `VaultClusterRole`
-resources target:
+Grant `auth/<mount>/role/*` for the mount each connection resolves for its
+`VaultRole` / `VaultClusterRole` resources (the login mount, or
+`spec.defaults.authPath` when set):
 
 ```bash
 vault policy write vault-access-operator - <<EOF
@@ -142,7 +143,7 @@ path "sys/health" {
 path "auth/oidc/role/*" {
   capabilities = ["create", "read", "update", "delete"]
 }
-# Managing roles on a Kubernetes mount too? Also grant:
+# Managing roles on a Kubernetes mount too (via a second connection)? Also grant:
 # path "auth/kubernetes/role/*" { capabilities = ["create", "read", "update", "delete"] }
 EOF
 ```
@@ -213,9 +214,10 @@ kubectl get vaultconnection vault-oidc -o yaml
 ### Step 7: Bind workload policies to roles on the OIDC mount
 
 Steps 1–6 covered the **operator's own login**. To grant *workloads* access,
-create a `VaultPolicy` plus a `VaultRole` targeting the OIDC mount. Because the
-mount name (`oidc`) isn't `jwt` or a `jwt-`/`jwt_` submount, you must set `authType: jwt`
-explicitly — the OIDC method is Vault's JWT backend family:
+create a `VaultPolicy` plus a `VaultRole` referencing the connection. Roles
+carry no mount fields — they land on the connection's login mount (`oidc`)
+automatically, and are written as JWT roles: the OIDC method is Vault's JWT
+backend family:
 
 ```yaml
 apiVersion: vault.platform.io/v1alpha1
@@ -225,14 +227,17 @@ metadata:
   namespace: my-app
 spec:
   connectionRef: vault-oidc
-  authPath: auth/oidc     # your mount name
-  authType: jwt           # required: mount isn't named "jwt" or "jwt-*"/"jwt_*"
   serviceAccounts:
     - default
   policies:
     - kind: VaultPolicy
       name: app-secrets
 ```
+
+To manage roles on a *different* workload mount, declare it once on the
+connection via `spec.defaults.authPath`; if the mount name isn't `kubernetes`
+or `jwt` (exact or `-`/`_`-separated, e.g. `jwt-gitlab`), also set
+`spec.defaults.authType: jwt`.
 
 The operator writes `auth/oidc/role/my-app-app-role` (`<namespace>-<name>`) with
 `policies=[my-app-app-secrets]`. Claim bindings (`user_claim`, `bound_audiences`,

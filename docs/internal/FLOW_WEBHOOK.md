@@ -137,12 +137,16 @@ The `connectionRef` mutability rule is subtler than outright immutability: users
 
 The missing-policy check is a warning (not an error) because Vault allows binding non-existent policies, and users can legitimately create a role first and its policies shortly after. The warning surfaces via `kubectl apply`'s output.
 
-### JWT constraints ([validateJWTSpec](../../internal/webhook/vaultrole_webhook.go:311))
+### Connection-derived role mount ([validateRoleMountFromConnection](../../internal/webhook/vaultrole_webhook.go:255))
+
+Roles carry no mount fields ([ADR 0009](../adr/0009-connection-owned-role-mount.md)): the webhook fetches the referenced `VaultConnection` (one GET per admission) and calls `RoleMount()`. A connection that exists but resolves **no role-capable mount** → **deny**. A missing connection or transient fetch failure → skip (GitOps ordering; `checkConnectionRefExists` already warns, and the role reconciler's `resolveRoleTarget` backstop re-derives everything). The resolved backend family feeds the JWT constraints below.
+
+### JWT constraints ([validateJWTSpec](../../internal/webhook/vaultrole_webhook.go:439))
 
 ```mermaid
 flowchart TD
-    Start["spec.jwt on role"] --> IsJWT{authPath = auth/jwt*?}
-    IsJWT -->|no, jwt set| Err1["error: spec.jwt only allowed with JWT auth path"]
+    Start["spec.jwt on role"] --> IsJWT{connection resolves a<br/>jwt/oidc-family role mount?}
+    IsJWT -->|no, jwt set| Err1["error: spec.jwt only allowed when the connection<br/>resolves a jwt/oidc-family role mount"]
     IsJWT -->|no, jwt unset| Ok1[pass]
     IsJWT -->|yes| MultiClaim{bound_subject AND bound_claims set?}
     MultiClaim -->|yes| Err2["error: mutually exclusive"]
@@ -157,10 +161,9 @@ flowchart TD
 
 | Kind | Field | Rule | Source |
 |------|-------|------|--------|
-| `VaultRole`, `VaultClusterRole` | `spec.connectionRef` | strictly immutable (not same-address-relaxed) | [vaultrole_webhook.go:92-95](../../internal/webhook/vaultrole_webhook.go:92) |
-| `VaultRole`, `VaultClusterRole` | `spec.authPath` | strictly immutable | [vaultrole_webhook.go:98-101](../../internal/webhook/vaultrole_webhook.go:98) |
+| `VaultRole`, `VaultClusterRole` | `spec.connectionRef` | strictly immutable (not same-address-relaxed) | [vaultrole_webhook.go:104-113](../../internal/webhook/vaultrole_webhook.go:104) |
 
-Policy's same-address relaxation does **not** apply to roles — `authPath` change would target a different Vault auth mount, and the operator doesn't move role data across mounts.
+Policy's same-address relaxation does **not** apply to roles — `connectionRef` pins the auth mount the role is written to (roles carry no mount fields), and the operator doesn't move role data across mounts. Mount re-points on the *connection* side surface as a `ValidateUpdate` warning on the VaultConnection webhook instead.
 
 ### Global rules
 
@@ -219,7 +222,7 @@ All reads go through the controller-runtime client cache, so they're fast and do
 ## Missing Validators / Gaps
 
 - **No `VaultConnection` webhook** — see [IMPROVEMENTS.md §8](IMPROVEMENTS.md#8-connection-webhook-missing).
-- **No mutating webhook** — defaults come from kubebuilder `+kubebuilder:default=`. For dynamic defaults (e.g., auto-filling `authPath` from connection's `defaults.authPath`), a mutating webhook would be needed.
+- **No mutating webhook** — defaults come from kubebuilder `+kubebuilder:default=`. Dynamic cross-resource defaults would need one, but none exist today: the role auth mount is resolved from the connection at sync time, never written into the role spec (ADR 0009).
 - **No apply-time `connectionRef` existence check** — a policy or role can be applied with a `connectionRef` pointing at a nonexistent VaultConnection; the webhook doesn't block it. The reconciler reports `DependencyError` after the fact. See [IMPROVEMENTS.md §36](IMPROVEMENTS.md#36-no-connectionref-existence-webhook-check).
 - **No `VaultConnection` address format validation** (HTTPS prefix, port format) — relies on kubebuilder `+kubebuilder:validation:Pattern`; an explicit webhook message would be more user-friendly for common mistakes like `http://vault:8200`.
 

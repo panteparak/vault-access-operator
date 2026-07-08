@@ -206,13 +206,12 @@ Configures GCP IAM authentication for GKE workloads using Workload Identity or s
 
 ### ConnectionDefaults
 
-Optional default paths for Vault operations.
+Optional platform-team knobs inherited by resources referencing this connection.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `secretEnginePath` | string | - | Default path for secret engines |
-| `transitPath` | string | - | Default path for transit engine |
-| `authPath` | string | `auth/kubernetes` | Default path for auth methods |
+| `authPath` | string | follows the login mount | Auth mount that `VaultRole` / `VaultClusterRole` resources referencing this connection are written to — a bare mount name like `kubernetes-prod` (an `auth/` prefix is tolerated). When unset, roles follow the connection's own login mount (`auth.kubernetes` / `auth.jwt` / `auth.oidc`) |
+| `authType` | string | inferred from `authPath` | Backend family (`kubernetes` or `jwt`) of `authPath` when its name alone can't be classified — the mount name must otherwise be `kubernetes`/`jwt` exactly or with a `-`/`_` separator (`jwt-gitlab`). Ignored when `authPath` is unset |
 | `driftMode` | string | `detect` | Default drift detection mode for all resources using this connection (`ignore`, `detect`, `correct`) |
 
 ### Status Fields
@@ -405,9 +404,9 @@ Manages namespace-scoped Kubernetes authentication roles in Vault.
 - **Vault Role Name Format:** `{namespace}-{name}`
 
 !!! warning "Supported auth backends"
-    `VaultRole` currently writes role data to **Kubernetes auth** and **JWT auth** mounts only. Mounts of other backends (AWS IAM, GCP IAM, AppRole, OIDC, LDAP, etc.) are rejected by the admission webhook with a clear error — even though the operator itself can still *authenticate* to Vault via those methods (see [VaultConnection](#vaultconnection)). Tracked as [IMPROVEMENTS.md §7](internal/IMPROVEMENTS.md#7-role-backend-coverage-gap).
+    `VaultRole` currently writes role data to **Kubernetes auth** and **JWT auth** mounts only (Vault's OIDC method is the jwt backend). The role spec carries no mount fields — the auth mount and backend family come from the referenced [VaultConnection](#vaultconnection): `spec.defaults.authPath` when set (see [ConnectionDefaults](#connectiondefaults)), otherwise the connection's own login mount (`auth.kubernetes` → kubernetes, `auth.jwt` / `auth.oidc` → jwt). Tracked as [IMPROVEMENTS.md §7](internal/IMPROVEMENTS.md#7-role-backend-coverage-gap).
 
-    By default the backend family is inferred from the mount-path name: the mount must be named exactly `kubernetes` / `jwt`, or use a separator prefix (`kubernetes-prod`, `jwt-gitlab`, `jwt_ci`). To target a method mounted at any other name (e.g. `custom-oidc` — or `jwtgitlab`, which has no separator), set [`authType`](#spec-fields) explicitly — the path name is then ignored.
+    Connections whose login method has no role-capable mount (Token, AppRole, AWS, GCP, bootstrap-only) and no `defaults.authPath` are rejected by the admission webhook with a clear error; without webhooks the role parks at `Phase=Error` / `ValidationFailed`. To write roles to a different mount than a role's connection resolves, create a dedicated `VaultConnection` for that mount (e.g. one with `defaults.authPath: jwt-gitlab`).
 
 ### Example
 
@@ -434,17 +433,15 @@ spec:
 | `connectionRef` | string | Yes | - | Name of VaultConnection to use |
 | `serviceAccounts` | []string | Yes | - | Service account names (same namespace) |
 | `policies` | []PolicyReference | Yes | - | Policies to attach (min 1) |
-| `authPath` | string | No | `auth/kubernetes` | Vault auth mount path. Any path when `authType` is set; otherwise the mount name must be `kubernetes`/`jwt` exactly or a `-`/`_`-separated submount (`jwt-gitlab`) |
-| `authType` | string | No | inferred from `authPath` | Explicit backend family: `kubernetes` or `jwt`. Overrides path-name inference so a custom-named mount works. Required to be paired with a non-empty `authPath` when set to `jwt` |
 | `conflictPolicy` | string | No | `Fail` | `Fail` or `Adopt` |
 | `deletionPolicy` | string | No | `Delete` | `Delete` or `Retain` |
 | `tokenTTL` | duration | No | Vault default | Default token TTL |
 | `tokenMaxTTL` | duration | No | Vault default | Maximum token TTL |
-| `jwt` | VaultRoleJWTSpec | No | - | JWT-auth-specific overrides (only when the role targets a JWT mount — `authType: jwt` or an `auth/jwt*` path) |
+| `jwt` | VaultRoleJWTSpec | No | - | JWT-auth-specific overrides (only when the referenced connection resolves to a JWT mount) |
 
 ### VaultRoleJWTSpec
 
-Optional sub-object on `VaultRole` / `VaultClusterRole`. Used when the role targets a JWT auth mount — either `authType: jwt`, or an `authPath` under `auth/jwt` (e.g. `auth/jwt`, `auth/jwt-gitlab`). All fields are optional — defaults are derived from `serviceAccounts` and the referenced `VaultConnection`.
+Optional sub-object on `VaultRole` / `VaultClusterRole`. Used when the referenced `VaultConnection` resolves to a JWT auth mount — a JWT/OIDC login, or a `defaults.authPath` of jwt family (e.g. `jwt`, `jwt-gitlab`). All fields are optional — defaults are derived from `serviceAccounts` and the referenced `VaultConnection`.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -520,8 +517,6 @@ spec:
 | `connectionRef` | string | Yes | - | Name of VaultConnection to use |
 | `serviceAccounts` | []ServiceAccountRef | Yes | - | Service accounts with namespace |
 | `policies` | []PolicyReference | Yes | - | Policies to attach (min 1) |
-| `authPath` | string | No | `auth/kubernetes` | Vault auth mount path. Any path when `authType` is set; otherwise the mount name must be `kubernetes`/`jwt` exactly or a `-`/`_`-separated submount (`jwt-gitlab`) |
-| `authType` | string | No | inferred from `authPath` | Explicit backend family: `kubernetes` or `jwt`. Overrides path-name inference so a custom-named mount works. Required to be paired with a non-empty `authPath` when set to `jwt` |
 | `conflictPolicy` | string | No | `Fail` | `Fail` or `Adopt` |
 | `deletionPolicy` | string | No | `Delete` | `Delete` or `Retain` |
 | `tokenTTL` | duration | No | Vault default | Default token TTL |

@@ -125,7 +125,27 @@ GitLab's ID token carries both `project_id` (numeric, opaque, rename-stable) and
 
 The operator deliberately does **not** resolve URL→ID at admission time — that would couple every CRD apply to GitLab's availability, require a GitLab token on the webhook, and lock the operator to a specific issuer.
 
-## Step 4: Create the VaultPolicy and VaultRole
+## Step 4: Create the VaultConnection, VaultPolicy, and VaultRole
+
+The `jwt-gitlab` mount is declared **once**, on a dedicated `VaultConnection`
+(platform team). Roles carry no mount fields — they follow their connection,
+and the `jwt-gitlab` name resolves to the JWT backend family automatically:
+
+```yaml
+apiVersion: vault.platform.io/v1alpha1
+kind: VaultConnection
+metadata:
+  name: vault-gitlab
+spec:
+  address: https://vault.example.com:8200
+  auth:
+    kubernetes:
+      role: vault-access-operator
+  # Roles referencing this connection land on auth/jwt-gitlab
+  # (the jwt-* name resolves to the jwt family automatically).
+  defaults:
+    authPath: jwt-gitlab
+```
 
 ### Scenario A — protected-branch secrets
 
@@ -138,8 +158,7 @@ metadata:
   name: prod-secret-reader
   namespace: ci-secrets
 spec:
-  connectionRef:
-    name: vault-prod
+  connectionRef: vault-gitlab
   rules: |
     path "secret/data/prod/*" {
       capabilities = ["read"]
@@ -151,9 +170,7 @@ metadata:
   name: gitlab-groupa-repoa-develop
   namespace: ci-secrets
 spec:
-  connectionRef:
-    name: vault-prod
-  authPath: auth/jwt-gitlab
+  connectionRef: vault-gitlab
   policies:
     - kind: VaultPolicy
       name: prod-secret-reader
@@ -183,9 +200,7 @@ metadata:
   name: gitlab-groupa-repoa-feat
   namespace: ci-secrets
 spec:
-  connectionRef:
-    name: vault-prod
-  authPath: auth/jwt-gitlab
+  connectionRef: vault-gitlab
   policies:
     - kind: VaultPolicy
       name: dev-secret-reader   # MUST be a different, lower-trust policy

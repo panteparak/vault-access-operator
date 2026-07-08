@@ -155,6 +155,19 @@ Apply the configuration:
 kubectl apply -f vaultconnection.yaml
 ```
 
+!!! warning "Bootstrap-only connections have no role-capable mount"
+    `VaultRole` / `VaultClusterRole` resources referencing this connection
+    resolve their mount from the `kubernetes:` block above (`auth/kubernetes`)
+    — roles carry no mount fields. A connection with **only** the `bootstrap:`
+    block has no role-capable mount: roles referencing it are denied at
+    admission unless the connection declares the workload mount explicitly:
+
+    ```yaml
+    spec:
+      defaults:
+        authPath: kubernetes
+    ```
+
 ### Step 4: Monitor the Bootstrap Process
 
 ```bash

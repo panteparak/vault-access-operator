@@ -8,10 +8,13 @@ The Vault Access Operator supports multiple authentication methods to connect to
     `VaultConnection.spec.auth` references. That is separate from the **workload
     roles** the operator manages *for you* from `VaultRole` / `VaultClusterRole`
     resources — those are written to `auth/<mount>/role/<namespace>-<name>` and
-    bound to policies via `spec.policies`. How the operator logs in does not
-    restrict which mounts its VaultRoles can target; the operator policy's
-    `auth/<mount>/role/*` grants do. In every path, `<mount>` is the auth method
-    **mount name** (`vault auth list`), not the method type.
+    bound to policies via `spec.policies`. The mount those roles land on is
+    resolved from the **connection**, never the role: `spec.defaults.authPath`
+    if set, otherwise the connection's own Kubernetes/JWT/OIDC login mount.
+    Token/AppRole/AWS/GCP/Bootstrap-only connections have no role-capable
+    mount — they must set `spec.defaults.authPath` before roles can reference
+    them. In every path, `<mount>` is the auth method **mount name**
+    (`vault auth list`), not the method type.
 
 ## Quick Reference
 

@@ -163,7 +163,19 @@ flowchart TD
     CheckGCP -->|no| Err["❌ error: no auth method configured"]
 ```
 
-Only the first non-nil branch is taken. Validation that exactly one is set should happen at the webhook (see [IMPROVEMENTS.md §8](IMPROVEMENTS.md#8-connection-webhook-missing)).
+Only the first non-nil branch is taken. The connection webhook (`validateAuthExactlyOne`) enforces exactly-one at admission (bootstrap+kubernetes is the only legal pair).
+
+## Role Mount Resolution (RoleMount)
+
+The connection is the **sole source** of the auth mount + backend family for dependent `VaultRole`/`VaultClusterRole` resources — role CRDs carry no mount fields ([ADR 0009](../adr/0009-connection-owned-role-mount.md)). This is pure spec resolution, not a reconcile step: [`VaultConnection.RoleMount()`](../../api/v1alpha1/vaultconnection_rolemount.go) is called by the role handler, the role/connection webhooks, discovery, and orphan scanning.
+
+Resolution order:
+
+1. `spec.defaults.authPath` if set — family from the optional `spec.defaults.authType`, else the `kubernetes*`/`jwt*` mount-name heuristic (exact or `-`/`_`-separated); unclassifiable names are an admission error (set `defaults.authType`).
+2. Otherwise the connection's own login mount: `auth.kubernetes` → kubernetes family; `auth.jwt`/`auth.oidc` → jwt family (Vault's OIDC method IS the jwt backend).
+3. Token/appRole/aws/gcp/bootstrap-only logins without `defaults.authPath` have **no role-capable mount** — the webhook denies dependent roles at admission; the role reconciler parks them at `Reason=ValidationFailed` as backstop.
+
+The `defaults` block is now `{authPath, authType, driftMode}`: `authPath` carries **no baked `auth/kubernetes` default** (absent = follow the login mount); the dead `secretEnginePath`/`transitPath` fields are gone. The connection webhook validates unclassifiable `defaults.authPath` names at apply time, and `ValidateUpdate` **warns** (with the dependent-role count) when an update changes the resolved role mount under existing roles — their next sync re-targets the new mount while their recorded status bindings still pin deletion to the old one.
 
 ## Token Lifecycle (getOrRenewClient detail)
 

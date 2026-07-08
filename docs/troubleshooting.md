@@ -279,6 +279,42 @@ kubectl describe vaultrole app-role -n my-app
          namespace: shared-namespace
    ```
 
+#### Role Rejected: "no role-capable auth mount"
+
+**Symptoms:**
+```
+Error from server (Forbidden): ... validation failed: VaultConnection "vault-token" has no role-capable auth mount: ...
+```
+Without webhooks, the role instead parks at `Phase=Error` with condition reason `ValidationFailed`.
+
+**Explanation:** Roles are written to the auth mount resolved from the referenced `VaultConnection` — `spec.defaults.authPath` when set, otherwise the connection's own login mount. A connection logging in via Token, AppRole, AWS, GCP, or bootstrap-only has no role-capable mount unless `defaults.authPath` is set.
+
+**Solutions:**
+
+1. **Declare the mount on the connection:**
+   ```yaml
+   spec:
+     defaults:
+       authPath: kubernetes-prod
+       # authType: kubernetes  # required if the mount name isn't kubernetes*/jwt*
+   ```
+
+2. **Or reference a connection using Kubernetes, JWT, or OIDC auth.**
+
+#### Role in "Error" Phase with VaultPermissionDenied
+
+**Symptoms:**
+```
+Ready: False (VaultPermissionDenied) - ... permission denied
+```
+
+**Explanation:** Vault returned 403 for the role write. This is a permanent configuration error (not retried as transient): the operator's Vault token lacks a grant for the mount the referenced `VaultConnection` resolves.
+
+**Solution:** Extend the operator's Vault policy for that mount (see [Create Operator Policy](getting-started.md#create-operator-policy)):
+```hcl
+path "auth/<mount>/role/*" { capabilities = ["create", "read", "update", "delete"] }
+```
+
 #### Service Account Not Authorized
 
 **Symptoms:**
@@ -519,7 +555,8 @@ kubectl logs -n vault-access-operator-system deploy/vault-access-operator-contro
 | `Failed` | Operation failed | Check message and logs |
 | `InProgress` | Operation is ongoing | Wait for completion |
 | `Conflict` | Conflict with existing Vault resource | Use Adopt policy or resolve manually |
-| `ValidationFailed` | Resource spec validation failed | Fix spec according to error |
+| `ValidationFailed` | Resource spec validation failed (e.g. the referenced connection has no role-capable auth mount) | Fix spec according to error |
+| `VaultPermissionDenied` | Vault returned 403 for the operation | Extend the operator's Vault policy for the resolved mount/path |
 | `ConnectionNotReady` | VaultConnection is not active | Fix VaultConnection |
 | `PolicyNotFound` | Referenced policy doesn't exist | Create the policy |
 | `DependencyNotReady` | A dependency (connection, policy) is not ready | Check dependent resources |

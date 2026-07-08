@@ -291,6 +291,15 @@ Keeps each method self-contained, testable in isolation, registration-driven.
 
 ## 🟠 7. Role backend coverage gap — PARTIALLY RESOLVED (validation + doc + custom-mount override; non-k8s/jwt backend impl deferred)
 
+> **Superseded by [ADR 0009](../adr/0009-connection-owned-role-mount.md)**: the
+> role-level `spec.authPath`/`spec.authType` fields described below were REMOVED.
+> The mount and family now come exclusively from the referenced VaultConnection
+> (`RoleMount()`): `defaults.authPath` + optional `defaults.authType` for custom
+> mount names, else the login mount. The custom-mount capability survives at the
+> connection level; `validateAuthPathSupported`, `ResolveAuthBackend`, and
+> `AuthBackendForPath` are gone. Item 3 (AWS/GCP/AppRole role-write support)
+> remains deferred as before. The mechanics below are kept for history.
+
 > **Update (custom-mount override)**: the supported families (kubernetes, jwt) can now
 > be used on **arbitrarily named mounts** via an explicit `spec.authType` field
 > (`kubernetes` | `jwt`) on `VaultRole`/`VaultClusterRole`. Previously the backend was
