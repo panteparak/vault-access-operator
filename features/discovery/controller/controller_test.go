@@ -156,6 +156,10 @@ func newVaultConnection(
 					},
 				},
 			},
+			// Token auth has no login mount — role scanning targets the
+			// explicitly declared role mount, like any real token-auth
+			// connection that manages roles.
+			Defaults:  &vaultv1alpha1.ConnectionDefaults{AuthPath: "kubernetes"},
 			Discovery: discovery,
 		},
 	}

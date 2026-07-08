@@ -65,7 +65,7 @@ func (v *VaultConnectionValidator) ValidateCreate(_ context.Context, conn *vault
 // ValidateUpdate validates spec changes. `address` is immutable — changing
 // it would move the operator to a different Vault without migrating any
 // of the existing policies/roles, silently orphaning everything.
-func (v *VaultConnectionValidator) ValidateUpdate(_ context.Context, oldConn, newConn *vaultv1alpha1.VaultConnection) (admission.Warnings, error) {
+func (v *VaultConnectionValidator) ValidateUpdate(ctx context.Context, oldConn, newConn *vaultv1alpha1.VaultConnection) (admission.Warnings, error) {
 	vaultconnectionlog.Info("validating VaultConnection update", "name", newConn.Name)
 
 	if oldConn.Spec.Address != newConn.Spec.Address {
@@ -74,7 +74,69 @@ func (v *VaultConnectionValidator) ValidateUpdate(_ context.Context, oldConn, ne
 			oldConn.Spec.Address, newConn.Spec.Address)
 	}
 
-	return validateVaultConnection(newConn)
+	warnings, err := validateVaultConnection(newConn)
+	if err != nil {
+		return warnings, err
+	}
+	warnings = append(warnings, v.warnOnRoleMountChange(ctx, oldConn, newConn)...)
+	return warnings, nil
+}
+
+// warnOnRoleMountChange surfaces a mount re-point at admission time. Roles
+// carry no mount of their own — they follow the connection — so changing
+// the resolved role mount re-targets every dependent role's next sync,
+// orphaning the Vault roles already written at the old mount (their
+// recorded status bindings still pin deletion to the old mount). Warn, not
+// deny: a deliberate mount migration is a legitimate platform-team action.
+func (v *VaultConnectionValidator) warnOnRoleMountChange(
+	ctx context.Context, oldConn, newConn *vaultv1alpha1.VaultConnection,
+) admission.Warnings {
+	oldMount, _, oldErr := oldConn.RoleMount()
+	newMount, _, newErr := newConn.RoleMount()
+	if oldErr != nil || newErr != nil || oldMount == newMount {
+		return nil
+	}
+
+	dependents := "dependent roles"
+	if v.client != nil {
+		if n, err := v.countDependentRoles(ctx, newConn.Name); err == nil {
+			if n == 0 {
+				return nil
+			}
+			dependents = fmt.Sprintf("%d dependent role(s)", n)
+		}
+		// Listing failed — still warn, just without the count.
+	}
+
+	return admission.Warnings{fmt.Sprintf(
+		"changing the resolved role mount from auth/%s to auth/%s re-points %s on their next sync; "+
+			"Vault roles already written at auth/%s are orphaned there (recorded bindings still target the old mount for deletion)",
+		oldMount, newMount, dependents, oldMount)}
+}
+
+// countDependentRoles counts VaultRole + VaultClusterRole CRs referencing
+// the connection by name.
+func (v *VaultConnectionValidator) countDependentRoles(ctx context.Context, connName string) (int, error) {
+	count := 0
+	var roles vaultv1alpha1.VaultRoleList
+	if err := v.client.List(ctx, &roles); err != nil {
+		return 0, err
+	}
+	for i := range roles.Items {
+		if roles.Items[i].Spec.ConnectionRef == connName {
+			count++
+		}
+	}
+	var clusterRoles vaultv1alpha1.VaultClusterRoleList
+	if err := v.client.List(ctx, &clusterRoles); err != nil {
+		return 0, err
+	}
+	for i := range clusterRoles.Items {
+		if clusterRoles.Items[i].Spec.ConnectionRef == connName {
+			count++
+		}
+	}
+	return count, nil
 }
 
 // ValidateDelete is a no-op. The connection handler's Cleanup already
@@ -111,6 +173,15 @@ func validateVaultConnection(conn *vaultv1alpha1.VaultConnection) (admission.War
 		if conn.Spec.Auth.OIDC.ProviderURL == "" {
 			warnings = append(warnings,
 				"spec.auth.oidc.providerURL is empty — Vault will use the audience from the token as the issuer, which may not match your provider config")
+		}
+	}
+
+	// defaults.authPath with a name the family heuristic can't classify
+	// needs an explicit defaults.authType — the same rule reconcile-time
+	// resolution applies (VaultConnection.RoleMount), surfaced at apply time.
+	if conn.Spec.Defaults != nil && conn.Spec.Defaults.AuthPath != "" {
+		if _, _, err := conn.RoleMount(); err != nil {
+			errs = append(errs, fmt.Sprintf("spec.defaults: %v", err))
 		}
 	}
 

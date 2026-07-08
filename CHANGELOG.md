@@ -7,6 +7,27 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING: the VaultConnection now owns the role auth mount.** New
+  resolution rule (`VaultConnection.RoleMount()`): `spec.defaults.authPath`
+  when set (with new optional `spec.defaults.authType` for mount names the
+  `kubernetes*`/`jwt*` heuristic can't classify), otherwise the connection's
+  own login mount (`auth.kubernetes`/`auth.jwt`/`auth.oidc` — OIDC resolves
+  to the jwt family). Connections logging in via token/appRole/aws/gcp
+  without `defaults.authPath` have no role-capable mount. `defaults.authPath`
+  no longer defaults to `auth/kubernetes` — absent now means "follow the
+  login mount". Discovery scans the resolved mount and skips the role scan
+  (policies still scan) on connections without one. Changing the resolved
+  mount under dependent roles emits an admission warning naming both mounts.
+
+### Removed
+
+- **BREAKING: `spec.defaults.secretEnginePath` and `spec.defaults.transitPath`
+  on VaultConnection.** Both were declared but never consumed by any code
+  path — dead schema removed. Re-add if a KV/transit feature actually reads
+  them.
+
 ### Added
 
 - **Traceable log context on every workflow line.** The sync and cleanup

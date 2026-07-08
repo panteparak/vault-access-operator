@@ -70,15 +70,14 @@ type Scanner struct {
 }
 
 // NewScanner creates a new Scanner.
-// authPath is the Kubernetes auth mount path (defaults to "auth/kubernetes" if empty).
+// authPath is the auth mount to scan for roles, resolved from the
+// connection (VaultConnection.RoleMount). Empty means the connection has
+// no role-capable mount — the role scan is skipped, policies still scan.
 // managedRoles is the CR-derived set of owned Vault role names (may be nil).
 func NewScanner(
 	vaultClient *vault.Client, config *vaultv1alpha1.DiscoveryConfig,
 	authPath string, managedRoles map[string]struct{}, log logr.Logger,
 ) *Scanner {
-	if authPath == "" {
-		authPath = vault.DefaultKubernetesAuthPath
-	}
 	return &Scanner{
 		vaultClient:  vaultClient,
 		config:       config,
@@ -108,8 +107,10 @@ func (s *Scanner) Scan(ctx context.Context) *ScanResult {
 		errs = append(errs, fmt.Errorf("policies: %w", err))
 	}
 
-	// Scan roles
-	if err := s.scanRoles(ctx, result); err != nil {
+	// Scan roles — only when the connection resolves a role-capable mount.
+	if s.authPath == "" {
+		s.log.V(1).Info("no role-capable mount on connection, skipping role scan")
+	} else if err := s.scanRoles(ctx, result); err != nil {
 		s.log.Error(err, "failed to scan roles (continuing)")
 		errs = append(errs, fmt.Errorf("roles: %w", err))
 	}

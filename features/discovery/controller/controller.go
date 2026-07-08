@@ -192,13 +192,19 @@ func timeUntilNextScan(conn *vaultv1alpha1.VaultConnection, interval time.Durati
 }
 
 // runScan invokes the scanner against Vault and emits Prometheus metrics.
+// The role scan targets the connection's resolved role mount (defaults
+// override or login mount); a connection with no role-capable mount still
+// scans policies but skips roles.
 func (r *Reconciler) runScan(
 	ctx context.Context, conn *vaultv1alpha1.VaultConnection,
 	vaultClient *vault.Client, log logr.Logger,
 ) *ScanResult {
 	authPath := ""
-	if conn.Spec.Defaults != nil {
-		authPath = conn.Spec.Defaults.AuthPath
+	if mount, _, err := conn.RoleMount(); err != nil {
+		log.Info("connection has no role-capable mount, scanning policies only",
+			"reason", err.Error())
+	} else {
+		authPath = vault.NormalizeAuthPath(mount)
 	}
 	scanner := NewScanner(vaultClient, conn.Spec.Discovery, authPath,
 		r.managedRoleNames(ctx, authPath, log), log)
