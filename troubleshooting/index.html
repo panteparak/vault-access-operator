@@ -1139,6 +1139,28 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#role-rejected-no-role-capable-auth-mount" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Role Rejected: "no role-capable auth mount"
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#role-in-error-phase-with-vaultpermissiondenied" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Role in "Error" Phase with VaultPermissionDenied
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#service-account-not-authorized" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1884,6 +1906,28 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#role-rejected-no-role-capable-auth-mount" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Role Rejected: "no role-capable auth mount"
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#role-in-error-phase-with-vaultpermissiondenied" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Role in "Error" Phase with VaultPermissionDenied
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#service-account-not-authorized" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2457,6 +2501,34 @@
 </code></pre></div></p>
 </li>
 </ol>
+<h4 id="role-rejected-no-role-capable-auth-mount">Role Rejected: "no role-capable auth mount"<a class="headerlink" href="#role-rejected-no-role-capable-auth-mount" title="Permanent link">&para;</a></h4>
+<p><strong>Symptoms:</strong>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a>Error from server (Forbidden): ... validation failed: VaultConnection &quot;vault-token&quot; has no role-capable auth mount: ...
+</code></pre></div>
+Without webhooks, the role instead parks at <code>Phase=Error</code> with condition reason <code>ValidationFailed</code>.</p>
+<p><strong>Explanation:</strong> Roles are written to the auth mount resolved from the referenced <code>VaultConnection</code> — <code>spec.defaults.authPath</code> when set, otherwise the connection's own login mount. A connection logging in via Token, AppRole, AWS, GCP, or bootstrap-only has no role-capable mount unless <code>defaults.authPath</code> is set.</p>
+<p><strong>Solutions:</strong></p>
+<ol>
+<li>
+<p><strong>Declare the mount on the connection:</strong>
+   <div class="highlight"><pre><span></span><code><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a><span class="nt">spec</span><span class="p">:</span>
+<a id="__codelineno-31-2" name="__codelineno-31-2" href="#__codelineno-31-2"></a><span class="w">  </span><span class="nt">defaults</span><span class="p">:</span>
+<a id="__codelineno-31-3" name="__codelineno-31-3" href="#__codelineno-31-3"></a><span class="w">    </span><span class="nt">authPath</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">kubernetes-prod</span>
+<a id="__codelineno-31-4" name="__codelineno-31-4" href="#__codelineno-31-4"></a><span class="w">    </span><span class="c1"># authType: kubernetes  # required if the mount name isn&#39;t kubernetes*/jwt*</span>
+</code></pre></div></p>
+</li>
+<li>
+<p><strong>Or reference a connection using Kubernetes, JWT, or OIDC auth.</strong></p>
+</li>
+</ol>
+<h4 id="role-in-error-phase-with-vaultpermissiondenied">Role in "Error" Phase with VaultPermissionDenied<a class="headerlink" href="#role-in-error-phase-with-vaultpermissiondenied" title="Permanent link">&para;</a></h4>
+<p><strong>Symptoms:</strong>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a>Ready: False (VaultPermissionDenied) - ... permission denied
+</code></pre></div></p>
+<p><strong>Explanation:</strong> Vault returned 403 for the role write. This is a permanent configuration error (not retried as transient): the operator's Vault token lacks a grant for the mount the referenced <code>VaultConnection</code> resolves.</p>
+<p><strong>Solution:</strong> Extend the operator's Vault policy for that mount (see <a href="../getting-started/#create-operator-policy">Create Operator Policy</a>):
+<div class="highlight"><pre><span></span><code><a id="__codelineno-33-1" name="__codelineno-33-1" href="#__codelineno-33-1"></a><span class="err">path</span><span class="w"> </span><span class="s2">&quot;auth/&lt;mount&gt;/role/*&quot; { capabilities = [&quot;create&quot;, &quot;read&quot;, &quot;update&quot;, &quot;delete&quot;</span><span class="p">]</span><span class="w"> </span><span class="p">}</span>
+</code></pre></div></p>
 <h4 id="service-account-not-authorized">Service Account Not Authorized<a class="headerlink" href="#service-account-not-authorized" title="Permanent link">&para;</a></h4>
 <p><strong>Symptoms:</strong>
 - Application pods cannot authenticate to Vault
@@ -2465,27 +2537,27 @@
 <ol>
 <li>
 <p><strong>Check the VaultRole status:</strong>
-   <div class="highlight"><pre><span></span><code><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>vaultrole<span class="w"> </span>app-role<span class="w"> </span>-n<span class="w"> </span>my-app<span class="w"> </span>-o<span class="w"> </span>yaml
-<a id="__codelineno-30-2" name="__codelineno-30-2" href="#__codelineno-30-2"></a><span class="c1"># Verify boundServiceAccounts in status</span>
+   <div class="highlight"><pre><span></span><code><a id="__codelineno-34-1" name="__codelineno-34-1" href="#__codelineno-34-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>vaultrole<span class="w"> </span>app-role<span class="w"> </span>-n<span class="w"> </span>my-app<span class="w"> </span>-o<span class="w"> </span>yaml
+<a id="__codelineno-34-2" name="__codelineno-34-2" href="#__codelineno-34-2"></a><span class="c1"># Verify boundServiceAccounts in status</span>
 </code></pre></div></p>
 </li>
 <li>
 <p><strong>Verify the service account exists:</strong>
-   <div class="highlight"><pre><span></span><code><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>sa<span class="w"> </span>-n<span class="w"> </span>my-app
+   <div class="highlight"><pre><span></span><code><a id="__codelineno-35-1" name="__codelineno-35-1" href="#__codelineno-35-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>sa<span class="w"> </span>-n<span class="w"> </span>my-app
 </code></pre></div></p>
 </li>
 <li>
 <p><strong>Check the role in Vault:</strong>
-   <div class="highlight"><pre><span></span><code><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a>vault<span class="w"> </span><span class="nb">read</span><span class="w"> </span>auth/kubernetes/role/my-app-app-role
+   <div class="highlight"><pre><span></span><code><a id="__codelineno-36-1" name="__codelineno-36-1" href="#__codelineno-36-1"></a>vault<span class="w"> </span><span class="nb">read</span><span class="w"> </span>auth/kubernetes/role/my-app-app-role
 </code></pre></div></p>
 </li>
 <li>
 <p><strong>Test authentication:</strong>
-   <div class="highlight"><pre><span></span><code><a id="__codelineno-33-1" name="__codelineno-33-1" href="#__codelineno-33-1"></a>kubectl<span class="w"> </span>run<span class="w"> </span>-it<span class="w"> </span>--rm<span class="w"> </span>debug<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-33-2" name="__codelineno-33-2" href="#__codelineno-33-2"></a><span class="w">  </span>--image<span class="o">=</span>hashicorp/vault<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-33-3" name="__codelineno-33-3" href="#__codelineno-33-3"></a><span class="w">  </span>--serviceaccount<span class="o">=</span>app-service-account<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-33-4" name="__codelineno-33-4" href="#__codelineno-33-4"></a><span class="w">  </span>-n<span class="w"> </span>my-app<span class="w"> </span>--<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-33-5" name="__codelineno-33-5" href="#__codelineno-33-5"></a><span class="w">  </span>vault<span class="w"> </span>login<span class="w"> </span>-method<span class="o">=</span>kubernetes<span class="w"> </span><span class="nv">role</span><span class="o">=</span>my-app-app-role
+   <div class="highlight"><pre><span></span><code><a id="__codelineno-37-1" name="__codelineno-37-1" href="#__codelineno-37-1"></a>kubectl<span class="w"> </span>run<span class="w"> </span>-it<span class="w"> </span>--rm<span class="w"> </span>debug<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-37-2" name="__codelineno-37-2" href="#__codelineno-37-2"></a><span class="w">  </span>--image<span class="o">=</span>hashicorp/vault<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-37-3" name="__codelineno-37-3" href="#__codelineno-37-3"></a><span class="w">  </span>--serviceaccount<span class="o">=</span>app-service-account<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-37-4" name="__codelineno-37-4" href="#__codelineno-37-4"></a><span class="w">  </span>-n<span class="w"> </span>my-app<span class="w"> </span>--<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-37-5" name="__codelineno-37-5" href="#__codelineno-37-5"></a><span class="w">  </span>vault<span class="w"> </span>login<span class="w"> </span>-method<span class="o">=</span>kubernetes<span class="w"> </span><span class="nv">role</span><span class="o">=</span>my-app-app-role
 </code></pre></div></p>
 </li>
 </ol>
@@ -2493,53 +2565,53 @@
 <h3 id="webhook-issues">Webhook Issues<a class="headerlink" href="#webhook-issues" title="Permanent link">&para;</a></h3>
 <h4 id="webhook-certificate-errors">Webhook Certificate Errors<a class="headerlink" href="#webhook-certificate-errors" title="Permanent link">&para;</a></h4>
 <p><strong>Symptoms:</strong>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-34-1" name="__codelineno-34-1" href="#__codelineno-34-1"></a>Error creating: Internal error occurred: failed calling webhook:
-<a id="__codelineno-34-2" name="__codelineno-34-2" href="#__codelineno-34-2"></a>x509: certificate signed by unknown authority
+<div class="highlight"><pre><span></span><code><a id="__codelineno-38-1" name="__codelineno-38-1" href="#__codelineno-38-1"></a>Error creating: Internal error occurred: failed calling webhook:
+<a id="__codelineno-38-2" name="__codelineno-38-2" href="#__codelineno-38-2"></a>x509: certificate signed by unknown authority
 </code></pre></div></p>
 <p><strong>Solutions:</strong></p>
 <ol>
 <li>
 <p><strong>If using cert-manager, verify the certificate:</strong>
-   <div class="highlight"><pre><span></span><code><a id="__codelineno-35-1" name="__codelineno-35-1" href="#__codelineno-35-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>certificate<span class="w"> </span>-n<span class="w"> </span>vault-access-operator-system
-<a id="__codelineno-35-2" name="__codelineno-35-2" href="#__codelineno-35-2"></a>kubectl<span class="w"> </span>describe<span class="w"> </span>certificate<span class="w"> </span>vault-access-operator-webhook-cert<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-35-3" name="__codelineno-35-3" href="#__codelineno-35-3"></a><span class="w">  </span>-n<span class="w"> </span>vault-access-operator-system
+   <div class="highlight"><pre><span></span><code><a id="__codelineno-39-1" name="__codelineno-39-1" href="#__codelineno-39-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>certificate<span class="w"> </span>-n<span class="w"> </span>vault-access-operator-system
+<a id="__codelineno-39-2" name="__codelineno-39-2" href="#__codelineno-39-2"></a>kubectl<span class="w"> </span>describe<span class="w"> </span>certificate<span class="w"> </span>vault-access-operator-webhook-cert<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-39-3" name="__codelineno-39-3" href="#__codelineno-39-3"></a><span class="w">  </span>-n<span class="w"> </span>vault-access-operator-system
 </code></pre></div></p>
 </li>
 <li>
 <p><strong>Check cert-manager is working:</strong>
-   <div class="highlight"><pre><span></span><code><a id="__codelineno-36-1" name="__codelineno-36-1" href="#__codelineno-36-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>pods<span class="w"> </span>-n<span class="w"> </span>cert-manager
-<a id="__codelineno-36-2" name="__codelineno-36-2" href="#__codelineno-36-2"></a>kubectl<span class="w"> </span>logs<span class="w"> </span>-n<span class="w"> </span>cert-manager<span class="w"> </span>deploy/cert-manager
+   <div class="highlight"><pre><span></span><code><a id="__codelineno-40-1" name="__codelineno-40-1" href="#__codelineno-40-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>pods<span class="w"> </span>-n<span class="w"> </span>cert-manager
+<a id="__codelineno-40-2" name="__codelineno-40-2" href="#__codelineno-40-2"></a>kubectl<span class="w"> </span>logs<span class="w"> </span>-n<span class="w"> </span>cert-manager<span class="w"> </span>deploy/cert-manager
 </code></pre></div></p>
 </li>
 <li>
 <p><strong>Restart the operator to pick up new certificate:</strong>
-   <div class="highlight"><pre><span></span><code><a id="__codelineno-37-1" name="__codelineno-37-1" href="#__codelineno-37-1"></a>kubectl<span class="w"> </span>rollout<span class="w"> </span>restart<span class="w"> </span>deployment<span class="w"> </span>vault-access-operator-controller-manager<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-37-2" name="__codelineno-37-2" href="#__codelineno-37-2"></a><span class="w">  </span>-n<span class="w"> </span>vault-access-operator-system
+   <div class="highlight"><pre><span></span><code><a id="__codelineno-41-1" name="__codelineno-41-1" href="#__codelineno-41-1"></a>kubectl<span class="w"> </span>rollout<span class="w"> </span>restart<span class="w"> </span>deployment<span class="w"> </span>vault-access-operator-controller-manager<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-41-2" name="__codelineno-41-2" href="#__codelineno-41-2"></a><span class="w">  </span>-n<span class="w"> </span>vault-access-operator-system
 </code></pre></div></p>
 </li>
 </ol>
 <h4 id="webhook-timeout">Webhook Timeout<a class="headerlink" href="#webhook-timeout" title="Permanent link">&para;</a></h4>
 <p><strong>Symptoms:</strong>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-38-1" name="__codelineno-38-1" href="#__codelineno-38-1"></a>Error: context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+<div class="highlight"><pre><span></span><code><a id="__codelineno-42-1" name="__codelineno-42-1" href="#__codelineno-42-1"></a>Error: context deadline exceeded (Client.Timeout exceeded while awaiting headers)
 </code></pre></div></p>
 <p><strong>Solutions:</strong></p>
 <ol>
 <li>
 <p><strong>Check operator health:</strong>
-   <div class="highlight"><pre><span></span><code><a id="__codelineno-39-1" name="__codelineno-39-1" href="#__codelineno-39-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>pods<span class="w"> </span>-n<span class="w"> </span>vault-access-operator-system
-<a id="__codelineno-39-2" name="__codelineno-39-2" href="#__codelineno-39-2"></a>kubectl<span class="w"> </span>logs<span class="w"> </span>-n<span class="w"> </span>vault-access-operator-system<span class="w"> </span>deploy/vault-access-operator-controller-manager
+   <div class="highlight"><pre><span></span><code><a id="__codelineno-43-1" name="__codelineno-43-1" href="#__codelineno-43-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>pods<span class="w"> </span>-n<span class="w"> </span>vault-access-operator-system
+<a id="__codelineno-43-2" name="__codelineno-43-2" href="#__codelineno-43-2"></a>kubectl<span class="w"> </span>logs<span class="w"> </span>-n<span class="w"> </span>vault-access-operator-system<span class="w"> </span>deploy/vault-access-operator-controller-manager
 </code></pre></div></p>
 </li>
 <li>
 <p><strong>Increase webhook timeout:</strong>
-   <div class="highlight"><pre><span></span><code><a id="__codelineno-40-1" name="__codelineno-40-1" href="#__codelineno-40-1"></a><span class="c1"># In Helm values</span>
-<a id="__codelineno-40-2" name="__codelineno-40-2" href="#__codelineno-40-2"></a><span class="nt">webhook</span><span class="p">:</span>
-<a id="__codelineno-40-3" name="__codelineno-40-3" href="#__codelineno-40-3"></a><span class="w">  </span><span class="nt">timeoutSeconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30</span>
+   <div class="highlight"><pre><span></span><code><a id="__codelineno-44-1" name="__codelineno-44-1" href="#__codelineno-44-1"></a><span class="c1"># In Helm values</span>
+<a id="__codelineno-44-2" name="__codelineno-44-2" href="#__codelineno-44-2"></a><span class="nt">webhook</span><span class="p">:</span>
+<a id="__codelineno-44-3" name="__codelineno-44-3" href="#__codelineno-44-3"></a><span class="w">  </span><span class="nt">timeoutSeconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30</span>
 </code></pre></div></p>
 </li>
 <li>
 <p><strong>Check network policies:</strong>
-   <div class="highlight"><pre><span></span><code><a id="__codelineno-41-1" name="__codelineno-41-1" href="#__codelineno-41-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>networkpolicy<span class="w"> </span>-n<span class="w"> </span>vault-access-operator-system
+   <div class="highlight"><pre><span></span><code><a id="__codelineno-45-1" name="__codelineno-45-1" href="#__codelineno-45-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>networkpolicy<span class="w"> </span>-n<span class="w"> </span>vault-access-operator-system
 </code></pre></div></p>
 </li>
 </ol>
@@ -2547,87 +2619,87 @@
 <h2 id="debugging-techniques">Debugging Techniques<a class="headerlink" href="#debugging-techniques" title="Permanent link">&para;</a></h2>
 <h3 id="enable-debug-logging">Enable Debug Logging<a class="headerlink" href="#enable-debug-logging" title="Permanent link">&para;</a></h3>
 <p>Increase log verbosity for more detailed output:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-42-1" name="__codelineno-42-1" href="#__codelineno-42-1"></a><span class="c1"># Helm values</span>
-<a id="__codelineno-42-2" name="__codelineno-42-2" href="#__codelineno-42-2"></a><span class="nt">logging</span><span class="p">:</span>
-<a id="__codelineno-42-3" name="__codelineno-42-3" href="#__codelineno-42-3"></a><span class="w">  </span><span class="nt">level</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">debug</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-46-1" name="__codelineno-46-1" href="#__codelineno-46-1"></a><span class="c1"># Helm values</span>
+<a id="__codelineno-46-2" name="__codelineno-46-2" href="#__codelineno-46-2"></a><span class="nt">logging</span><span class="p">:</span>
+<a id="__codelineno-46-3" name="__codelineno-46-3" href="#__codelineno-46-3"></a><span class="w">  </span><span class="nt">level</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">debug</span>
 </code></pre></div>
 <p>Or set environment variable:
-<div class="highlight"><pre><span></span><code><a id="__codelineno-43-1" name="__codelineno-43-1" href="#__codelineno-43-1"></a>kubectl<span class="w"> </span><span class="nb">set</span><span class="w"> </span>env<span class="w"> </span>deployment/vault-access-operator-controller-manager<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-43-2" name="__codelineno-43-2" href="#__codelineno-43-2"></a><span class="w">  </span>-n<span class="w"> </span>vault-access-operator-system<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-43-3" name="__codelineno-43-3" href="#__codelineno-43-3"></a><span class="w">  </span>--<span class="w"> </span><span class="nv">ZAP_LOG_LEVEL</span><span class="o">=</span>debug
+<div class="highlight"><pre><span></span><code><a id="__codelineno-47-1" name="__codelineno-47-1" href="#__codelineno-47-1"></a>kubectl<span class="w"> </span><span class="nb">set</span><span class="w"> </span>env<span class="w"> </span>deployment/vault-access-operator-controller-manager<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-47-2" name="__codelineno-47-2" href="#__codelineno-47-2"></a><span class="w">  </span>-n<span class="w"> </span>vault-access-operator-system<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-47-3" name="__codelineno-47-3" href="#__codelineno-47-3"></a><span class="w">  </span>--<span class="w"> </span><span class="nv">ZAP_LOG_LEVEL</span><span class="o">=</span>debug
 </code></pre></div></p>
 <h3 id="check-resource-events">Check Resource Events<a class="headerlink" href="#check-resource-events" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-44-1" name="__codelineno-44-1" href="#__codelineno-44-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>events<span class="w"> </span>--field-selector<span class="w"> </span>involvedObject.name<span class="o">=</span>app-secrets<span class="w"> </span>-n<span class="w"> </span>my-app
+<div class="highlight"><pre><span></span><code><a id="__codelineno-48-1" name="__codelineno-48-1" href="#__codelineno-48-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>events<span class="w"> </span>--field-selector<span class="w"> </span>involvedObject.name<span class="o">=</span>app-secrets<span class="w"> </span>-n<span class="w"> </span>my-app
 </code></pre></div>
 <h3 id="inspect-resource-details">Inspect Resource Details<a class="headerlink" href="#inspect-resource-details" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-45-1" name="__codelineno-45-1" href="#__codelineno-45-1"></a><span class="c1"># Full resource with status</span>
-<a id="__codelineno-45-2" name="__codelineno-45-2" href="#__codelineno-45-2"></a>kubectl<span class="w"> </span>get<span class="w"> </span>vaultpolicy<span class="w"> </span>app-secrets<span class="w"> </span>-n<span class="w"> </span>my-app<span class="w"> </span>-o<span class="w"> </span>yaml
-<a id="__codelineno-45-3" name="__codelineno-45-3" href="#__codelineno-45-3"></a>
-<a id="__codelineno-45-4" name="__codelineno-45-4" href="#__codelineno-45-4"></a><span class="c1"># Just the status</span>
-<a id="__codelineno-45-5" name="__codelineno-45-5" href="#__codelineno-45-5"></a>kubectl<span class="w"> </span>get<span class="w"> </span>vaultpolicy<span class="w"> </span>app-secrets<span class="w"> </span>-n<span class="w"> </span>my-app<span class="w"> </span>-o<span class="w"> </span><span class="nv">jsonpath</span><span class="o">=</span><span class="s1">&#39;{.status}&#39;</span>
-<a id="__codelineno-45-6" name="__codelineno-45-6" href="#__codelineno-45-6"></a>
-<a id="__codelineno-45-7" name="__codelineno-45-7" href="#__codelineno-45-7"></a><span class="c1"># Just conditions</span>
-<a id="__codelineno-45-8" name="__codelineno-45-8" href="#__codelineno-45-8"></a>kubectl<span class="w"> </span>get<span class="w"> </span>vaultpolicy<span class="w"> </span>app-secrets<span class="w"> </span>-n<span class="w"> </span>my-app<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-45-9" name="__codelineno-45-9" href="#__codelineno-45-9"></a><span class="w">  </span>-o<span class="w"> </span><span class="nv">jsonpath</span><span class="o">=</span><span class="s1">&#39;{.status.conditions}&#39;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span>.
+<div class="highlight"><pre><span></span><code><a id="__codelineno-49-1" name="__codelineno-49-1" href="#__codelineno-49-1"></a><span class="c1"># Full resource with status</span>
+<a id="__codelineno-49-2" name="__codelineno-49-2" href="#__codelineno-49-2"></a>kubectl<span class="w"> </span>get<span class="w"> </span>vaultpolicy<span class="w"> </span>app-secrets<span class="w"> </span>-n<span class="w"> </span>my-app<span class="w"> </span>-o<span class="w"> </span>yaml
+<a id="__codelineno-49-3" name="__codelineno-49-3" href="#__codelineno-49-3"></a>
+<a id="__codelineno-49-4" name="__codelineno-49-4" href="#__codelineno-49-4"></a><span class="c1"># Just the status</span>
+<a id="__codelineno-49-5" name="__codelineno-49-5" href="#__codelineno-49-5"></a>kubectl<span class="w"> </span>get<span class="w"> </span>vaultpolicy<span class="w"> </span>app-secrets<span class="w"> </span>-n<span class="w"> </span>my-app<span class="w"> </span>-o<span class="w"> </span><span class="nv">jsonpath</span><span class="o">=</span><span class="s1">&#39;{.status}&#39;</span>
+<a id="__codelineno-49-6" name="__codelineno-49-6" href="#__codelineno-49-6"></a>
+<a id="__codelineno-49-7" name="__codelineno-49-7" href="#__codelineno-49-7"></a><span class="c1"># Just conditions</span>
+<a id="__codelineno-49-8" name="__codelineno-49-8" href="#__codelineno-49-8"></a>kubectl<span class="w"> </span>get<span class="w"> </span>vaultpolicy<span class="w"> </span>app-secrets<span class="w"> </span>-n<span class="w"> </span>my-app<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-49-9" name="__codelineno-49-9" href="#__codelineno-49-9"></a><span class="w">  </span>-o<span class="w"> </span><span class="nv">jsonpath</span><span class="o">=</span><span class="s1">&#39;{.status.conditions}&#39;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span>.
 </code></pre></div>
 <h3 id="test-vault-connectivity-from-operator">Test Vault Connectivity from Operator<a class="headerlink" href="#test-vault-connectivity-from-operator" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-46-1" name="__codelineno-46-1" href="#__codelineno-46-1"></a><span class="c1"># Get a shell in the operator pod</span>
-<a id="__codelineno-46-2" name="__codelineno-46-2" href="#__codelineno-46-2"></a>kubectl<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>-it<span class="w"> </span>deploy/vault-access-operator-controller-manager<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-46-3" name="__codelineno-46-3" href="#__codelineno-46-3"></a><span class="w">  </span>-n<span class="w"> </span>vault-access-operator-system<span class="w"> </span>--<span class="w"> </span>/bin/sh
-<a id="__codelineno-46-4" name="__codelineno-46-4" href="#__codelineno-46-4"></a>
-<a id="__codelineno-46-5" name="__codelineno-46-5" href="#__codelineno-46-5"></a><span class="c1"># Test Vault health</span>
-<a id="__codelineno-46-6" name="__codelineno-46-6" href="#__codelineno-46-6"></a>wget<span class="w"> </span>-qO-<span class="w"> </span>https://vault.example.com:8200/v1/sys/health
-<a id="__codelineno-46-7" name="__codelineno-46-7" href="#__codelineno-46-7"></a>
-<a id="__codelineno-46-8" name="__codelineno-46-8" href="#__codelineno-46-8"></a><span class="c1"># Check environment</span>
-<a id="__codelineno-46-9" name="__codelineno-46-9" href="#__codelineno-46-9"></a>env<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>VAULT
+<div class="highlight"><pre><span></span><code><a id="__codelineno-50-1" name="__codelineno-50-1" href="#__codelineno-50-1"></a><span class="c1"># Get a shell in the operator pod</span>
+<a id="__codelineno-50-2" name="__codelineno-50-2" href="#__codelineno-50-2"></a>kubectl<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>-it<span class="w"> </span>deploy/vault-access-operator-controller-manager<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-50-3" name="__codelineno-50-3" href="#__codelineno-50-3"></a><span class="w">  </span>-n<span class="w"> </span>vault-access-operator-system<span class="w"> </span>--<span class="w"> </span>/bin/sh
+<a id="__codelineno-50-4" name="__codelineno-50-4" href="#__codelineno-50-4"></a>
+<a id="__codelineno-50-5" name="__codelineno-50-5" href="#__codelineno-50-5"></a><span class="c1"># Test Vault health</span>
+<a id="__codelineno-50-6" name="__codelineno-50-6" href="#__codelineno-50-6"></a>wget<span class="w"> </span>-qO-<span class="w"> </span>https://vault.example.com:8200/v1/sys/health
+<a id="__codelineno-50-7" name="__codelineno-50-7" href="#__codelineno-50-7"></a>
+<a id="__codelineno-50-8" name="__codelineno-50-8" href="#__codelineno-50-8"></a><span class="c1"># Check environment</span>
+<a id="__codelineno-50-9" name="__codelineno-50-9" href="#__codelineno-50-9"></a>env<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>VAULT
 </code></pre></div>
 <h3 id="verify-crd-installation">Verify CRD Installation<a class="headerlink" href="#verify-crd-installation" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-47-1" name="__codelineno-47-1" href="#__codelineno-47-1"></a><span class="c1"># List CRDs</span>
-<a id="__codelineno-47-2" name="__codelineno-47-2" href="#__codelineno-47-2"></a>kubectl<span class="w"> </span>get<span class="w"> </span>crds<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>vault.platform.io
-<a id="__codelineno-47-3" name="__codelineno-47-3" href="#__codelineno-47-3"></a>
-<a id="__codelineno-47-4" name="__codelineno-47-4" href="#__codelineno-47-4"></a><span class="c1"># Check CRD details</span>
-<a id="__codelineno-47-5" name="__codelineno-47-5" href="#__codelineno-47-5"></a>kubectl<span class="w"> </span>describe<span class="w"> </span>crd<span class="w"> </span>vaultpolicies.vault.platform.io
+<div class="highlight"><pre><span></span><code><a id="__codelineno-51-1" name="__codelineno-51-1" href="#__codelineno-51-1"></a><span class="c1"># List CRDs</span>
+<a id="__codelineno-51-2" name="__codelineno-51-2" href="#__codelineno-51-2"></a>kubectl<span class="w"> </span>get<span class="w"> </span>crds<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>vault.platform.io
+<a id="__codelineno-51-3" name="__codelineno-51-3" href="#__codelineno-51-3"></a>
+<a id="__codelineno-51-4" name="__codelineno-51-4" href="#__codelineno-51-4"></a><span class="c1"># Check CRD details</span>
+<a id="__codelineno-51-5" name="__codelineno-51-5" href="#__codelineno-51-5"></a>kubectl<span class="w"> </span>describe<span class="w"> </span>crd<span class="w"> </span>vaultpolicies.vault.platform.io
 </code></pre></div>
 <hr />
 <h2 id="log-analysis">Log Analysis<a class="headerlink" href="#log-analysis" title="Permanent link">&para;</a></h2>
 <h3 id="operator-log-locations">Operator Log Locations<a class="headerlink" href="#operator-log-locations" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-48-1" name="__codelineno-48-1" href="#__codelineno-48-1"></a><span class="c1"># Stream logs from the operator</span>
-<a id="__codelineno-48-2" name="__codelineno-48-2" href="#__codelineno-48-2"></a>kubectl<span class="w"> </span>logs<span class="w"> </span>-f<span class="w"> </span>-n<span class="w"> </span>vault-access-operator-system<span class="w"> </span>deploy/vault-access-operator-controller-manager
-<a id="__codelineno-48-3" name="__codelineno-48-3" href="#__codelineno-48-3"></a>
-<a id="__codelineno-48-4" name="__codelineno-48-4" href="#__codelineno-48-4"></a><span class="c1"># Get logs from the last hour</span>
-<a id="__codelineno-48-5" name="__codelineno-48-5" href="#__codelineno-48-5"></a>kubectl<span class="w"> </span>logs<span class="w"> </span>-n<span class="w"> </span>vault-access-operator-system<span class="w"> </span>deploy/vault-access-operator-controller-manager<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-48-6" name="__codelineno-48-6" href="#__codelineno-48-6"></a><span class="w">  </span>--since<span class="o">=</span>1h
-<a id="__codelineno-48-7" name="__codelineno-48-7" href="#__codelineno-48-7"></a>
-<a id="__codelineno-48-8" name="__codelineno-48-8" href="#__codelineno-48-8"></a><span class="c1"># Get logs from a crashed pod</span>
-<a id="__codelineno-48-9" name="__codelineno-48-9" href="#__codelineno-48-9"></a>kubectl<span class="w"> </span>logs<span class="w"> </span>-n<span class="w"> </span>vault-access-operator-system<span class="w"> </span>deploy/vault-access-operator-controller-manager<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-48-10" name="__codelineno-48-10" href="#__codelineno-48-10"></a><span class="w">  </span>--previous
+<div class="highlight"><pre><span></span><code><a id="__codelineno-52-1" name="__codelineno-52-1" href="#__codelineno-52-1"></a><span class="c1"># Stream logs from the operator</span>
+<a id="__codelineno-52-2" name="__codelineno-52-2" href="#__codelineno-52-2"></a>kubectl<span class="w"> </span>logs<span class="w"> </span>-f<span class="w"> </span>-n<span class="w"> </span>vault-access-operator-system<span class="w"> </span>deploy/vault-access-operator-controller-manager
+<a id="__codelineno-52-3" name="__codelineno-52-3" href="#__codelineno-52-3"></a>
+<a id="__codelineno-52-4" name="__codelineno-52-4" href="#__codelineno-52-4"></a><span class="c1"># Get logs from the last hour</span>
+<a id="__codelineno-52-5" name="__codelineno-52-5" href="#__codelineno-52-5"></a>kubectl<span class="w"> </span>logs<span class="w"> </span>-n<span class="w"> </span>vault-access-operator-system<span class="w"> </span>deploy/vault-access-operator-controller-manager<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-52-6" name="__codelineno-52-6" href="#__codelineno-52-6"></a><span class="w">  </span>--since<span class="o">=</span>1h
+<a id="__codelineno-52-7" name="__codelineno-52-7" href="#__codelineno-52-7"></a>
+<a id="__codelineno-52-8" name="__codelineno-52-8" href="#__codelineno-52-8"></a><span class="c1"># Get logs from a crashed pod</span>
+<a id="__codelineno-52-9" name="__codelineno-52-9" href="#__codelineno-52-9"></a>kubectl<span class="w"> </span>logs<span class="w"> </span>-n<span class="w"> </span>vault-access-operator-system<span class="w"> </span>deploy/vault-access-operator-controller-manager<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-52-10" name="__codelineno-52-10" href="#__codelineno-52-10"></a><span class="w">  </span>--previous
 </code></pre></div>
 <h3 id="common-log-patterns">Common Log Patterns<a class="headerlink" href="#common-log-patterns" title="Permanent link">&para;</a></h3>
 <h4 id="successful-reconciliation">Successful Reconciliation<a class="headerlink" href="#successful-reconciliation" title="Permanent link">&para;</a></h4>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-49-1" name="__codelineno-49-1" href="#__codelineno-49-1"></a><span class="p">{</span><span class="nt">&quot;level&quot;</span><span class="p">:</span><span class="s2">&quot;info&quot;</span><span class="p">,</span><span class="nt">&quot;ts&quot;</span><span class="p">:</span><span class="s2">&quot;...&quot;</span><span class="p">,</span><span class="nt">&quot;msg&quot;</span><span class="p">:</span><span class="s2">&quot;Reconciling VaultPolicy&quot;</span><span class="p">,</span><span class="nt">&quot;namespace&quot;</span><span class="p">:</span><span class="s2">&quot;my-app&quot;</span><span class="p">,</span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="s2">&quot;app-secrets&quot;</span><span class="p">}</span>
-<a id="__codelineno-49-2" name="__codelineno-49-2" href="#__codelineno-49-2"></a><span class="p">{</span><span class="nt">&quot;level&quot;</span><span class="p">:</span><span class="s2">&quot;info&quot;</span><span class="p">,</span><span class="nt">&quot;ts&quot;</span><span class="p">:</span><span class="s2">&quot;...&quot;</span><span class="p">,</span><span class="nt">&quot;msg&quot;</span><span class="p">:</span><span class="s2">&quot;VaultPolicy reconciled successfully&quot;</span><span class="p">,</span><span class="nt">&quot;namespace&quot;</span><span class="p">:</span><span class="s2">&quot;my-app&quot;</span><span class="p">,</span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="s2">&quot;app-secrets&quot;</span><span class="p">,</span><span class="nt">&quot;vaultName&quot;</span><span class="p">:</span><span class="s2">&quot;my-app-app-secrets&quot;</span><span class="p">}</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-53-1" name="__codelineno-53-1" href="#__codelineno-53-1"></a><span class="p">{</span><span class="nt">&quot;level&quot;</span><span class="p">:</span><span class="s2">&quot;info&quot;</span><span class="p">,</span><span class="nt">&quot;ts&quot;</span><span class="p">:</span><span class="s2">&quot;...&quot;</span><span class="p">,</span><span class="nt">&quot;msg&quot;</span><span class="p">:</span><span class="s2">&quot;Reconciling VaultPolicy&quot;</span><span class="p">,</span><span class="nt">&quot;namespace&quot;</span><span class="p">:</span><span class="s2">&quot;my-app&quot;</span><span class="p">,</span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="s2">&quot;app-secrets&quot;</span><span class="p">}</span>
+<a id="__codelineno-53-2" name="__codelineno-53-2" href="#__codelineno-53-2"></a><span class="p">{</span><span class="nt">&quot;level&quot;</span><span class="p">:</span><span class="s2">&quot;info&quot;</span><span class="p">,</span><span class="nt">&quot;ts&quot;</span><span class="p">:</span><span class="s2">&quot;...&quot;</span><span class="p">,</span><span class="nt">&quot;msg&quot;</span><span class="p">:</span><span class="s2">&quot;VaultPolicy reconciled successfully&quot;</span><span class="p">,</span><span class="nt">&quot;namespace&quot;</span><span class="p">:</span><span class="s2">&quot;my-app&quot;</span><span class="p">,</span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="s2">&quot;app-secrets&quot;</span><span class="p">,</span><span class="nt">&quot;vaultName&quot;</span><span class="p">:</span><span class="s2">&quot;my-app-app-secrets&quot;</span><span class="p">}</span>
 </code></pre></div>
 <h4 id="connection-error">Connection Error<a class="headerlink" href="#connection-error" title="Permanent link">&para;</a></h4>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-50-1" name="__codelineno-50-1" href="#__codelineno-50-1"></a><span class="p">{</span><span class="nt">&quot;level&quot;</span><span class="p">:</span><span class="s2">&quot;error&quot;</span><span class="p">,</span><span class="nt">&quot;ts&quot;</span><span class="p">:</span><span class="s2">&quot;...&quot;</span><span class="p">,</span><span class="nt">&quot;msg&quot;</span><span class="p">:</span><span class="s2">&quot;Failed to get Vault client&quot;</span><span class="p">,</span><span class="nt">&quot;error&quot;</span><span class="p">:</span><span class="s2">&quot;connection \&quot;vault-primary\&quot; not ready: VaultConnection is in Pending phase&quot;</span><span class="p">}</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-54-1" name="__codelineno-54-1" href="#__codelineno-54-1"></a><span class="p">{</span><span class="nt">&quot;level&quot;</span><span class="p">:</span><span class="s2">&quot;error&quot;</span><span class="p">,</span><span class="nt">&quot;ts&quot;</span><span class="p">:</span><span class="s2">&quot;...&quot;</span><span class="p">,</span><span class="nt">&quot;msg&quot;</span><span class="p">:</span><span class="s2">&quot;Failed to get Vault client&quot;</span><span class="p">,</span><span class="nt">&quot;error&quot;</span><span class="p">:</span><span class="s2">&quot;connection \&quot;vault-primary\&quot; not ready: VaultConnection is in Pending phase&quot;</span><span class="p">}</span>
 </code></pre></div>
 <h4 id="conflict-detection">Conflict Detection<a class="headerlink" href="#conflict-detection" title="Permanent link">&para;</a></h4>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-51-1" name="__codelineno-51-1" href="#__codelineno-51-1"></a><span class="p">{</span><span class="nt">&quot;level&quot;</span><span class="p">:</span><span class="s2">&quot;error&quot;</span><span class="p">,</span><span class="nt">&quot;ts&quot;</span><span class="p">:</span><span class="s2">&quot;...&quot;</span><span class="p">,</span><span class="nt">&quot;msg&quot;</span><span class="p">:</span><span class="s2">&quot;Conflict detected&quot;</span><span class="p">,</span><span class="nt">&quot;error&quot;</span><span class="p">:</span><span class="s2">&quot;conflict: policy \&quot;my-app-app-secrets\&quot;: already managed by other-namespace/other-policy&quot;</span><span class="p">}</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-55-1" name="__codelineno-55-1" href="#__codelineno-55-1"></a><span class="p">{</span><span class="nt">&quot;level&quot;</span><span class="p">:</span><span class="s2">&quot;error&quot;</span><span class="p">,</span><span class="nt">&quot;ts&quot;</span><span class="p">:</span><span class="s2">&quot;...&quot;</span><span class="p">,</span><span class="nt">&quot;msg&quot;</span><span class="p">:</span><span class="s2">&quot;Conflict detected&quot;</span><span class="p">,</span><span class="nt">&quot;error&quot;</span><span class="p">:</span><span class="s2">&quot;conflict: policy \&quot;my-app-app-secrets\&quot;: already managed by other-namespace/other-policy&quot;</span><span class="p">}</span>
 </code></pre></div>
 <h4 id="retry-scheduling">Retry Scheduling<a class="headerlink" href="#retry-scheduling" title="Permanent link">&para;</a></h4>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-52-1" name="__codelineno-52-1" href="#__codelineno-52-1"></a><span class="p">{</span><span class="nt">&quot;level&quot;</span><span class="p">:</span><span class="s2">&quot;info&quot;</span><span class="p">,</span><span class="nt">&quot;ts&quot;</span><span class="p">:</span><span class="s2">&quot;...&quot;</span><span class="p">,</span><span class="nt">&quot;msg&quot;</span><span class="p">:</span><span class="s2">&quot;Scheduling retry&quot;</span><span class="p">,</span><span class="nt">&quot;retryCount&quot;</span><span class="p">:</span><span class="mi">2</span><span class="p">,</span><span class="nt">&quot;nextRetryIn&quot;</span><span class="p">:</span><span class="s2">&quot;20s&quot;</span><span class="p">}</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-56-1" name="__codelineno-56-1" href="#__codelineno-56-1"></a><span class="p">{</span><span class="nt">&quot;level&quot;</span><span class="p">:</span><span class="s2">&quot;info&quot;</span><span class="p">,</span><span class="nt">&quot;ts&quot;</span><span class="p">:</span><span class="s2">&quot;...&quot;</span><span class="p">,</span><span class="nt">&quot;msg&quot;</span><span class="p">:</span><span class="s2">&quot;Scheduling retry&quot;</span><span class="p">,</span><span class="nt">&quot;retryCount&quot;</span><span class="p">:</span><span class="mi">2</span><span class="p">,</span><span class="nt">&quot;nextRetryIn&quot;</span><span class="p">:</span><span class="s2">&quot;20s&quot;</span><span class="p">}</span>
 </code></pre></div>
 <h3 id="filtering-logs">Filtering Logs<a class="headerlink" href="#filtering-logs" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-53-1" name="__codelineno-53-1" href="#__codelineno-53-1"></a><span class="c1"># Only errors</span>
-<a id="__codelineno-53-2" name="__codelineno-53-2" href="#__codelineno-53-2"></a>kubectl<span class="w"> </span>logs<span class="w"> </span>-n<span class="w"> </span>vault-access-operator-system<span class="w"> </span>deploy/vault-access-operator-controller-manager<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-53-3" name="__codelineno-53-3" href="#__codelineno-53-3"></a><span class="w">  </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span><span class="s1">&#39;&quot;level&quot;:&quot;error&quot;&#39;</span>
-<a id="__codelineno-53-4" name="__codelineno-53-4" href="#__codelineno-53-4"></a>
-<a id="__codelineno-53-5" name="__codelineno-53-5" href="#__codelineno-53-5"></a><span class="c1"># Specific resource</span>
-<a id="__codelineno-53-6" name="__codelineno-53-6" href="#__codelineno-53-6"></a>kubectl<span class="w"> </span>logs<span class="w"> </span>-n<span class="w"> </span>vault-access-operator-system<span class="w"> </span>deploy/vault-access-operator-controller-manager<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-53-7" name="__codelineno-53-7" href="#__codelineno-53-7"></a><span class="w">  </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span><span class="s1">&#39;&quot;name&quot;:&quot;app-secrets&quot;&#39;</span>
-<a id="__codelineno-53-8" name="__codelineno-53-8" href="#__codelineno-53-8"></a>
-<a id="__codelineno-53-9" name="__codelineno-53-9" href="#__codelineno-53-9"></a><span class="c1"># Using jq for JSON logs</span>
-<a id="__codelineno-53-10" name="__codelineno-53-10" href="#__codelineno-53-10"></a>kubectl<span class="w"> </span>logs<span class="w"> </span>-n<span class="w"> </span>vault-access-operator-system<span class="w"> </span>deploy/vault-access-operator-controller-manager<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-53-11" name="__codelineno-53-11" href="#__codelineno-53-11"></a><span class="w">  </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span><span class="s1">&#39;select(.level == &quot;error&quot;)&#39;</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-57-1" name="__codelineno-57-1" href="#__codelineno-57-1"></a><span class="c1"># Only errors</span>
+<a id="__codelineno-57-2" name="__codelineno-57-2" href="#__codelineno-57-2"></a>kubectl<span class="w"> </span>logs<span class="w"> </span>-n<span class="w"> </span>vault-access-operator-system<span class="w"> </span>deploy/vault-access-operator-controller-manager<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-57-3" name="__codelineno-57-3" href="#__codelineno-57-3"></a><span class="w">  </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span><span class="s1">&#39;&quot;level&quot;:&quot;error&quot;&#39;</span>
+<a id="__codelineno-57-4" name="__codelineno-57-4" href="#__codelineno-57-4"></a>
+<a id="__codelineno-57-5" name="__codelineno-57-5" href="#__codelineno-57-5"></a><span class="c1"># Specific resource</span>
+<a id="__codelineno-57-6" name="__codelineno-57-6" href="#__codelineno-57-6"></a>kubectl<span class="w"> </span>logs<span class="w"> </span>-n<span class="w"> </span>vault-access-operator-system<span class="w"> </span>deploy/vault-access-operator-controller-manager<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-57-7" name="__codelineno-57-7" href="#__codelineno-57-7"></a><span class="w">  </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span><span class="s1">&#39;&quot;name&quot;:&quot;app-secrets&quot;&#39;</span>
+<a id="__codelineno-57-8" name="__codelineno-57-8" href="#__codelineno-57-8"></a>
+<a id="__codelineno-57-9" name="__codelineno-57-9" href="#__codelineno-57-9"></a><span class="c1"># Using jq for JSON logs</span>
+<a id="__codelineno-57-10" name="__codelineno-57-10" href="#__codelineno-57-10"></a>kubectl<span class="w"> </span>logs<span class="w"> </span>-n<span class="w"> </span>vault-access-operator-system<span class="w"> </span>deploy/vault-access-operator-controller-manager<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-57-11" name="__codelineno-57-11" href="#__codelineno-57-11"></a><span class="w">  </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span><span class="s1">&#39;select(.level == &quot;error&quot;)&#39;</span>
 </code></pre></div>
 <hr />
 <h2 id="status-conditions-explained">Status Conditions Explained<a class="headerlink" href="#status-conditions-explained" title="Permanent link">&para;</a></h2>
@@ -2710,8 +2782,13 @@
 </tr>
 <tr>
 <td><code>ValidationFailed</code></td>
-<td>Resource spec validation failed</td>
+<td>Resource spec validation failed (e.g. the referenced connection has no role-capable auth mount)</td>
 <td>Fix spec according to error</td>
+</tr>
+<tr>
+<td><code>VaultPermissionDenied</code></td>
+<td>Vault returned 403 for the operation</td>
+<td>Extend the operator's Vault policy for the resolved mount/path</td>
 </tr>
 <tr>
 <td><code>ConnectionNotReady</code></td>
@@ -2781,26 +2858,26 @@
 </tbody>
 </table>
 <h3 id="reading-conditions">Reading Conditions<a class="headerlink" href="#reading-conditions" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-54-1" name="__codelineno-54-1" href="#__codelineno-54-1"></a><span class="c1"># Get all conditions</span>
-<a id="__codelineno-54-2" name="__codelineno-54-2" href="#__codelineno-54-2"></a>kubectl<span class="w"> </span>get<span class="w"> </span>vaultpolicy<span class="w"> </span>app-secrets<span class="w"> </span>-n<span class="w"> </span>my-app<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-54-3" name="__codelineno-54-3" href="#__codelineno-54-3"></a><span class="w">  </span>-o<span class="w"> </span><span class="nv">jsonpath</span><span class="o">=</span><span class="s1">&#39;{range .status.conditions[*]}{.type}: {.status} ({.reason}) - {.message}{&quot;\n&quot;}{end}&#39;</span>
-<a id="__codelineno-54-4" name="__codelineno-54-4" href="#__codelineno-54-4"></a>
-<a id="__codelineno-54-5" name="__codelineno-54-5" href="#__codelineno-54-5"></a><span class="c1"># Example output:</span>
-<a id="__codelineno-54-6" name="__codelineno-54-6" href="#__codelineno-54-6"></a><span class="c1"># Ready: False (ConnectionNotReady) - connection &quot;vault-primary&quot; not ready: VaultConnection is in Error phase</span>
-<a id="__codelineno-54-7" name="__codelineno-54-7" href="#__codelineno-54-7"></a><span class="c1"># Synced: False (Failed) - failed to sync policy to Vault</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-58-1" name="__codelineno-58-1" href="#__codelineno-58-1"></a><span class="c1"># Get all conditions</span>
+<a id="__codelineno-58-2" name="__codelineno-58-2" href="#__codelineno-58-2"></a>kubectl<span class="w"> </span>get<span class="w"> </span>vaultpolicy<span class="w"> </span>app-secrets<span class="w"> </span>-n<span class="w"> </span>my-app<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-58-3" name="__codelineno-58-3" href="#__codelineno-58-3"></a><span class="w">  </span>-o<span class="w"> </span><span class="nv">jsonpath</span><span class="o">=</span><span class="s1">&#39;{range .status.conditions[*]}{.type}: {.status} ({.reason}) - {.message}{&quot;\n&quot;}{end}&#39;</span>
+<a id="__codelineno-58-4" name="__codelineno-58-4" href="#__codelineno-58-4"></a>
+<a id="__codelineno-58-5" name="__codelineno-58-5" href="#__codelineno-58-5"></a><span class="c1"># Example output:</span>
+<a id="__codelineno-58-6" name="__codelineno-58-6" href="#__codelineno-58-6"></a><span class="c1"># Ready: False (ConnectionNotReady) - connection &quot;vault-primary&quot; not ready: VaultConnection is in Error phase</span>
+<a id="__codelineno-58-7" name="__codelineno-58-7" href="#__codelineno-58-7"></a><span class="c1"># Synced: False (Failed) - failed to sync policy to Vault</span>
 </code></pre></div>
 <h3 id="interpreting-multiple-conditions">Interpreting Multiple Conditions<a class="headerlink" href="#interpreting-multiple-conditions" title="Permanent link">&para;</a></h3>
 <p><strong>Healthy resource:</strong>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-55-1" name="__codelineno-55-1" href="#__codelineno-55-1"></a>Ready: True (Succeeded) - Policy synced to Vault
-<a id="__codelineno-55-2" name="__codelineno-55-2" href="#__codelineno-55-2"></a>Synced: True (Succeeded) - Policy synced successfully
+<div class="highlight"><pre><span></span><code><a id="__codelineno-59-1" name="__codelineno-59-1" href="#__codelineno-59-1"></a>Ready: True (Succeeded) - Policy synced to Vault
+<a id="__codelineno-59-2" name="__codelineno-59-2" href="#__codelineno-59-2"></a>Synced: True (Succeeded) - Policy synced successfully
 </code></pre></div></p>
 <p><strong>Connection issue:</strong>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-56-1" name="__codelineno-56-1" href="#__codelineno-56-1"></a>Ready: False (ConnectionNotReady) - connection &quot;vault-primary&quot; not ready
-<a id="__codelineno-56-2" name="__codelineno-56-2" href="#__codelineno-56-2"></a>Synced: False (Failed) - cannot sync without connection
+<div class="highlight"><pre><span></span><code><a id="__codelineno-60-1" name="__codelineno-60-1" href="#__codelineno-60-1"></a>Ready: False (ConnectionNotReady) - connection &quot;vault-primary&quot; not ready
+<a id="__codelineno-60-2" name="__codelineno-60-2" href="#__codelineno-60-2"></a>Synced: False (Failed) - cannot sync without connection
 </code></pre></div></p>
 <p><strong>Conflict detected:</strong>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-57-1" name="__codelineno-57-1" href="#__codelineno-57-1"></a>Ready: False (Conflict) - policy already exists and is managed by other-ns/other-policy
-<a id="__codelineno-57-2" name="__codelineno-57-2" href="#__codelineno-57-2"></a>Synced: False (Conflict) - cannot sync due to conflict
+<div class="highlight"><pre><span></span><code><a id="__codelineno-61-1" name="__codelineno-61-1" href="#__codelineno-61-1"></a>Ready: False (Conflict) - policy already exists and is managed by other-ns/other-policy
+<a id="__codelineno-61-2" name="__codelineno-61-2" href="#__codelineno-61-2"></a>Synced: False (Conflict) - cannot sync due to conflict
 </code></pre></div></p>
 <hr />
 <h2 id="getting-help">Getting Help<a class="headerlink" href="#getting-help" title="Permanent link">&para;</a></h2>
@@ -2811,16 +2888,16 @@
 </li>
 <li>
 <p><strong>Collect diagnostic information:</strong>
-   <div class="highlight"><pre><span></span><code><a id="__codelineno-58-1" name="__codelineno-58-1" href="#__codelineno-58-1"></a><span class="c1"># Export all vault resources</span>
-<a id="__codelineno-58-2" name="__codelineno-58-2" href="#__codelineno-58-2"></a>kubectl<span class="w"> </span>get<span class="w"> </span>vaultconnections,vaultclusterpolicies,vaultpolicies,vaultclusterroles,vaultroles<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-58-3" name="__codelineno-58-3" href="#__codelineno-58-3"></a><span class="w">  </span>-A<span class="w"> </span>-o<span class="w"> </span>yaml<span class="w"> </span>&gt;<span class="w"> </span>vault-resources.yaml
-<a id="__codelineno-58-4" name="__codelineno-58-4" href="#__codelineno-58-4"></a>
-<a id="__codelineno-58-5" name="__codelineno-58-5" href="#__codelineno-58-5"></a><span class="c1"># Get operator logs</span>
-<a id="__codelineno-58-6" name="__codelineno-58-6" href="#__codelineno-58-6"></a>kubectl<span class="w"> </span>logs<span class="w"> </span>-n<span class="w"> </span>vault-access-operator-system<span class="w"> </span>deploy/vault-access-operator-controller-manager<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-58-7" name="__codelineno-58-7" href="#__codelineno-58-7"></a><span class="w">  </span>--since<span class="o">=</span>1h<span class="w"> </span>&gt;<span class="w"> </span>operator-logs.txt
-<a id="__codelineno-58-8" name="__codelineno-58-8" href="#__codelineno-58-8"></a>
-<a id="__codelineno-58-9" name="__codelineno-58-9" href="#__codelineno-58-9"></a><span class="c1"># Get events</span>
-<a id="__codelineno-58-10" name="__codelineno-58-10" href="#__codelineno-58-10"></a>kubectl<span class="w"> </span>get<span class="w"> </span>events<span class="w"> </span>-A<span class="w"> </span>--field-selector<span class="w"> </span>reason!<span class="o">=</span>Normal<span class="w"> </span>&gt;<span class="w"> </span>events.txt
+   <div class="highlight"><pre><span></span><code><a id="__codelineno-62-1" name="__codelineno-62-1" href="#__codelineno-62-1"></a><span class="c1"># Export all vault resources</span>
+<a id="__codelineno-62-2" name="__codelineno-62-2" href="#__codelineno-62-2"></a>kubectl<span class="w"> </span>get<span class="w"> </span>vaultconnections,vaultclusterpolicies,vaultpolicies,vaultclusterroles,vaultroles<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-62-3" name="__codelineno-62-3" href="#__codelineno-62-3"></a><span class="w">  </span>-A<span class="w"> </span>-o<span class="w"> </span>yaml<span class="w"> </span>&gt;<span class="w"> </span>vault-resources.yaml
+<a id="__codelineno-62-4" name="__codelineno-62-4" href="#__codelineno-62-4"></a>
+<a id="__codelineno-62-5" name="__codelineno-62-5" href="#__codelineno-62-5"></a><span class="c1"># Get operator logs</span>
+<a id="__codelineno-62-6" name="__codelineno-62-6" href="#__codelineno-62-6"></a>kubectl<span class="w"> </span>logs<span class="w"> </span>-n<span class="w"> </span>vault-access-operator-system<span class="w"> </span>deploy/vault-access-operator-controller-manager<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-62-7" name="__codelineno-62-7" href="#__codelineno-62-7"></a><span class="w">  </span>--since<span class="o">=</span>1h<span class="w"> </span>&gt;<span class="w"> </span>operator-logs.txt
+<a id="__codelineno-62-8" name="__codelineno-62-8" href="#__codelineno-62-8"></a>
+<a id="__codelineno-62-9" name="__codelineno-62-9" href="#__codelineno-62-9"></a><span class="c1"># Get events</span>
+<a id="__codelineno-62-10" name="__codelineno-62-10" href="#__codelineno-62-10"></a>kubectl<span class="w"> </span>get<span class="w"> </span>events<span class="w"> </span>-A<span class="w"> </span>--field-selector<span class="w"> </span>reason!<span class="o">=</span>Normal<span class="w"> </span>&gt;<span class="w"> </span>events.txt
 </code></pre></div></p>
 </li>
 <li>

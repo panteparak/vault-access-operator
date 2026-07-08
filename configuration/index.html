@@ -2481,6 +2481,7 @@
 </tr>
 </tbody>
 </table>
+<p>These values render to the operator's <code>--zap-log-level</code>, <code>--zap-devel</code>, <code>--zap-encoder</code>, and <code>--zap-stacktrace-level</code> flags. The binary itself defaults to production logging (JSON, info) when the flags are absent; pass <code>--zap-devel=true</code> (or set <code>logging.development=true</code> + <code>logging.encoder=console</code>) for human-readable local output. Every reconcile log line carries <code>reconcileID</code>, <code>vaultConnection</code>, and — for auth-mount resources — <code>authPath</code> for failure-source tracing.</p>
 <h3 id="pod-disruption-budget">Pod Disruption Budget<a class="headerlink" href="#pod-disruption-budget" title="Permanent link">&para;</a></h3>
 <table>
 <thead>

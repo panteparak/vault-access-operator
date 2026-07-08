@@ -2019,9 +2019,9 @@
 <a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="s">  capabilities = [&quot;list&quot;]</span>
 <a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="s">}</span>
 <a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a>
-<a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a><span class="s"># Role management is per auth MOUNT your VaultRole/VaultClusterRole resources</span>
-<a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a><span class="s"># target — unrelated to how the operator logs in (AWS IAM here). &quot;kubernetes&quot; is</span>
-<a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a><span class="s"># a mount name (&quot;vault auth list&quot;); substitute yours, or auth/jwt/role/* for JWT/OIDC.</span>
+<a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a><span class="s"># Role management is per auth MOUNT — the one the connection resolves for</span>
+<a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a><span class="s"># VaultRole/VaultClusterRole resources via spec.defaults.authPath (Step 7).</span>
+<a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a><span class="s"># &quot;kubernetes&quot; is a mount name (&quot;vault auth list&quot;); substitute yours.</span>
 <a id="__codelineno-7-13" name="__codelineno-7-13" href="#__codelineno-7-13"></a><span class="s">path &quot;auth/kubernetes/role/*&quot; {</span>
 <a id="__codelineno-7-14" name="__codelineno-7-14" href="#__codelineno-7-14"></a><span class="s">  capabilities = [&quot;create&quot;, &quot;read&quot;, &quot;update&quot;, &quot;delete&quot;, &quot;list&quot;]</span>
 <a id="__codelineno-7-15" name="__codelineno-7-15" href="#__codelineno-7-15"></a><span class="s">}</span>
@@ -2064,6 +2064,15 @@
 </tbody>
 </table>
 <h3 id="step-7-create-vaultconnection-resource">Step 7: Create VaultConnection Resource<a class="headerlink" href="#step-7-create-vaultconnection-resource" title="Permanent link">&para;</a></h3>
+<div class="admonition warning">
+<p class="admonition-title">AWS IAM logins have no role-capable mount</p>
+<p>An AWS-auth connection carries no auth mount of its own, so <code>VaultRole</code> /
+<code>VaultClusterRole</code> resources referencing it are <strong>denied at admission</strong>
+unless the connection declares the workload mount via
+<code>spec.defaults.authPath</code> (e.g. <code>kubernetes</code>). Mount names that don't start
+with <code>kubernetes</code>/<code>jwt</code> (exact or <code>-</code>/<code>_</code>-separated) also need
+<code>spec.defaults.authType</code>.</p>
+</div>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault.platform.io/v1alpha1</span>
 <a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">VaultConnection</span>
 <a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="nt">metadata</span><span class="p">:</span>
@@ -2085,6 +2094,11 @@
 <a id="__codelineno-9-19" name="__codelineno-9-19" href="#__codelineno-9-19"></a><span class="w">      </span><span class="c1"># region: us-west-2            # Auto-detected from environment</span>
 <a id="__codelineno-9-20" name="__codelineno-9-20" href="#__codelineno-9-20"></a><span class="w">      </span><span class="c1"># stsEndpoint: https://...     # Custom STS endpoint (VPC endpoints)</span>
 <a id="__codelineno-9-21" name="__codelineno-9-21" href="#__codelineno-9-21"></a><span class="w">      </span><span class="c1"># iamServerIdHeaderValue: ...  # Extra security header</span>
+<a id="__codelineno-9-22" name="__codelineno-9-22" href="#__codelineno-9-22"></a>
+<a id="__codelineno-9-23" name="__codelineno-9-23" href="#__codelineno-9-23"></a><span class="w">  </span><span class="c1"># Required before any VaultRole/VaultClusterRole can reference this</span>
+<a id="__codelineno-9-24" name="__codelineno-9-24" href="#__codelineno-9-24"></a><span class="w">  </span><span class="c1"># connection: the mount those roles are written to.</span>
+<a id="__codelineno-9-25" name="__codelineno-9-25" href="#__codelineno-9-25"></a><span class="w">  </span><span class="nt">defaults</span><span class="p">:</span>
+<a id="__codelineno-9-26" name="__codelineno-9-26" href="#__codelineno-9-26"></a><span class="w">    </span><span class="nt">authPath</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">kubernetes</span>
 </code></pre></div>
 <p>Apply the configuration:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>kubectl<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>vaultconnection.yaml

@@ -1133,6 +1133,56 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#role-auth-mount-vaultrole-vaultclusterrole" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Role Auth Mount (VaultRole + VaultClusterRole)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#vaultconnection-validation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        VaultConnection Validation
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="VaultConnection Validation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#role-mount-defaults" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Role Mount Defaults
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#role-mount-change-warning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Role Mount Change Warning
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#webhook-configuration" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1711,6 +1761,56 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#role-auth-mount-vaultrole-vaultclusterrole" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Role Auth Mount (VaultRole + VaultClusterRole)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#vaultconnection-validation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        VaultConnection Validation
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="VaultConnection Validation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#role-mount-defaults" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Role Mount Defaults
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#role-mount-change-warning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Role Mount Change Warning
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#webhook-configuration" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1849,12 +1949,17 @@
 <tr>
 <td>VaultRole</td>
 <td>Validating</td>
-<td>Service account names, policy references</td>
+<td>Service account names, policy references, connection-derived auth mount</td>
 </tr>
 <tr>
 <td>VaultClusterRole</td>
 <td>Validating</td>
-<td>Service account refs, policy references</td>
+<td>Service account refs, policy references, connection-derived auth mount</td>
+</tr>
+<tr>
+<td>VaultConnection</td>
+<td>Validating</td>
+<td>Auth method shape, role mount defaults, secret references</td>
 </tr>
 </tbody>
 </table>
@@ -2139,18 +2244,42 @@
 <a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">global-reader</span>
 </code></pre></div>
 <hr />
+<h2 id="role-auth-mount-vaultrole-vaultclusterrole">Role Auth Mount (VaultRole + VaultClusterRole)<a class="headerlink" href="#role-auth-mount-vaultrole-vaultclusterrole" title="Permanent link">&para;</a></h2>
+<p>Roles carry <strong>no auth mount fields</strong> — the referenced <code>VaultConnection</code> is the sole source of the auth mount and backend family (<code>spec.defaults.authPath</code> if set, otherwise the connection's own login mount). At admission, the webhook fetches the referenced connection:</p>
+<ul>
+<li><strong>Role-incapable connection → denied.</strong> If the connection exists but resolves no role-capable mount (token, AppRole, AWS, GCP, or bootstrap-only auth without <code>defaults.authPath</code>), the role is rejected with <code>VaultConnection "..." has no role-capable auth mount</code>. Fix it on the connection: set <code>spec.defaults.authPath</code>.</li>
+<li><strong>Missing connection → warning, not denial.</strong> GitOps tooling often applies roles before their connection; the role is admitted with a warning and the reconciler re-derives everything once the connection appears (a role-incapable connection then surfaces as <code>Reason=ValidationFailed</code> in status).</li>
+<li><strong>JWT constraints gate on the resolved family.</strong> <code>spec.jwt</code> may only be set when the connection resolves to a jwt/oidc-family mount. <code>boundSubject</code> vs <code>boundClaims</code>/<code>boundClaimsList</code> exclusivity and the multi-SA explicit-binding requirement are checked against that resolved family.</li>
+<li><strong><code>spec.connectionRef</code> is immutable</strong> — it pins the auth mount the role is written to.</li>
+</ul>
+<hr />
+<h2 id="vaultconnection-validation">VaultConnection Validation<a class="headerlink" href="#vaultconnection-validation" title="Permanent link">&para;</a></h2>
+<h3 id="role-mount-defaults">Role Mount Defaults<a class="headerlink" href="#role-mount-defaults" title="Permanent link">&para;</a></h3>
+<p><code>spec.defaults.authPath</code> names the auth mount that dependent roles are written to. When the mount name doesn't start with a recognizable backend family (<code>kubernetes</code> or <code>jwt</code>, exact or <code>-</code>/<code>_</code>-separated), <code>spec.defaults.authType</code> is <strong>required</strong>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="nt">spec</span><span class="p">:</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span><span class="nt">defaults</span><span class="p">:</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">    </span><span class="nt">authPath</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">team-a-cluster</span><span class="w">   </span><span class="c1"># name alone can&#39;t be classified</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">    </span><span class="nt">authType</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">kubernetes</span><span class="w">       </span><span class="c1"># required: kubernetes or jwt</span>
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="nt">spec</span><span class="p">:</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">  </span><span class="nt">defaults</span><span class="p">:</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">    </span><span class="nt">authPath</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">kubernetes-prod</span><span class="w">  </span><span class="c1"># classifiable by name — authType optional</span>
+</code></pre></div>
+<h3 id="role-mount-change-warning">Role Mount Change Warning<a class="headerlink" href="#role-mount-change-warning" title="Permanent link">&para;</a></h3>
+<p>Updating a connection so its <strong>resolved role mount changes</strong> while dependent roles exist emits a warning (with the dependent-role count): every dependent role re-targets the new mount on its next sync, and Vault roles already written at the old mount are orphaned there (their recorded status bindings still pin deletion to the old mount). Deliberate mount migrations are allowed — the warning is informational.</p>
+<hr />
 <h2 id="webhook-configuration">Webhook Configuration<a class="headerlink" href="#webhook-configuration" title="Permanent link">&para;</a></h2>
 <h3 id="enabling-webhooks">Enabling Webhooks<a class="headerlink" href="#enabling-webhooks" title="Permanent link">&para;</a></h3>
 <p>Webhooks are enabled by default when installing via Helm:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>helm<span class="w"> </span>install<span class="w"> </span>vault-access-operator<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span>oci://ghcr.io/panteparak/vault-access-operator/charts/vault-access-operator<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">  </span>--set<span class="w"> </span>webhook.enabled<span class="o">=</span><span class="nb">true</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>helm<span class="w"> </span>install<span class="w"> </span>vault-access-operator<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">  </span>oci://ghcr.io/panteparak/vault-access-operator/charts/vault-access-operator<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="w">  </span>--set<span class="w"> </span>webhook.enabled<span class="o">=</span><span class="nb">true</span>
 </code></pre></div>
 <h3 id="disabling-webhooks">Disabling Webhooks<a class="headerlink" href="#disabling-webhooks" title="Permanent link">&para;</a></h3>
 <p>For development or testing environments:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>helm<span class="w"> </span>install<span class="w"> </span>vault-access-operator<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">  </span>oci://ghcr.io/panteparak/vault-access-operator/charts/vault-access-operator<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">  </span>--set<span class="w"> </span>webhook.enabled<span class="o">=</span><span class="nb">false</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>helm<span class="w"> </span>install<span class="w"> </span>vault-access-operator<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">  </span>oci://ghcr.io/panteparak/vault-access-operator/charts/vault-access-operator<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="w">  </span>--set<span class="w"> </span>webhook.enabled<span class="o">=</span><span class="nb">false</span>
 </code></pre></div>
 <div class="admonition warning">
 <p class="admonition-title">Production Recommendation</p>
@@ -2161,20 +2290,20 @@
 <div class="tabbed-set tabbed-alternate" data-tabs="1:2"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">cert-manager (Recommended)</label><label for="__tabbed_1_2">Self-signed</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="nt">webhook</span><span class="p">:</span>
-<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">  </span><span class="nt">certManager</span><span class="p">:</span>
-<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="w">    </span><span class="nt">issuerRef</span><span class="p">:</span>
-<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="w">      </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">selfsigned-issuer</span>
-<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="w">      </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ClusterIssuer</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="nt">webhook</span><span class="p">:</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="w">  </span><span class="nt">certManager</span><span class="p">:</span>
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="w">    </span><span class="nt">issuerRef</span><span class="p">:</span>
+<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="w">      </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">selfsigned-issuer</span>
+<a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a><span class="w">      </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ClusterIssuer</span>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="nt">webhook</span><span class="p">:</span>
-<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">  </span><span class="nt">certManager</span><span class="p">:</span>
-<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
-<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="w">  </span><span class="nt">selfSigned</span><span class="p">:</span>
-<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="nt">webhook</span><span class="p">:</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="w">  </span><span class="nt">certManager</span><span class="p">:</span>
+<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="w">  </span><span class="nt">selfSigned</span><span class="p">:</span>
+<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 </code></pre></div>
 </div>
 </div>
@@ -2183,21 +2312,25 @@
 <h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h2>
 <h3 id="common-errors">Common Errors<a class="headerlink" href="#common-errors" title="Permanent link">&para;</a></h3>
 <p><strong>"path contains invalid characters"</strong></p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>Error: validation failed: rule[0]: path &quot;secret/data/my app&quot; contains invalid characters
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>Error: validation failed: rule[0]: path &quot;secret/data/my app&quot; contains invalid characters
 </code></pre></div>
 <p>Fix: Remove spaces and special characters from the path.</p>
 <p><strong>"path must contain {{namespace}}"</strong></p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>Error: validation failed: rule[0]: path &quot;secret/data/*&quot; must contain {{namespace}} when namespace boundary enforcement is enabled
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>Error: validation failed: rule[0]: path &quot;secret/data/*&quot; must contain {{namespace}} when namespace boundary enforcement is enabled
 </code></pre></div>
 <p>Fix: Add <code>{{namespace}}</code> to the path or disable <code>enforceNamespaceBoundary</code>.</p>
 <p><strong>"wildcard before {{namespace}} is a security risk"</strong></p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>Error: validation failed: rule[0]: path &quot;*/{{namespace}}/secrets&quot; contains wildcard (*) before {{namespace}}
+<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>Error: validation failed: rule[0]: path &quot;*/{{namespace}}/secrets&quot; contains wildcard (*) before {{namespace}}
 </code></pre></div>
 <p>Fix: Move the wildcard after <code>{{namespace}}</code> or use a fixed prefix.</p>
 <p><strong>"must be a simple name without namespace prefix"</strong></p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>Error: validation failed: serviceAccounts[0]: must be a simple name without namespace prefix (got &quot;default/my-sa&quot;)
+<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>Error: validation failed: serviceAccounts[0]: must be a simple name without namespace prefix (got &quot;default/my-sa&quot;)
 </code></pre></div>
 <p>Fix: Use just the service account name without the namespace prefix.</p>
+<p><strong>"has no role-capable auth mount"</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>Error: validation failed: VaultConnection &quot;vault-main&quot; has no role-capable auth mount: auth method token has no role-capable mount; roles require a connection using kubernetes, jwt, or oidc auth, or an explicit defaults.authPath
+</code></pre></div>
+<p>Fix: Set <code>spec.defaults.authPath</code> (and <code>defaults.authType</code> if the name isn't classifiable) on the VaultConnection — the role CRs themselves carry no mount fields.</p>
 <hr />
 <h2 id="next-steps">Next Steps<a class="headerlink" href="#next-steps" title="Permanent link">&para;</a></h2>
 <ul>

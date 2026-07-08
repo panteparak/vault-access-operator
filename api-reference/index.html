@@ -3328,7 +3328,7 @@
 </tbody>
 </table>
 <h3 id="connectiondefaults">ConnectionDefaults<a class="headerlink" href="#connectiondefaults" title="Permanent link">&para;</a></h3>
-<p>Optional default paths for Vault operations.</p>
+<p>Optional platform-team knobs inherited by resources referencing this connection.</p>
 <table>
 <thead>
 <tr>
@@ -3340,22 +3340,16 @@
 </thead>
 <tbody>
 <tr>
-<td><code>secretEnginePath</code></td>
-<td>string</td>
-<td>-</td>
-<td>Default path for secret engines</td>
-</tr>
-<tr>
-<td><code>transitPath</code></td>
-<td>string</td>
-<td>-</td>
-<td>Default path for transit engine</td>
-</tr>
-<tr>
 <td><code>authPath</code></td>
 <td>string</td>
-<td><code>auth/kubernetes</code></td>
-<td>Default path for auth methods</td>
+<td>follows the login mount</td>
+<td>Auth mount that <code>VaultRole</code> / <code>VaultClusterRole</code> resources referencing this connection are written to — a bare mount name like <code>kubernetes-prod</code> (an <code>auth/</code> prefix is tolerated). When unset, roles follow the connection's own login mount (<code>auth.kubernetes</code> / <code>auth.jwt</code> / <code>auth.oidc</code>)</td>
+</tr>
+<tr>
+<td><code>authType</code></td>
+<td>string</td>
+<td>inferred from <code>authPath</code></td>
+<td>Backend family (<code>kubernetes</code> or <code>jwt</code>) of <code>authPath</code> when its name alone can't be classified — the mount name must otherwise be <code>kubernetes</code>/<code>jwt</code> exactly or with a <code>-</code>/<code>_</code> separator (<code>jwt-gitlab</code>). Ignored when <code>authPath</code> is unset</td>
 </tr>
 <tr>
 <td><code>driftMode</code></td>
@@ -3838,8 +3832,8 @@
 </ul>
 <div class="admonition warning">
 <p class="admonition-title">Supported auth backends</p>
-<p><code>VaultRole</code> currently writes role data to <strong>Kubernetes auth</strong> and <strong>JWT auth</strong> mounts only. Mounts of other backends (AWS IAM, GCP IAM, AppRole, OIDC, LDAP, etc.) are rejected by the admission webhook with a clear error — even though the operator itself can still <em>authenticate</em> to Vault via those methods (see <a href="#vaultconnection">VaultConnection</a>). Tracked as <a href="../internal/IMPROVEMENTS/#7-role-backend-coverage-gap">IMPROVEMENTS.md §7</a>.</p>
-<p>By default the backend family is inferred from the mount-path name: the mount must be named exactly <code>kubernetes</code> / <code>jwt</code>, or use a separator prefix (<code>kubernetes-prod</code>, <code>jwt-gitlab</code>, <code>jwt_ci</code>). To target a method mounted at any other name (e.g. <code>custom-oidc</code> — or <code>jwtgitlab</code>, which has no separator), set <a href="#spec-fields"><code>authType</code></a> explicitly — the path name is then ignored.</p>
+<p><code>VaultRole</code> currently writes role data to <strong>Kubernetes auth</strong> and <strong>JWT auth</strong> mounts only (Vault's OIDC method is the jwt backend). The role spec carries no mount fields — the auth mount and backend family come from the referenced <a href="#vaultconnection">VaultConnection</a>: <code>spec.defaults.authPath</code> when set (see <a href="#connectiondefaults">ConnectionDefaults</a>), otherwise the connection's own login mount (<code>auth.kubernetes</code> → kubernetes, <code>auth.jwt</code> / <code>auth.oidc</code> → jwt). Tracked as <a href="../internal/IMPROVEMENTS/#7-role-backend-coverage-gap">IMPROVEMENTS.md §7</a>.</p>
+<p>Connections whose login method has no role-capable mount (Token, AppRole, AWS, GCP, bootstrap-only) and no <code>defaults.authPath</code> are rejected by the admission webhook with a clear error; without webhooks the role parks at <code>Phase=Error</code> / <code>ValidationFailed</code>. To write roles to a different mount than a role's connection resolves, create a dedicated <code>VaultConnection</code> for that mount (e.g. one with <code>defaults.authPath: jwt-gitlab</code>).</p>
 </div>
 <h3 id="example_3">Example<a class="headerlink" href="#example_3" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault.platform.io/v1alpha1</span>
@@ -3890,20 +3884,6 @@
 <td>Policies to attach (min 1)</td>
 </tr>
 <tr>
-<td><code>authPath</code></td>
-<td>string</td>
-<td>No</td>
-<td><code>auth/kubernetes</code></td>
-<td>Vault auth mount path. Any path when <code>authType</code> is set; otherwise the mount name must be <code>kubernetes</code>/<code>jwt</code> exactly or a <code>-</code>/<code>_</code>-separated submount (<code>jwt-gitlab</code>)</td>
-</tr>
-<tr>
-<td><code>authType</code></td>
-<td>string</td>
-<td>No</td>
-<td>inferred from <code>authPath</code></td>
-<td>Explicit backend family: <code>kubernetes</code> or <code>jwt</code>. Overrides path-name inference so a custom-named mount works. Required to be paired with a non-empty <code>authPath</code> when set to <code>jwt</code></td>
-</tr>
-<tr>
 <td><code>conflictPolicy</code></td>
 <td>string</td>
 <td>No</td>
@@ -3936,12 +3916,12 @@
 <td>VaultRoleJWTSpec</td>
 <td>No</td>
 <td>-</td>
-<td>JWT-auth-specific overrides (only when the role targets a JWT mount — <code>authType: jwt</code> or an <code>auth/jwt*</code> path)</td>
+<td>JWT-auth-specific overrides (only when the referenced connection resolves to a JWT mount)</td>
 </tr>
 </tbody>
 </table>
 <h3 id="vaultrolejwtspec">VaultRoleJWTSpec<a class="headerlink" href="#vaultrolejwtspec" title="Permanent link">&para;</a></h3>
-<p>Optional sub-object on <code>VaultRole</code> / <code>VaultClusterRole</code>. Used when the role targets a JWT auth mount — either <code>authType: jwt</code>, or an <code>authPath</code> under <code>auth/jwt</code> (e.g. <code>auth/jwt</code>, <code>auth/jwt-gitlab</code>). All fields are optional — defaults are derived from <code>serviceAccounts</code> and the referenced <code>VaultConnection</code>.</p>
+<p>Optional sub-object on <code>VaultRole</code> / <code>VaultClusterRole</code>. Used when the referenced <code>VaultConnection</code> resolves to a JWT auth mount — a JWT/OIDC login, or a <code>defaults.authPath</code> of jwt family (e.g. <code>jwt</code>, <code>jwt-gitlab</code>). All fields are optional — defaults are derived from <code>serviceAccounts</code> and the referenced <code>VaultConnection</code>.</p>
 <table>
 <thead>
 <tr>
@@ -4117,20 +4097,6 @@
 <td>Yes</td>
 <td>-</td>
 <td>Policies to attach (min 1)</td>
-</tr>
-<tr>
-<td><code>authPath</code></td>
-<td>string</td>
-<td>No</td>
-<td><code>auth/kubernetes</code></td>
-<td>Vault auth mount path. Any path when <code>authType</code> is set; otherwise the mount name must be <code>kubernetes</code>/<code>jwt</code> exactly or a <code>-</code>/<code>_</code>-separated submount (<code>jwt-gitlab</code>)</td>
-</tr>
-<tr>
-<td><code>authType</code></td>
-<td>string</td>
-<td>No</td>
-<td>inferred from <code>authPath</code></td>
-<td>Explicit backend family: <code>kubernetes</code> or <code>jwt</code>. Overrides path-name inference so a custom-named mount works. Required to be paired with a non-empty <code>authPath</code> when set to <code>jwt</code></td>
 </tr>
 <tr>
 <td><code>conflictPolicy</code></td>
