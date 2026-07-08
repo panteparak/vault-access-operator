@@ -122,6 +122,38 @@ func configureJWTGitlabAuthWithDex(ctx context.Context) {
 	Expect(err).NotTo(HaveOccurred())
 }
 
+// createJWTGitlabConnection creates the dedicated VaultConnection that pins
+// TC-AU08 roles to the jwt-gitlab mount. Roles carry no mount fields — the
+// connection's defaults.authPath is the declaration (the jwt-* name resolves
+// to the jwt family automatically). Reuses the shared operator token secret;
+// waits for Active so role specs can bind immediately.
+func createJWTGitlabConnection(ctx context.Context) {
+	conn := &vaultv1alpha1.VaultConnection{
+		ObjectMeta: metav1.ObjectMeta{Name: jwtGitlabConnectionName},
+		Spec: vaultv1alpha1.VaultConnectionSpec{
+			Address: vaultK8sAddr,
+			Auth: vaultv1alpha1.AuthConfig{
+				Token: &vaultv1alpha1.TokenAuth{
+					SecretRef: vaultv1alpha1.SecretKeySelector{
+						Name:      sharedVaultTokenSecretName,
+						Namespace: testNamespace,
+						Key:       "token",
+					},
+				},
+			},
+			Defaults:            &vaultv1alpha1.ConnectionDefaults{AuthPath: jwtGitlabMount},
+			HealthCheckInterval: "10s",
+		},
+	}
+	Expect(utils.CreateVaultConnectionCR(ctx, conn)).To(Succeed())
+
+	Eventually(func(g Gomega) {
+		vc, err := utils.GetVaultConnection(ctx, jwtGitlabConnectionName, "")
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(string(vc.Status.Phase)).To(Equal("Active"))
+	}, roleActiveTimeout, roleActivePollPeriod).Should(Succeed())
+}
+
 // createTCAU08Policy creates the shared VaultPolicy CR every TC-AU08 role
 // attaches to. Waits for the operator to reconcile it to Active before
 // returning so role tests can immediately bind without races.
@@ -154,6 +186,7 @@ func createTCAU08Policy(ctx context.Context) {
 func cleanupTCAU08Suite(ctx context.Context) {
 	_ = utils.DeleteVaultPolicyCR(ctx, jwtGitlabPolicy, testNamespace)
 	_ = utils.DeleteServiceAccount(ctx, testNamespace, jwtGitlabSA)
+	_ = utils.DeleteVaultConnectionCR(ctx, jwtGitlabConnectionName)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
