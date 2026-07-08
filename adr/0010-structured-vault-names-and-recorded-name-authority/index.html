@@ -10,7 +10,7 @@
       
       
       
-        <link rel="canonical" href="https://panteparak.github.io/vault-access-operator/adr/0006-cluster-name-prefix/">
+        <link rel="canonical" href="https://panteparak.github.io/vault-access-operator/adr/0010-structured-vault-names-and-recorded-name-authority/">
       
       
       
@@ -23,7 +23,7 @@
     
     
       
-        <title>ADR 0006: Per-cluster name prefix for Vault resources (CE multi-tenancy) - Vault Access Operator</title>
+        <title>ADR 0010: Structured Vault names and recorded-name authority - Vault Access Operator</title>
       
     
     
@@ -74,7 +74,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#adr-0006-per-cluster-name-prefix-for-vault-resources-ce-multi-tenancy" class="md-skip">
+        <a href="#adr-0010-structured-vault-names-and-recorded-name-authority" class="md-skip">
           Skip to content
         </a>
       
@@ -110,7 +110,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              ADR 0006: Per-cluster name prefix for Vault resources (CE multi-tenancy)
+              ADR 0010: Structured Vault names and recorded-name authority
             
           </span>
         </div>
@@ -1234,6 +1234,56 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Decision">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-fixed-4-segment-dotted-names" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Fixed 4-segment dotted names
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-recorded-names-are-authoritative-crossplane-external-name-pattern" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Recorded names are authoritative (Crossplane external-name pattern)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-rolepolicy-bindings-resolve-by-lookup-not-re-derivation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Role→policy bindings resolve by lookup, not re-derivation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-role-ownership-rides-in-alias_metadata-amends-adr-0008" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Role ownership rides in alias_metadata (amends ADR 0008)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1314,7 +1364,7 @@
 
 
   
-    <a href="https://github.com/panteparak/vault-access-operator/edit/main/docs/adr/0006-cluster-name-prefix.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/panteparak/vault-access-operator/edit/main/docs/adr/0010-structured-vault-names-and-recorded-name-authority.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -1322,54 +1372,144 @@
   
 
 
-<h1 id="adr-0006-per-cluster-name-prefix-for-vault-resources-ce-multi-tenancy">ADR 0006: Per-cluster name prefix for Vault resources (CE multi-tenancy)<a class="headerlink" href="#adr-0006-per-cluster-name-prefix-for-vault-resources-ce-multi-tenancy" title="Permanent link">&para;</a></h1>
+<h1 id="adr-0010-structured-vault-names-and-recorded-name-authority">ADR 0010: Structured Vault names and recorded-name authority<a class="headerlink" href="#adr-0010-structured-vault-names-and-recorded-name-authority" title="Permanent link">&para;</a></h1>
 <ul>
-<li><strong>Status:</strong> Superseded by <a href="../0010-structured-vault-names-and-recorded-name-authority/">ADR 0010</a></li>
-<li><strong>Date:</strong> 2026-06-29</li>
-<li><strong>Related:</strong> <a href="../../configuration/#sharing-one-vault-across-clusters"><code>docs/configuration.md</code></a>, <a href="../../internal/CONTEXT/#managed-marker"><code>CONTEXT.md</code></a>, <a href="../../internal/IMPROVEMENTS/"><code>IMPROVEMENTS.md §D</code></a>, <a href="../0003-two-level-drift-and-conflict-config/">ADR 0003</a></li>
+<li><strong>Status:</strong> Accepted</li>
+<li><strong>Date:</strong> 2026-07-08</li>
+<li><strong>Supersedes:</strong> <a href="../0006-cluster-name-prefix/">ADR 0006</a> (cluster-name prefix)</li>
+<li><strong>Amends:</strong> <a href="../0008-in-band-ownership-markers/">ADR 0008</a> (roles now carry an in-band record)</li>
+<li><strong>Related:</strong> <a href="../0005-cleanup-failure-configmap-queue/">ADR 0005</a> (stale-delete retry queue), <a href="../../configuration/#sharing-one-vault-across-clusters"><code>docs/configuration.md</code></a></li>
 </ul>
-<blockquote>
-<p><strong>Note (ADR 0008):</strong> the marker-path discussion below is historical — ownership records are now in-band on the managed objects, and the operator's cross-cluster <em>identity</em> is its auth mount path (one cluster per mount, a hard requirement on shared Vaults). The name prefix this ADR introduces remains the mechanism that <em>prevents</em> name collisions; the identity <em>detects and blocks</em> fights when names do collide.</p>
-</blockquote>
 <h2 id="context">Context<a class="headerlink" href="#context" title="Permanent link">&para;</a></h2>
-<p>Operators may run <strong>one instance per Kubernetes cluster against a single shared Vault server</strong>. Vault Community Edition has no <a href="https://developer.hashicorp.com/vault/docs/enterprise/namespaces">namespaces</a> (Enterprise-only), so:</p>
-<ul>
-<li><strong>ACL policies are global.</strong> <code>WritePolicy</code> targets <code>sys/policies/acl/{name}</code> — one store for the whole Vault, not scoped by mount or namespace.</li>
-<li><strong>Managed markers are global.</strong> The marker KV path is hardcoded under the <code>secret</code> mount (<code>secret/data/vault-access-operator/managed/...</code>).</li>
-</ul>
-<p>Per-cluster <em>mounts</em> (which CE supports) isolate secrets engines and auth methods — and therefore KV secrets and auth <strong>roles</strong> — but they cannot isolate the policy store or the marker path. The operator derives a Vault name as <code>{namespace}-{name}</code> (or <code>{name}</code> for cluster-scoped CRs), which is <strong>identical across clusters</strong>. Two clusters that each define <code>VaultPolicy default/admin</code> would write the same global policy and the same marker, silently overwriting each other — and conflict detection cannot see it, because the owner identifier (<code>VaultPolicy/default/admin</code>) is byte-identical across clusters.</p>
-<p>HashiCorp's sanctioned CE multi-tenancy lever is <strong>naming conventions</strong>, not a Vault feature.</p>
+<p>ADR 0006 derived Vault-side names as <code>{cluster}-{namespace}-{name}</code>, dash-joined. Three
+problems surfaced once real multi-cluster deployments were planned:</p>
+<ol>
+<li><strong>Ambiguity.</strong> Dashes are legal inside every component, so cluster <code>pe</code> + namespace
+   <code>prod-app</code> produces the same string as cluster <code>pe-prod</code> + namespace <code>app</code>. Names
+   could not be parsed back and did not reveal they were operator-managed.</li>
+<li><strong>Soft identity.</strong> The prefix is an optional, free-typed flag. The <em>enforced</em>
+   per-cluster identity — the auth mount, one cluster per mount — lived only in the
+   policy comment header, invisible in Vault UI listings and absent for roles entirely.</li>
+<li><strong>Renames orphaned objects.</strong> Cleanup and drift re-derived names on every pass, so
+   enabling or changing <code>--cluster-name</code> orphaned every previously-written Vault object
+   (documented as ADR 0006's main negative).</li>
+</ol>
+<p>Prior art consulted: KubeVault names policies <code>k8s.{cluster}.{ns}.{name}</code>; Crossplane
+records every external resource's name on the resource (<code>crossplane.io/external-name</code>)
+and treats the record — never a re-derivation — as authoritative.</p>
 <h2 id="decision">Decision<a class="headerlink" href="#decision" title="Permanent link">&para;</a></h2>
-<p>Introduce an optional, operator-wide <strong>cluster-name prefix</strong> applied to every derived Vault resource name.</p>
+<h3 id="1-fixed-4-segment-dotted-names">1. Fixed 4-segment dotted names<a class="headerlink" href="#1-fixed-4-segment-dotted-names" title="Permanent link">&para;</a></h3>
+<p>Every Vault object the operator writes is named:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>vao.{identity}.{namespace}.{name}
+</code></pre></div>
 <ul>
-<li>Configured via <code>--cluster-name</code> flag / <code>CLUSTER_NAME</code> env / <code>clusterName</code> Helm value. <strong>Empty (default) disables prefixing</strong>, preserving single-cluster behavior.</li>
-<li>A single helper, <a href="../../shared/naming/naming.go"><code>shared/naming</code></a>, holds the prefix (set once at startup) and exposes <code>Vault(base) = "{cluster}-{base}"</code>. Every name derivation routes through it: the policy/role adapters (<code>GetVaultPolicyName</code> / <code>GetVaultRoleName</code>), the role→policy binding (<code>binding.VaultPolicyName</code>, which keeps a role's <code>token_policies</code> consistent with the policies themselves), and the managed-marker restore handler.</li>
-<li>The prefix lands on the marker <strong>leaf name</strong>, not a new path segment or schema field. Because each cluster's markers sit at a distinct leaf (<code>…/policies/{cluster}-{ns}-{name}</code>), they no longer collide — so <strong>no marker-schema or conflict-logic change is needed</strong>. The owner identifier (<code>GetK8sResourceIdentifier</code>) is unchanged.</li>
+<li><code>vao</code> — fixed marker: operator-managed at a glance in Vault listings, and a cheap
+  pre-filter for orphan/discovery scans.</li>
+<li><code>{identity}</code> — <code>--cluster-name</code> when set; <strong>else the connection's login auth mount</strong>
+  (sanitized), which is already unique per cluster (one-cluster-per-mount, ADR 0008);
+  else the placeholder <code>_</code>. The mount fallback removes the "two clusters typo the same
+  prefix" failure class: colliding identities would require sharing an auth mount,
+  which the deployment model already forbids.</li>
+<li><code>{namespace}</code> — the CR namespace; <code>_</code> for cluster-scoped CRs.</li>
+<li><code>{name}</code> — the CR name, <strong>last</strong> because it may contain dots (RFC 1123 subdomain).</li>
 </ul>
-<p>The prefix is <strong>operator-level</strong>, not per-<code>VaultConnection</code>: one Kubernetes cluster has one identity for all the connections it manages.</p>
+<p><strong>Injectivity.</strong> The arity is fixed and segments 1–3 are dot-free by construction
+(<code>--cluster-name</code> charset is <code>^[a-zA-Z0-9-]+$</code>; mounts are sanitized to <code>[A-Za-z0-9_-]</code>;
+namespaces are RFC 1123 labels), so splitting on the first three dots losslessly
+recovers <code>(identity, namespace, name)</code> and two distinct CRs can never produce the same
+string. Variable arity was rejected: <code>vao.{id}.{name}</code> ≡ <code>vao.{ns}.{name}</code> whenever
+<code>id == ns</code>, and a dotted cluster-scoped CR name could impersonate a namespaced pair.
+<code>_</code> is reserved: it is an invalid namespace label, rejected as <code>--cluster-name</code>, and
+the mount sanitizer maps a literal <code>_</code> mount to <code>-</code>. A fuzz test
+(<code>FuzzVaultName</code>) pins the property.</p>
+<p>Dots are legal in Vault policy names (only <code>,</code> is not, being the token_policies list
+separator) and in role names (single URL path segment).</p>
+<h3 id="2-recorded-names-are-authoritative-crossplane-external-name-pattern">2. Recorded names are authoritative (Crossplane external-name pattern)<a class="headerlink" href="#2-recorded-names-are-authoritative-crossplane-external-name-pattern" title="Permanent link">&para;</a></h3>
+<p><code>status.vaultName</code> / <code>status.vaultRoleName</code> — already recorded on every sync — now
+<em>drive</em> cleanup and rename detection. The sync workflow binds the name only after the
+Vault client resolves (the identity needs the mount), then compares:</p>
+<ul>
+<li><strong>recorded == derived</strong> → normal sync.</li>
+<li><strong>recorded ≠ derived</strong> (naming config changed) → <strong>rename</strong>: conflict-check and write
+  the new name, verify readback, then ownership-checked delete of the old name. A
+  failed old-name delete never fails the sync — the item is queued on the ADR 0005
+  cleanup queue (event <code>StaleVaultNameQueued</code>) and replayed. The unchanged-spec early
+  return explicitly yields to a pending rename (a naming change alone doesn't move the
+  spec hash). Dry-run binds the recorded name and never deletes — a preview must not
+  initiate a rename.</li>
+<li><strong>CR deletion</strong> removes the <em>recorded</em> name (what was actually written), regardless
+  of what today's config would derive; a never-synced CR deletes and enqueues nothing.</li>
+</ul>
+<p>This makes any future convention change an ordinary reconcile instead of a fleet-wide
+orphaning event — the migration mechanism for this very ADR.</p>
+<h3 id="3-rolepolicy-bindings-resolve-by-lookup-not-re-derivation">3. Role→policy bindings resolve by lookup, not re-derivation<a class="headerlink" href="#3-rolepolicy-bindings-resolve-by-lookup-not-re-derivation" title="Permanent link">&para;</a></h3>
+<p>A role's <code>token_policies</code> must name the <em>policy's</em> Vault object, whose identity depends
+on the <em>policy's</em> connection — which the role cannot re-derive. <code>resolvePolicyNames</code>
+now fetches the referenced policy CR and reads its recorded <code>status.vaultName</code>. A
+missing or not-yet-synced policy yields an unresolved binding (<code>PoliciesResolved=False</code>
+→ <code>Ready=False</code>); the role syncs with the resolved subset and converges via the
+existing policy watch when the record lands. This also fixes the latent
+cross-connection re-derivation bug.</p>
+<h3 id="4-role-ownership-rides-in-alias_metadata-amends-adr-0008">4. Role ownership rides in <code>alias_metadata</code> (amends ADR 0008)<a class="headerlink" href="#4-role-ownership-rides-in-alias_metadata-amends-adr-0008" title="Permanent link">&para;</a></h3>
+<p>Research against the Vault 1.21 CE API: ACL policies accept only <code>name</code>+<code>policy</code>
+(no metadata surface, any edition — the comment header stays), but <strong>both kubernetes
+and jwt auth roles support <code>alias_metadata</code></strong> (map<string,string>, stored on the role,
+echoed on read; Vault ≥ 1.21 — older Vaults, verified on 1.17, silently drop the
+parameter). Every role write now stamps the same ownership
+vocabulary as the policy header (<code>managed-by</code>, <code>auth-mount</code>, <code>cluster</code>,
+<code>k8s-resource</code>, <code>k8s-kind</code>) into <code>alias_metadata</code>:</p>
+<ul>
+<li>Role <strong>conflict detection</strong> becomes real: a live role whose record names another
+  operator/CR is a hard conflict; one naming us is ours even without status memory.</li>
+<li>The <strong>stale-rename delete</strong> for roles gains the same <code>SameOwner</code> gate policies have.</li>
+<li>Orphan/discovery use recorded status names, with the <code>vao.</code> prefix as a fast filter
+  (hand-created roles are never orphan candidates) and <code>alias_metadata</code> as authority.</li>
+</ul>
 <h2 id="consequences">Consequences<a class="headerlink" href="#consequences" title="Permanent link">&para;</a></h2>
 <h3 id="positive">Positive<a class="headerlink" href="#positive" title="Permanent link">&para;</a></h3>
 <ul>
-<li><strong>Coexistence on one CE Vault.</strong> Multiple clusters manage their own <code>{cluster}-*</code> policies/roles with zero collisions and zero silent overwrites.</li>
-<li><strong>Tiny, low-risk change.</strong> One naming helper plus six derivation sites; the empty default is a perfect no-op, so existing installs and their tests are unaffected.</li>
-<li><strong>Role bindings stay correct for free</strong> — <code>token_policies</code> derive from the same prefixed helper as the policies.</li>
+<li>Names are collision-free, parseable, and self-identifying; misconfiguration can no
+  longer silently cross cluster boundaries (mount fallback).</li>
+<li>Renames migrate instead of orphaning; the recorded name is the single truth for
+  every destructive operation.</li>
+<li>Roles get in-band ownership for the first time; orphan scans stop flagging
+  hand-created roles.</li>
 </ul>
 <h3 id="negative">Negative<a class="headerlink" href="#negative" title="Permanent link">&para;</a></h3>
 <ul>
-<li><strong>Renames Vault objects.</strong> Enabling the prefix on an existing install orphans the old unprefixed policies/roles/markers; operators must plan a cutover and repoint any external consumers that reference policies by name.</li>
-<li><strong>Soft, not enforced.</strong> Two clusters misconfigured with the same prefix collide again — the prefix is a naming convention, not a Vault-enforced boundary (CE offers none).</li>
+<li><strong>Clean break</strong>: existing installs' objects are renamed on the first sync after
+  upgrade (old names are cleaned up by the rename flow because the recorded names are
+  still in status). External consumers referencing policies by name must be repointed.</li>
+<li>Identity is the <strong>login</strong> mount, not the role's target mount: a connection logging in
+  via <code>kubernetes</code> but writing roles to <code>jwt-gitlab</code> names those roles
+  <code>vao.kubernetes....</code> — consistent with policy headers, but may surprise.</li>
+<li><code>alias_metadata</code> propagates to workload entity aliases at login (documented Vault
+  behavior). The keys are non-secret (ns/name/kind) and could even serve policy
+  templating later. Vaults older than 1.21 silently drop the parameter (verified
+  empirically on 1.17), degrading roles to pre-ADR-0010 ownership (status memory +
+  mount invariant).</li>
+<li>The operator owns the whole <code>alias_metadata</code> map; if a user-facing
+  <code>spec.aliasMetadata</code> is ever added, operator keys must win on merge.</li>
 </ul>
 <h3 id="neutral">Neutral<a class="headerlink" href="#neutral" title="Permanent link">&para;</a></h3>
 <ul>
-<li>The prefix is carried as a process-wide value in <code>shared/naming</code> (set once before the manager starts) rather than threaded through every adapter constructor — a deliberate trade for a far smaller diff. Upgrade path: thread an explicit value if per-connection prefixes are ever needed.</li>
-<li>Admission webhooks are intentionally <strong>not</strong> prefixed: their collision checks are purely intra-cluster (K8s-side) comparisons where a uniform prefix cancels on both sides.</li>
+<li>Mount sanitizer collisions (<code>a.b</code> vs <code>a-b</code> → same identity) are theoretical — mounts
+  are operator-chosen infrastructure; two clusters would have to deliberately choose
+  colliding mount names.</li>
+<li><code>alias_metadata</code> is not part of role drift comparison (field-by-field compare);
+  ownership is re-stamped on every write, and an identity change renames the role
+  anyway.</li>
 </ul>
 <h2 id="alternatives-considered">Alternatives considered<a class="headerlink" href="#alternatives-considered" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>Cluster-id in the marker payload (fail-loud only).</strong> Keep names shared; add cluster identity so a second cluster touching the same policy gets a blocking <code>ConflictError</code> instead of a silent overwrite. Rejected as the primary approach: it gives <em>safety</em> but not <em>coexistence</em> (one cluster is locked out of any shared name), and both were wanted.</li>
-<li><strong>Cluster in the marker <em>path</em></strong> (<code>…/managed/policies/{cluster}/{name}</code>). Rejected: it isolates each cluster's markers so neither sees the other, which <em>hides</em> the still-shared global policy collision instead of solving it.</li>
-<li><strong>Vault namespaces.</strong> Not available in CE.</li>
-<li><strong>Separate Vault server per cluster.</strong> Fully isolates everything with no operator change, but the target topology shares one server.</li>
+<li><strong>Keep <code>{cluster}-{ns}-{name}</code> with a safer separator.</strong> Fixes ambiguity only; the
+  prefix stays optional/soft and renames still orphan.</li>
+<li><strong>Variable-arity dotted names</strong> (<code>vao.{id}.{name}</code> for cluster-scoped). Rejected —
+  see injectivity argument.</li>
+<li><strong><code>spec.vaultName</code> explicit override.</strong> Deferred (YAGNI): <code>vault.platform.io/adopt</code>
+  covers takeover of existing objects; an override can be added later without breaking
+  the recorded-name machinery.</li>
+<li><strong>Ownership in a marker subtree / out-of-band store.</strong> Already rejected by ADR 0008.</li>
 </ul>
 
 

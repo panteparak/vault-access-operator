@@ -3017,7 +3017,7 @@ operator policy.</p>
 <tr>
 <td><code>--cluster-name</code></td>
 <td><code>""</code></td>
-<td>Per-cluster prefix for all Vault resource names (policies, roles). Set a unique value per cluster when multiple operators share one Vault server; empty disables prefixing. Also settable via the <code>CLUSTER_NAME</code> env var. See <a href="#sharing-one-vault-across-clusters">Sharing one Vault across clusters</a>.</td>
+<td>Per-cluster prefix for all Vault resource names (policies, roles). Set a unique value per cluster when multiple operators share one Vault server; empty disables prefixing. When set, every operator log line also carries a <code>cluster</code> field so aggregated logs from multiple clusters stay attributable. Also settable via the <code>CLUSTER_NAME</code> env var. See <a href="#sharing-one-vault-across-clusters">Sharing one Vault across clusters</a>.</td>
 </tr>
 <tr>
 <td><code>--managed-markers</code></td>
@@ -3029,10 +3029,10 @@ operator policy.</p>
 <hr />
 <h2 id="sharing-one-vault-across-clusters">Sharing one Vault across clusters<a class="headerlink" href="#sharing-one-vault-across-clusters" title="Permanent link">&para;</a></h2>
 <p>Vault Community Edition has no <a href="https://developer.hashicorp.com/vault/docs/enterprise/namespaces">namespaces</a> (an Enterprise feature), so ACL policies live in a single global store (<code>sys/policies/acl/</code>). If you run <strong>one operator per Kubernetes cluster against the same Vault server</strong>, two clusters that define a policy with the same name (e.g. <code>default/admin</code>) would otherwise derive the same Vault object name.</p>
-<p>Two settings work together (see <a href="../adr/0008-in-band-ownership-markers/">ADR 0008</a>):</p>
+<p>Two settings work together (see <a href="../adr/0008-in-band-ownership-markers/">ADR 0008</a> and <a href="../adr/0010-structured-vault-names-and-recorded-name-authority/">ADR 0010</a>):</p>
 <ol>
 <li><strong>One auth mount per cluster — hard requirement.</strong> Each cluster's operator MUST authenticate through its own auth mount (e.g. <code>auth/k8s-east</code>, <code>auth/k8s-west</code>). The mount path is the operator's <strong>ownership identity</strong>: it is stamped into every in-band ownership record, so cross-cluster fights are <em>detected and blocked</em> (conflict instead of silent overwrite) even when names collide. Roles are additionally isolated structurally — they live under their cluster's own mount.</li>
-<li><strong><code>--cluster-name</code></strong> (or <code>CLUSTER_NAME</code> env / <code>clusterName</code> Helm value) — a unique per-cluster prefix on every derived Vault resource name that <em>prevents</em> the collision in the first place:</li>
+<li><strong>Structured names</strong> (ADR 0010) — every derived Vault resource name has the fixed 4-segment shape <code>vao.{identity}.{namespace}.{name}</code> (<code>_</code> fills an absent segment). The identity segment is <code>--cluster-name</code> when set, <strong>else the connection's login auth mount</strong> — so on a properly-partitioned shared Vault the names cannot collide even with no configuration at all:</li>
 </ol>
 <table>
 <thead>
@@ -3044,20 +3044,32 @@ operator policy.</p>
 <tbody>
 <tr>
 <td><code>clusterName: east</code></td>
-<td><code>east-default-admin</code></td>
+<td><code>vao.east.default.admin</code></td>
 </tr>
 <tr>
 <td><code>clusterName: west</code></td>
-<td><code>west-default-admin</code></td>
+<td><code>vao.west.default.admin</code></td>
+</tr>
+<tr>
+<td>no cluster-name, login mount <code>k8s-east</code></td>
+<td><code>vao.k8s-east.default.admin</code></td>
+</tr>
+<tr>
+<td>no cluster-name, static token</td>
+<td><code>vao._.default.admin</code></td>
+</tr>
+<tr>
+<td>cluster-scoped CR (<code>VaultClusterPolicy</code> <code>admin</code>), <code>clusterName: east</code></td>
+<td><code>vao.east._.admin</code></td>
 </tr>
 </tbody>
 </table>
 <p>Both clusters then coexist on one Vault with no collisions. Notes:</p>
 <ul>
-<li><strong>Empty (default) = no prefix</strong> — existing single-cluster installs are unaffected.</li>
-<li>The prefix also applies to the policy names a <code>VaultRole</code> binds (<code>token_policies</code>), so role→policy references stay consistent automatically.</li>
-<li>Enabling the prefix on an <strong>existing</strong> install renames the Vault objects: the operator creates the new prefixed policies/roles and the old unprefixed ones become orphaned. Plan a cutover (create prefixed → repoint external consumers → delete the old names).</li>
-<li>Valid characters: <code>^[a-zA-Z0-9._-]+$</code> (the prefix becomes part of Vault policy names and KV paths).</li>
+<li>The identity also applies to the policy names a <code>VaultRole</code> binds (<code>token_policies</code>) — role→policy references resolve through the referenced policy CR's recorded <code>status.vaultName</code>, so they stay consistent automatically, including across connections.</li>
+<li><strong>Renames are migrated, not orphaned</strong>: the name each sync actually wrote is recorded in <code>status.vaultName</code>/<code>status.vaultRoleName</code> and is authoritative for deletion. Changing <code>--cluster-name</code> (or upgrading to the ADR 0010 scheme) makes the next sync write the new name and clean up the old one; if that cleanup fails it is queued for retry (see the cleanup queue) and surfaced via a <code>StaleVaultNameQueued</code> warning event.</li>
+<li>A <strong>static-token</strong> connection has no auth mount, so with no <code>--cluster-name</code> its identity is the placeholder <code>_</code> — fine for a single-cluster Vault, unsupported for shared Vaults (no ownership identity either; see managed markers below).</li>
+<li>Valid <code>--cluster-name</code> characters: <code>^[a-zA-Z0-9-]+$</code> — no dots (they separate name segments) and not the reserved <code>_</code>.</li>
 </ul>
 <hr />
 <h2 id="managed-markers">Managed markers<a class="headerlink" href="#managed-markers" title="Permanent link">&para;</a></h2>
@@ -3086,7 +3098,7 @@ has vanished).</p>
 </tr>
 <tr>
 <td>Auth role</td>
-<td>None — Vault auth roles have no metadata surface. Ownership memory is the owning CR's status plus the one-cluster-per-auth-mount invariant</td>
+<td><code>alias_metadata</code> on the role (<code>managed-by</code>, <code>auth-mount</code>, <code>cluster</code>, <code>k8s-resource</code>, <code>k8s-kind</code>) — supported by the kubernetes and jwt auth backends on Vault ≥ 1.21 (older Vaults silently drop the parameter) (<a href="../adr/0010-structured-vault-names-and-recorded-name-authority/">ADR 0010</a>); Vault also copies these keys onto entity aliases at login. On older Vaults the parameter is dropped and ownership falls back to the owning CR's status plus the one-cluster-per-auth-mount invariant</td>
 </tr>
 </tbody>
 </table>

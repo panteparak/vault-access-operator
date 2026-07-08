@@ -6,31 +6,35 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="A Kubernetes operator for managing HashiCorp Vault access policies and roles">
+        <meta name="description" content="Contributor-facing documentation for vault-access-operator internals.">
       
       
       
-        <link rel="canonical" href="https://panteparak.github.io/vault-access-operator/adr/0006-cluster-name-prefix/">
+        <link rel="canonical" href="https://panteparak.github.io/vault-access-operator/internal/REQUIREMENTS-TEMPLATE/">
       
       
+        <link rel="prev" href="../WORKFLOWS/">
+      
+      
+        <link rel="next" href="../prd/vaultkvsecret/">
       
       
         
       
       
-      <link rel="icon" href="../../assets/images/favicon.png">
+      <link rel="icon" href="../assets/images/favicon.png">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
     
     
       
-        <title>ADR 0006: Per-cluster name prefix for Vault resources (CE multi-tenancy) - Vault Access Operator</title>
+        <title>Requirements Template - Vault Access Operator — Internal Docs</title>
       
     
     
-      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
       
         
-        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -49,7 +53,7 @@
       
     
     
-    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -74,7 +78,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#adr-0006-per-cluster-name-prefix-for-vault-resources-ce-multi-tenancy" class="md-skip">
+        <a href="#requirements-template" class="md-skip">
           Skip to content
         </a>
       
@@ -90,7 +94,7 @@
 
 <header class="md-header md-header--shadow" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="../.." title="Vault Access Operator" class="md-header__button md-logo" aria-label="Vault Access Operator" data-md-component="logo">
+    <a href=".." title="Vault Access Operator — Internal Docs" class="md-header__button md-logo" aria-label="Vault Access Operator — Internal Docs" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -104,13 +108,13 @@
       <div class="md-header__ellipsis">
         <div class="md-header__topic">
           <span class="md-ellipsis">
-            Vault Access Operator
+            Vault Access Operator — Internal Docs
           </span>
         </div>
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              ADR 0006: Per-cluster name prefix for Vault resources (CE multi-tenancy)
+              Requirements Template
             
           </span>
         </div>
@@ -224,15 +228,17 @@
 
 
 
-<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  
+
+<nav class="md-nav md-nav--primary md-nav--integrated" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="../.." title="Vault Access Operator" class="md-nav__button md-logo" aria-label="Vault Access Operator" data-md-component="logo">
+    <a href=".." title="Vault Access Operator — Internal Docs" class="md-nav__button md-logo" aria-label="Vault Access Operator — Internal Docs" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
 
     </a>
-    Vault Access Operator
+    Vault Access Operator — Internal Docs
   </label>
   
     <div class="md-nav__source">
@@ -256,7 +262,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../.." class="md-nav__link">
+      <a href=".." class="md-nav__link">
         
   
   
@@ -283,81 +289,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../getting-started/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Getting Started
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    
-    
-    
-    
-    
-    <li class="md-nav__item md-nav__item--nested">
-      
-        
-        
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
-        
-          
-          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
-            
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Concepts
-  
-
-    
-  </span>
-  
-  
-
-            <span class="md-nav__icon md-icon"></span>
-          </label>
-        
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3">
-            <span class="md-nav__icon md-icon"></span>
-            
-  
-    Concepts
-  
-
-          </label>
-          <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../concepts/" class="md-nav__link">
+      <a href="../PROJECT_OVERVIEW/" class="md-nav__link">
         
   
   
@@ -376,16 +308,15 @@
     </li>
   
 
-              
-            
-              
-                
+    
+      
+      
   
   
   
   
     <li class="md-nav__item">
-      <a href="../../concepts/architecture/" class="md-nav__link">
+      <a href="../ARCHITECTURE/" class="md-nav__link">
         
   
   
@@ -404,7 +335,111 @@
     </li>
   
 
-              
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_OVERVIEW/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Flow Foundations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Flows
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Flows
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
             
               
                 
@@ -413,14 +448,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../concepts/drift-detection/" class="md-nav__link">
+      <a href="../FLOW_LIFECYCLE/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Drift Detection
+    Manager Lifecycle
   
 
     
@@ -441,7 +476,119 @@
   
   
     <li class="md-nav__item">
-      <a href="../../concepts/discovery/" class="md-nav__link">
+      <a href="../FLOW_CONNECTION/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Connection
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_POLICY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_ROLE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Role
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_KVSECRET/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    KV Secret Seeding
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_DISCOVERY/" class="md-nav__link">
         
   
   
@@ -462,6 +609,146 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_DELETION/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deletion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_AUTH/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Authentication
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_WEBHOOK/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Admission Webhooks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_EVENTS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Event Bus
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../FLOW_METRICS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -475,26 +762,99 @@
   
   
   
+    <li class="md-nav__item">
+      <a href="../INSTRUCTIONS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Instructions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../IMPROVEMENTS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Improvements & Gaps
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
     
     
     
-    
-    
-    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" checked>
         
           
-          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="">
             
   
   
   <span class="md-ellipsis">
     
   
-    Authentication Methods
+    Knowledge
   
 
     
@@ -505,12 +865,12 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_4">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_8">
             <span class="md-nav__icon md-icon"></span>
             
   
-    Authentication Methods
+    Knowledge
   
 
           </label>
@@ -523,14 +883,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../auth-methods/" class="md-nav__link">
+      <a href="../CONTEXT/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Overview
+    Domain Glossary
   
 
     
@@ -551,14 +911,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../auth-methods/kubernetes/" class="md-nav__link">
+      <a href="../SKILLS/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Kubernetes
+    Skills Cheat-Sheet
   
 
     
@@ -579,14 +939,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../auth-methods/jwt/" class="md-nav__link">
+      <a href="../WORKFLOWS/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    JWT
+    End-to-End Workflows
   
 
     
@@ -604,17 +964,26 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../../auth-methods/jwt-gitlab/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
   <span class="md-ellipsis">
     
   
-    JWT for GitLab CI
+    Requirements Template
   
 
     
@@ -623,6 +992,7 @@
   
 
       </a>
+      
     </li>
   
 
@@ -634,336 +1004,34 @@
   
   
   
-    <li class="md-nav__item">
-      <a href="../../auth-methods/oidc/" class="md-nav__link">
+    
+    
+      
         
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    OIDC
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../auth-methods/aws-iam/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    AWS IAM
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../auth-methods/gcp-iam/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    GCP IAM
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../auth-methods/approle/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    AppRole
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../auth-methods/token/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Token
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../auth-methods/bootstrap/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Bootstrap
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-          </ul>
-        </nav>
       
-    </li>
-  
-
+    
+    
     
       
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../configuration/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Configuration
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../api-reference/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    API Reference
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../examples/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Examples
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../webhooks/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Webhooks
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../troubleshooting/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Troubleshooting
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    
-    
-    
     
     
     <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_10" >
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_8_5" >
         
           
-          <label class="md-nav__link" for="__nav_10" id="__nav_10_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_8_5" id="__nav_8_5_label" tabindex="0">
             
   
   
   <span class="md-ellipsis">
     
   
-    Decisions
+    PRDs
   
 
     
@@ -974,12 +1042,12 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_10_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_10">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_8_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8_5">
             <span class="md-nav__icon md-icon"></span>
             
   
-    Decisions
+    PRDs
   
 
           </label>
@@ -992,182 +1060,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../" class="md-nav__link">
+      <a href="../prd/vaultkvsecret/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Overview
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../0001-adapter-pattern-for-cluster-scoped-types/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    ADR 0001 — Adapter pattern
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../0002-template-method-base-reconciler/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    ADR 0002 — Template Method base reconciler
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../0003-two-level-drift-and-conflict-config/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    ADR 0003 — Two-level drift & conflict config
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../0004-event-bus-closure-capture/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    ADR 0004 — Event bus closure capture
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../0005-cleanup-failure-configmap-queue/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    ADR 0005 — Cleanup ConfigMap queue
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../0000-template/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Template
+    VaultKVSecret
   
 
     
@@ -1184,6 +1084,134 @@
           </ul>
         </nav>
       
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Audits
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Audits
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../AUDIT-2026-05/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Audit 2026-05-28
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="https://panteparak.github.io/vault-access-operator/adr/README/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decisions (ADRs)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -1195,115 +1223,6 @@
               </div>
             
             
-              
-              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
-                <div class="md-sidebar__scrollwrap">
-                  <div class="md-sidebar__inner">
-                    
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#context" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Context
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#decision" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Decision
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#consequences" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Consequences
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Consequences">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#positive" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Positive
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#negative" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Negative
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#neutral" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Neutral
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#alternatives-considered" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Alternatives considered
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-                  </div>
-                </div>
-              </div>
-            
           
           
             <div class="md-content" data-md-component="content">
@@ -1314,7 +1233,7 @@
 
 
   
-    <a href="https://github.com/panteparak/vault-access-operator/edit/main/docs/adr/0006-cluster-name-prefix.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/panteparak/vault-access-operator/edit/main/docs/internal/REQUIREMENTS-TEMPLATE.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -1322,55 +1241,96 @@
   
 
 
-<h1 id="adr-0006-per-cluster-name-prefix-for-vault-resources-ce-multi-tenancy">ADR 0006: Per-cluster name prefix for Vault resources (CE multi-tenancy)<a class="headerlink" href="#adr-0006-per-cluster-name-prefix-for-vault-resources-ce-multi-tenancy" title="Permanent link">&para;</a></h1>
+<h1 id="requirements-template">Requirements Template<a class="headerlink" href="#requirements-template" title="Permanent link">&para;</a></h1>
+<p>Use this template to capture a feature requirement <em>before</em> implementation begins. Used as the input to <code>/new-adr</code> and <code>to-prd</code>.</p>
+<p>Copy this file to <code>docs/internal/prd/&lt;short-name&gt;.md</code> and fill in the sections. Keep it under 200 lines — verbose rationale belongs in the resulting ADR or FLOW doc.</p>
+<hr />
+<h1 id="_1"><Feature title in sentence case><a class="headerlink" href="#_1" title="Permanent link">&para;</a></h1>
 <ul>
-<li><strong>Status:</strong> Superseded by <a href="../0010-structured-vault-names-and-recorded-name-authority/">ADR 0010</a></li>
-<li><strong>Date:</strong> 2026-06-29</li>
-<li><strong>Related:</strong> <a href="../../configuration/#sharing-one-vault-across-clusters"><code>docs/configuration.md</code></a>, <a href="../../internal/CONTEXT/#managed-marker"><code>CONTEXT.md</code></a>, <a href="../../internal/IMPROVEMENTS/"><code>IMPROVEMENTS.md §D</code></a>, <a href="../0003-two-level-drift-and-conflict-config/">ADR 0003</a></li>
+<li><strong>Author:</strong> <github handle></li>
+<li><strong>Date:</strong> <YYYY-MM-DD></li>
+<li><strong>Status:</strong> Draft | In Review | Approved | Implemented | Withdrawn</li>
+<li><strong>Tracking:</strong> <link to GitHub issue or epic></li>
 </ul>
-<blockquote>
-<p><strong>Note (ADR 0008):</strong> the marker-path discussion below is historical — ownership records are now in-band on the managed objects, and the operator's cross-cluster <em>identity</em> is its auth mount path (one cluster per mount, a hard requirement on shared Vaults). The name prefix this ADR introduces remains the mechanism that <em>prevents</em> name collisions; the identity <em>detects and blocks</em> fights when names do collide.</p>
-</blockquote>
-<h2 id="context">Context<a class="headerlink" href="#context" title="Permanent link">&para;</a></h2>
-<p>Operators may run <strong>one instance per Kubernetes cluster against a single shared Vault server</strong>. Vault Community Edition has no <a href="https://developer.hashicorp.com/vault/docs/enterprise/namespaces">namespaces</a> (Enterprise-only), so:</p>
+<h2 id="problem-statement">Problem statement<a class="headerlink" href="#problem-statement" title="Permanent link">&para;</a></h2>
+<p>One paragraph describing the user-visible pain or operator gap. Avoid "we should add feature X" framing; instead, describe the <em>outcome</em> a user can't achieve today and <em>why</em> that hurts.</p>
+<p>Bad: "We should add Prometheus federation."
+Good: "Teams running &gt; 50 VaultPolicies report the operator's <code>/metrics</code> endpoint takes &gt; 5 seconds to respond, which trips their Grafana scrape timeouts and breaks their dashboards."</p>
+<h2 id="goals">Goals<a class="headerlink" href="#goals" title="Permanent link">&para;</a></h2>
+<p>What does success look like? Bullet list, each item testable.</p>
 <ul>
-<li><strong>ACL policies are global.</strong> <code>WritePolicy</code> targets <code>sys/policies/acl/{name}</code> — one store for the whole Vault, not scoped by mount or namespace.</li>
-<li><strong>Managed markers are global.</strong> The marker KV path is hardcoded under the <code>secret</code> mount (<code>secret/data/vault-access-operator/managed/...</code>).</li>
+<li>[ ] G1: <observable behavior></li>
+<li>[ ] G2: <observable behavior></li>
 </ul>
-<p>Per-cluster <em>mounts</em> (which CE supports) isolate secrets engines and auth methods — and therefore KV secrets and auth <strong>roles</strong> — but they cannot isolate the policy store or the marker path. The operator derives a Vault name as <code>{namespace}-{name}</code> (or <code>{name}</code> for cluster-scoped CRs), which is <strong>identical across clusters</strong>. Two clusters that each define <code>VaultPolicy default/admin</code> would write the same global policy and the same marker, silently overwriting each other — and conflict detection cannot see it, because the owner identifier (<code>VaultPolicy/default/admin</code>) is byte-identical across clusters.</p>
-<p>HashiCorp's sanctioned CE multi-tenancy lever is <strong>naming conventions</strong>, not a Vault feature.</p>
-<h2 id="decision">Decision<a class="headerlink" href="#decision" title="Permanent link">&para;</a></h2>
-<p>Introduce an optional, operator-wide <strong>cluster-name prefix</strong> applied to every derived Vault resource name.</p>
+<h2 id="non-goals">Non-goals<a class="headerlink" href="#non-goals" title="Permanent link">&para;</a></h2>
+<p>What this requirement explicitly does <strong>not</strong> cover. Use this to fend off scope creep.</p>
 <ul>
-<li>Configured via <code>--cluster-name</code> flag / <code>CLUSTER_NAME</code> env / <code>clusterName</code> Helm value. <strong>Empty (default) disables prefixing</strong>, preserving single-cluster behavior.</li>
-<li>A single helper, <a href="../../shared/naming/naming.go"><code>shared/naming</code></a>, holds the prefix (set once at startup) and exposes <code>Vault(base) = "{cluster}-{base}"</code>. Every name derivation routes through it: the policy/role adapters (<code>GetVaultPolicyName</code> / <code>GetVaultRoleName</code>), the role→policy binding (<code>binding.VaultPolicyName</code>, which keeps a role's <code>token_policies</code> consistent with the policies themselves), and the managed-marker restore handler.</li>
-<li>The prefix lands on the marker <strong>leaf name</strong>, not a new path segment or schema field. Because each cluster's markers sit at a distinct leaf (<code>…/policies/{cluster}-{ns}-{name}</code>), they no longer collide — so <strong>no marker-schema or conflict-logic change is needed</strong>. The owner identifier (<code>GetK8sResourceIdentifier</code>) is unchanged.</li>
+<li>N1: <thing we're choosing not to do, and why></li>
+<li>N2: <thing we're choosing not to do, and why></li>
 </ul>
-<p>The prefix is <strong>operator-level</strong>, not per-<code>VaultConnection</code>: one Kubernetes cluster has one identity for all the connections it manages.</p>
-<h2 id="consequences">Consequences<a class="headerlink" href="#consequences" title="Permanent link">&para;</a></h2>
-<h3 id="positive">Positive<a class="headerlink" href="#positive" title="Permanent link">&para;</a></h3>
+<h2 id="acceptance-criteria">Acceptance criteria<a class="headerlink" href="#acceptance-criteria" title="Permanent link">&para;</a></h2>
+<p>Concrete, testable bullets. Each should map to at least one test (unit, integration, or e2e).</p>
 <ul>
-<li><strong>Coexistence on one CE Vault.</strong> Multiple clusters manage their own <code>{cluster}-*</code> policies/roles with zero collisions and zero silent overwrites.</li>
-<li><strong>Tiny, low-risk change.</strong> One naming helper plus six derivation sites; the empty default is a perfect no-op, so existing installs and their tests are unaffected.</li>
-<li><strong>Role bindings stay correct for free</strong> — <code>token_policies</code> derive from the same prefixed helper as the policies.</li>
+<li>[ ] AC1: When <condition>, then <observable outcome></li>
+<li>[ ] AC2: &lt;…&gt;</li>
+<li>[ ] AC3: All existing tests still pass; <code>make verify-templates</code> reports no drift</li>
 </ul>
-<h3 id="negative">Negative<a class="headerlink" href="#negative" title="Permanent link">&para;</a></h3>
+<h2 id="affected-crds-api-surface">Affected CRDs / API surface<a class="headerlink" href="#affected-crds-api-surface" title="Permanent link">&para;</a></h2>
+<p>List every CRD field added, removed, or changed. Use the form: <code>Kind.spec.field</code>.</p>
 <ul>
-<li><strong>Renames Vault objects.</strong> Enabling the prefix on an existing install orphans the old unprefixed policies/roles/markers; operators must plan a cutover and repoint any external consumers that reference policies by name.</li>
-<li><strong>Soft, not enforced.</strong> Two clusters misconfigured with the same prefix collide again — the prefix is a naming convention, not a Vault-enforced boundary (CE offers none).</li>
+<li><code>VaultRole.spec.jwt.subjectClaim</code> — new optional string</li>
+<li><code>VaultConnection.status.lastDiscovery</code> — new condition</li>
 </ul>
-<h3 id="neutral">Neutral<a class="headerlink" href="#neutral" title="Permanent link">&para;</a></h3>
+<p>If new CRDs are introduced, note that <strong>explicitly</strong> — a new CRD triggers a migration concern and a backward-compat plan.</p>
+<h2 id="affected-docs">Affected docs<a class="headerlink" href="#affected-docs" title="Permanent link">&para;</a></h2>
+<p>Pre-list the docs that must be updated. The <code>/docs-drift</code> skill will check these on PR.</p>
 <ul>
-<li>The prefix is carried as a process-wide value in <code>shared/naming</code> (set once before the manager starts) rather than threaded through every adapter constructor — a deliberate trade for a far smaller diff. Upgrade path: thread an explicit value if per-connection prefixes are ever needed.</li>
-<li>Admission webhooks are intentionally <strong>not</strong> prefixed: their collision checks are purely intra-cluster (K8s-side) comparisons where a uniform prefix cancels on both sides.</li>
+<li><code>docs/api-reference.md</code> — new field documentation</li>
+<li><code>docs/internal/FLOW_&lt;NAME&gt;.md</code> — sequence diagram update or new flow</li>
+<li><code>docs/internal/CONTEXT.md</code> — new domain term</li>
+<li><code>docs/auth-methods/&lt;method&gt;.md</code> — if a new or modified auth method</li>
+<li><code>CHANGELOG.md</code> — <code>### Added</code> or <code>### Changed</code> entry under <code>[Unreleased]</code></li>
 </ul>
-<h2 id="alternatives-considered">Alternatives considered<a class="headerlink" href="#alternatives-considered" title="Permanent link">&para;</a></h2>
+<h2 id="compatibility-migration">Compatibility &amp; migration<a class="headerlink" href="#compatibility-migration" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>Cluster-id in the marker payload (fail-loud only).</strong> Keep names shared; add cluster identity so a second cluster touching the same policy gets a blocking <code>ConflictError</code> instead of a silent overwrite. Rejected as the primary approach: it gives <em>safety</em> but not <em>coexistence</em> (one cluster is locked out of any shared name), and both were wanted.</li>
-<li><strong>Cluster in the marker <em>path</em></strong> (<code>…/managed/policies/{cluster}/{name}</code>). Rejected: it isolates each cluster's markers so neither sees the other, which <em>hides</em> the still-shared global policy collision instead of solving it.</li>
-<li><strong>Vault namespaces.</strong> Not available in CE.</li>
-<li><strong>Separate Vault server per cluster.</strong> Fully isolates everything with no operator change, but the target topology shares one server.</li>
+<li><strong>Backward compatibility:</strong> Existing CRs continue to reconcile correctly? If a default is added, what's the value for pre-existing resources?</li>
+<li><strong>Version skew:</strong> Any concern with older operators running against newer CRDs (or vice versa) in mid-rollout?</li>
+<li><strong>Webhook validation:</strong> Does this require webhook changes? If yes, gate behind <code>--enable-webhooks</code> and remember tests run both with and without webhooks.</li>
 </ul>
+<h2 id="security-considerations">Security considerations<a class="headerlink" href="#security-considerations" title="Permanent link">&para;</a></h2>
+<p>Trigger a STRIDE pass via <code>/security-threat-model</code> if any of these apply:</p>
+<ul>
+<li>[ ] Changes auth path (login, token issuance, token rotation)</li>
+<li>[ ] Changes webhook input/output handling</li>
+<li>[ ] Changes RBAC or service-account boundaries</li>
+<li>[ ] Introduces new user-controlled string that ends up in HCL, file paths, or shell</li>
+</ul>
+<p>For each applicable item: link to the threat-model output here.</p>
+<h2 id="open-questions">Open questions<a class="headerlink" href="#open-questions" title="Permanent link">&para;</a></h2>
+<p>Things you don't know yet and need to resolve before implementation. Convert to GitHub issues if they merit independent tracking.</p>
+<ul>
+<li>Q1: <question> — owner: <name></li>
+<li>Q2: <question></li>
+</ul>
+<h2 id="implementation-sketch">Implementation sketch<a class="headerlink" href="#implementation-sketch" title="Permanent link">&para;</a></h2>
+<p>High-level outline — <em>not</em> a step-by-step plan (that comes in the ADR or PR description). Aim for 5–10 bullets.</p>
+<ol>
+<li>Add CRD field &lt;…&gt;</li>
+<li>Extend webhook to validate &lt;…&gt;</li>
+<li>Update <code>&lt;Feature&gt;Ops</code> to handle &lt;…&gt;</li>
+<li>Update FLOW doc</li>
+<li>Tests: unit (<code>features/&lt;feat&gt;/controller/&lt;feat&gt;_test.go</code>), integration (<code>test/integration/&lt;cat&gt;/</code>), e2e if user-visible</li>
+<li>CHANGELOG entry</li>
+</ol>
+<h2 id="references">References<a class="headerlink" href="#references" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Related ADRs: <links></li>
+<li>Related FLOW docs: <links></li>
+<li>External: Vault docs, controller-runtime docs, RFC links</li>
+<li>Prior art: similar features in this operator or others</li>
+</ul>
+<hr />
+<p>After filling this out, run <code>/new-adr &lt;slug&gt;</code> if the requirement implies a non-obvious design choice. Otherwise, proceed directly to implementation using the <code>/dev-flow</code> skill chain (explore → plan → implement → review → document).</p>
 
 
 
@@ -1446,10 +1406,10 @@
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.top", "search.highlight", "content.code.copy", "content.action.edit"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.instant", "navigation.top", "navigation.sections", "navigation.expand", "navigation.indexes", "search.highlight", "content.code.copy", "content.action.edit", "toc.integrate"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
       
     
   </body>
