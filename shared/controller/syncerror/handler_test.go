@@ -24,6 +24,7 @@ import (
 	"testing"
 
 	"github.com/go-logr/logr"
+	vaultapi "github.com/hashicorp/vault/api"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -204,6 +205,64 @@ func TestHandle_TransientError(t *testing.T) {
 		t.Fatal("expected Ready condition")
 	}
 	// TransientError falls through to generic handler
+	if readyCond.Reason != vaultv1alpha1.ReasonFailed {
+		t.Errorf("expected reason %s, got %s", vaultv1alpha1.ReasonFailed, readyCond.Reason)
+	}
+}
+
+func TestHandle_VaultPermissionDenied(t *testing.T) {
+	// A Vault 403 reaches Handle wrapped exactly like production: the vault
+	// client wraps the SDK ResponseError with %w, and the sync workflow wraps
+	// that in a TransientError. classifyError must still unwrap down to the
+	// 403 and pick ReasonPermissionDenied over the TransientError fallthrough.
+	target := newMockTarget()
+	k8sClient := newFakeClient()
+	respErr := &vaultapi.ResponseError{
+		StatusCode: 403,
+		Errors:     []string{"permission denied"},
+	}
+	err := infraerrors.NewTransientError("write role",
+		fmt.Errorf("failed to write kubernetes auth role at auth/kubernetes/role/x: %w", respErr))
+
+	ctx := context.Background()
+	_ = k8sClient.Create(ctx, target.object.DeepCopyObject().(client.Object))
+
+	_ = Handle(ctx, k8sClient, logr.Discard(), target, err)
+
+	if target.phase != vaultv1alpha1.PhaseError {
+		t.Errorf("expected PhaseError, got %s", target.phase)
+	}
+
+	readyCond := findCondition(target.conditions, vaultv1alpha1.ConditionTypeReady)
+	if readyCond == nil {
+		t.Fatal("expected Ready condition")
+	}
+	if readyCond.Reason != vaultv1alpha1.ReasonPermissionDenied {
+		t.Errorf("expected reason %s, got %s", vaultv1alpha1.ReasonPermissionDenied, readyCond.Reason)
+	}
+}
+
+func TestHandle_VaultServerError_StaysFailed(t *testing.T) {
+	// Only 403 gets the permission-denied classification; other Vault HTTP
+	// errors (e.g. 500) keep the generic ReasonFailed fallthrough.
+	target := newMockTarget()
+	k8sClient := newFakeClient()
+	respErr := &vaultapi.ResponseError{
+		StatusCode: 500,
+		Errors:     []string{"internal error"},
+	}
+	err := infraerrors.NewTransientError("write role",
+		fmt.Errorf("failed to write kubernetes auth role at auth/kubernetes/role/x: %w", respErr))
+
+	ctx := context.Background()
+	_ = k8sClient.Create(ctx, target.object.DeepCopyObject().(client.Object))
+
+	_ = Handle(ctx, k8sClient, logr.Discard(), target, err)
+
+	readyCond := findCondition(target.conditions, vaultv1alpha1.ConditionTypeReady)
+	if readyCond == nil {
+		t.Fatal("expected Ready condition")
+	}
 	if readyCond.Reason != vaultv1alpha1.ReasonFailed {
 		t.Errorf("expected reason %s, got %s", vaultv1alpha1.ReasonFailed, readyCond.Reason)
 	}

@@ -32,7 +32,6 @@ const (
 	testRoleName       = "test-role"
 	testNamespace      = "test-namespace"
 	testConnectionRef  = "test-connection"
-	testAuthPath       = "auth/kubernetes"
 	testTokenTTL       = "1h"
 	testTokenMaxTTL    = "24h"
 	testServiceAccount = "test-sa"
@@ -47,7 +46,6 @@ func newTestVaultRole() *vaultv1alpha1.VaultRole {
 		},
 		Spec: vaultv1alpha1.VaultRoleSpec{
 			ConnectionRef:  testConnectionRef,
-			AuthPath:       testAuthPath,
 			ConflictPolicy: vaultv1alpha1.ConflictPolicyFail,
 			ServiceAccounts: []string{
 				"sa1",
@@ -73,7 +71,6 @@ func newTestVaultClusterRole() *vaultv1alpha1.VaultClusterRole {
 		},
 		Spec: vaultv1alpha1.VaultClusterRoleSpec{
 			ConnectionRef:  testConnectionRef,
-			AuthPath:       testAuthPath,
 			ConflictPolicy: vaultv1alpha1.ConflictPolicyAdopt,
 			ServiceAccounts: []vaultv1alpha1.ServiceAccountRef{
 				{Name: "sa1", Namespace: "ns1"},
@@ -280,47 +277,6 @@ func TestVaultRoleAdapter_GetConnectionRef(t *testing.T) {
 
 	if result != testConnectionRef {
 		t.Errorf("GetConnectionRef() = %q, want %q", result, testConnectionRef)
-	}
-}
-
-func TestVaultRoleAdapter_GetAuthPath(t *testing.T) {
-	tests := []struct {
-		name     string
-		authPath string
-		expected string
-	}{
-		{
-			name:     "standard auth path",
-			authPath: "auth/kubernetes",
-			expected: "auth/kubernetes",
-		},
-		{
-			name:     "custom auth path",
-			authPath: "kubernetes",
-			expected: "kubernetes",
-		},
-		{
-			name:     "empty auth path",
-			authPath: "",
-			expected: "",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			role := &vaultv1alpha1.VaultRole{
-				Spec: vaultv1alpha1.VaultRoleSpec{
-					AuthPath: tt.authPath,
-				},
-			}
-			adapter := NewVaultRoleAdapter(role)
-
-			result := adapter.GetAuthPath()
-
-			if result != tt.expected {
-				t.Errorf("GetAuthPath() = %q, want %q", result, tt.expected)
-			}
-		})
 	}
 }
 
@@ -764,47 +720,6 @@ func TestVaultClusterRoleAdapter_GetConnectionRef(t *testing.T) {
 
 	if result != testConnectionRef {
 		t.Errorf("GetConnectionRef() = %q, want %q", result, testConnectionRef)
-	}
-}
-
-func TestVaultClusterRoleAdapter_GetAuthPath(t *testing.T) {
-	tests := []struct {
-		name     string
-		authPath string
-		expected string
-	}{
-		{
-			name:     "standard auth path",
-			authPath: "auth/kubernetes",
-			expected: "auth/kubernetes",
-		},
-		{
-			name:     "custom auth path",
-			authPath: "kubernetes-cluster1",
-			expected: "kubernetes-cluster1",
-		},
-		{
-			name:     "empty auth path",
-			authPath: "",
-			expected: "",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			role := &vaultv1alpha1.VaultClusterRole{
-				Spec: vaultv1alpha1.VaultClusterRoleSpec{
-					AuthPath: tt.authPath,
-				},
-			}
-			adapter := NewVaultClusterRoleAdapter(role)
-
-			result := adapter.GetAuthPath()
-
-			if result != tt.expected {
-				t.Errorf("GetAuthPath() = %q, want %q", result, tt.expected)
-			}
-		})
 	}
 }
 

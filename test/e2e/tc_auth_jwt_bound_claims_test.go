@@ -47,6 +47,9 @@ var _ = Describe("JWT BoundClaims Tests", Label("auth"), Ordered, func() {
 		By("configuring auth/jwt-gitlab with Dex OIDC discovery + bound_issuer")
 		configureJWTGitlabAuthWithDex(ctx)
 
+		By("creating the dedicated VaultConnection that pins roles to auth/jwt-gitlab")
+		createJWTGitlabConnection(ctx)
+
 		By("creating placeholder ServiceAccount for the JWT VaultRole spec")
 		_ = utils.CreateServiceAccount(ctx, testNamespace, jwtGitlabSA)
 

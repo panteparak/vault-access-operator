@@ -79,11 +79,12 @@ type mockOps struct {
 	specHash      string
 	driftDetected bool
 	driftSummary  string
+	authPath      string
 }
 
 func (m *mockOps) ResourceKind() string      { return "VaultPolicy" }
 func (m *mockOps) VaultResourceName() string { return "default-test-policy" }
-func (m *mockOps) AuthPath() string          { return "" }
+func (m *mockOps) AuthPath() string          { return m.authPath }
 
 func (m *mockOps) Validate() error {
 	m.calls = append(m.calls, "Validate")

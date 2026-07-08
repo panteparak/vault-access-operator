@@ -16,6 +16,8 @@ import (
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 )
@@ -375,5 +377,80 @@ func TestVaultConnectionValidator_HTTPAddressEmitsWarning(t *testing.T) {
 	joined := strings.Join(warnings, " ")
 	if !strings.Contains(joined, "http://") {
 		t.Errorf("warning should mention http://: %v", warnings)
+	}
+}
+
+// TestVaultConnectionValidator_DefaultsAuthPathNeedsType pins the admission
+// half of the RoleMount rule: a defaults.authPath whose name the family
+// heuristic can't classify must declare defaults.authType at apply time,
+// not fail at first role reconcile.
+func TestVaultConnectionValidator_DefaultsAuthPathNeedsType(t *testing.T) {
+	v := &VaultConnectionValidator{}
+	conn := &vaultv1alpha1.VaultConnection{
+		ObjectMeta: metav1.ObjectMeta{Name: "c"},
+		Spec: vaultv1alpha1.VaultConnectionSpec{
+			Address:  "https://vault.example.com",
+			Auth:     vaultv1alpha1.AuthConfig{Kubernetes: &vaultv1alpha1.KubernetesAuth{Role: "r"}},
+			Defaults: &vaultv1alpha1.ConnectionDefaults{AuthPath: "my-mount"},
+		},
+	}
+
+	_, err := v.ValidateCreate(context.Background(), conn)
+	if err == nil || !strings.Contains(err.Error(), "defaults.authType") {
+		t.Fatalf("want defaults.authType error for unclassifiable mount name, got %v", err)
+	}
+
+	conn.Spec.Defaults.AuthType = vaultv1alpha1.AuthBackendTypeJWT
+	if _, err := v.ValidateCreate(context.Background(), conn); err != nil {
+		t.Fatalf("explicit defaults.authType should validate, got %v", err)
+	}
+}
+
+// TestVaultConnectionValidator_RoleMountChangeWarns pins the update-time
+// warning when the resolved role mount changes under dependent roles:
+// roles carry no mount of their own, so a connection-side mount change
+// re-points every dependent role's next sync.
+func TestVaultConnectionValidator_RoleMountChangeWarns(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = vaultv1alpha1.AddToScheme(scheme)
+
+	dependentRole := &vaultv1alpha1.VaultRole{
+		ObjectMeta: metav1.ObjectMeta{Name: "app-role", Namespace: "team-a"},
+		Spec:       vaultv1alpha1.VaultRoleSpec{ConnectionRef: "c"},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(dependentRole).Build()
+	v := &VaultConnectionValidator{client: c}
+
+	oldConn := &vaultv1alpha1.VaultConnection{
+		ObjectMeta: metav1.ObjectMeta{Name: "c"},
+		Spec: vaultv1alpha1.VaultConnectionSpec{
+			Address: "https://vault.example.com",
+			Auth:    vaultv1alpha1.AuthConfig{Kubernetes: &vaultv1alpha1.KubernetesAuth{Role: "r", AuthPath: "k8s-a"}},
+		},
+	}
+	newConn := oldConn.DeepCopy()
+	newConn.Spec.Auth.Kubernetes.AuthPath = "k8s-b"
+
+	warnings, err := v.ValidateUpdate(context.Background(), oldConn, newConn)
+	if err != nil {
+		t.Fatalf("mount change must warn, not fail: %v", err)
+	}
+	joined := strings.Join(warnings, " ")
+	if !strings.Contains(joined, "auth/k8s-a") || !strings.Contains(joined, "auth/k8s-b") {
+		t.Fatalf("warning should name old and new mounts, got %v", warnings)
+	}
+	if !strings.Contains(joined, "1 dependent role(s)") {
+		t.Errorf("warning should count dependents, got %v", warnings)
+	}
+
+	// Same mount → no warning; unrelated-connection roles don't count.
+	warnings, err = v.ValidateUpdate(context.Background(), oldConn, oldConn.DeepCopy())
+	if err != nil {
+		t.Fatalf("no-op update should validate: %v", err)
+	}
+	for _, w := range warnings {
+		if strings.Contains(w, "re-points") {
+			t.Errorf("unchanged mount should not warn about re-pointing: %v", w)
+		}
 	}
 }

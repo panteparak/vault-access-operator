@@ -5,9 +5,11 @@
 Discovery is an **inverse reconciliation**: instead of pushing K8s state to Vault, it pulls Vault state and identifies unmanaged resources so operators can adopt them into CRs (either manually or via auto-creation). It's driven by `VaultConnection.Spec.Discovery`, runs on a configurable interval (default 1h), and has its own reconciler that watches `VaultConnection` — separately from the connection-management reconciler.
 
 !!! note "Discovery requires `--managed-markers=true` (default OFF)"
-    Discovery separates unmanaged Vault resources from ones an operator already owns, so it runs **only when `--managed-markers=true`**. Ownership is read **in-band** (ADR 0008): each candidate policy (after system + pattern filters) is READ and its ownership comment header parsed — any operator-managed policy is skipped, whether owned by THIS operator or a **foreign** one (a foreign owner's policy must never become an adoption candidate on a shared Vault). Roles carry no in-band record: the managed set is derived from this cluster's `VaultRole`/`VaultClusterRole` CRs, and the scan only targets the connection's own auth mount. See [ADR 0008](../adr/0008-in-band-ownership-markers.md).
+    Discovery separates unmanaged Vault resources from ones an operator already owns, so it runs **only when `--managed-markers=true`**. Ownership is read **in-band** (ADR 0008): each candidate policy (after system + pattern filters) is READ and its ownership comment header parsed — any operator-managed policy is skipped, whether owned by THIS operator or a **foreign** one (a foreign owner's policy must never become an adoption candidate on a shared Vault). Roles carry no in-band record (and no mount fields — [ADR 0009](../adr/0009-connection-owned-role-mount.md)): the scanned mount is the connection's resolved role mount (`VaultConnection.RoleMount()`), and the managed set is this cluster's `VaultRole`/`VaultClusterRole` CRs whose `connectionRef` resolves to that mount — two connections sharing one mount both count. A connection with no role-capable mount scans policies only (role scan skipped). See [ADR 0008](../adr/0008-in-band-ownership-markers.md).
 
 Two reconcilers watch the same CRD. This is intentional (separation of concerns: connection auth vs discovery scanning) but creates a **status-write contention** handled with `retry.RetryOnConflict`. See [controller.go:286](../../features/discovery/controller/controller.go:286).
+
+`Reconcile` takes its logger from the context (controller-runtime's per-reconcile `reconcileID`) and enriches it with `vaultConnection` and, once the client is resolved, `authPath` — so scan log lines are traceable like the sync workflows. See `.claude/skills/logging-context/SKILL.md`.
 
 ## Participants
 
@@ -56,7 +58,10 @@ sequenceDiagram
         Cache-->>R: vc
     end
 
-    R->>S: NewScanner(vc, spec.Discovery, conn.Defaults.AuthPath, log)
+    R->>R: authPath = conn.RoleMount()
+    Note over R: no role-capable mount → authPath="",<br/>role scan skipped (policies only)
+    R->>R: managedRoleNames — role CRs whose connectionRef<br/>resolves to the scanned mount (connectionsOnMount set)
+    R->>S: NewScanner(vc, spec.Discovery, authPath, managedRoleNames, log)
     R->>S: Scan(ctx)
 
     par Scan policies
@@ -81,7 +86,7 @@ sequenceDiagram
         S->>VC: ListKubernetesAuthRoles(authPath)
         VC->>V: LIST /auth/{authPath}/role
         V-->>VC: [names] or nil
-        Note over S: managed-role set was derived from<br/>VaultRole/VaultClusterRole CRs by the reconciler
+        Note over S: managed-role set was derived by the reconciler:<br/>List VaultConnections once, keep those whose RoleMount()<br/>equals the scanned mount, include role CRs referencing them<br/>(naive connectionRef match would mis-flag a<br/>mount-sharing connection's roles as unmanaged)
         loop for each role
             alt managed OR !matchesRolePatterns
                 Note over S: skip

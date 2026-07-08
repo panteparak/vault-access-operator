@@ -16,6 +16,7 @@ ADRs are immutable once Accepted. If a decision is reversed or superseded, write
 | [0006](0006-cluster-name-prefix.md) | Per-cluster name prefix for Vault resources (CE multi-tenancy) | Accepted | 2026-06-29 |
 | [0007](0007-hierarchical-metadata-only-managed-markers.md) | Hierarchical, metadata-only managed markers with opt-in flag | Superseded by 0008 | 2026-07-02 |
 | [0008](0008-in-band-ownership-markers.md) | In-band ownership markers on the managed Vault objects | Accepted | 2026-07-02 |
+| [0009](0009-connection-owned-role-mount.md) | The VaultConnection owns the role auth mount | Accepted | 2026-07-08 |
 
 ## Process
 

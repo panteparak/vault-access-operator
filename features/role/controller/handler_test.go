@@ -122,6 +122,11 @@ func newActiveVaultConnection() *vaultv1alpha1.VaultConnection {
 		},
 		Spec: vaultv1alpha1.VaultConnectionSpec{
 			Address: "https://vault.example.com:8200",
+			// Kubernetes login → RoleMount resolves auth/kubernetes, the
+			// mount these tests always targeted.
+			Auth: vaultv1alpha1.AuthConfig{
+				Kubernetes: &vaultv1alpha1.KubernetesAuth{Role: "operator"},
+			},
 		},
 		Status: vaultv1alpha1.VaultConnectionStatus{
 			Phase:   vaultv1alpha1.PhaseActive,
@@ -332,7 +337,7 @@ func TestBuildRoleData_VaultRole(t *testing.T) {
 	policyNames := []string{"default-policy", "global-policy"}
 	serviceAccountBindings := adapter.GetServiceAccountBindings()
 
-	roleData, err := handler.buildRoleData(adapter, policyNames, serviceAccountBindings, nil)
+	roleData, err := handler.buildRoleData(adapter, vault.AuthBackendKubernetes, policyNames, serviceAccountBindings, nil)
 	if err != nil {
 		t.Fatalf("buildRoleData returned error: %v", err)
 	}
@@ -391,7 +396,7 @@ func TestBuildRoleData_VaultClusterRole(t *testing.T) {
 	policyNames := []string{"cluster-policy"}
 	serviceAccountBindings := adapter.GetServiceAccountBindings()
 
-	roleData, err := handler.buildRoleData(adapter, policyNames, serviceAccountBindings, nil)
+	roleData, err := handler.buildRoleData(adapter, vault.AuthBackendKubernetes, policyNames, serviceAccountBindings, nil)
 	if err != nil {
 		t.Fatalf("buildRoleData returned error: %v", err)
 	}
@@ -415,7 +420,7 @@ func TestBuildRoleData_NoTTL(t *testing.T) {
 	handler := NewHandler(fakeClient, vault.NewClientCache(), nil, logr.Discard())
 	adapter := domain.NewVaultRoleAdapter(role)
 
-	roleData, err := handler.buildRoleData(adapter, []string{}, []string{"default/app"}, nil)
+	roleData, err := handler.buildRoleData(adapter, vault.AuthBackendKubernetes, []string{}, []string{"default/app"}, nil)
 	if err != nil {
 		t.Fatalf("buildRoleData returned error: %v", err)
 	}
@@ -435,7 +440,7 @@ func TestBuildRoleData_MultipleNamespaces(t *testing.T) {
 	adapter := domain.NewVaultRoleAdapter(role)
 
 	bindings := []string{"ns1/sa1", "ns2/sa2", "ns1/sa3", "ns3/sa4"}
-	roleData, err := handler.buildRoleData(adapter, []string{"policy"}, bindings, nil)
+	roleData, err := handler.buildRoleData(adapter, vault.AuthBackendKubernetes, []string{"policy"}, bindings, nil)
 	if err != nil {
 		t.Fatalf("buildRoleData returned error: %v", err)
 	}
@@ -456,7 +461,7 @@ func TestBuildRoleData_EmptyBindings(t *testing.T) {
 	handler := NewHandler(fakeClient, vault.NewClientCache(), nil, logr.Discard())
 	adapter := domain.NewVaultRoleAdapter(role)
 
-	roleData, err := handler.buildRoleData(adapter, []string{"policy"}, []string{}, nil)
+	roleData, err := handler.buildRoleData(adapter, vault.AuthBackendKubernetes, []string{"policy"}, []string{}, nil)
 	if err != nil {
 		t.Fatalf("buildRoleData returned error: %v", err)
 	}
@@ -471,8 +476,6 @@ func TestBuildRoleData_EmptyBindings(t *testing.T) {
 }
 
 // --- JWT role payload tests ---
-
-const authPathJWT = "auth/jwt"
 
 func newJWTConnection(name string, audiences []string) *vaultv1alpha1.VaultConnection {
 	return &vaultv1alpha1.VaultConnection{
@@ -491,14 +494,14 @@ func newJWTConnection(name string, audiences []string) *vaultv1alpha1.VaultConne
 
 func TestBuildRoleData_JWT_DerivesBoundSubjectFromServiceAccount(t *testing.T) {
 	role := newVaultRole("test-role", "bar")
-	role.Spec.AuthPath = authPathJWT
 	role.Spec.ServiceAccounts = []string{"foo-sa"}
 
 	conn := newJWTConnection("vault-jwt", []string{"aud-a", "aud-b"})
 	handler := NewHandler(newFakeClient(role, conn), vault.NewClientCache(), nil, logr.Discard())
 	adapter := domain.NewVaultRoleAdapter(role)
 
-	roleData, err := handler.buildRoleData(adapter, []string{"eso-reader"}, adapter.GetServiceAccountBindings(), conn)
+	roleData, err := handler.buildRoleData(
+		adapter, vault.AuthBackendJWT, []string{"eso-reader"}, adapter.GetServiceAccountBindings(), conn)
 	if err != nil {
 		t.Fatalf("buildRoleData returned error: %v", err)
 	}
@@ -527,14 +530,14 @@ func TestBuildRoleData_JWT_DerivesBoundSubjectFromServiceAccount(t *testing.T) {
 
 func TestBuildRoleData_JWT_UserClaimOverride(t *testing.T) {
 	role := newVaultRole("test-role", "bar")
-	role.Spec.AuthPath = authPathJWT
 	role.Spec.ServiceAccounts = []string{"foo-sa"}
 	role.Spec.JWT = &vaultv1alpha1.VaultRoleJWTSpec{UserClaim: "email"}
 
 	handler := NewHandler(newFakeClient(role), vault.NewClientCache(), nil, logr.Discard())
 	adapter := domain.NewVaultRoleAdapter(role)
 
-	roleData, err := handler.buildRoleData(adapter, []string{"p"}, adapter.GetServiceAccountBindings(), nil)
+	roleData, err := handler.buildRoleData(
+		adapter, vault.AuthBackendJWT, []string{"p"}, adapter.GetServiceAccountBindings(), nil)
 	if err != nil {
 		t.Fatalf("buildRoleData returned error: %v", err)
 	}
@@ -545,14 +548,14 @@ func TestBuildRoleData_JWT_UserClaimOverride(t *testing.T) {
 
 func TestBuildRoleData_JWT_BoundSubjectOverride(t *testing.T) {
 	role := newVaultRole("test-role", "bar")
-	role.Spec.AuthPath = authPathJWT
 	role.Spec.ServiceAccounts = []string{"foo-sa"}
 	role.Spec.JWT = &vaultv1alpha1.VaultRoleJWTSpec{BoundSubject: "custom-subject"}
 
 	handler := NewHandler(newFakeClient(role), vault.NewClientCache(), nil, logr.Discard())
 	adapter := domain.NewVaultRoleAdapter(role)
 
-	roleData, err := handler.buildRoleData(adapter, []string{"p"}, adapter.GetServiceAccountBindings(), nil)
+	roleData, err := handler.buildRoleData(
+		adapter, vault.AuthBackendJWT, []string{"p"}, adapter.GetServiceAccountBindings(), nil)
 	if err != nil {
 		t.Fatalf("buildRoleData returned error: %v", err)
 	}
@@ -563,7 +566,6 @@ func TestBuildRoleData_JWT_BoundSubjectOverride(t *testing.T) {
 
 func TestBuildRoleData_JWT_BoundClaimsReplacesSubject(t *testing.T) {
 	role := newVaultRole("test-role", "bar")
-	role.Spec.AuthPath = authPathJWT
 	role.Spec.ServiceAccounts = []string{"foo-sa", "bar-sa"}
 	role.Spec.JWT = &vaultv1alpha1.VaultRoleJWTSpec{
 		BoundClaims: map[string]string{"groups": "eso-writers"},
@@ -572,7 +574,8 @@ func TestBuildRoleData_JWT_BoundClaimsReplacesSubject(t *testing.T) {
 	handler := NewHandler(newFakeClient(role), vault.NewClientCache(), nil, logr.Discard())
 	adapter := domain.NewVaultRoleAdapter(role)
 
-	roleData, err := handler.buildRoleData(adapter, []string{"p"}, adapter.GetServiceAccountBindings(), nil)
+	roleData, err := handler.buildRoleData(
+		adapter, vault.AuthBackendJWT, []string{"p"}, adapter.GetServiceAccountBindings(), nil)
 	if err != nil {
 		t.Fatalf("buildRoleData returned error: %v", err)
 	}
@@ -598,7 +601,6 @@ func TestBuildRoleData_JWT_BoundClaimsReplacesSubject(t *testing.T) {
 
 func TestBuildRoleData_JWT_BoundClaimsList_ScalarsAndLists(t *testing.T) {
 	role := newVaultRole("test-role", "bar")
-	role.Spec.AuthPath = authPathJWT
 	role.Spec.ServiceAccounts = []string{"foo-sa"}
 	role.Spec.JWT = &vaultv1alpha1.VaultRoleJWTSpec{
 		BoundClaimsList: map[string][]string{
@@ -610,7 +612,8 @@ func TestBuildRoleData_JWT_BoundClaimsList_ScalarsAndLists(t *testing.T) {
 	handler := NewHandler(newFakeClient(role), vault.NewClientCache(), nil, logr.Discard())
 	adapter := domain.NewVaultRoleAdapter(role)
 
-	roleData, err := handler.buildRoleData(adapter, []string{"p"}, adapter.GetServiceAccountBindings(), nil)
+	roleData, err := handler.buildRoleData(
+		adapter, vault.AuthBackendJWT, []string{"p"}, adapter.GetServiceAccountBindings(), nil)
 	if err != nil {
 		t.Fatalf("buildRoleData returned error: %v", err)
 	}
@@ -630,7 +633,6 @@ func TestBuildRoleData_JWT_BoundClaimsList_ScalarsAndLists(t *testing.T) {
 
 func TestBuildRoleData_JWT_BoundClaimsType_Glob(t *testing.T) {
 	role := newVaultRole("test-role", "bar")
-	role.Spec.AuthPath = authPathJWT
 	role.Spec.ServiceAccounts = []string{"foo-sa"}
 	role.Spec.JWT = &vaultv1alpha1.VaultRoleJWTSpec{
 		BoundClaimsList: map[string][]string{"ref": {"feat/*"}},
@@ -640,7 +642,8 @@ func TestBuildRoleData_JWT_BoundClaimsType_Glob(t *testing.T) {
 	handler := NewHandler(newFakeClient(role), vault.NewClientCache(), nil, logr.Discard())
 	adapter := domain.NewVaultRoleAdapter(role)
 
-	roleData, err := handler.buildRoleData(adapter, []string{"p"}, adapter.GetServiceAccountBindings(), nil)
+	roleData, err := handler.buildRoleData(
+		adapter, vault.AuthBackendJWT, []string{"p"}, adapter.GetServiceAccountBindings(), nil)
 	if err != nil {
 		t.Fatalf("buildRoleData returned error: %v", err)
 	}
@@ -651,7 +654,6 @@ func TestBuildRoleData_JWT_BoundClaimsType_Glob(t *testing.T) {
 
 func TestBuildRoleData_JWT_BoundClaimsList_OverridesBoundClaims(t *testing.T) {
 	role := newVaultRole("test-role", "bar")
-	role.Spec.AuthPath = authPathJWT
 	role.Spec.ServiceAccounts = []string{"foo-sa"}
 	role.Spec.JWT = &vaultv1alpha1.VaultRoleJWTSpec{
 		BoundClaims:     map[string]string{"ref": "stale"},
@@ -661,7 +663,8 @@ func TestBuildRoleData_JWT_BoundClaimsList_OverridesBoundClaims(t *testing.T) {
 	handler := NewHandler(newFakeClient(role), vault.NewClientCache(), nil, logr.Discard())
 	adapter := domain.NewVaultRoleAdapter(role)
 
-	roleData, err := handler.buildRoleData(adapter, []string{"p"}, adapter.GetServiceAccountBindings(), nil)
+	roleData, err := handler.buildRoleData(
+		adapter, vault.AuthBackendJWT, []string{"p"}, adapter.GetServiceAccountBindings(), nil)
 	if err != nil {
 		t.Fatalf("buildRoleData returned error: %v", err)
 	}
@@ -677,14 +680,14 @@ func TestBuildRoleData_JWT_BoundClaimsList_OverridesBoundClaims(t *testing.T) {
 
 func TestBuildRoleData_JWT_NoClaimsType_WhenNoClaims(t *testing.T) {
 	role := newVaultRole("test-role", "bar")
-	role.Spec.AuthPath = authPathJWT
 	role.Spec.ServiceAccounts = []string{"foo-sa"}
 	// No BoundClaims / BoundClaimsList set — falls back to bound_subject path.
 
 	handler := NewHandler(newFakeClient(role), vault.NewClientCache(), nil, logr.Discard())
 	adapter := domain.NewVaultRoleAdapter(role)
 
-	roleData, err := handler.buildRoleData(adapter, []string{"p"}, adapter.GetServiceAccountBindings(), nil)
+	roleData, err := handler.buildRoleData(
+		adapter, vault.AuthBackendJWT, []string{"p"}, adapter.GetServiceAccountBindings(), nil)
 	if err != nil {
 		t.Fatalf("buildRoleData returned error: %v", err)
 	}
@@ -698,7 +701,6 @@ func TestBuildRoleData_JWT_NoClaimsType_WhenNoClaims(t *testing.T) {
 
 func TestBuildRoleData_JWT_FallbackAudienceWhenConnectionNotJWT(t *testing.T) {
 	role := newVaultRole("test-role", "bar")
-	role.Spec.AuthPath = authPathJWT
 	role.Spec.ServiceAccounts = []string{"foo-sa"}
 
 	// Connection uses k8s auth, no JWT audiences.
@@ -715,7 +717,8 @@ func TestBuildRoleData_JWT_FallbackAudienceWhenConnectionNotJWT(t *testing.T) {
 	handler := NewHandler(newFakeClient(role, k8sConn), vault.NewClientCache(), nil, logr.Discard())
 	adapter := domain.NewVaultRoleAdapter(role)
 
-	roleData, err := handler.buildRoleData(adapter, []string{"p"}, adapter.GetServiceAccountBindings(), k8sConn)
+	roleData, err := handler.buildRoleData(
+		adapter, vault.AuthBackendJWT, []string{"p"}, adapter.GetServiceAccountBindings(), k8sConn)
 	if err != nil {
 		t.Fatalf("buildRoleData returned error: %v", err)
 	}
@@ -727,87 +730,15 @@ func TestBuildRoleData_JWT_FallbackAudienceWhenConnectionNotJWT(t *testing.T) {
 
 func TestBuildRoleData_JWT_MultipleServiceAccountsRejected(t *testing.T) {
 	role := newVaultRole("test-role", "bar")
-	role.Spec.AuthPath = authPathJWT
 	role.Spec.ServiceAccounts = []string{"sa1", "sa2"}
 
 	handler := NewHandler(newFakeClient(role), vault.NewClientCache(), nil, logr.Discard())
 	adapter := domain.NewVaultRoleAdapter(role)
 
-	if _, err := handler.buildRoleData(adapter, []string{"p"}, adapter.GetServiceAccountBindings(), nil); err == nil {
+	if _, err := handler.buildRoleData(
+		adapter, vault.AuthBackendJWT, []string{"p"}, adapter.GetServiceAccountBindings(), nil); err == nil {
 		t.Fatal("expected error for multiple service accounts without boundSubject/boundClaims")
 	}
-}
-
-func TestBuildRoleData_KubernetesAuthPathUnchanged(t *testing.T) {
-	role := newVaultRole("test-role", "default")
-	role.Spec.AuthPath = "auth/kubernetes/"
-
-	handler := NewHandler(newFakeClient(role), vault.NewClientCache(), nil, logr.Discard())
-	adapter := domain.NewVaultRoleAdapter(role)
-	serviceAccountBindings := adapter.GetServiceAccountBindings()
-
-	roleData, err := handler.buildRoleData(adapter, []string{"policy"}, serviceAccountBindings, nil)
-	if err != nil {
-		t.Fatalf("buildRoleData returned error: %v", err)
-	}
-	if _, has := roleData["bound_service_account_names"]; !has {
-		t.Error("expected k8s-auth payload for auth/kubernetes/ path")
-	}
-	if _, has := roleData["role_type"]; has {
-		t.Error("k8s-auth payload should not include role_type")
-	}
-}
-
-func TestBuildRoleData_UnknownAuthBackendRejected(t *testing.T) {
-	role := newVaultRole("test-role", "default")
-	role.Spec.AuthPath = "auth/approle"
-
-	handler := NewHandler(newFakeClient(role), vault.NewClientCache(), nil, logr.Discard())
-	adapter := domain.NewVaultRoleAdapter(role)
-	if _, err := handler.buildRoleData(adapter, []string{"p"}, adapter.GetServiceAccountBindings(), nil); err == nil {
-		t.Fatal("expected error for unsupported auth backend")
-	}
-}
-
-// TestBuildRoleData_AuthTypeOverride pins IMPROVEMENTS §7: an explicit
-// spec.authType makes buildRoleData route by the declared backend family even
-// when the mount path name (e.g. "custom-oidc") wouldn't otherwise classify.
-func TestBuildRoleData_AuthTypeOverride(t *testing.T) {
-	t.Run("authType jwt on custom path builds JWT role data", func(t *testing.T) {
-		role := newVaultRole("test-role", "default")
-		role.Spec.AuthPath = "auth/custom-oidc"
-		role.Spec.AuthType = vaultv1alpha1.AuthBackendTypeJWT
-		role.Spec.ServiceAccounts = []string{"default"} // single SA → bound_subject derivable
-
-		handler := NewHandler(newFakeClient(role), vault.NewClientCache(), nil, logr.Discard())
-		adapter := domain.NewVaultRoleAdapter(role)
-		data, err := handler.buildRoleData(adapter, []string{"p"}, adapter.GetServiceAccountBindings(), nil)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if data["role_type"] != string(vault.AuthBackendJWT) {
-			t.Errorf("expected JWT role data (role_type=jwt), got role_type=%v", data["role_type"])
-		}
-	})
-
-	t.Run("authType kubernetes on custom path builds k8s role data", func(t *testing.T) {
-		role := newVaultRole("test-role", "default")
-		role.Spec.AuthPath = "auth/corp-k8s"
-		role.Spec.AuthType = vaultv1alpha1.AuthBackendTypeKubernetes
-
-		handler := NewHandler(newFakeClient(role), vault.NewClientCache(), nil, logr.Discard())
-		adapter := domain.NewVaultRoleAdapter(role)
-		data, err := handler.buildRoleData(adapter, []string{"p"}, adapter.GetServiceAccountBindings(), nil)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if _, isJWT := data["role_type"]; isJWT {
-			t.Errorf("expected kubernetes role data (no role_type), got %v", data)
-		}
-		if _, ok := data["bound_service_account_names"]; !ok {
-			t.Errorf("expected kubernetes role data with bound_service_account_names, got %v", data)
-		}
-	})
 }
 
 func TestResolveJWTBoundSubject_ServiceAccountBindingMalformed(t *testing.T) {
@@ -1413,7 +1344,6 @@ func TestCleanupRole_SetsPhaseToDeleting(t *testing.T) {
 func TestCleanupRole_DefaultAuthPath(t *testing.T) {
 	ctx := context.Background()
 	role := newVaultRole("test-role", "default")
-	role.Spec.AuthPath = "" // Empty to use default
 	role.Status.VaultRoleName = testVaultRoleName
 	conn := newActiveVaultConnection()
 
@@ -1445,7 +1375,9 @@ func TestCleanupRole_DefaultAuthPath(t *testing.T) {
 func TestCleanupRole_CustomAuthPath(t *testing.T) {
 	ctx := context.Background()
 	role := newVaultRole("test-role", "default")
-	role.Spec.AuthPath = "auth/custom-k8s"
+	// The custom mount is pinned by the binding recorded at last sync —
+	// cleanup is binding-first, so it wins over the connection's mount.
+	role.Status.Binding = vaultv1alpha1.VaultResourceBinding{AuthMount: "custom-k8s"}
 	role.Status.VaultRoleName = testVaultRoleName
 	conn := newActiveVaultConnection()
 
@@ -1540,36 +1472,6 @@ func TestGetServiceAccountBindings_VaultClusterRole(t *testing.T) {
 		if bindings[i] != exp {
 			t.Errorf("binding[%d]: expected %q, got %q", i, exp, bindings[i])
 		}
-	}
-}
-
-// Test default auth path
-func TestDefaultAuthPath(t *testing.T) {
-	role := newVaultRole("test-role", "default")
-	role.Spec.AuthPath = "" // Empty auth path
-
-	adapter := domain.NewVaultRoleAdapter(role)
-	authPath := adapter.GetAuthPath()
-
-	if authPath != "" {
-		t.Errorf("expected empty auth path from adapter, got %q", authPath)
-	}
-
-	// The handler should use the default
-	if vault.DefaultKubernetesAuthPath != "auth/kubernetes" {
-		t.Errorf("expected default auth path 'auth/kubernetes', got %q", vault.DefaultKubernetesAuthPath)
-	}
-}
-
-func TestCustomAuthPath(t *testing.T) {
-	role := newVaultRole("test-role", "default")
-	role.Spec.AuthPath = "auth/custom-kubernetes"
-
-	adapter := domain.NewVaultRoleAdapter(role)
-	authPath := adapter.GetAuthPath()
-
-	if authPath != "auth/custom-kubernetes" {
-		t.Errorf("expected auth path 'auth/custom-kubernetes', got %q", authPath)
 	}
 }
 
@@ -1860,7 +1762,7 @@ func BenchmarkBuildRoleData(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = handler.buildRoleData(adapter, policyNames, bindings, nil)
+		_, _ = handler.buildRoleData(adapter, vault.AuthBackendKubernetes, policyNames, bindings, nil)
 	}
 }
 

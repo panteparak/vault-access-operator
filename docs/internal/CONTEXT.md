@@ -36,7 +36,7 @@ The operator's **in-band ownership record**, stored ON the managed Vault object 
 
 - **Policies** — a structured comment header at the top of the policy document (`# managed-by: vault-access-operator`, `# auth-mount: <mount>`, `# cluster: <name>` when set, `# k8s-resource: <ns/name>`, `# k8s-kind: <Kind>`). Vault stores HCL verbatim, so the header round-trips; drift comparison strips comments, so it is drift-neutral. Read back via `vault.ParseOwnership`.
 - **KV secrets** — `custom_metadata` on the secret's own metadata path (`managed-by`, `k8s-resource`, `auth-mount`, `cluster`, `managed-at`, `last-updated`).
-- **Roles** — none: Vault auth roles have no metadata surface. Ownership memory is the owning CR's status plus the [Operator identity](#operator-identity) mount invariant.
+- **Roles** — none: Vault auth roles have no metadata surface. Ownership memory is the owning CR's status plus the [Operator identity](#operator-identity) mount invariant — which is **true by construction** for roles: they carry no mount fields, so they can only ever land on their connection's [Role mount](#role-mount) ([ADR 0009](../adr/0009-connection-owned-role-mount.md)).
 
 Ownership = the `managed-by` sentinel **+ the same [Operator identity](#operator-identity) + the same owning CR** (`Ownership.SameOwner`). A record naming another identity is *foreign*: conflicts are reported, adoption is blocked, cleanup refuses to delete, and discovery never offers it for adoption.
 
@@ -46,7 +46,7 @@ The **entire mechanism is gated by the `--managed-markers` flag (default OFF)**.
 
 ### Operator identity
 
-The **auth mount path** the operator's `VaultConnection` logged in through (e.g. `kubernetes`, `k8s-prod-eu`), recorded on the Vault client at login (`Client.AuthMount`). **Hard requirement for shared Vaults: one cluster per auth mount** — mount paths are global on a Vault server, so the mount uniquely identifies the owning operator instance. Static-token connections have no mount → no identity (Warning `OwnershipIdentityUnavailable`; unsupported for multi-operator Vaults). See [ADR 0008](../adr/0008-in-band-ownership-markers.md).
+The **auth mount path** the operator's `VaultConnection` logged in through (e.g. `kubernetes`, `k8s-prod-eu`), recorded on the Vault client at login (`Client.AuthMount`). **Hard requirement for shared Vaults: one cluster per auth mount** — mount paths are global on a Vault server, so the mount uniquely identifies the owning operator instance. For roles the invariant is true by construction: a role CR cannot name a mount, only follow its connection's [Role mount](#role-mount) ([ADR 0009](../adr/0009-connection-owned-role-mount.md)). Static-token connections have no mount → no identity (Warning `OwnershipIdentityUnavailable`; unsupported for multi-operator Vaults). See [ADR 0008](../adr/0008-in-band-ownership-markers.md).
 
 ### Cluster name
 
@@ -60,9 +60,15 @@ An HCL document granting capabilities (`read`, `write`, `list`, etc.) on Vault p
 
 ### Role (Vault auth method)
 
-A binding inside a Vault auth backend (e.g., `auth/kubernetes/role/<name>`) that ties identities (K8s service accounts, AWS IAM principals, etc.) to Vault policies. The operator manages these through `VaultRole` / `VaultClusterRole`.
+A binding inside a Vault auth backend (e.g., `auth/kubernetes/role/<name>`) that ties identities (K8s service accounts, AWS IAM principals, etc.) to Vault policies. The operator manages these through `VaultRole` / `VaultClusterRole`. Which mount a role lands on is connection-owned — see [Role mount](#role-mount).
 
 > See [`FLOW_ROLE.md`](FLOW_ROLE.md).
+
+### Role mount
+
+The auth mount that `VaultRole` / `VaultClusterRole` resources referencing a connection are written to, plus its backend family (kubernetes or jwt). Resolved **solely** from the `VaultConnection` via `RoleMount()` — the role CRDs carry no mount fields ([ADR 0009](../adr/0009-connection-owned-role-mount.md)). Order: `spec.defaults.authPath` (family from `defaults.authType` or the mount-name heuristic) → the connection's own login mount (`kubernetes` → kubernetes; `jwt`/`oidc` → jwt) → **none** for token/appRole/aws/gcp/bootstrap-only logins, where the webhook denies dependent roles and the reconciler parks them at `ValidationFailed`. Deletes resolve **binding-first**: `status.binding.authMount` recorded at last sync wins over the connection's current mount, so a mount migration never re-targets an existing role's delete.
+
+> Code: [`api/v1alpha1/vaultconnection_rolemount.go`](../../api/v1alpha1/vaultconnection_rolemount.go). See [`FLOW_ROLE.md`](FLOW_ROLE.md), [`FLOW_CONNECTION.md`](FLOW_CONNECTION.md).
 
 ### Secret seeding
 

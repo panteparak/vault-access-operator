@@ -367,20 +367,23 @@ type GCPAuth struct {
 	CredentialsSecretRef *SecretKeySelector `json:"credentialsSecretRef,omitempty"`
 }
 
-// ConnectionDefaults defines default paths for Vault operations
+// ConnectionDefaults carries the platform-team knobs that resources
+// referencing this connection inherit.
 type ConnectionDefaults struct {
-	// SecretEnginePath is the default path for secret engines
-	// +optional
-	SecretEnginePath string `json:"secretEnginePath,omitempty"`
-
-	// TransitPath is the default path for the transit engine
-	// +optional
-	TransitPath string `json:"transitPath,omitempty"`
-
-	// AuthPath is the default path for auth methods
-	// +kubebuilder:default="auth/kubernetes"
+	// AuthPath is the auth mount that VaultRole / VaultClusterRole resources
+	// referencing this connection are written to (e.g. `kubernetes-prod`).
+	// When unset, roles follow the connection's own login mount
+	// (auth.kubernetes / auth.jwt / auth.oidc). Set it when workloads
+	// authenticate through a different mount than the operator, or when the
+	// login method (token, appRole, aws, gcp) has no role-capable mount.
 	// +optional
 	AuthPath string `json:"authPath,omitempty"`
+
+	// AuthType declares the backend family (`kubernetes` or `jwt`) of
+	// AuthPath when its name alone can't be classified (must otherwise start
+	// with `kubernetes` or `jwt`). Ignored when AuthPath is unset.
+	// +optional
+	AuthType AuthBackendType `json:"authType,omitempty"`
 
 	// DriftMode is the default drift detection mode for resources using this connection.
 	// Resources can override this with their own driftMode setting.

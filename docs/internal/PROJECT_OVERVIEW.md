@@ -119,8 +119,8 @@ make e2e-local-down                  # teardown
 | `VaultConnection` | Cluster | `address`, `auth.{bootstrap,kubernetes,token,appRole,jwt,oidc,aws,gcp}`, `defaults`, `discovery` | N/A (the operator's view of Vault) |
 | `VaultPolicy` | Namespaced | `connectionRef`, `rules[]`, `enforceNamespaceBoundary`, `driftMode` | `sys/policies/acl/{namespace}-{name}` |
 | `VaultClusterPolicy` | Cluster | `connectionRef`, `rules[]`, `driftMode` | `sys/policies/acl/{name}` |
-| `VaultRole` | Namespaced | `connectionRef`, `authPath`, `serviceAccounts[]`, `policies[]`, `tokenTTL`, `jwt` | `auth/{authPath}/role/{namespace}-{name}` |
-| `VaultClusterRole` | Cluster | `connectionRef`, `authPath`, `serviceAccounts[]` (with ns), `policies[]` | `auth/{authPath}/role/{name}` |
+| `VaultRole` | Namespaced | `connectionRef`, `serviceAccounts[]`, `policies[]`, `tokenTTL`, `jwt` | `auth/{connection mount}/role/{namespace}-{name}` |
+| `VaultClusterRole` | Cluster | `connectionRef`, `serviceAccounts[]` (with ns), `policies[]` | `auth/{connection mount}/role/{name}` |
 
 ## Configuration Reference
 

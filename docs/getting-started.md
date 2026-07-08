@@ -107,8 +107,9 @@ The Vault Access Operator follows the **Principle of Least Privilege**—it only
 #### What the Operator Needs
 
 Permissions come in three groups: **core** grants are always required;
-**role-management** grants depend on which auth backend your `VaultRole` /
-`VaultClusterRole` resources target; the rest are opt-in per feature.
+**role-management** grants depend on which auth mount your `VaultConnection`
+resolves for `VaultRole` / `VaultClusterRole` resources; the rest are opt-in
+per feature.
 
 **Core — always required**
 
@@ -121,9 +122,14 @@ Permissions come in three groups: **core** grants are always required;
 **Role management — per auth backend**
 
 The operator writes every role to `auth/<mount>/role/<name>`, so these grants are
-identical for **Kubernetes** and **JWT** mounts (JWT also covers OIDC mounts — set
-`spec.authType: jwt`). The only difference is `config`: a Kubernetes mount may need
-it, a JWT mount never does.
+identical for **Kubernetes** and **JWT** mounts (JWT also covers OIDC mounts —
+Vault's OIDC method is the jwt backend). The only difference is `config`: a
+Kubernetes mount may need it, a JWT mount never does.
+
+Roles follow their connection's mount: each `VaultConnection` resolves exactly one
+role mount — `spec.defaults.authPath` when set, otherwise the connection's own
+login mount (`auth.kubernetes`, `auth.jwt`, or `auth.oidc`). Grant the role paths
+below for each mount your connections resolve.
 
 | Path | Capabilities | Kubernetes | JWT |
 |------|--------------|:----------:|:---:|
@@ -153,9 +159,9 @@ themselves ([ADR 0008](adr/0008-in-band-ownership-markers.md)).
 
 ### Create Operator Policy
 
-Pick the tab for the auth backend your `VaultRole` / `VaultClusterRole` resources
-target, and substitute your real mount name for `kubernetes` / `jwt` (e.g. a custom
-mount `ep-digital-dev`). Both tabs share the same **core** grants and differ only in
+Pick the tab for the mount your `VaultConnection` resolves for roles, and
+substitute your real mount name for `kubernetes` / `jwt` (e.g. a custom mount
+`ep-digital-dev`). Both tabs share the same **core** grants and differ only in
 the role-management block.
 
 === "Kubernetes mount"
@@ -417,10 +423,17 @@ role in the next step is for.
 ### Step 3: Create a VaultRole (bind the policy to an identity)
 
 The `spec.policies` list is the binding: it becomes the `policies=` field on the
-Vault auth role. `spec.authPath` picks which auth **mount** the role is written
-to — it defaults to `auth/kubernetes`.
+Vault auth role. The role carries no mount fields — it is written to the auth
+**mount** the referenced `VaultConnection` resolves: `spec.defaults.authPath` when
+set, otherwise the connection's own login mount (`auth.kubernetes` → Kubernetes,
+`auth.jwt` / `auth.oidc` → JWT).
 
-=== "Kubernetes mount (default)"
+!!! note "Migrating from role-level `authPath` / `authType`"
+    Earlier releases declared the mount on each role. Those fields are gone —
+    declare the mount once, on the connection, via `spec.defaults.authPath`
+    (see [ADR 0009](adr/0009-connection-owned-role-mount.md)).
+
+=== "Kubernetes connection"
 
     ```yaml
     # app-role.yaml
@@ -430,8 +443,7 @@ to — it defaults to `auth/kubernetes`.
       name: app-role
       namespace: my-app
     spec:
-      connectionRef: vault-primary
-      # authPath: auth/kubernetes   # the default
+      connectionRef: vault-primary   # kubernetes login → role lands on its mount
       serviceAccounts:
         - default
       policies:
@@ -441,9 +453,28 @@ to — it defaults to `auth/kubernetes`.
       tokenMaxTTL: 4h
     ```
 
-=== "JWT / OIDC mount"
+=== "JWT / OIDC connection"
+
+    The role spec is identical — the mount comes from the connection. Reference a
+    connection that resolves to a JWT mount, either through its own JWT/OIDC login
+    or an explicit `defaults.authPath`:
 
     ```yaml
+    # jwt-connection.yaml (platform team)
+    apiVersion: vault.platform.io/v1alpha1
+    kind: VaultConnection
+    metadata:
+      name: vault-jwt
+    spec:
+      address: https://vault.example.com:8200
+      auth:
+        kubernetes:
+          role: vault-access-operator
+      defaults:
+        authPath: jwt             # roles land on auth/jwt
+        # authType: jwt           # required unless the mount is named "kubernetes"/"jwt"
+        #                         # or with a "-"/"_" separator (e.g. jwt-gitlab, jwt_ci)
+    ---
     # app-role.yaml
     apiVersion: vault.platform.io/v1alpha1
     kind: VaultRole
@@ -451,10 +482,7 @@ to — it defaults to `auth/kubernetes`.
       name: app-role
       namespace: my-app
     spec:
-      connectionRef: vault-primary
-      authPath: auth/jwt        # your JWT/OIDC mount name
-      # authType: jwt           # required unless the mount is named "jwt" or
-      #                         # "jwt-*"/"jwt_*" (e.g. authPath: auth/oidc, auth/custom-oidc)
+      connectionRef: vault-jwt
       serviceAccounts:
         - default
       policies:

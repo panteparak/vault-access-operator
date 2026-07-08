@@ -78,7 +78,6 @@ func newDryRunRoleAdapter(annotations map[string]string) domain.RoleAdapter {
 		},
 		Spec: vaultv1alpha1.VaultRoleSpec{
 			ConnectionRef:   "conn",
-			AuthPath:        "auth/kubernetes",
 			ServiceAccounts: []string{"sa-1"},
 			Policies: []vaultv1alpha1.PolicyReference{
 				{Kind: "VaultPolicy", Name: "p1"},

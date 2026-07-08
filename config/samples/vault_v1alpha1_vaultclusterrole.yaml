@@ -10,7 +10,6 @@ spec:
   connectionRef: vault-primary
 
   # Path where Kubernetes auth is mounted
-  authPath: auth/kubernetes
 
   # How to handle conflicts with existing Vault roles
   conflictPolicy: Fail

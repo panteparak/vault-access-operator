@@ -8,8 +8,9 @@ The Vault Access Operator includes validating admission webhooks that enforce se
 |----------|--------------|---------|
 | VaultPolicy | Validating | Path syntax, capabilities, namespace boundary |
 | VaultClusterPolicy | Validating | Path syntax, capabilities |
-| VaultRole | Validating | Service account names, policy references |
-| VaultClusterRole | Validating | Service account refs, policy references |
+| VaultRole | Validating | Service account names, policy references, connection-derived auth mount |
+| VaultClusterRole | Validating | Service account refs, policy references, connection-derived auth mount |
+| VaultConnection | Validating | Auth method shape, role mount defaults, secret references |
 
 ---
 
@@ -213,6 +214,42 @@ policies:
 
 ---
 
+## Role Auth Mount (VaultRole + VaultClusterRole)
+
+Roles carry **no auth mount fields** — the referenced `VaultConnection` is the sole source of the auth mount and backend family (`spec.defaults.authPath` if set, otherwise the connection's own login mount). At admission, the webhook fetches the referenced connection:
+
+- **Role-incapable connection → denied.** If the connection exists but resolves no role-capable mount (token, AppRole, AWS, GCP, or bootstrap-only auth without `defaults.authPath`), the role is rejected with `VaultConnection "..." has no role-capable auth mount`. Fix it on the connection: set `spec.defaults.authPath`.
+- **Missing connection → warning, not denial.** GitOps tooling often applies roles before their connection; the role is admitted with a warning and the reconciler re-derives everything once the connection appears (a role-incapable connection then surfaces as `Reason=ValidationFailed` in status).
+- **JWT constraints gate on the resolved family.** `spec.jwt` may only be set when the connection resolves to a jwt/oidc-family mount. `boundSubject` vs `boundClaims`/`boundClaimsList` exclusivity and the multi-SA explicit-binding requirement are checked against that resolved family.
+- **`spec.connectionRef` is immutable** — it pins the auth mount the role is written to.
+
+---
+
+## VaultConnection Validation
+
+### Role Mount Defaults
+
+`spec.defaults.authPath` names the auth mount that dependent roles are written to. When the mount name doesn't start with a recognizable backend family (`kubernetes` or `jwt`, exact or `-`/`_`-separated), `spec.defaults.authType` is **required**:
+
+```yaml
+spec:
+  defaults:
+    authPath: team-a-cluster   # name alone can't be classified
+    authType: kubernetes       # required: kubernetes or jwt
+```
+
+```yaml
+spec:
+  defaults:
+    authPath: kubernetes-prod  # classifiable by name — authType optional
+```
+
+### Role Mount Change Warning
+
+Updating a connection so its **resolved role mount changes** while dependent roles exist emits a warning (with the dependent-role count): every dependent role re-targets the new mount on its next sync, and Vault roles already written at the old mount are orphaned there (their recorded status bindings still pin deletion to the old mount). Deliberate mount migrations are allowed — the warning is informational.
+
+---
+
 ## Webhook Configuration
 
 ### Enabling Webhooks
@@ -300,6 +337,14 @@ Error: validation failed: serviceAccounts[0]: must be a simple name without name
 ```
 
 Fix: Use just the service account name without the namespace prefix.
+
+**"has no role-capable auth mount"**
+
+```
+Error: validation failed: VaultConnection "vault-main" has no role-capable auth mount: auth method token has no role-capable mount; roles require a connection using kubernetes, jwt, or oidc auth, or an explicit defaults.authPath
+```
+
+Fix: Set `spec.defaults.authPath` (and `defaults.authType` if the name isn't classifiable) on the VaultConnection — the role CRs themselves carry no mount fields.
 
 ---
 

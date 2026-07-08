@@ -455,8 +455,22 @@ spec:
                 description: Defaults for various Vault paths
                 properties:
                   authPath:
-                    default: auth/kubernetes
-                    description: AuthPath is the default path for auth methods
+                    description: |-
+                      AuthPath is the auth mount that VaultRole / VaultClusterRole resources
+                      referencing this connection are written to (e.g. `kubernetes-prod`).
+                      When unset, roles follow the connection's own login mount
+                      (auth.kubernetes / auth.jwt / auth.oidc). Set it when workloads
+                      authenticate through a different mount than the operator, or when the
+                      login method (token, appRole, aws, gcp) has no role-capable mount.
+                    type: string
+                  authType:
+                    description: |-
+                      AuthType declares the backend family (`kubernetes` or `jwt`) of
+                      AuthPath when its name alone can't be classified (must otherwise start
+                      with `kubernetes` or `jwt`). Ignored when AuthPath is unset.
+                    enum:
+                    - kubernetes
+                    - jwt
                     type: string
                   driftMode:
                     default: detect
@@ -468,12 +482,6 @@ spec:
                     - ignore
                     - detect
                     - correct
-                    type: string
-                  secretEnginePath:
-                    description: SecretEnginePath is the default path for secret engines
-                    type: string
-                  transitPath:
-                    description: TransitPath is the default path for the transit engine
                     type: string
                 type: object
               discovery:

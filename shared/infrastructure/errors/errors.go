@@ -22,6 +22,8 @@ package errors
 import (
 	"errors"
 	"fmt"
+
+	vaultapi "github.com/hashicorp/vault/api"
 )
 
 // ConflictError indicates a resource already exists in Vault and is not managed
@@ -120,6 +122,16 @@ func NewTransientError(operation string, cause error) *TransientError {
 func IsTransientError(err error) bool {
 	var transientErr *TransientError
 	return errors.As(err, &transientErr)
+}
+
+// IsVaultPermissionDenied reports whether the error chain contains a Vault
+// 403 (*api.ResponseError with StatusCode 403). A 403 means the operator's
+// own Vault token lacks a policy grant on the target path — a permanent
+// configuration problem, not a transient outage: retrying cannot succeed
+// until a human extends the operator's Vault policy.
+func IsVaultPermissionDenied(err error) bool {
+	var respErr *vaultapi.ResponseError
+	return errors.As(err, &respErr) && respErr.StatusCode == 403
 }
 
 // NotFoundError indicates a required resource doesn't exist.

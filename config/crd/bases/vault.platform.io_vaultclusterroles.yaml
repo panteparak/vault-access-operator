@@ -54,26 +54,6 @@ spec:
           spec:
             description: VaultClusterRoleSpec defines the desired state of VaultClusterRole.
             properties:
-              authPath:
-                description: |-
-                  AuthPath is the mount path of the Vault auth method to manage this role in
-                  (e.g. `auth/kubernetes`, `auth/jwt`, or a custom mount like `auth/custom-oidc`).
-                  Defaults to `auth/kubernetes` when unset. When AuthType is unset the backend
-                  family is inferred from this path's name: the mount must be named exactly
-                  `kubernetes` / `jwt` or use a separator prefix (`kubernetes-prod`,
-                  `jwt-gitlab`, `jwt_ci`). Anything else (including `jwtgitlab` without a
-                  separator) requires an explicit AuthType.
-                type: string
-              authType:
-                description: |-
-                  AuthType explicitly declares the auth backend family (`kubernetes` or `jwt`),
-                  overriding inference from AuthPath's name. Set this when the auth method is
-                  mounted at a custom path the name heuristic cannot classify (e.g. a JWT/OIDC
-                  mount named `custom-oidc`). When set to `jwt`, AuthPath is required.
-                enum:
-                - kubernetes
-                - jwt
-                type: string
               conflictPolicy:
                 default: Fail
                 description: ConflictPolicy defines how to handle conflicts with existing
@@ -105,10 +85,11 @@ spec:
                 type: string
               jwt:
                 description: |-
-                  JWT contains optional overrides when the role targets a JWT auth mount
-                  (AuthType is `jwt`, or AuthPath starts with "auth/jwt"). If omitted, defaults
-                  are derived from ServiceAccounts and the referenced VaultConnection. Must be
-                  unset for non-JWT roles.
+                  JWT contains optional overrides that apply when the referenced
+                  VaultConnection resolves to a jwt/oidc-family role mount (see
+                  VaultConnection.RoleMount). If omitted, defaults are derived from
+                  ServiceAccounts and the connection. Must be unset when the connection
+                  resolves to a kubernetes-family mount.
                 properties:
                   boundAudiences:
                     description: |-

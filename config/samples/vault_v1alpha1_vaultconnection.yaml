@@ -28,9 +28,12 @@ spec:
     #   namespace: vault-access-operator-system
     #   key: ca.crt
 
-  # Default paths for Vault operations
-  defaults:
-    authPath: auth/kubernetes
+  # Role mount: VaultRole/VaultClusterRole resources referencing this
+  # connection are written to the login mount above (auth/kubernetes).
+  # Uncomment to point them at a different mount instead:
+  # defaults:
+  #   authPath: kubernetes-workloads
+  #   # authType: kubernetes   # only needed for custom mount names
 
   # How often to check Vault connectivity
   healthCheckInterval: 30s

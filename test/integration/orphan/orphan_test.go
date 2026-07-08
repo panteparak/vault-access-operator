@@ -51,6 +51,10 @@ func setupHarness(ctx context.Context, env *integration.TestEnvironment) (
 						SecretRef: vaultv1alpha1.SecretKeySelector{Name: "vault-token", Key: "token"},
 					},
 				},
+				// Token login has no mount — declare the role mount so role
+				// CRs referencing this connection resolve to "kubernetes"
+				// (matches vc.SetAuthMount below).
+				Defaults: &vaultv1alpha1.ConnectionDefaults{AuthPath: "kubernetes"},
 			},
 		}
 		Expect(env.K8sClient.Create(ctx, conn)).To(Succeed())
@@ -215,7 +219,6 @@ var _ = Describe("Orphan Detection Integration Tests", func() {
 					ObjectMeta: metav1.ObjectMeta{Name: "live-role", Namespace: "default"},
 					Spec: vaultv1alpha1.VaultRoleSpec{
 						ConnectionRef:   orpConnName,
-						AuthPath:        "kubernetes",
 						ServiceAccounts: []string{"default"},
 						Policies: []vaultv1alpha1.PolicyReference{
 							{Kind: "VaultPolicy", Name: "some-policy"},

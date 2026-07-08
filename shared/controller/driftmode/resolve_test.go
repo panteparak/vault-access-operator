@@ -108,8 +108,9 @@ func TestResolve(t *testing.T) {
 					Address: "https://vault:8200",
 					Auth:    vaultv1alpha1.AuthConfig{},
 					Defaults: &vaultv1alpha1.ConnectionDefaults{
-						// DriftMode not set, empty string
-						SecretEnginePath: "secret",
+						// DriftMode not set, empty string — another field
+						// populated so the struct isn't the zero value.
+						AuthPath: "kubernetes",
 					},
 				},
 			},

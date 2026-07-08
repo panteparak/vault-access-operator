@@ -7,6 +7,73 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING: the VaultConnection now owns the role auth mount.** New
+  resolution rule (`VaultConnection.RoleMount()`): `spec.defaults.authPath`
+  when set (with new optional `spec.defaults.authType` for mount names the
+  `kubernetes*`/`jwt*` heuristic can't classify), otherwise the connection's
+  own login mount (`auth.kubernetes`/`auth.jwt`/`auth.oidc` — OIDC resolves
+  to the jwt family). Connections logging in via token/appRole/aws/gcp
+  without `defaults.authPath` have no role-capable mount. `defaults.authPath`
+  no longer defaults to `auth/kubernetes` — absent now means "follow the
+  login mount". Discovery scans the resolved mount and skips the role scan
+  (policies still scan) on connections without one. Changing the resolved
+  mount under dependent roles emits an admission warning naming both mounts.
+
+### Removed
+
+- **BREAKING: `spec.authPath` and `spec.authType` on VaultRole and
+  VaultClusterRole.** Roles carry no Vault infrastructure knowledge anymore —
+  the auth mount and backend family come exclusively from the referenced
+  VaultConnection (persona split: connections belong to the platform team,
+  roles/policies to app teams). Migration: delete both fields from role
+  manifests; declare the mount once on the connection via
+  `spec.defaults.authPath` (or let it follow the login mount). A role that
+  previously relied on the implicit `auth/kubernetes` default now follows its
+  connection — verify the connection resolves the mount you intended. The
+  webhook denies roles referencing a connection with no role-capable mount;
+  cleanup deletes are pinned to the mount recorded in `status.binding` at
+  last sync, so a later connection mount change never re-targets them.
+
+- **BREAKING: `spec.defaults.secretEnginePath` and `spec.defaults.transitPath`
+  on VaultConnection.** Both were declared but never consumed by any code
+  path — dead schema removed. Re-add if a KV/transit feature actually reads
+  them.
+
+### Added
+
+- **Traceable log context on every workflow line.** The sync and cleanup
+  workflows now enrich the context logger once per reconcile with
+  `vaultConnection` and (for auth-mount resources) `authPath`, so every
+  downstream log line identifies the failure source alongside the existing
+  `reconcileID` — no per-call-site fields. The discovery controller joins the
+  context-logger chain (its scans now carry a `reconcileID` too).
+
+### Fixed
+
+- **`status.binding.vaultPath` no longer double-prefixed.** Role bindings
+  recorded `auth/auth/kubernetes/role/<x>` (the normalized mount was passed
+  to a helper that prepends `auth/` itself) and `authMount` carried the
+  `auth/`-prefixed form. New bindings record the bare mount + correct path;
+  consumers normalize legacy records.
+
+- **Vault 403s now surface as `VaultPermissionDenied` instead of a generic
+  transient failure.** When the operator's own Vault token lacks a policy
+  grant on the target path (e.g. `auth/<mount>/role/*`), the CR's Ready
+  condition now carries reason `VaultPermissionDenied` and the phase message
+  names the denied path, instead of the misleading
+  `transient error during write …` + `Failed` that retried every 30s with no
+  hint that a human must extend the operator's Vault policy. Retry cadence is
+  unchanged — fixing the Vault policy still self-heals without re-triggering.
+
+- **Production logs are JSON as documented.** `cmd/main.go` hardcoded zap
+  `Development: true` and the Helm chart never rendered its documented
+  `logging.*` values into flags. The binary now defaults to controller-runtime's
+  production config (JSON, info) and the chart passes `logging.*` through as
+  `--zap-log-level` / `--zap-devel` / `--zap-encoder` / `--zap-stacktrace-level`.
+  The local e2e stack keeps human-readable console logs.
+
 ## [0.9.2] - 2026-07-03
 
 ### Fixed

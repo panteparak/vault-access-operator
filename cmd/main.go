@@ -128,9 +128,10 @@ func main() {
 			"orphan detection. Ownership travels ON the managed objects themselves (policy comment "+
 			"header, KV custom_metadata) keyed to the connection's auth mount — no extra Vault grant "+
 			"is required. Disabled by default (opt-in).")
-	opts := zap.Options{
-		Development: true,
-	}
+	// Default is controller-runtime's production config (JSON encoder, info
+	// level) so log fields are queryable in aggregators. Local/dev runs pass
+	// --zap-devel for human-readable console output.
+	opts := zap.Options{}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
 

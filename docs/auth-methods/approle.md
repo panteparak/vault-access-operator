@@ -64,9 +64,9 @@ path "sys/policies/acl/*" {
 path "sys/policies/acl" {
   capabilities = ["list"]
 }
-# Role management is per auth MOUNT your VaultRole/VaultClusterRole resources
-# target — unrelated to how the operator logs in (AppRole here). "kubernetes" is
-# a mount name ("vault auth list"); substitute yours, or auth/jwt/role/* for JWT/OIDC.
+# Role management is per auth MOUNT — the one the connection resolves for
+# VaultRole/VaultClusterRole resources via spec.defaults.authPath (Step 5).
+# "kubernetes" is a mount name ("vault auth list"); substitute yours.
 path "auth/kubernetes/role/*" {
   capabilities = ["create", "read", "update", "delete", "list"]
 }
@@ -128,6 +128,14 @@ kubectl create secret generic vault-approle-secret-id \
 
 ### Step 5: Create VaultConnection Resource
 
+!!! warning "AppRole logins have no role-capable mount"
+    An AppRole-auth connection carries no auth mount of its own, so
+    `VaultRole` / `VaultClusterRole` resources referencing it are **denied at
+    admission** unless the connection declares the workload mount via
+    `spec.defaults.authPath` (e.g. `kubernetes`). Mount names that don't start
+    with `kubernetes`/`jwt` (exact or `-`/`_`-separated) also need
+    `spec.defaults.authType`.
+
 ```yaml
 apiVersion: vault.platform.io/v1alpha1
 kind: VaultConnection
@@ -150,6 +158,11 @@ spec:
         namespace: vault-access-operator-system
         key: secret-id
       # mountPath: approle  # default
+
+  # Required before any VaultRole/VaultClusterRole can reference this
+  # connection: the mount those roles are written to.
+  defaults:
+    authPath: kubernetes
 ```
 
 Apply the configuration:

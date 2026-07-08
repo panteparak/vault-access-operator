@@ -210,6 +210,10 @@ func createSharedVaultConnection(ctx context.Context, operatorToken string) {
 					},
 				},
 			},
+			// Token login has no mount — declare the role mount so the
+			// VaultRole/VaultClusterRole specs riding this connection land
+			// on auth/kubernetes (the mount configureKubernetesAuth sets up).
+			Defaults:            &vaultv1alpha1.ConnectionDefaults{AuthPath: "kubernetes"},
 			HealthCheckInterval: "10s",
 		},
 	}

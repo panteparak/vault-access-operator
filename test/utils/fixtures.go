@@ -132,7 +132,6 @@ func NewTestVaultRole(name, namespace string) *vaultv1alpha1.VaultRole {
 		},
 		Spec: vaultv1alpha1.VaultRoleSpec{
 			ConnectionRef:   "vault-connection",
-			AuthPath:        "kubernetes",
 			ServiceAccounts: []string{"default"},
 			Policies: []vaultv1alpha1.PolicyReference{
 				{
@@ -175,7 +174,6 @@ func NewTestVaultClusterRole(name string) *vaultv1alpha1.VaultClusterRole {
 		},
 		Spec: vaultv1alpha1.VaultClusterRoleSpec{
 			ConnectionRef: "vault-connection",
-			AuthPath:      "kubernetes",
 			ServiceAccounts: []vaultv1alpha1.ServiceAccountRef{
 				{
 					Name:      "default",

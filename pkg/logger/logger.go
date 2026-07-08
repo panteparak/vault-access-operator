@@ -61,6 +61,9 @@ const (
 	// KeyVaultConnection identifies the VaultConnection reference
 	KeyVaultConnection = "vaultConnection"
 
+	// KeyAuthPath identifies the Vault auth mount path in use (e.g. "auth/kubernetes")
+	KeyAuthPath = "authPath"
+
 	// KeyError includes error details
 	KeyError = "error"
 

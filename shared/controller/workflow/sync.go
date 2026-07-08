@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
+	oplogger "github.com/panteparak/vault-access-operator/pkg/logger"
 	"github.com/panteparak/vault-access-operator/pkg/metrics"
 	"github.com/panteparak/vault-access-operator/shared/controller/conditions"
 	"github.com/panteparak/vault-access-operator/shared/controller/driftmode"
@@ -90,9 +91,21 @@ func NewSyncWorkflow(
 	}
 }
 
+// enrichLogContext returns ctx whose logger carries the connection and,
+// when the resource targets an auth mount, the authPath — so every
+// downstream FromContext call logs the failure source automatically.
+func enrichLogContext(ctx context.Context, resource SyncableResource, ops ResourceOps) context.Context {
+	log := logr.FromContextOrDiscard(ctx).WithValues(oplogger.KeyVaultConnection, resource.GetConnectionRef())
+	if ap := ops.AuthPath(); ap != "" {
+		log = log.WithValues(oplogger.KeyAuthPath, ap)
+	}
+	return logr.NewContext(ctx, log)
+}
+
 // Execute runs the shared sync workflow for a Vault resource.
 // nolint:gocyclo // Reconciliation flow naturally handles drift modes, conflicts, and bindings
 func (w *SyncWorkflow) Execute(ctx context.Context, resource SyncableResource, ops ResourceOps) error {
+	ctx = enrichLogContext(ctx, resource, ops)
 	state, err := w.initializeSync(ctx, resource, ops)
 	if err != nil {
 		return err

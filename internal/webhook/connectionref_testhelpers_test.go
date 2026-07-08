@@ -20,12 +20,17 @@ import (
 // testConnectionStub returns a minimal VaultConnection named "test-connection".
 // Used by webhook tests that care about dependency-check warnings NOT including
 // the §36 "missing connectionRef" warning. Pre-seed the fake client with this
-// stub so validateWithContext finds a connection and skips the warning.
+// stub so validateWithContext finds a connection and skips the warning. The
+// kubernetes login block makes it resolve a role mount, keeping the
+// role-mount admission check out of these tests' way.
 func testConnectionStub() runtime.Object {
 	return &vaultv1alpha1.VaultConnection{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-connection"},
 		Spec: vaultv1alpha1.VaultConnectionSpec{
 			Address: "https://vault.example.com:8200",
+			Auth: vaultv1alpha1.AuthConfig{
+				Kubernetes: &vaultv1alpha1.KubernetesAuth{Role: "operator"},
+			},
 		},
 	}
 }

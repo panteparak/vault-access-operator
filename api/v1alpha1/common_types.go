@@ -68,12 +68,12 @@ const (
 // DefaultDriftMode is the default drift mode when not specified
 const DefaultDriftMode = DriftModeDetect
 
-// AuthBackendType explicitly declares which Vault auth backend family a role
-// targets, overriding the family that would otherwise be inferred from the
-// auth mount path's name. Set this when the auth method is mounted at a custom
-// path that the name heuristic cannot classify (e.g. a JWT/OIDC method mounted
-// at "custom-oidc" rather than under "auth/jwt"). When unset, the backend is
-// inferred from AuthPath. Values match pkg/vault.AuthBackend.
+// AuthBackendType declares a Vault auth backend family. Used on
+// VaultConnection.spec.defaults.authType to classify a defaults.authPath
+// whose mount name the kubernetes*/jwt* heuristic cannot (e.g. a JWT/OIDC
+// method mounted at "custom-oidc"), and returned by
+// VaultConnection.RoleMount as the family roles are written with. Values
+// match pkg/vault.AuthBackend.
 // +kubebuilder:validation:Enum=kubernetes;jwt
 type AuthBackendType string
 
@@ -433,6 +433,13 @@ const (
 	// the rarer case where Vault is reachable but `vault operator init`
 	// hasn't run yet. Same dashboard treatment, different remediation.
 	ReasonVaultNotInitialized = "VaultNotInitialized"
+
+	// ReasonPermissionDenied is set when Vault answers 403: the operator's
+	// own token lacks a policy grant on the target path. Permanent until a
+	// human extends the operator's Vault policy — distinct from
+	// ReasonFailed so dashboards and `kubectl get` surface the actual
+	// remediation instead of a generic retry loop.
+	ReasonPermissionDenied = "VaultPermissionDenied"
 )
 
 // ToSecretReference converts LocalSecretKeySelector to a corev1.SecretKeySelector

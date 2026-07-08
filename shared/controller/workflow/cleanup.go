@@ -109,6 +109,7 @@ func NewCleanupWorkflowWithQueue(
 
 // Execute runs the shared cleanup workflow for a Vault resource.
 func (w *CleanupWorkflow) Execute(ctx context.Context, resource SyncableResource, ops ResourceOps) error {
+	ctx = enrichLogContext(ctx, resource, ops)
 	log := logr.FromContextOrDiscard(ctx)
 	vaultResourceName := ops.VaultResourceName()
 	label := strings.ToLower(resourceLabel(ops.ResourceKind()))

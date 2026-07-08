@@ -91,8 +91,9 @@ path "sys/policies/acl" {
   capabilities = ["list"]
 }
 
-# Manage roles on the mount(s) your VaultRole/VaultClusterRole resources target
-# ("kubernetes" = mount name — substitute yours; add auth/jwt/role/* for JWT/OIDC mounts)
+# Manage roles on the mount the connection resolves for VaultRole/VaultClusterRole
+# resources — its own login mount ("kubernetes" here) unless spec.defaults.authPath
+# overrides it. Substitute your mount name.
 path "auth/kubernetes/role/*" {
   capabilities = ["create", "read", "update", "delete", "list"]
 }
@@ -159,6 +160,18 @@ Apply the configuration:
 ```bash
 kubectl apply -f vaultconnection.yaml
 ```
+
+!!! note "Where VaultRoles land"
+    `VaultRole` / `VaultClusterRole` resources referencing this connection are
+    written to its login mount (`auth/kubernetes` here) automatically — roles
+    carry no mount fields. To manage roles on a *different* workload mount,
+    set it once on the connection instead:
+
+    ```yaml
+    spec:
+      defaults:
+        authPath: kubernetes-prod
+    ```
 
 ### Step 5: Verify the Connection
 

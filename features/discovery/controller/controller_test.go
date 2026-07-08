@@ -156,6 +156,10 @@ func newVaultConnection(
 					},
 				},
 			},
+			// Token auth has no login mount — role scanning targets the
+			// explicitly declared role mount, like any real token-auth
+			// connection that manages roles.
+			Defaults:  &vaultv1alpha1.ConnectionDefaults{AuthPath: "kubernetes"},
 			Discovery: discovery,
 		},
 	}
@@ -398,7 +402,9 @@ func TestReconcile_FindsUnmanagedResources(t *testing.T) {
 	}, nil)
 	managedRoleCR := &vaultv1alpha1.VaultClusterRole{
 		ObjectMeta: metav1.ObjectMeta{Name: "managed-role"},
-		Spec:       vaultv1alpha1.VaultClusterRoleSpec{AuthPath: "kubernetes"},
+		// Ownership is derived via the connection: this CR references the
+		// scanned connection, whose defaults.authPath resolves the mount.
+		Spec: vaultv1alpha1.VaultClusterRoleSpec{ConnectionRef: testConnName},
 	}
 
 	k8sClient := fake.NewClientBuilder().

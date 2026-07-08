@@ -34,9 +34,11 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
+	oplogger "github.com/panteparak/vault-access-operator/pkg/logger"
 	"github.com/panteparak/vault-access-operator/pkg/vault"
 	"github.com/panteparak/vault-access-operator/shared/controller/base"
 	"github.com/panteparak/vault-access-operator/shared/controller/conditions"
@@ -124,7 +126,9 @@ func NewReconciler(cfg ReconcilerConfig) *Reconciler {
 
 // Reconcile handles discovery for a VaultConnection.
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	log := r.Log.WithValues("vaultconnection", req.Name)
+	// Context logger carries controller-runtime's per-reconcile reconcileID;
+	// the struct logger r.Log is kept for non-reconcile paths only.
+	log := logf.FromContext(ctx).WithValues(oplogger.KeyVaultConnection, req.Name)
 
 	var conn vaultv1alpha1.VaultConnection
 	if err := r.Get(ctx, req.NamespacedName, &conn); err != nil {
@@ -153,6 +157,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		log.Error(err, "failed to get Vault client")
 		return ctrl.Result{RequeueAfter: scanInterval}, nil
 	}
+	log = log.WithValues(oplogger.KeyAuthPath, vault.NormalizeAuthPath(vaultClient.AuthMount()))
 
 	log.Info("starting discovery scan")
 	result := r.runScan(ctx, &conn, vaultClient, log)
@@ -187,13 +192,19 @@ func timeUntilNextScan(conn *vaultv1alpha1.VaultConnection, interval time.Durati
 }
 
 // runScan invokes the scanner against Vault and emits Prometheus metrics.
+// The role scan targets the connection's resolved role mount (defaults
+// override or login mount); a connection with no role-capable mount still
+// scans policies but skips roles.
 func (r *Reconciler) runScan(
 	ctx context.Context, conn *vaultv1alpha1.VaultConnection,
 	vaultClient *vault.Client, log logr.Logger,
 ) *ScanResult {
 	authPath := ""
-	if conn.Spec.Defaults != nil {
-		authPath = conn.Spec.Defaults.AuthPath
+	if mount, _, err := conn.RoleMount(); err != nil {
+		log.Info("connection has no role-capable mount, scanning policies only",
+			"reason", err.Error())
+	} else {
+		authPath = vault.NormalizeAuthPath(mount)
 	}
 	scanner := NewScanner(vaultClient, conn.Spec.Discovery, authPath,
 		r.managedRoleNames(ctx, authPath, log), log)
@@ -205,13 +216,17 @@ func (r *Reconciler) runScan(
 // managedRoleNames derives the set of Vault role names owned by this
 // cluster's role CRs on the scanned auth mount. Roles carry no in-band
 // ownership record (ADR 0008), so the CR set is the ownership source for
-// discovery. A list failure yields an empty set — every role then surfaces
+// discovery. Roles carry no mount either — the connection is the sole
+// source — so a role CR counts when its referenced connection resolves to
+// the scanned mount (two connections sharing one mount both count; a naive
+// connectionRef match would mis-flag the second connection's roles as
+// unmanaged). A list failure yields an empty set — every role then surfaces
 // as unmanaged, which is safe (discovery never mutates Vault).
 func (r *Reconciler) managedRoleNames(
 	ctx context.Context, authPath string, log logr.Logger,
 ) map[string]struct{} {
-	mount := vault.NormalizeAuthPath(authPath)
 	managed := map[string]struct{}{}
+	connsOnMount := r.connectionsOnMount(ctx, vault.AuthMountName(authPath), log)
 
 	var roles vaultv1alpha1.VaultRoleList
 	if err := r.List(ctx, &roles); err != nil {
@@ -219,7 +234,7 @@ func (r *Reconciler) managedRoleNames(
 	} else {
 		for i := range roles.Items {
 			role := &roles.Items[i]
-			if vault.NormalizeAuthPath(role.Spec.AuthPath) != mount {
+			if _, ok := connsOnMount[role.Spec.ConnectionRef]; !ok {
 				continue
 			}
 			managed[naming.Vault(role.Namespace+"-"+role.Name)] = struct{}{}
@@ -232,13 +247,33 @@ func (r *Reconciler) managedRoleNames(
 	} else {
 		for i := range clusterRoles.Items {
 			role := &clusterRoles.Items[i]
-			if vault.NormalizeAuthPath(role.Spec.AuthPath) != mount {
+			if _, ok := connsOnMount[role.Spec.ConnectionRef]; !ok {
 				continue
 			}
 			managed[naming.Vault(role.Name)] = struct{}{}
 		}
 	}
 	return managed
+}
+
+// connectionsOnMount returns the names of the VaultConnections whose
+// resolved role mount (VaultConnection.RoleMount) equals the given bare
+// mount name.
+func (r *Reconciler) connectionsOnMount(
+	ctx context.Context, mount string, log logr.Logger,
+) map[string]struct{} {
+	set := map[string]struct{}{}
+	var conns vaultv1alpha1.VaultConnectionList
+	if err := r.List(ctx, &conns); err != nil {
+		log.V(1).Info("failed to list VaultConnections for discovery ownership", "error", err.Error())
+		return set
+	}
+	for i := range conns.Items {
+		if m, _, err := conns.Items[i].RoleMount(); err == nil && m == mount {
+			set[conns.Items[i].Name] = struct{}{}
+		}
+	}
+	return set
 }
 
 // persistScanResult updates DiscoveryStatus with a retry loop to handle

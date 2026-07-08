@@ -183,6 +183,9 @@ var _ = Describe("Discovery Tests", Ordered, Label("discovery"), func() {
 							},
 						},
 					},
+					// Token login has no role-capable mount (ADR 0009) — the
+					// role scan needs the mount declared explicitly.
+					Defaults: &vaultv1alpha1.ConnectionDefaults{AuthPath: "kubernetes"},
 					Discovery: &vaultv1alpha1.DiscoveryConfig{
 						Enabled:               true,
 						Interval:              "30s",

@@ -29,7 +29,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
-	"github.com/panteparak/vault-access-operator/pkg/vault"
 )
 
 // log is for logging in this package.
@@ -103,16 +102,11 @@ func (v *VaultRoleValidator) ValidateCreate(ctx context.Context, role *vaultv1al
 
 // ValidateUpdate implements admission.Validator for VaultRole
 func (v *VaultRoleValidator) ValidateUpdate(ctx context.Context, oldRole, role *vaultv1alpha1.VaultRole) (admission.Warnings, error) {
-	// connectionRef is immutable after creation
+	// connectionRef is immutable after creation — it pins the auth mount
+	// the role is written to (roles carry no mount fields of their own).
 	if oldRole.Spec.ConnectionRef != role.Spec.ConnectionRef {
 		return nil, fmt.Errorf("spec.connectionRef is immutable (was %q, attempted %q)",
 			oldRole.Spec.ConnectionRef, role.Spec.ConnectionRef)
-	}
-
-	// authPath is immutable after creation (changing it targets a different Vault auth mount)
-	if oldRole.Spec.AuthPath != role.Spec.AuthPath {
-		return nil, fmt.Errorf("spec.authPath is immutable (was %q, attempted %q)",
-			oldRole.Spec.AuthPath, role.Spec.AuthPath)
 	}
 
 	return v.validateWithContext(ctx, role)
@@ -124,9 +118,9 @@ func (v *VaultRoleValidator) ValidateDelete(ctx context.Context, role *vaultv1al
 	return nil, nil
 }
 
-// validate performs validation for VaultRole
-func (v *VaultRoleValidator) validate(role *vaultv1alpha1.VaultRole) (admission.Warnings, error) {
-	var warnings admission.Warnings
+// validate performs the client-free spec validation for VaultRole.
+// Warnings all come from the client-backed checks in validateWithContext.
+func (v *VaultRoleValidator) validate(role *vaultv1alpha1.VaultRole) error {
 	var errs []string
 
 	// Validate service accounts are not empty
@@ -157,23 +151,9 @@ func (v *VaultRoleValidator) validate(role *vaultv1alpha1.VaultRole) (admission.
 		}
 	}
 
-	// Validate JWT-specific constraints (warnings non-blocking; errors block).
-	jwtWarnings, jwtErrs := validateJWTSpec(
-		string(role.Spec.AuthType), role.Spec.AuthPath, role.Spec.JWT, len(role.Spec.ServiceAccounts))
-	warnings = append(warnings, jwtWarnings...)
-	errs = append(errs, jwtErrs...)
-
-	// IMPROVEMENTS §7: reject authPath values that target a Vault auth
-	// backend the operator doesn't yet implement at the *role-write* level.
-	// Operators can still authenticate *themselves* via AWS/GCP/OIDC/AppRole
-	// (see VaultConnection.spec.auth), but the VaultRole CR can only write
-	// role data to kubernetes or jwt mounts for now. An explicit spec.authType
-	// lets a custom-named mount opt in to the jwt/kubernetes write path.
-	// Catching this at admission time is clearer than waiting for the
-	// reconcile-time ValidationError to surface in status.
-	if authErr := validateAuthPathSupported(role.Spec.AuthPath, string(role.Spec.AuthType)); authErr != "" {
-		errs = append(errs, authErr)
-	}
+	// JWT-specific constraints are validated in validateWithContext — the
+	// backend family comes from the referenced VaultConnection, which needs
+	// the API client.
 
 	// Reject the discovery placeholder appearing without the
 	// discovery-pending annotation. The discovery flow injects the
@@ -189,10 +169,10 @@ func (v *VaultRoleValidator) validate(role *vaultv1alpha1.VaultRole) (admission.
 	}
 
 	if len(errs) > 0 {
-		return warnings, fmt.Errorf("validation failed: %s", strings.Join(errs, "; "))
+		return fmt.Errorf("validation failed: %s", strings.Join(errs, "; "))
 	}
 
-	return warnings, nil
+	return nil
 }
 
 // validateDiscoveryPlaceholderConsistency rejects a CR that contains
@@ -241,7 +221,14 @@ func validateDiscoveryPlaceholderConsistency(
 
 // validateWithContext performs validation including dependency checks for VaultRole
 func (v *VaultRoleValidator) validateWithContext(ctx context.Context, role *vaultv1alpha1.VaultRole) (admission.Warnings, error) {
-	warnings, err := v.validate(role)
+	if err := v.validate(role); err != nil {
+		return nil, err
+	}
+
+	// Connection-derived checks: the referenced VaultConnection is the sole
+	// source of the role's auth mount and backend family.
+	warnings, err := validateRoleMountFromConnection(
+		ctx, v.client, role.Spec.ConnectionRef, role.Spec.JWT, len(role.Spec.ServiceAccounts))
 	if err != nil {
 		return warnings, err
 	}
@@ -254,6 +241,43 @@ func (v *VaultRoleValidator) validateWithContext(ctx context.Context, role *vaul
 	warnings = append(warnings, checkConnectionRefExists(ctx, v.client, role.Spec.ConnectionRef)...)
 
 	return warnings, nil
+}
+
+// validateRoleMountFromConnection runs the admission checks that need the
+// referenced VaultConnection: the connection must resolve a role-capable
+// mount (deny when it exists but can't), and the resolved backend family
+// gates the spec.jwt constraints. A missing connection (GitOps ordering) or
+// a transient fetch failure skips these checks — the reconcile-time
+// backstop (Handler.resolveRoleTarget) re-derives everything and surfaces
+// permanent problems in status; checkConnectionRefExists already warns.
+func validateRoleMountFromConnection(
+	ctx context.Context, c client.Client, connRef string,
+	jwt *vaultv1alpha1.VaultRoleJWTSpec, serviceAccountCount int,
+) (admission.Warnings, error) {
+	if c == nil || connRef == "" {
+		return nil, nil
+	}
+	conn := &vaultv1alpha1.VaultConnection{}
+	if err := c.Get(ctx, types.NamespacedName{Name: connRef}, conn); err != nil {
+		if !apierrors.IsNotFound(err) {
+			vaultrolelog.V(1).Info("failed to fetch VaultConnection for role-mount validation",
+				"connection", connRef, "error", err.Error())
+		}
+		return nil, nil
+	}
+
+	_, backend, err := conn.RoleMount()
+	if err != nil {
+		return nil, fmt.Errorf(
+			"validation failed: VaultConnection %q has no role-capable auth mount: %v", connRef, err)
+	}
+
+	isJWT := backend == vaultv1alpha1.AuthBackendTypeJWT
+	jwtWarnings, jwtErrs := validateJWTSpec(isJWT, jwt, serviceAccountCount)
+	if len(jwtErrs) > 0 {
+		return jwtWarnings, fmt.Errorf("validation failed: %s", strings.Join(jwtErrs, "; "))
+	}
+	return jwtWarnings, nil
 }
 
 // checkPolicyDependencies checks if referenced policies exist and returns warnings if they don't
@@ -322,16 +346,11 @@ func (v *VaultClusterRoleValidator) ValidateCreate(ctx context.Context, role *va
 
 // ValidateUpdate implements admission.Validator for VaultClusterRole
 func (v *VaultClusterRoleValidator) ValidateUpdate(ctx context.Context, oldRole, role *vaultv1alpha1.VaultClusterRole) (admission.Warnings, error) {
-	// connectionRef is immutable after creation
+	// connectionRef is immutable after creation — it pins the auth mount
+	// the role is written to (roles carry no mount fields of their own).
 	if oldRole.Spec.ConnectionRef != role.Spec.ConnectionRef {
 		return nil, fmt.Errorf("spec.connectionRef is immutable (was %q, attempted %q)",
 			oldRole.Spec.ConnectionRef, role.Spec.ConnectionRef)
-	}
-
-	// authPath is immutable after creation (changing it targets a different Vault auth mount)
-	if oldRole.Spec.AuthPath != role.Spec.AuthPath {
-		return nil, fmt.Errorf("spec.authPath is immutable (was %q, attempted %q)",
-			oldRole.Spec.AuthPath, role.Spec.AuthPath)
 	}
 
 	return v.validateWithContext(ctx, role)
@@ -343,9 +362,9 @@ func (v *VaultClusterRoleValidator) ValidateDelete(ctx context.Context, role *va
 	return nil, nil
 }
 
-// validate performs validation for VaultClusterRole
-func (v *VaultClusterRoleValidator) validate(role *vaultv1alpha1.VaultClusterRole) (admission.Warnings, error) {
-	var warnings admission.Warnings
+// validate performs the client-free spec validation for VaultClusterRole.
+// Warnings all come from the client-backed checks in validateWithContext.
+func (v *VaultClusterRoleValidator) validate(role *vaultv1alpha1.VaultClusterRole) error {
 	var errs []string
 
 	// Validate service accounts are not empty
@@ -375,23 +394,9 @@ func (v *VaultClusterRoleValidator) validate(role *vaultv1alpha1.VaultClusterRol
 		}
 	}
 
-	// Validate JWT-specific constraints (warnings non-blocking; errors block).
-	jwtWarnings, jwtErrs := validateJWTSpec(
-		string(role.Spec.AuthType), role.Spec.AuthPath, role.Spec.JWT, len(role.Spec.ServiceAccounts))
-	warnings = append(warnings, jwtWarnings...)
-	errs = append(errs, jwtErrs...)
-
-	// IMPROVEMENTS §7: reject authPath values that target a Vault auth
-	// backend the operator doesn't yet implement at the *role-write* level.
-	// Operators can still authenticate *themselves* via AWS/GCP/OIDC/AppRole
-	// (see VaultConnection.spec.auth), but the VaultRole CR can only write
-	// role data to kubernetes or jwt mounts for now. An explicit spec.authType
-	// lets a custom-named mount opt in to the jwt/kubernetes write path.
-	// Catching this at admission time is clearer than waiting for the
-	// reconcile-time ValidationError to surface in status.
-	if authErr := validateAuthPathSupported(role.Spec.AuthPath, string(role.Spec.AuthType)); authErr != "" {
-		errs = append(errs, authErr)
-	}
+	// JWT-specific constraints are validated in validateWithContext — the
+	// backend family comes from the referenced VaultConnection, which needs
+	// the API client.
 
 	// Mirror the placeholder check from VaultRole. ServiceAccountRef has
 	// a different shape so we extract just the names for the shared helper.
@@ -406,66 +411,19 @@ func (v *VaultClusterRoleValidator) validate(role *vaultv1alpha1.VaultClusterRol
 	}
 
 	if len(errs) > 0 {
-		return warnings, fmt.Errorf("validation failed: %s", strings.Join(errs, "; "))
+		return fmt.Errorf("validation failed: %s", strings.Join(errs, "; "))
 	}
 
-	return warnings, nil
-}
-
-// validateAuthPathSupported returns a non-empty error string if the given
-// authPath does not resolve to a backend the role handler can write to.
-// Empty/default authPath is fine (it resolves to the Kubernetes default).
-//
-// Accepts both the full Vault mount form (`auth/kubernetes`, `auth/jwt`)
-// and the bare short form (`kubernetes`, `jwt`) — both appear in our
-// user-facing docs and existing CRDs. Anything else (aws, gcp, approle,
-// ldap, etc.) is rejected with a reference to the §7 coverage roadmap.
-//
-// Introduced for IMPROVEMENTS §7: previously this validation lived only at
-// reconcile time (handler.go's backend switch returned ValidationError),
-// which meant an unsupported authPath could be accepted into etcd and only
-// surface in status after reconcile. Admission-time rejection gives the
-// user immediate feedback.
-func validateAuthPathSupported(authPath, authType string) string {
-	// An explicit spec.authType is authoritative: it declares the backend
-	// family directly, so the mount-path name no longer has to match a
-	// naming convention. A custom mount like `auth/custom-oidc` is then
-	// accepted. The CRD enum restricts authType to kubernetes/jwt.
-	switch authType {
-	case string(vaultv1alpha1.AuthBackendTypeJWT):
-		// JWT writes need a concrete mount path; an empty authPath would
-		// normalize to auth/kubernetes, contradicting the declared family.
-		if strings.TrimRight(strings.TrimPrefix(authPath, "auth/"), "/") == "" {
-			return "spec.authPath is required when spec.authType is jwt"
-		}
-		return ""
-	case string(vaultv1alpha1.AuthBackendTypeKubernetes):
-		return ""
-	}
-
-	// No explicit authType — infer the family with the same helper reconcile
-	// uses, so admission and sync always agree. Note the separator rule: a
-	// submount only matches its family as `jwt` exact or `jwt-*`/`jwt_*`
-	// (likewise `kubernetes`), so e.g. `auth/jwtgitlab` is Unknown and needs
-	// an explicit authType.
-	if vault.AuthBackendForPath(authPath) != vault.AuthBackendUnknown {
-		return ""
-	}
-	return fmt.Sprintf(
-		"spec.authPath %q targets an unsupported Vault auth backend "+
-			"(only auth/kubernetes/* and auth/jwt/* are implemented for role writes; "+
-			"set spec.authType to use a custom mount path). "+
-			"See IMPROVEMENTS.md §7 for the backend coverage roadmap",
-		authPath,
-	)
+	return nil
 }
 
 // validateJWTSpec enforces constraints on the optional spec.jwt sub-object
-// and the combination of authPath / serviceAccounts / jwt.
+// given the backend family resolved from the referenced VaultConnection.
 //
 // Errors block admission; warnings are surfaced via the admission response
 // without blocking. Errors cover correctness invariants:
-//   - spec.jwt may only be set when authPath targets a JWT auth mount.
+//   - spec.jwt may only be set when the connection resolves to a
+//     jwt/oidc-family role mount.
 //   - spec.jwt.boundSubject and spec.jwt.{boundClaims,boundClaimsList}
 //     are mutually exclusive.
 //   - Multi-SA roles must pin identity via boundSubject, boundClaims, or
@@ -477,14 +435,12 @@ func validateAuthPathSupported(authPath, authType string) string {
 // with `ref_type` and `ref_protected` to avoid tag-spoof and unprotected-branch
 // bypass.
 func validateJWTSpec(
-	authType, authPath string, jwt *vaultv1alpha1.VaultRoleJWTSpec, serviceAccountCount int,
+	isJWT bool, jwt *vaultv1alpha1.VaultRoleJWTSpec, serviceAccountCount int,
 ) (warnings, errs []string) {
-	isJWT := resolveIsJWT(authType, authPath)
-
 	if jwt != nil && !isJWT {
 		errs = append(errs,
-			"spec.jwt may only be used when the role targets a JWT auth mount "+
-				"(set spec.authType: jwt, or use an authPath under auth/jwt)")
+			"spec.jwt may only be used when the referenced VaultConnection resolves to a "+
+				"jwt/oidc-family role mount (its login mount or defaults.authPath)")
 		return warnings, errs
 	}
 
@@ -564,18 +520,16 @@ func jwtClaimIsBound(jwt *vaultv1alpha1.VaultRoleJWTSpec, key string) bool {
 	return ok
 }
 
-// resolveIsJWT reports whether a role targets a JWT auth mount, honoring an
-// explicit authType override and otherwise inferring from the path name.
-// Delegates to pkg/vault.ResolveAuthBackend so admission and reconcile agree —
-// a hand-rolled mirror here previously drifted (raw prefix match accepted
-// `auth/jwtgitlab`, which sync-time resolution rejects).
-func resolveIsJWT(authType, authPath string) bool {
-	return vault.ResolveAuthBackend(authType, authPath) == vault.AuthBackendJWT
-}
-
 // validateWithContext performs validation including dependency checks for VaultClusterRole
 func (v *VaultClusterRoleValidator) validateWithContext(ctx context.Context, role *vaultv1alpha1.VaultClusterRole) (admission.Warnings, error) {
-	warnings, err := v.validate(role)
+	if err := v.validate(role); err != nil {
+		return nil, err
+	}
+
+	// Connection-derived checks: the referenced VaultConnection is the sole
+	// source of the role's auth mount and backend family.
+	warnings, err := validateRoleMountFromConnection(
+		ctx, v.client, role.Spec.ConnectionRef, role.Spec.JWT, len(role.Spec.ServiceAccounts))
 	if err != nil {
 		return warnings, err
 	}

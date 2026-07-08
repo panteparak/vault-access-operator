@@ -253,7 +253,7 @@ Tied closely to JWT auth. The difference:
 ## Cross-References
 
 - [FLOW_CONNECTION.md](FLOW_CONNECTION.md) — where auth is invoked
-- [FLOW_ROLE.md](FLOW_ROLE.md) — the role's `authPath` determines which auth backend a role binds into (separate from how the operator itself authenticates)
+- [FLOW_ROLE.md](FLOW_ROLE.md) — the connection's resolved role mount (`RoleMount()`: `defaults.authPath`, else the login mount) determines which auth backend a role binds into (ADR 0009)
 - [IMPROVEMENTS.md §1](IMPROVEMENTS.md#1-unwired-controllers) — lifecycle + reviewer controllers not running
 - [IMPROVEMENTS.md §6](IMPROVEMENTS.md#6-auth-dispatch-chain-vs-strategy-map) — dispatch refactor
 - [IMPROVEMENTS.md §7](IMPROVEMENTS.md#7-role-backend-coverage-gap) — role flow only supports kubernetes + jwt, despite 8 auth methods

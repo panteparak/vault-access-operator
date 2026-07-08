@@ -179,6 +179,8 @@ sequenceDiagram
 
 ## Step-by-Step Narrative
 
+Before step 1, `SyncWorkflow.Execute` (and `CleanupWorkflow.Execute`) enrich the context logger with `vaultConnection` and `authPath` (empty for policies → omitted), so every log line below carries them plus the `reconcileID` injected by `BaseReconciler`. See `.claude/skills/logging-context/SKILL.md` for the convention.
+
 ### Step 1: Resolve effective drift mode
 [driftmode.Resolve](../../shared/controller/driftmode/resolve.go). Precedence: resource.driftMode → connection.defaults.driftMode → `DriftModeDetect`. Result is stored in `SyncStatus.EffectiveDriftMode`.
 

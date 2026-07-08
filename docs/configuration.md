@@ -106,6 +106,8 @@ helm install vault-access-operator \
 | `logging.encoder` | Log encoder (json, console) | `json` |
 | `logging.stacktraceLevel` | Stack trace log level | `error` |
 
+These values render to the operator's `--zap-log-level`, `--zap-devel`, `--zap-encoder`, and `--zap-stacktrace-level` flags. The binary itself defaults to production logging (JSON, info) when the flags are absent; pass `--zap-devel=true` (or set `logging.development=true` + `logging.encoder=console`) for human-readable local output. Every reconcile log line carries `reconcileID`, `vaultConnection`, and — for auth-mount resources — `authPath` for failure-source tracing.
+
 ### Pod Disruption Budget
 
 | Parameter | Description | Default |

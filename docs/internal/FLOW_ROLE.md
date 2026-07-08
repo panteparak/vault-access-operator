@@ -4,7 +4,7 @@
 
 Roles bind a set of Kubernetes service accounts (or JWT identities) to a list of Vault policies. The operator resolves `PolicyReference` objects (which point at `VaultPolicy` / `VaultClusterPolicy` CRs) into concrete Vault policy names, builds a role data payload appropriate for the **auth backend** (Kubernetes or JWT), and writes it to `auth/{mount}/role/{name}`.
 
-Like policy, role uses the shared `workflow.SyncWorkflow`. Unlike policy, role branches on the **auth backend** at several points — backend selection is driven by [`vault.ResolveAuthBackend(spec.authType, spec.authPath)`](../../pkg/vault/client.go): an explicit `spec.authType` (`kubernetes`/`jwt`) wins, otherwise the family is inferred from the mount-path name via `AuthBackendForPath`. The explicit override (IMPROVEMENTS §7) lets a role target a JWT/Kubernetes method mounted at an arbitrary path (e.g. `auth/custom-oidc`).
+Like policy, role uses the shared `workflow.SyncWorkflow`. Unlike policy, role branches on the **auth backend** at several points. Roles carry **no mount fields**: the referenced VaultConnection is the sole source of the mount + backend family, resolved by [`VaultConnection.RoleMount()`](../../api/v1alpha1/vaultconnection_rolemount.go) ([ADR 0009](../adr/0009-connection-owned-role-mount.md)). The handler resolves this into a `roleTarget{conn, mount, backend}` via `resolveRoleTarget` **before** the sync workflow runs — a connection with no role-capable mount never enters the workflow.
 
 !!! note "Ownership tracking gated by `--managed-markers` (default OFF)"
     The conflict check runs **only when `--managed-markers=true`**. With markers off (the default), the operator writes the role and forgets it. Roles carry **no Vault-side ownership record** (Vault auth roles have no metadata surface — ADR 0008): ownership memory is the CR's own status (a CR that has synced owns its role), and cross-cluster safety is structural — every cluster's operator authenticates through its own auth mount, so another cluster never reaches this mount's roles. Conflict = role exists in Vault AND this CR never synced it → adopt-or-fail. See [ADR 0008](../adr/0008-in-band-ownership-markers.md), [CONTEXT.md `Managed marker`](CONTEXT.md#managed-marker).
@@ -15,7 +15,7 @@ Like policy, role uses the shared `workflow.SyncWorkflow`. Unlike policy, role b
 |---|-----------|--------|------|
 | 1 | `RoleReconciler` / `ClusterRoleReconciler` | [role_reconciler.go](../../features/role/controller/role_reconciler.go), [clusterrole_reconciler.go](../../features/role/controller/clusterrole_reconciler.go) | watches VaultRole + VaultConnection |
 | 2 | `roleFeatureHandler` | same | adapter to `FeatureHandler[*VaultRole]` |
-| 3 | `role.Handler` | [handler.go:47](../../features/role/controller/handler.go:47) | `SyncRole`, `CleanupRole`, policy resolution, drift comparison |
+| 3 | `role.Handler` | [handler.go:47](../../features/role/controller/handler.go:47) | `SyncRole`, `CleanupRole`, `resolveRoleTarget`/`resolveCleanupTarget`, policy resolution, drift comparison |
 | 4 | `RoleAdapter` | [features/role/domain/adapter.go](../../features/role/domain/adapter.go) | interface over both role kinds |
 | 5 | `RoleOps` | [ops.go:37](../../features/role/controller/ops.go:37) | implements `workflow.ResourceOps` for roles |
 | 6 | `workflow.SyncWorkflow` | shared | same 9-step orchestration as policy |
@@ -37,7 +37,15 @@ sequenceDiagram
     participant V as Vault
 
     Base->>H: Sync(role)
-    H->>Ops: NewRoleOps(adapter, handler) — authPath defaults to "kubernetes"
+    H->>K8s: Get VaultConnection(connectionRef) — resolveRoleTarget
+    alt connection not found
+        H-->>Base: DependencyError → Reason=ConnectionNotReady
+    end
+    H->>H: conn.RoleMount() → (mount, backend family)
+    alt no role-capable mount (token/appRole/aws/gcp/bootstrap-only)
+        H-->>Base: ValidationError → Reason=ValidationFailed (backstop; webhook denies at admission)
+    end
+    H->>Ops: NewRoleOps(adapter, handler, roleTarget{conn, mount, backend})
     H->>WF: Execute
 
     WF->>WF: resolve driftMode, resolve vault client
@@ -69,10 +77,9 @@ sequenceDiagram
     end
 
     Ops->>Ops: serviceAccountBindings = adapter.GetServiceAccountBindings() — ["ns/name", ...]
-    Ops->>Ops: resolveConnection — for default JWT audiences
 
-    Ops->>H: buildRoleData
-    Note over H: backend = ResolveAuthBackend(authType, authPath)
+    Ops->>H: buildRoleData(target.backend, ..., target.conn)
+    Note over H: backend family was resolved from the connection<br/>(roleTarget); target.conn feeds JWT audience defaults
     alt backend = Kubernetes
         H->>H: buildKubernetesRoleData<br/>- split "ns/name" → names[] + namespaces[] (deduped)<br/>- sort both for deterministic hash<br/>- policies = policyNames<br/>- token_ttl, token_max_ttl (optional)
     else backend = JWT
@@ -115,6 +122,7 @@ sequenceDiagram
 
     WF->>Ops: ApplyBindings
     Ops->>Ops: adapter.SetBinding(VaultResourceBinding{authMount, path})
+    Note over Ops: records the BARE mount name (e.g. "kubernetes") —<br/>passing the normalized authPath used to double-prefix<br/>vaultPath as auth/auth/kubernetes/role/x
     Ops->>H: buildPolicyBindings
     H-->>Ops: []PolicyBinding (tracks resolved + resolution status)
     Ops->>Ops: adapter.SetPolicyBindings
@@ -130,14 +138,19 @@ sequenceDiagram
 
 ## Auth Backend Branching
 
+The mount + family come from the connection, never the role ([ADR 0009](../adr/0009-connection-owned-role-mount.md)):
+
 ```mermaid
 flowchart TD
-    Start["NewRoleOps(adapter)"] --> AuthPath{adapter.GetAuthPath}
-    AuthPath -->|empty| Default["default: 'kubernetes'"]
-    AuthPath -->|auth/kubernetes/...| K8sPath["kubernetes backend"]
-    AuthPath -->|auth/jwt/...| JWTPath["jwt backend"]
-    AuthPath -->|other| UnsupportedOut["ValidationError:<br/>unsupported backend"]
-    Default --> K8sPath
+    Start["resolveRoleTarget(adapter)"] --> Defaults{conn.spec.defaults.authPath set?}
+    Defaults -->|yes| Family{"family = defaults.authType,<br/>else kubernetes*/jwt* name heuristic"}
+    Family -->|kubernetes| K8sPath["kubernetes backend"]
+    Family -->|jwt| JWTPath["jwt backend"]
+    Family -->|unclassifiable| UnsupportedOut["ValidationError:<br/>set defaults.authType"]
+    Defaults -->|no| Login{connection login method}
+    Login -->|auth.kubernetes| K8sPath
+    Login -->|auth.jwt / auth.oidc| JWTPath
+    Login -->|token / appRole / aws / gcp / bootstrap-only| NoMount["ValidationError:<br/>no role-capable mount"]
 
     K8sPath --> BuildK8s["buildKubernetesRoleData:<br/>- bound_service_account_names<br/>- bound_service_account_namespaces<br/>- policies"]
     JWTPath --> BuildJWT["buildJWTRoleData:<br/>- role_type (default 'jwt')<br/>- user_claim (default 'sub')<br/>- bound_audiences<br/>- (bound_claims + bound_claims_type) OR bound_subject"]
@@ -213,6 +226,9 @@ The comparator uses `CompareStringSlices` (order-insensitive via sort) for list 
 
 ## Step-by-Step Narrative
 
+### Step 0: Resolve the role target (before the workflow)
+[resolveRoleTarget](../../features/role/controller/handler.go:137) — fetch the referenced VaultConnection, call `conn.RoleMount()`. Connection NotFound → `DependencyError` (`Reason=ConnectionNotReady` — it may appear later); no role-capable mount → `ValidationError` (`Reason=ValidationFailed`, permanent until the connection is fixed). The webhook already denies the latter at admission; this is the reconcile backstop.
+
 ### Step 1: Resolve policy names
 Kind-aware: namespaced prefix for VaultPolicy, bare name for VaultClusterPolicy. Cluster roles referencing namespaced policies **must** specify `namespace` explicitly.
 
@@ -224,8 +240,8 @@ Loop `PolicyExists` for each resolved name. Missing policies emit a warning cond
 - VaultRole (namespaced): adapter prepends the role's own namespace to each SA name.
 - VaultClusterRole: adapter uses the explicit `ServiceAccountRef.Namespace`.
 
-### Step 4: Resolve connection (best-effort)
-`RoleOps.resolveConnection` — used only for JWT audience fallback. Return `nil` on any error.
+### Step 4: Connection for JWT defaults
+`roleTarget.conn` (already fetched in Step 0) feeds the JWT audience fallback — no second fetch.
 
 ### Step 5: Build role data (backend-aware)
 - **Kubernetes**: split bindings into names + namespaces (deduped), sort both (stable hashing), add optional TTLs.
@@ -237,6 +253,14 @@ Loop `PolicyExists` for each resolved name. Missing policies emit a warning cond
 ### Step 7 onwards
 Same as policy: drift detection, write, readback, apply bindings, status, event.
 
+## Cleanup Target Resolution (binding-first)
+
+[resolveCleanupTarget](../../features/role/controller/handler.go:161) picks the mount to **delete** from:
+
+1. `status.binding.authMount` recorded at last sync — wins. A connection whose resolved mount changed after the role synced still deletes from where the role was actually written (`AuthMountName` normalizes legacy `auth/`-prefixed records).
+2. Fall back to `resolveRoleTarget` (the connection's current mount).
+3. Neither → empty target: a never-synced role under a mount-less connection has nothing in Vault, so `DeleteFromVault` skips the Vault call and the finalizer clears.
+
 ## Status Fields Set on Success
 
 | Field | Source |
@@ -244,7 +268,7 @@ Same as policy: drift detection, write, readback, apply bindings, status, event.
 | `VaultRoleName` | `adapter.GetVaultRoleName()` |
 | `BoundServiceAccounts` | resolved `"ns/name"` list |
 | `ResolvedPolicies` | resolved Vault policy names |
-| `Binding` | `{vaultPath: auth/{mount}/role/{name}, authMount, ...}` |
+| `Binding` | `{vaultPath: auth/{mount}/role/{name}, authMount: bare mount name, ...}` — drives binding-first cleanup |
 | `PolicyBindings[]` | per-ref: `{VaultPolicyRef, vaultPolicyName, resolved:bool}` |
 | `LastAppliedHash` | spec hash |
 | `LastSyncedAt` | now |
@@ -254,13 +278,15 @@ Same as policy: drift detection, write, readback, apply bindings, status, event.
 
 | Error | Step | Trigger |
 |-------|------|---------|
+| `DependencyError "not found"` | resolveRoleTarget | referenced VaultConnection doesn't exist (`Reason=ConnectionNotReady`) |
+| `ValidationError "no role-capable mount"` | resolveRoleTarget | connection logs in via token/appRole/aws/gcp/bootstrap without `defaults.authPath` (`Reason=ValidationFailed`) |
 | `ValidationError "invalid policy kind"` | resolvePolicyNames | user set `kind: Role` or empty |
 | `ValidationError "namespace required"` | resolvePolicyNames | cluster role references VaultPolicy without namespace |
-| `ValidationError "unsupported auth backend"` | buildRoleData | authPath not kubernetes/jwt |
 | `ValidationError "at least one service account"` | resolveJWTBoundSubject | JWT role has no SAs & no `boundSubject` override |
 | `ValidationError "multi-SA JWT VaultRole must set boundSubject"` | resolveJWTBoundSubject | JWT role with >1 SA |
 | `ConflictError` | CheckConflict | existing role owned by another resource |
 | `DependencyError` | vaultclient.Resolve | connection not Active |
+| Vault 403 → `Reason=VaultPermissionDenied` | any Vault write/read | operator token lacks a grant on the resolved mount — permanent until the operator's Vault policy changes (still requeued at 30s) |
 | `TransientError "readback verification"` | ReadbackVerify | role content differs after write (rare) |
 | Warning `PolicyNotInVault` | verifyPoliciesExistInVault | referenced policy missing — non-fatal |
 

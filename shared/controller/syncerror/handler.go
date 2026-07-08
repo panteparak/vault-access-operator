@@ -157,6 +157,13 @@ func classifyError(err error) (vaultv1alpha1.Phase, string) {
 			return vaultv1alpha1.PhaseError, vaultv1alpha1.ReasonVaultNotInitialized
 		}
 		return vaultv1alpha1.PhaseError, vaultv1alpha1.ReasonVaultSealed
+	case infraerrors.IsVaultPermissionDenied(err):
+		// Vault answered 403: the operator's token lacks a grant on the
+		// target path. The workflow wraps write failures as TransientError,
+		// but a 403 is permanent until the operator's Vault policy changes —
+		// surface the real remediation instead of ReasonFailed. Checked
+		// after the typed cases: those never carry a Vault ResponseError.
+		return vaultv1alpha1.PhaseError, vaultv1alpha1.ReasonPermissionDenied
 	default:
 		return vaultv1alpha1.PhaseError, vaultv1alpha1.ReasonFailed
 	}
