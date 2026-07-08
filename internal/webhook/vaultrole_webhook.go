@@ -118,9 +118,9 @@ func (v *VaultRoleValidator) ValidateDelete(ctx context.Context, role *vaultv1al
 	return nil, nil
 }
 
-// validate performs validation for VaultRole
-func (v *VaultRoleValidator) validate(role *vaultv1alpha1.VaultRole) (admission.Warnings, error) {
-	var warnings admission.Warnings
+// validate performs the client-free spec validation for VaultRole.
+// Warnings all come from the client-backed checks in validateWithContext.
+func (v *VaultRoleValidator) validate(role *vaultv1alpha1.VaultRole) error {
 	var errs []string
 
 	// Validate service accounts are not empty
@@ -169,10 +169,10 @@ func (v *VaultRoleValidator) validate(role *vaultv1alpha1.VaultRole) (admission.
 	}
 
 	if len(errs) > 0 {
-		return warnings, fmt.Errorf("validation failed: %s", strings.Join(errs, "; "))
+		return fmt.Errorf("validation failed: %s", strings.Join(errs, "; "))
 	}
 
-	return warnings, nil
+	return nil
 }
 
 // validateDiscoveryPlaceholderConsistency rejects a CR that contains
@@ -221,16 +221,14 @@ func validateDiscoveryPlaceholderConsistency(
 
 // validateWithContext performs validation including dependency checks for VaultRole
 func (v *VaultRoleValidator) validateWithContext(ctx context.Context, role *vaultv1alpha1.VaultRole) (admission.Warnings, error) {
-	warnings, err := v.validate(role)
-	if err != nil {
-		return warnings, err
+	if err := v.validate(role); err != nil {
+		return nil, err
 	}
 
 	// Connection-derived checks: the referenced VaultConnection is the sole
 	// source of the role's auth mount and backend family.
-	connWarnings, err := validateRoleMountFromConnection(
+	warnings, err := validateRoleMountFromConnection(
 		ctx, v.client, role.Spec.ConnectionRef, role.Spec.JWT, len(role.Spec.ServiceAccounts))
-	warnings = append(warnings, connWarnings...)
 	if err != nil {
 		return warnings, err
 	}
@@ -364,9 +362,9 @@ func (v *VaultClusterRoleValidator) ValidateDelete(ctx context.Context, role *va
 	return nil, nil
 }
 
-// validate performs validation for VaultClusterRole
-func (v *VaultClusterRoleValidator) validate(role *vaultv1alpha1.VaultClusterRole) (admission.Warnings, error) {
-	var warnings admission.Warnings
+// validate performs the client-free spec validation for VaultClusterRole.
+// Warnings all come from the client-backed checks in validateWithContext.
+func (v *VaultClusterRoleValidator) validate(role *vaultv1alpha1.VaultClusterRole) error {
 	var errs []string
 
 	// Validate service accounts are not empty
@@ -413,10 +411,10 @@ func (v *VaultClusterRoleValidator) validate(role *vaultv1alpha1.VaultClusterRol
 	}
 
 	if len(errs) > 0 {
-		return warnings, fmt.Errorf("validation failed: %s", strings.Join(errs, "; "))
+		return fmt.Errorf("validation failed: %s", strings.Join(errs, "; "))
 	}
 
-	return warnings, nil
+	return nil
 }
 
 // validateJWTSpec enforces constraints on the optional spec.jwt sub-object
@@ -524,16 +522,14 @@ func jwtClaimIsBound(jwt *vaultv1alpha1.VaultRoleJWTSpec, key string) bool {
 
 // validateWithContext performs validation including dependency checks for VaultClusterRole
 func (v *VaultClusterRoleValidator) validateWithContext(ctx context.Context, role *vaultv1alpha1.VaultClusterRole) (admission.Warnings, error) {
-	warnings, err := v.validate(role)
-	if err != nil {
-		return warnings, err
+	if err := v.validate(role); err != nil {
+		return nil, err
 	}
 
 	// Connection-derived checks: the referenced VaultConnection is the sole
 	// source of the role's auth mount and backend family.
-	connWarnings, err := validateRoleMountFromConnection(
+	warnings, err := validateRoleMountFromConnection(
 		ctx, v.client, role.Spec.ConnectionRef, role.Spec.JWT, len(role.Spec.ServiceAccounts))
-	warnings = append(warnings, connWarnings...)
 	if err != nil {
 		return warnings, err
 	}

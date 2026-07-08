@@ -1208,7 +1208,7 @@ func TestSyncRole_InheritsLoginMount(t *testing.T) {
 	if !exists {
 		t.Fatalf("role not written at the connection's login mount; keys: %v", keysOf(state.roles))
 	}
-	if roleData["role_type"] != "jwt" {
+	if roleData["role_type"] != string(vault.AuthBackendJWT) {
 		t.Errorf("expected jwt-family payload (role_type=jwt), got %v", roleData)
 	}
 }

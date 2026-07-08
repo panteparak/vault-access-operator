@@ -577,7 +577,7 @@ func (h *Handler) buildJWTRoleData(
 
 	roleType := jwtSpec.RoleType
 	if roleType == "" {
-		roleType = "jwt"
+		roleType = string(vault.AuthBackendJWT)
 	}
 
 	userClaim := jwtSpec.UserClaim
