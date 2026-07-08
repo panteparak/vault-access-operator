@@ -31,6 +31,11 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   VaultClusterPolicy "ns-name" alongside VaultPolicy ns/name) are now
   admitted and coexist under distinct Vault names. Supersedes ADR 0006;
   amends ADR 0008.
+
+## [0.10.0] - 2026-07-08
+
+### Changed
+
 - **BREAKING: the VaultConnection now owns the role auth mount.** New
   resolution rule (`VaultConnection.RoleMount()`): `spec.defaults.authPath`
   when set (with new optional `spec.defaults.authType` for mount names the
