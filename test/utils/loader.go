@@ -141,7 +141,6 @@ type CRDData struct {
 	PolicyNamespace string
 	TokenTTL        string
 	TokenMaxTTL     string
-	AuthPath        string
 	Rules           []RuleData
 	TestID          string // Unique identifier for test isolation
 }

@@ -272,11 +272,26 @@ func (c *Controller) DetectOrphanedRoles(
 }
 
 // expectedRoleNames derives the Vault role names this cluster's role CRs map
-// to on the given mount. Returns nil (distinct from empty) when a CR list
-// fails, so the caller can skip the pass instead of flagging everything.
+// to on the given mount. Roles carry no mount of their own — a role CR maps
+// to the mount its referenced connection resolves to (VaultConnection.
+// RoleMount), so two connections sharing one mount both contribute. Returns
+// nil (distinct from empty) when a CR list fails, so the caller can skip
+// the pass instead of flagging everything.
 func (c *Controller) expectedRoleNames(ctx context.Context, mount string) map[string]struct{} {
-	normalizedMount := vault.NormalizeAuthPath(mount)
+	bareMount := vault.AuthMountName(mount)
 	expected := map[string]struct{}{}
+
+	var conns vaultv1alpha1.VaultConnectionList
+	if err := c.k8sClient.List(ctx, &conns); err != nil {
+		c.log.V(1).Info("failed to list VaultConnections for orphan scan", "error", err.Error())
+		return nil
+	}
+	connsOnMount := map[string]struct{}{}
+	for i := range conns.Items {
+		if m, _, err := conns.Items[i].RoleMount(); err == nil && m == bareMount {
+			connsOnMount[conns.Items[i].Name] = struct{}{}
+		}
+	}
 
 	var roles vaultv1alpha1.VaultRoleList
 	if err := c.k8sClient.List(ctx, &roles); err != nil {
@@ -285,7 +300,7 @@ func (c *Controller) expectedRoleNames(ctx context.Context, mount string) map[st
 	}
 	for i := range roles.Items {
 		r := &roles.Items[i]
-		if vault.NormalizeAuthPath(r.Spec.AuthPath) != normalizedMount {
+		if _, ok := connsOnMount[r.Spec.ConnectionRef]; !ok {
 			continue
 		}
 		expected[naming.Vault(r.Namespace+"-"+r.Name)] = struct{}{}
@@ -298,7 +313,7 @@ func (c *Controller) expectedRoleNames(ctx context.Context, mount string) map[st
 	}
 	for i := range clusterRoles.Items {
 		r := &clusterRoles.Items[i]
-		if vault.NormalizeAuthPath(r.Spec.AuthPath) != normalizedMount {
+		if _, ok := connsOnMount[r.Spec.ConnectionRef]; !ok {
 			continue
 		}
 		expected[naming.Vault(r.Name)] = struct{}{}

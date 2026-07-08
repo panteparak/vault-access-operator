@@ -27,77 +27,7 @@ const (
 	AuthBackendKubernetes AuthBackend = "kubernetes"
 	// AuthBackendJWT identifies the `auth/jwt` family of mounts.
 	AuthBackendJWT AuthBackend = "jwt"
-	// AuthBackendUnknown is returned for unrecognized auth paths.
-	AuthBackendUnknown AuthBackend = ""
 )
-
-// ResolveAuthBackend returns the auth backend family for a role, honoring an
-// explicit authType when set and otherwise inferring it from the mount path.
-//
-// authType is the lowercase family declared on the CR (`kubernetes` / `jwt`,
-// i.e. v1alpha1.AuthBackendType) or "" to infer. An explicit family makes the
-// mount-path name irrelevant, so a JWT/OIDC method mounted at an arbitrary path
-// (e.g. `auth/custom-oidc`) routes correctly. See IMPROVEMENTS §7.
-func ResolveAuthBackend(authType, authPath string) AuthBackend {
-	switch authType {
-	case string(AuthBackendKubernetes):
-		return AuthBackendKubernetes
-	case string(AuthBackendJWT):
-		return AuthBackendJWT
-	default:
-		return AuthBackendForPath(authPath)
-	}
-}
-
-// AuthBackendForPath returns the backend family for an auth mount path.
-// Matches the first path segment after a leading `auth/` (or implicit
-// `auth/` for bare names) so submounts like `auth/kubernetes-prod` or
-// `auth/jwt/gitlab` resolve to their parent family.
-//
-// Accepts both forms that appear in the user-facing CRD docs and existing
-// fixtures:
-//   - Full: `auth/kubernetes`, `auth/jwt`, `auth/kubernetes-prod`
-//   - Bare: `kubernetes`, `jwt` — treated as implicit `auth/<name>`
-//
-// Empty input resolves to Kubernetes (matching DefaultKubernetesAuthPath).
-// Returns AuthBackendUnknown for unrecognized backends (e.g. `auth/aws`,
-// `auth/approle`) — those need explicit role-write support added before
-// they're useful (IMPROVEMENTS §7).
-func AuthBackendForPath(authPath string) AuthBackend {
-	p := strings.TrimRight(NormalizeAuthPath(authPath), "/")
-	if p == "" {
-		return AuthBackendKubernetes
-	}
-	const prefix = "auth/"
-	rest := strings.TrimPrefix(p, prefix)
-	seg, _, _ := strings.Cut(rest, "/")
-	switch {
-	case hasBackendPrefix(seg, "kubernetes"):
-		return AuthBackendKubernetes
-	case hasBackendPrefix(seg, "jwt"):
-		return AuthBackendJWT
-	default:
-		return AuthBackendUnknown
-	}
-}
-
-// hasBackendPrefix returns true if seg equals backend exactly, or starts
-// with `backend-` / `backend_` (the conventional separators for a Vault
-// multi-tenant submount like `kubernetes-prod`). Requiring an explicit
-// separator avoids false-positive matches: pre-fix, `strings.HasPrefix`
-// alone accepted `kubernetestest` as a Kubernetes mount, which would
-// then route role-writes through the Kubernetes code path against a
-// mount that isn't actually Kubernetes auth.
-func hasBackendPrefix(seg, backend string) bool {
-	if seg == backend {
-		return true
-	}
-	if len(seg) <= len(backend) || !strings.HasPrefix(seg, backend) {
-		return false
-	}
-	sep := seg[len(backend)]
-	return sep == '-' || sep == '_'
-}
 
 // NormalizeAuthPath ensures the path has the `auth/` prefix that the
 // Vault SDK requires. Bare mount names like "kubernetes" or "jwt" are

@@ -318,6 +318,9 @@ func newTestVaultConnection() *vaultv1alpha1.VaultConnection {
 					},
 				},
 			},
+			// Token login has no mount — declare the role mount explicitly
+			// so roles referencing this connection resolve to auth/kubernetes.
+			Defaults: &vaultv1alpha1.ConnectionDefaults{AuthPath: "kubernetes"},
 		},
 		Status: vaultv1alpha1.VaultConnectionStatus{
 			Phase:   vaultv1alpha1.PhaseActive,
@@ -1175,4 +1178,129 @@ func keysOf[K comparable, V any](m map[K]V) []K {
 		keys = append(keys, k)
 	}
 	return keys
+}
+
+// --- Connection-owned mount resolution (roles carry no mount fields) ---
+
+// TestSyncRole_InheritsLoginMount: with no defaults.authPath, the role lands
+// on the connection's own login mount, with the matching backend family.
+func TestSyncRole_InheritsLoginMount(t *testing.T) {
+	state := newMockVaultState()
+	conn := newTestVaultConnection()
+	conn.Spec.Auth = vaultv1alpha1.AuthConfig{
+		JWT: &vaultv1alpha1.JWTAuth{Role: "operator", AuthPath: "team-jwt"},
+	}
+	conn.Spec.Defaults = nil
+	role := newTestVaultRole()
+
+	handler, server, _ := setupSyncRoleTest(t, role, conn, mockVaultServerConfig{state: state})
+	defer server.Close()
+
+	ctx := logr.NewContext(context.Background(), logr.Discard())
+	if err := handler.SyncRole(ctx, domain.NewVaultRoleAdapter(role)); err != nil {
+		t.Fatalf("SyncRole failed: %v", err)
+	}
+
+	expectedKey := "auth/team-jwt/role/" + testNamespace + "-" + testRoleName
+	state.mu.Lock()
+	roleData, exists := state.roles[expectedKey]
+	state.mu.Unlock()
+	if !exists {
+		t.Fatalf("role not written at the connection's login mount; keys: %v", keysOf(state.roles))
+	}
+	if roleData["role_type"] != "jwt" {
+		t.Errorf("expected jwt-family payload (role_type=jwt), got %v", roleData)
+	}
+}
+
+// TestSyncRole_DefaultsOverrideLoginMount: defaults.authPath wins over the
+// login mount, including the backend family switch.
+func TestSyncRole_DefaultsOverrideLoginMount(t *testing.T) {
+	state := newMockVaultState()
+	conn := newTestVaultConnection()
+	conn.Spec.Auth = vaultv1alpha1.AuthConfig{
+		JWT: &vaultv1alpha1.JWTAuth{Role: "operator", AuthPath: "team-jwt"},
+	}
+	conn.Spec.Defaults = &vaultv1alpha1.ConnectionDefaults{AuthPath: "kubernetes-pe"}
+	role := newTestVaultRole()
+
+	handler, server, _ := setupSyncRoleTest(t, role, conn, mockVaultServerConfig{state: state})
+	defer server.Close()
+
+	ctx := logr.NewContext(context.Background(), logr.Discard())
+	if err := handler.SyncRole(ctx, domain.NewVaultRoleAdapter(role)); err != nil {
+		t.Fatalf("SyncRole failed: %v", err)
+	}
+
+	expectedKey := "auth/kubernetes-pe/role/" + testNamespace + "-" + testRoleName
+	state.mu.Lock()
+	roleData, exists := state.roles[expectedKey]
+	state.mu.Unlock()
+	if !exists {
+		t.Fatalf("role not written at defaults.authPath mount; keys: %v", keysOf(state.roles))
+	}
+	if _, isJWT := roleData["role_type"]; isJWT {
+		t.Errorf("expected kubernetes-family payload (no role_type), got %v", roleData)
+	}
+}
+
+// TestSyncRole_TokenConnectionNoDefaults_Rejected: a token-login connection
+// without defaults.authPath has no role-capable mount — permanent
+// ValidationFailed, nothing written to Vault.
+func TestSyncRole_TokenConnectionNoDefaults_Rejected(t *testing.T) {
+	state := newMockVaultState()
+	conn := newTestVaultConnection()
+	conn.Spec.Defaults = nil
+	role := newTestVaultRole()
+
+	handler, server, _ := setupSyncRoleTest(t, role, conn, mockVaultServerConfig{state: state})
+	defer server.Close()
+
+	ctx := logr.NewContext(context.Background(), logr.Discard())
+	adapter := domain.NewVaultRoleAdapter(role)
+	err := handler.SyncRole(ctx, adapter)
+	if err == nil {
+		t.Fatal("expected SyncRole to fail for a connection with no role-capable mount")
+	}
+
+	if adapter.GetPhase() != vaultv1alpha1.PhaseError {
+		t.Errorf("expected PhaseError, got %s", adapter.GetPhase())
+	}
+	for _, c := range adapter.GetConditions() {
+		if c.Type == vaultv1alpha1.ConditionTypeReady && c.Reason != vaultv1alpha1.ReasonValidationFailed {
+			t.Errorf("expected Ready reason %s, got %s", vaultv1alpha1.ReasonValidationFailed, c.Reason)
+		}
+	}
+	state.mu.Lock()
+	n := len(state.roles)
+	state.mu.Unlock()
+	if n != 0 {
+		t.Errorf("expected no Vault writes, got %d roles", n)
+	}
+}
+
+// TestSyncRole_ConnectionMissing_DependencyError: a dangling connectionRef is
+// a dependency problem (the connection may appear later), not a validation one.
+func TestSyncRole_ConnectionMissing_DependencyError(t *testing.T) {
+	role := newTestVaultRole()
+
+	scheme := newTestScheme()
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(role).
+		WithStatusSubresource(role).
+		Build()
+	handler := NewHandler(k8sClient, vault.NewClientCache(), events.NewEventBus(logr.Discard()), logr.Discard())
+
+	ctx := logr.NewContext(context.Background(), logr.Discard())
+	adapter := domain.NewVaultRoleAdapter(role)
+	if err := handler.SyncRole(ctx, adapter); err == nil {
+		t.Fatal("expected SyncRole to fail when the connection does not exist")
+	}
+
+	for _, c := range adapter.GetConditions() {
+		if c.Type == vaultv1alpha1.ConditionTypeReady && c.Reason != vaultv1alpha1.ReasonConnectionNotReady {
+			t.Errorf("expected Ready reason %s, got %s", vaultv1alpha1.ReasonConnectionNotReady, c.Reason)
+		}
+	}
 }

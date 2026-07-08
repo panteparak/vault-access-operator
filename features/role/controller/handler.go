@@ -26,6 +26,7 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -39,6 +40,7 @@ import (
 	"github.com/panteparak/vault-access-operator/shared/controller/conflict"
 	"github.com/panteparak/vault-access-operator/shared/controller/drift"
 	"github.com/panteparak/vault-access-operator/shared/controller/hash"
+	"github.com/panteparak/vault-access-operator/shared/controller/syncerror"
 	"github.com/panteparak/vault-access-operator/shared/controller/vaultclient"
 	"github.com/panteparak/vault-access-operator/shared/controller/workflow"
 	"github.com/panteparak/vault-access-operator/shared/events"
@@ -115,15 +117,73 @@ func (h *Handler) SetCleanupQueue(q workflow.CleanupQueuer) {
 	).WithRecorder(h.recorder)
 }
 
+// roleTarget is the resolved write destination for a role: which auth
+// mount it lands on, its backend family, and the connection it came from.
+// Roles carry no mount fields — the referenced VaultConnection is the sole
+// source (VaultConnection.RoleMount).
+type roleTarget struct {
+	// conn is the resolved connection, used for JWT audience/claim
+	// defaults. Nil on cleanup-fallback paths where the connection is gone.
+	conn    *vaultv1alpha1.VaultConnection
+	mount   string // bare mount name, e.g. "kubernetes", "jwt-gitlab"
+	backend vaultv1alpha1.AuthBackendType
+}
+
+// resolveRoleTarget fetches the referenced VaultConnection and derives the
+// role's target mount from it. Connection not found is a dependency error
+// (ReasonConnectionNotReady — it may appear later); a connection whose auth
+// method has no role-capable mount is a permanent validation error the user
+// must fix on the connection.
+func (h *Handler) resolveRoleTarget(
+	ctx context.Context, adapter domain.RoleAdapter,
+) (*roleTarget, error) {
+	connRef := adapter.GetConnectionRef()
+	conn := &vaultv1alpha1.VaultConnection{}
+	if err := h.client.Get(ctx, client.ObjectKey{Name: connRef}, conn); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, infraerrors.NewDependencyError(
+				adapter.GetK8sResourceIdentifier(), "VaultConnection", connRef, "not found")
+		}
+		return nil, infraerrors.NewTransientError("resolve connection for role mount", err)
+	}
+	mount, backend, err := conn.RoleMount()
+	if err != nil {
+		return nil, infraerrors.NewValidationError("connectionRef", connRef, err.Error())
+	}
+	return &roleTarget{conn: conn, mount: mount, backend: backend}, nil
+}
+
+// resolveCleanupTarget derives the mount to delete from, binding-first: the
+// mount recorded in status at last sync wins, so a connection whose mount
+// changed after the role synced still deletes from where the role was
+// actually written. Falls back to the connection; a role that never synced
+// under a mount-less connection yields an empty target (nothing to delete).
+func (h *Handler) resolveCleanupTarget(
+	ctx context.Context, adapter domain.RoleAdapter,
+) *roleTarget {
+	if recorded := adapter.GetBinding().AuthMount; recorded != "" {
+		// AuthMountName normalizes legacy records that stored the
+		// "auth/"-prefixed (or double-prefixed) form.
+		return &roleTarget{mount: vault.AuthMountName(recorded)}
+	}
+	if target, err := h.resolveRoleTarget(ctx, adapter); err == nil {
+		return target
+	}
+	return &roleTarget{}
+}
+
 // SyncRole synchronizes a role to Vault.
 func (h *Handler) SyncRole(ctx context.Context, adapter domain.RoleAdapter) error {
-	ops := NewRoleOps(adapter, h)
-	return h.syncWorkflow.Execute(ctx, adapter, ops)
+	target, err := h.resolveRoleTarget(ctx, adapter)
+	if err != nil {
+		return syncerror.Handle(ctx, h.client, h.log, adapter, err, h.recorder)
+	}
+	return h.syncWorkflow.Execute(ctx, adapter, NewRoleOps(adapter, h, target))
 }
 
 // CleanupRole removes a role from Vault.
 func (h *Handler) CleanupRole(ctx context.Context, adapter domain.RoleAdapter) error {
-	ops := NewRoleOps(adapter, h)
+	ops := NewRoleOps(adapter, h, h.resolveCleanupTarget(ctx, adapter))
 	return h.cleanupWorkflow.Execute(ctx, adapter, ops)
 }
 
@@ -423,29 +483,30 @@ func (h *Handler) resolvePolicyNames(_ context.Context, adapter domain.RoleAdapt
 	return policyNames, nil
 }
 
-// buildRoleData constructs the data map for the Vault role write.
-// Branches on the auth backend indicated by adapter.GetAuthPath().
+// buildRoleData constructs the data map for the Vault role write, branching
+// on the backend family resolved from the connection (roleTarget.backend).
 //
 // For k8s-auth mounts, the connection argument may be nil.
 // For JWT mounts, the connection is consulted for default audiences and may
 // still be nil — a cluster-default audience is used as fallback.
 func (h *Handler) buildRoleData(
 	adapter domain.RoleAdapter,
+	backend vault.AuthBackend,
 	policyNames []string,
 	serviceAccountBindings []string,
 	connection *vaultv1alpha1.VaultConnection,
 ) (map[string]interface{}, error) {
-	backend := vault.ResolveAuthBackend(string(adapter.GetAuthType()), adapter.GetAuthPath())
 	switch backend {
 	case vault.AuthBackendKubernetes:
 		return h.buildKubernetesRoleData(adapter, policyNames, serviceAccountBindings), nil
 	case vault.AuthBackendJWT:
 		return h.buildJWTRoleData(adapter, policyNames, serviceAccountBindings, connection)
 	default:
+		// Unreachable through resolveRoleTarget (RoleMount only yields
+		// kubernetes/jwt); kept as a guard for future backend families.
 		return nil, infraerrors.NewValidationError(
-			"authPath", adapter.GetAuthPath(),
-			"unsupported auth backend: only kubernetes and jwt are implemented "+
-				"(set spec.authType to use a custom mount path)",
+			"connectionRef", adapter.GetConnectionRef(),
+			fmt.Sprintf("unsupported auth backend %q: only kubernetes and jwt are implemented", backend),
 		)
 	}
 }

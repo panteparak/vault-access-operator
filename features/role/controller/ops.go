@@ -21,9 +21,7 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/features/role/domain"
@@ -36,29 +34,37 @@ import (
 )
 
 // RoleOps implements workflow.ResourceOps for role resources.
-// It holds the adapter and handler reference, and captures the resolved data
-// between PrepareContent and WriteToVault/DetectDrift calls.
+// It holds the adapter, handler reference, and the connection-resolved
+// target (mount + backend family), and captures the resolved data between
+// PrepareContent and WriteToVault/DetectDrift calls.
 type RoleOps struct {
 	adapter                domain.RoleAdapter
 	handler                *Handler
+	target                 *roleTarget
 	authPath               string
 	policyNames            []string
 	serviceAccountBindings []string
 	roleData               map[string]interface{}
 }
 
-// NewRoleOps creates a new RoleOps for a sync/cleanup operation.
-func NewRoleOps(adapter domain.RoleAdapter, handler *Handler) *RoleOps {
+// NewRoleOps creates a new RoleOps for a sync/cleanup operation. The target
+// comes from the handler's connection resolution (resolveRoleTarget /
+// resolveCleanupTarget); sync targets always carry a mount, cleanup targets
+// may be empty when a never-synced role's connection has no role-capable
+// mount (then there is nothing in Vault to delete).
+func NewRoleOps(adapter domain.RoleAdapter, handler *Handler, target *roleTarget) *RoleOps {
 	// Normalize once at construction so every downstream consumer
 	// (Vault SDK calls, log/metric labels, drift detection) sees the
-	// same canonical form. Bare "kubernetes" → "auth/kubernetes",
-	// empty → "auth/kubernetes". Both forms appear in user-facing CRD
-	// docs and existing fixtures, but Vault's actual mount paths are
-	// always under /v1/auth/<name>/.
-	authPath := vault.NormalizeAuthPath(adapter.GetAuthPath())
+	// same canonical "auth/<mount>" form. An empty mount stays empty —
+	// NormalizeAuthPath would silently default it to auth/kubernetes.
+	authPath := ""
+	if target.mount != "" {
+		authPath = vault.NormalizeAuthPath(target.mount)
+	}
 	return &RoleOps{
 		adapter:  adapter,
 		handler:  handler,
+		target:   target,
 		authPath: authPath,
 	}
 }
@@ -104,11 +110,10 @@ func (o *RoleOps) PrepareContent(ctx context.Context, vaultClient workflow.Vault
 	// Get service account bindings
 	o.serviceAccountBindings = o.adapter.GetServiceAccountBindings()
 
-	// Build auth-backend-specific role data. Connection is best-effort —
-	// the workflow has already verified it's Active; a transient fetch
-	// failure here falls back to cluster-default values.
-	connection := o.resolveConnection(ctx)
-	roleData, err := o.handler.buildRoleData(o.adapter, policyNames, o.serviceAccountBindings, connection)
+	// Build auth-backend-specific role data. The connection was resolved
+	// by the handler alongside the mount; JWT defaults come from it.
+	roleData, err := o.handler.buildRoleData(
+		o.adapter, o.authBackend(), policyNames, o.serviceAccountBindings, o.target.conn)
 	if err != nil {
 		return "", err
 	}
@@ -118,38 +123,15 @@ func (o *RoleOps) PrepareContent(ctx context.Context, vaultClient workflow.Vault
 	return o.handler.calculateSpecHash(o.roleData)
 }
 
-// resolveConnection fetches the referenced VaultConnection from the API
-// server. Returns nil if the reference is empty or the fetch fails —
-// defaulting will then fall back to cluster-default values.
-//
-// Distinguishes IsNotFound (silent — the connection genuinely doesn't
-// exist; the dependency check elsewhere will surface this) from other
-// errors (logged at V(1) so operators investigating "why am I getting
-// the default audience instead of the one I configured?" can find the
-// transient failure cause).
-func (o *RoleOps) resolveConnection(ctx context.Context) *vaultv1alpha1.VaultConnection {
-	connRef := o.adapter.GetConnectionRef()
-	if connRef == "" {
-		return nil
-	}
-	conn := &vaultv1alpha1.VaultConnection{}
-	err := o.handler.client.Get(ctx, client.ObjectKey{Name: connRef}, conn)
-	if err == nil {
-		return conn
-	}
-	if !apierrors.IsNotFound(err) {
-		logr.FromContextOrDiscard(ctx).V(1).Info(
-			"failed to load VaultConnection for JWT defaults; using cluster-default audience",
-			"connection", connRef, "error", err.Error(),
-		)
-	}
-	return nil
-}
-
-// authBackend resolves the role's auth backend family, honoring an explicit
-// spec.authType and falling back to inference from the auth path name.
+// authBackend maps the connection-resolved backend family to the vault
+// client's enum. Tolerates a nil target (cleanup-fallback ops and bare test
+// literals) — kubernetes is the only family whose payload has no
+// family-specific marker fields, so it is the safe default.
 func (o *RoleOps) authBackend() vault.AuthBackend {
-	return vault.ResolveAuthBackend(string(o.adapter.GetAuthType()), o.authPath)
+	if o.target != nil && o.target.backend == vaultv1alpha1.AuthBackendTypeJWT {
+		return vault.AuthBackendJWT
+	}
+	return vault.AuthBackendKubernetes
 }
 
 // DetectDrift compares expected vs actual role data in Vault.
@@ -207,12 +189,20 @@ func (o *RoleOps) ReadbackVerify(ctx context.Context, vaultClient workflow.Vault
 //
 // Roles carry no in-band ownership record (Vault has no role metadata
 // surface — ADR 0008), so no ownership gate is possible here. Cross-cluster
-// safety comes from the one-cluster-per-auth-mount invariant: this delete
-// only ever targets the connection's own mount.
+// safety comes from the one-cluster-per-auth-mount invariant: the mount is
+// resolved from the recorded binding (or the connection), never from the
+// role CR, so this delete only ever targets the connection's own mount.
 func (o *RoleOps) DeleteFromVault(ctx context.Context, vaultClient workflow.VaultOpsClient) error {
+	log := logr.FromContextOrDiscard(ctx)
+	if o.authPath == "" {
+		// Never-synced role whose connection has no role-capable mount:
+		// nothing was ever written to Vault under this CR.
+		log.Info("skipping Vault role delete — no recorded binding and no resolvable mount",
+			"role", o.adapter.GetVaultRoleName())
+		return nil
+	}
 	if dryrun.IsActive(o.adapter) {
-		logr.FromContextOrDiscard(ctx).Info(
-			"skipping DeleteKubernetesAuthRole due to dry-run annotation",
+		log.Info("skipping DeleteKubernetesAuthRole due to dry-run annotation",
 			"role", o.adapter.GetVaultRoleName())
 		return nil
 	}
@@ -233,7 +223,10 @@ func (o *RoleOps) ApplyActiveStatus(_ string, _ *metav1.Time) {
 // see the moment each dependency was satisfied, not just the pre-existing
 // "PolicyNotFound" warning events.
 func (o *RoleOps) ApplyBindings() {
-	roleBinding := binding.NewRoleBinding(o.authPath, o.adapter.GetVaultRoleName())
+	// NewRoleBinding expects the bare mount name (it prepends auth/ itself);
+	// passing the normalized o.authPath here used to record a double-prefixed
+	// vaultPath like auth/auth/kubernetes/role/<x>.
+	roleBinding := binding.NewRoleBinding(vault.AuthMountName(o.authPath), o.adapter.GetVaultRoleName())
 	o.adapter.SetBinding(roleBinding)
 
 	previous := o.adapter.GetPolicyBindings()

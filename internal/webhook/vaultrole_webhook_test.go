@@ -510,12 +510,11 @@ func TestVaultRoleValidator_ValidateUpdate(t *testing.T) {
 			errContains: "spec.connectionRef is immutable",
 		},
 		{
-			name: "authPath changed (immutable)",
+			name: "connectionRef unchanged (allowed)",
 			oldRole: &vaultv1alpha1.VaultRole{
 				ObjectMeta: metav1.ObjectMeta{Name: "test-role", Namespace: "default"},
 				Spec: vaultv1alpha1.VaultRoleSpec{
 					ConnectionRef:   "test-connection",
-					AuthPath:        "kubernetes",
 					ServiceAccounts: []string{"sa-1"},
 					Policies:        []vaultv1alpha1.PolicyReference{{Kind: "VaultPolicy", Name: "p1"}},
 				},
@@ -524,30 +523,6 @@ func TestVaultRoleValidator_ValidateUpdate(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{Name: "test-role", Namespace: "default"},
 				Spec: vaultv1alpha1.VaultRoleSpec{
 					ConnectionRef:   "test-connection",
-					AuthPath:        "kubernetes-v2",
-					ServiceAccounts: []string{"sa-1"},
-					Policies:        []vaultv1alpha1.PolicyReference{{Kind: "VaultPolicy", Name: "p1"}},
-				},
-			},
-			wantErr:     true,
-			errContains: "spec.authPath is immutable",
-		},
-		{
-			name: "connectionRef and authPath unchanged (allowed)",
-			oldRole: &vaultv1alpha1.VaultRole{
-				ObjectMeta: metav1.ObjectMeta{Name: "test-role", Namespace: "default"},
-				Spec: vaultv1alpha1.VaultRoleSpec{
-					ConnectionRef:   "test-connection",
-					AuthPath:        "kubernetes",
-					ServiceAccounts: []string{"sa-1"},
-					Policies:        []vaultv1alpha1.PolicyReference{{Kind: "VaultPolicy", Name: "p1"}},
-				},
-			},
-			newRole: &vaultv1alpha1.VaultRole{
-				ObjectMeta: metav1.ObjectMeta{Name: "test-role", Namespace: "default"},
-				Spec: vaultv1alpha1.VaultRoleSpec{
-					ConnectionRef:   "test-connection",
-					AuthPath:        "kubernetes",
 					ServiceAccounts: []string{"sa-1", "sa-2"},
 					Policies:        []vaultv1alpha1.PolicyReference{{Kind: "VaultPolicy", Name: "p1"}},
 				},
@@ -1008,29 +983,6 @@ func TestVaultClusterRoleValidator_ValidateUpdate(t *testing.T) {
 			},
 			wantErr:     true,
 			errContains: "spec.connectionRef is immutable",
-		},
-		{
-			name: "authPath changed (immutable)",
-			oldRole: &vaultv1alpha1.VaultClusterRole{
-				ObjectMeta: metav1.ObjectMeta{Name: "test-cluster-role"},
-				Spec: vaultv1alpha1.VaultClusterRoleSpec{
-					ConnectionRef:   "test-connection",
-					AuthPath:        "kubernetes",
-					ServiceAccounts: []vaultv1alpha1.ServiceAccountRef{{Name: "sa-1", Namespace: "ns-1"}},
-					Policies:        []vaultv1alpha1.PolicyReference{{Kind: "VaultClusterPolicy", Name: "p1"}},
-				},
-			},
-			newRole: &vaultv1alpha1.VaultClusterRole{
-				ObjectMeta: metav1.ObjectMeta{Name: "test-cluster-role"},
-				Spec: vaultv1alpha1.VaultClusterRoleSpec{
-					ConnectionRef:   "test-connection",
-					AuthPath:        "kubernetes-v2",
-					ServiceAccounts: []vaultv1alpha1.ServiceAccountRef{{Name: "sa-1", Namespace: "ns-1"}},
-					Policies:        []vaultv1alpha1.PolicyReference{{Kind: "VaultClusterPolicy", Name: "p1"}},
-				},
-			},
-			wantErr:     true,
-			errContains: "spec.authPath is immutable",
 		},
 	}
 
@@ -2129,41 +2081,10 @@ func TestVaultRoleValidator_DependencyValidationOnUpdate(t *testing.T) {
 	}
 }
 
-const authPathJWT = "auth/jwt"
-
-func TestResolveIsJWTFromPath(t *testing.T) {
-	cases := []struct {
-		path string
-		want bool
-	}{
-		{"", false},
-		{"auth/kubernetes", false},
-		{"auth/kubernetes-prod", false},
-		{"auth/jwt", true},
-		{"auth/jwt/", true},
-		{"auth/jwt/gitlab", true},
-		{"auth/jwt-gitlab", true},
-		{"auth/jwt_gitlab", true},
-		// No `-`/`_` separator — NOT a jwt submount; must match sync-time
-		// resolution (hasBackendPrefix), which rejects it.
-		{"auth/jwtgitlab", false},
-		{"auth/approle", false},
-		// Bare form is promoted to auth/jwt at sync time, so admission
-		// must treat it as JWT too.
-		{"jwt", true},
-	}
-	for _, tc := range cases {
-		if got := resolveIsJWT("", tc.path); got != tc.want {
-			t.Errorf("resolveIsJWT(%q) = %v, want %v", tc.path, got, tc.want)
-		}
-	}
-}
-
 func TestValidateJWTSpec(t *testing.T) {
 	cases := []struct {
 		name                 string
-		authType             string
-		authPath             string
+		isJWT                bool
 		jwt                  *vaultv1alpha1.VaultRoleJWTSpec
 		serviceAccountCount  int
 		wantErrSubstring     string
@@ -2171,93 +2092,73 @@ func TestValidateJWTSpec(t *testing.T) {
 		wantNoWarning        bool
 	}{
 		{
-			name:                "non-jwt path with no jwt spec",
-			authPath:            "auth/kubernetes",
+			name:                "kubernetes family with no jwt spec",
 			serviceAccountCount: 1,
 			wantNoWarning:       true,
 		},
-		// authType override (§7): a custom-named mount declared as JWT accepts
-		// spec.jwt even though the path name isn't `auth/jwt`.
 		{
-			name:                "authType jwt on custom path accepts spec.jwt",
-			authType:            "jwt",
-			authPath:            "auth/custom-oidc",
+			name:                "jwt family accepts spec.jwt",
+			isJWT:               true,
 			jwt:                 &vaultv1alpha1.VaultRoleJWTSpec{BoundSubject: "system:serviceaccount:ns:sa"},
 			serviceAccountCount: 1,
 			wantNoWarning:       true,
 		},
 		{
-			name:                "authType jwt on custom path, single SA, no override",
-			authType:            "jwt",
-			authPath:            "auth/custom-oidc",
-			serviceAccountCount: 1,
-			wantNoWarning:       true,
-		},
-		{
-			name:                "authType kubernetes forces k8s, jwt spec rejected on custom path",
-			authType:            "kubernetes",
-			authPath:            "auth/custom-oidc",
+			name:                "kubernetes family rejects spec.jwt",
 			jwt:                 &vaultv1alpha1.VaultRoleJWTSpec{BoundSubject: "x"},
 			serviceAccountCount: 1,
-			wantErrSubstring:    "may only be used when the role targets a JWT auth mount",
+			wantErrSubstring:    "may only be used when the referenced VaultConnection resolves",
 		},
 		{
-			name:                "jwt path with single SA, no override",
-			authPath:            authPathJWT,
+			name:                "jwt family with single SA, no override",
+			isJWT:               true,
 			serviceAccountCount: 1,
 			wantNoWarning:       true,
 		},
 		{
-			name:                "jwt path with multi-SA and explicit boundSubject",
-			authPath:            authPathJWT,
+			name:                "jwt family with multi-SA and explicit boundSubject",
+			isJWT:               true,
 			jwt:                 &vaultv1alpha1.VaultRoleJWTSpec{BoundSubject: "sub"},
 			serviceAccountCount: 3,
 			wantNoWarning:       true,
 		},
 		{
-			name:                "jwt path with multi-SA and explicit boundClaims",
-			authPath:            authPathJWT,
+			name:                "jwt family with multi-SA and explicit boundClaims",
+			isJWT:               true,
 			jwt:                 &vaultv1alpha1.VaultRoleJWTSpec{BoundClaims: map[string]string{"project_id": "111"}},
 			serviceAccountCount: 2,
 			wantNoWarning:       true,
 		},
 		{
-			name:                "jwt path with multi-SA and explicit boundClaimsList",
-			authPath:            authPathJWT,
+			name:                "jwt family with multi-SA and explicit boundClaimsList",
+			isJWT:               true,
 			jwt:                 &vaultv1alpha1.VaultRoleJWTSpec{BoundClaimsList: map[string][]string{"project_id": {"111"}}},
 			serviceAccountCount: 2,
 			wantNoWarning:       true,
 		},
 		{
-			name:                "jwt path with multi-SA, no override, rejected",
-			authPath:            authPathJWT,
+			name:                "jwt family with multi-SA, no override, rejected",
+			isJWT:               true,
 			serviceAccountCount: 2,
 			wantErrSubstring:    "more than one serviceAccount",
 		},
 		{
-			name:                "jwt set but authPath is k8s, rejected",
-			authPath:            "auth/kubernetes",
-			jwt:                 &vaultv1alpha1.VaultRoleJWTSpec{BoundSubject: "x"},
-			serviceAccountCount: 1,
-			wantErrSubstring:    "may only be used when the role targets a JWT auth mount",
-		},
-		{
 			name:                "boundSubject and boundClaims mutually exclusive",
-			authPath:            authPathJWT,
+			isJWT:               true,
 			jwt:                 &vaultv1alpha1.VaultRoleJWTSpec{BoundSubject: "x", BoundClaims: map[string]string{"project_id": "111"}},
 			serviceAccountCount: 1,
 			wantErrSubstring:    "mutually exclusive",
 		},
 		{
 			name:                "boundSubject and boundClaimsList mutually exclusive",
-			authPath:            authPathJWT,
+			isJWT:               true,
 			jwt:                 &vaultv1alpha1.VaultRoleJWTSpec{BoundSubject: "x", BoundClaimsList: map[string][]string{"project_id": {"111"}}},
 			serviceAccountCount: 1,
 			wantErrSubstring:    "mutually exclusive",
 		},
 		{
-			name:     "ref bound without ref_type warns",
-			authPath: authPathJWT,
+			name:  "ref bound without ref_type warns",
+			isJWT: true,
 			jwt: &vaultv1alpha1.VaultRoleJWTSpec{
 				BoundClaimsList: map[string][]string{
 					"project_id":    {"111"},
@@ -2269,8 +2170,8 @@ func TestValidateJWTSpec(t *testing.T) {
 			wantWarningSubstring: "without 'ref_type'",
 		},
 		{
-			name:     "ref bound without ref_protected warns",
-			authPath: authPathJWT,
+			name:  "ref bound without ref_protected warns",
+			isJWT: true,
 			jwt: &vaultv1alpha1.VaultRoleJWTSpec{
 				BoundClaimsList: map[string][]string{
 					"project_id": {"111"},
@@ -2282,8 +2183,8 @@ func TestValidateJWTSpec(t *testing.T) {
 			wantWarningSubstring: "without 'ref_protected'",
 		},
 		{
-			name:     "fully-pinned ref binding emits no warnings",
-			authPath: authPathJWT,
+			name:  "fully-pinned ref binding emits no warnings",
+			isJWT: true,
 			jwt: &vaultv1alpha1.VaultRoleJWTSpec{
 				BoundClaimsList: map[string][]string{
 					"project_id":    {"111"},
@@ -2296,8 +2197,8 @@ func TestValidateJWTSpec(t *testing.T) {
 			wantNoWarning:       true,
 		},
 		{
-			name:     "boundClaimsType without claims warns",
-			authPath: authPathJWT,
+			name:  "boundClaimsType without claims warns",
+			isJWT: true,
 			jwt: &vaultv1alpha1.VaultRoleJWTSpec{
 				BoundClaimsType: "glob",
 				BoundSubject:    "sub",
@@ -2306,8 +2207,8 @@ func TestValidateJWTSpec(t *testing.T) {
 			wantWarningSubstring: "no effect without",
 		},
 		{
-			name:     "duplicate key in boundClaims and boundClaimsList warns",
-			authPath: authPathJWT,
+			name:  "duplicate key in boundClaims and boundClaimsList warns",
+			isJWT: true,
 			jwt: &vaultv1alpha1.VaultRoleJWTSpec{
 				BoundClaims:     map[string]string{"project_id": "stale"},
 				BoundClaimsList: map[string][]string{"project_id": {"111"}},
@@ -2316,8 +2217,8 @@ func TestValidateJWTSpec(t *testing.T) {
 			wantWarningSubstring: "overridden by spec.jwt.boundClaimsList",
 		},
 		{
-			name:     "boundClaims-only (no ref) emits no warnings",
-			authPath: authPathJWT,
+			name:  "boundClaims-only (no ref) emits no warnings",
+			isJWT: true,
 			jwt: &vaultv1alpha1.VaultRoleJWTSpec{
 				BoundClaimsList: map[string][]string{"project_id": {"111"}},
 			},
@@ -2327,7 +2228,7 @@ func TestValidateJWTSpec(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			warnings, errs := validateJWTSpec(tc.authType, tc.authPath, tc.jwt, tc.serviceAccountCount)
+			warnings, errs := validateJWTSpec(tc.isJWT, tc.jwt, tc.serviceAccountCount)
 			if tc.wantErrSubstring == "" {
 				if len(errs) > 0 {
 					t.Errorf("expected no errors, got %v", errs)
@@ -2359,7 +2260,35 @@ func TestVaultRoleValidator_ValidateCreate_JWT(t *testing.T) {
 	ctx := context.Background()
 	scheme := runtime.NewScheme()
 	_ = vaultv1alpha1.AddToScheme(scheme)
-	client := fake.NewClientBuilder().WithScheme(scheme).Build()
+	// The backend family comes from the referenced connection: jwt-conn
+	// resolves to the jwt family via its login mount, k8s-conn to
+	// kubernetes, and token-conn (no defaults.authPath) resolves to no
+	// role-capable mount at all.
+	jwtConn := &vaultv1alpha1.VaultConnection{
+		ObjectMeta: metav1.ObjectMeta{Name: "jwt-conn"},
+		Spec: vaultv1alpha1.VaultConnectionSpec{
+			Address: "https://vault.example.com",
+			Auth:    vaultv1alpha1.AuthConfig{JWT: &vaultv1alpha1.JWTAuth{Role: "op", AuthPath: "jwt"}},
+		},
+	}
+	k8sConn := &vaultv1alpha1.VaultConnection{
+		ObjectMeta: metav1.ObjectMeta{Name: "k8s-conn"},
+		Spec: vaultv1alpha1.VaultConnectionSpec{
+			Address: "https://vault.example.com",
+			Auth:    vaultv1alpha1.AuthConfig{Kubernetes: &vaultv1alpha1.KubernetesAuth{Role: "op"}},
+		},
+	}
+	tokenConn := &vaultv1alpha1.VaultConnection{
+		ObjectMeta: metav1.ObjectMeta{Name: "token-conn"},
+		Spec: vaultv1alpha1.VaultConnectionSpec{
+			Address: "https://vault.example.com",
+			Auth: vaultv1alpha1.AuthConfig{Token: &vaultv1alpha1.TokenAuth{
+				SecretRef: vaultv1alpha1.SecretKeySelector{Name: "s", Namespace: "ns", Key: "t"},
+			}},
+		},
+	}
+	client := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(jwtConn, k8sConn, tokenConn).Build()
 	v := &VaultRoleValidator{client: client}
 
 	cases := []struct {
@@ -2369,24 +2298,22 @@ func TestVaultRoleValidator_ValidateCreate_JWT(t *testing.T) {
 		errContains string
 	}{
 		{
-			name: "jwt single SA",
+			name: "jwt-family connection, single SA",
 			role: &vaultv1alpha1.VaultRole{
 				ObjectMeta: metav1.ObjectMeta{Name: "r1", Namespace: "ns"},
 				Spec: vaultv1alpha1.VaultRoleSpec{
-					ConnectionRef:   "c",
-					AuthPath:        authPathJWT,
+					ConnectionRef:   "jwt-conn",
 					ServiceAccounts: []string{"sa1"},
 					Policies:        []vaultv1alpha1.PolicyReference{{Kind: "VaultClusterPolicy", Name: "p"}},
 				},
 			},
 		},
 		{
-			name: "jwt multi SA without override rejected",
+			name: "jwt-family connection, multi SA without override rejected",
 			role: &vaultv1alpha1.VaultRole{
 				ObjectMeta: metav1.ObjectMeta{Name: "r2", Namespace: "ns"},
 				Spec: vaultv1alpha1.VaultRoleSpec{
-					ConnectionRef:   "c",
-					AuthPath:        authPathJWT,
+					ConnectionRef:   "jwt-conn",
 					ServiceAccounts: []string{"sa1", "sa2"},
 					Policies:        []vaultv1alpha1.PolicyReference{{Kind: "VaultClusterPolicy", Name: "p"}},
 				},
@@ -2395,19 +2322,42 @@ func TestVaultRoleValidator_ValidateCreate_JWT(t *testing.T) {
 			errContains: "more than one serviceAccount",
 		},
 		{
-			name: "jwt sub-spec with k8s auth path rejected",
+			name: "jwt sub-spec on kubernetes-family connection rejected",
 			role: &vaultv1alpha1.VaultRole{
 				ObjectMeta: metav1.ObjectMeta{Name: "r3", Namespace: "ns"},
 				Spec: vaultv1alpha1.VaultRoleSpec{
-					ConnectionRef:   "c",
-					AuthPath:        "auth/kubernetes",
+					ConnectionRef:   "k8s-conn",
 					ServiceAccounts: []string{"sa1"},
 					Policies:        []vaultv1alpha1.PolicyReference{{Kind: "VaultClusterPolicy", Name: "p"}},
 					JWT:             &vaultv1alpha1.VaultRoleJWTSpec{BoundSubject: "x"},
 				},
 			},
 			wantErr:     true,
-			errContains: "may only be used when the role targets a JWT auth mount",
+			errContains: "may only be used when the referenced VaultConnection resolves",
+		},
+		{
+			name: "role-incapable connection (token, no defaults) denied",
+			role: &vaultv1alpha1.VaultRole{
+				ObjectMeta: metav1.ObjectMeta{Name: "r4", Namespace: "ns"},
+				Spec: vaultv1alpha1.VaultRoleSpec{
+					ConnectionRef:   "token-conn",
+					ServiceAccounts: []string{"sa1"},
+					Policies:        []vaultv1alpha1.PolicyReference{{Kind: "VaultClusterPolicy", Name: "p"}},
+				},
+			},
+			wantErr:     true,
+			errContains: "has no role-capable auth mount",
+		},
+		{
+			name: "missing connection allowed (reconcile backstop)",
+			role: &vaultv1alpha1.VaultRole{
+				ObjectMeta: metav1.ObjectMeta{Name: "r5", Namespace: "ns"},
+				Spec: vaultv1alpha1.VaultRoleSpec{
+					ConnectionRef:   "not-yet-created",
+					ServiceAccounts: []string{"sa1"},
+					Policies:        []vaultv1alpha1.PolicyReference{{Kind: "VaultClusterPolicy", Name: "p"}},
+				},
+			},
 		},
 	}
 	for _, tc := range cases {
@@ -2424,108 +2374,6 @@ func TestVaultRoleValidator_ValidateCreate_JWT(t *testing.T) {
 			}
 			if err != nil {
 				t.Errorf("unexpected error: %v", err)
-			}
-		})
-	}
-}
-
-// TestValidateAuthPathSupported pins IMPROVEMENTS §7: the webhook must
-// reject VaultRole CRs whose authPath targets a Vault auth backend the
-// role handler doesn't implement (aws/gcp/approle/ldap/etc.), while still
-// accepting all the forms that appear in our docs and fixtures:
-//   - empty (defaults to auth/kubernetes)
-//   - bare mount name: "kubernetes", "jwt"
-//   - full form: "auth/kubernetes", "auth/jwt"
-//   - submounts: "auth/kubernetes-prod", "auth/jwt/gitlab"
-func TestValidateAuthPathSupported(t *testing.T) {
-	cases := []struct {
-		name             string
-		authPath         string
-		authType         string
-		wantErrSubstring string // empty means expect accept
-	}{
-		{name: "empty defaults to kubernetes", authPath: ""},
-		{name: "bare kubernetes (docs form)", authPath: "kubernetes"},
-		{name: "bare jwt (docs form)", authPath: "jwt"},
-		{name: "full kubernetes path", authPath: "auth/kubernetes"},
-		{name: "full jwt path", authPath: "auth/jwt"},
-		{name: "kubernetes submount", authPath: "auth/kubernetes-prod"},
-		{name: "jwt submount", authPath: "auth/jwt/gitlab"},
-		{name: "jwt separator submount", authPath: "auth/jwt-gitlab"},
-		{name: "jwt path with trailing slash", authPath: "auth/jwt/"},
-		// Separator rule: no `-`/`_` after the family name → not a submount.
-		// Admission must reject these like sync-time resolution does, instead
-		// of accepting a role that then fails every reconcile.
-		{
-			name:             "jwt-prefixed name without separator rejected",
-			authPath:         "auth/jwtgitlab",
-			wantErrSubstring: "unsupported Vault auth backend",
-		},
-		{
-			name:             "kubernetes-prefixed name without separator rejected",
-			authPath:         "auth/kubernetestest",
-			wantErrSubstring: "unsupported Vault auth backend",
-		},
-		// authType override (§7): custom-named mounts are accepted when the
-		// backend family is declared explicitly.
-		{name: "authType jwt accepts custom path", authPath: "auth/custom-oidc", authType: "jwt"},
-		{name: "authType jwt accepts bare custom path", authPath: "custom-oidc", authType: "jwt"},
-		{name: "authType kubernetes accepts custom path", authPath: "auth/corp-k8s", authType: "kubernetes"},
-		{
-			name:             "authType jwt requires authPath",
-			authPath:         "",
-			authType:         "jwt",
-			wantErrSubstring: "spec.authPath is required when spec.authType is jwt",
-		},
-		{
-			name:             "custom path without authType still rejected",
-			authPath:         "auth/custom-oidc",
-			wantErrSubstring: "unsupported Vault auth backend",
-		},
-		{
-			name:             "aws backend rejected",
-			authPath:         "auth/aws",
-			wantErrSubstring: "unsupported Vault auth backend",
-		},
-		{
-			name:             "gcp backend rejected",
-			authPath:         "auth/gcp",
-			wantErrSubstring: "unsupported Vault auth backend",
-		},
-		{
-			name:             "approle backend rejected",
-			authPath:         "auth/approle",
-			wantErrSubstring: "unsupported Vault auth backend",
-		},
-		{
-			name:             "ldap backend rejected",
-			authPath:         "auth/ldap",
-			wantErrSubstring: "unsupported Vault auth backend",
-		},
-		{
-			name:             "bare aws rejected",
-			authPath:         "aws",
-			wantErrSubstring: "unsupported Vault auth backend",
-		},
-		{
-			name:             "§7 roadmap reference present in rejection",
-			authPath:         "auth/approle",
-			wantErrSubstring: "IMPROVEMENTS.md §7",
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			got := validateAuthPathSupported(tc.authPath, tc.authType)
-			if tc.wantErrSubstring == "" {
-				if got != "" {
-					t.Errorf("validateAuthPathSupported(%q, %q) = %q, want accept", tc.authPath, tc.authType, got)
-				}
-				return
-			}
-			if !strings.Contains(got, tc.wantErrSubstring) {
-				t.Errorf("validateAuthPathSupported(%q, %q) = %q, want error containing %q",
-					tc.authPath, tc.authType, got, tc.wantErrSubstring)
 			}
 		})
 	}

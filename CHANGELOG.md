@@ -23,6 +23,19 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ### Removed
 
+- **BREAKING: `spec.authPath` and `spec.authType` on VaultRole and
+  VaultClusterRole.** Roles carry no Vault infrastructure knowledge anymore —
+  the auth mount and backend family come exclusively from the referenced
+  VaultConnection (persona split: connections belong to the platform team,
+  roles/policies to app teams). Migration: delete both fields from role
+  manifests; declare the mount once on the connection via
+  `spec.defaults.authPath` (or let it follow the login mount). A role that
+  previously relied on the implicit `auth/kubernetes` default now follows its
+  connection — verify the connection resolves the mount you intended. The
+  webhook denies roles referencing a connection with no role-capable mount;
+  cleanup deletes are pinned to the mount recorded in `status.binding` at
+  last sync, so a later connection mount change never re-targets them.
+
 - **BREAKING: `spec.defaults.secretEnginePath` and `spec.defaults.transitPath`
   on VaultConnection.** Both were declared but never consumed by any code
   path — dead schema removed. Re-add if a KV/transit feature actually reads
@@ -38,6 +51,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   context-logger chain (its scans now carry a `reconcileID` too).
 
 ### Fixed
+
+- **`status.binding.vaultPath` no longer double-prefixed.** Role bindings
+  recorded `auth/auth/kubernetes/role/<x>` (the normalized mount was passed
+  to a helper that prepends `auth/` itself) and `authMount` carried the
+  `auth/`-prefixed form. New bindings record the bare mount + correct path;
+  consumers normalize legacy records.
 
 - **Vault 403s now surface as `VaultPermissionDenied` instead of a generic
   transient failure.** When the operator's own Vault token lacks a policy

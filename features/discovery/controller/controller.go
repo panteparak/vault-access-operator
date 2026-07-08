@@ -216,13 +216,17 @@ func (r *Reconciler) runScan(
 // managedRoleNames derives the set of Vault role names owned by this
 // cluster's role CRs on the scanned auth mount. Roles carry no in-band
 // ownership record (ADR 0008), so the CR set is the ownership source for
-// discovery. A list failure yields an empty set — every role then surfaces
+// discovery. Roles carry no mount either — the connection is the sole
+// source — so a role CR counts when its referenced connection resolves to
+// the scanned mount (two connections sharing one mount both count; a naive
+// connectionRef match would mis-flag the second connection's roles as
+// unmanaged). A list failure yields an empty set — every role then surfaces
 // as unmanaged, which is safe (discovery never mutates Vault).
 func (r *Reconciler) managedRoleNames(
 	ctx context.Context, authPath string, log logr.Logger,
 ) map[string]struct{} {
-	mount := vault.NormalizeAuthPath(authPath)
 	managed := map[string]struct{}{}
+	connsOnMount := r.connectionsOnMount(ctx, vault.AuthMountName(authPath), log)
 
 	var roles vaultv1alpha1.VaultRoleList
 	if err := r.List(ctx, &roles); err != nil {
@@ -230,7 +234,7 @@ func (r *Reconciler) managedRoleNames(
 	} else {
 		for i := range roles.Items {
 			role := &roles.Items[i]
-			if vault.NormalizeAuthPath(role.Spec.AuthPath) != mount {
+			if _, ok := connsOnMount[role.Spec.ConnectionRef]; !ok {
 				continue
 			}
 			managed[naming.Vault(role.Namespace+"-"+role.Name)] = struct{}{}
@@ -243,13 +247,33 @@ func (r *Reconciler) managedRoleNames(
 	} else {
 		for i := range clusterRoles.Items {
 			role := &clusterRoles.Items[i]
-			if vault.NormalizeAuthPath(role.Spec.AuthPath) != mount {
+			if _, ok := connsOnMount[role.Spec.ConnectionRef]; !ok {
 				continue
 			}
 			managed[naming.Vault(role.Name)] = struct{}{}
 		}
 	}
 	return managed
+}
+
+// connectionsOnMount returns the names of the VaultConnections whose
+// resolved role mount (VaultConnection.RoleMount) equals the given bare
+// mount name.
+func (r *Reconciler) connectionsOnMount(
+	ctx context.Context, mount string, log logr.Logger,
+) map[string]struct{} {
+	set := map[string]struct{}{}
+	var conns vaultv1alpha1.VaultConnectionList
+	if err := r.List(ctx, &conns); err != nil {
+		log.V(1).Info("failed to list VaultConnections for discovery ownership", "error", err.Error())
+		return set
+	}
+	for i := range conns.Items {
+		if m, _, err := conns.Items[i].RoleMount(); err == nil && m == mount {
+			set[conns.Items[i].Name] = struct{}{}
+		}
+	}
+	return set
 }
 
 // persistScanResult updates DiscoveryStatus with a retry loop to handle

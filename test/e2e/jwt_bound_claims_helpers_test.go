@@ -55,8 +55,14 @@ const (
 	jwtGitlabMount = "jwt-gitlab"
 
 	// jwtGitlabAuthPath is the full Vault auth path including the "auth/"
-	// prefix. Used in VaultRole CRs (`spec.authPath`) and HTTP login URLs.
+	// prefix. Used in HTTP login URLs.
 	jwtGitlabAuthPath = "auth/jwt-gitlab"
+
+	// jwtGitlabConnectionName is the dedicated VaultConnection whose
+	// defaults.authPath declares the jwt-gitlab mount. Roles carry no mount
+	// fields — TC-AU08 roles reference this connection instead of the
+	// shared one (which resolves to auth/kubernetes).
+	jwtGitlabConnectionName = "vault-connection-jwt-gitlab"
 
 	// jwtGitlabPolicy is the VaultPolicy CR name attached to every TC-AU08 role.
 	jwtGitlabPolicy = "tc-au08-policy"
@@ -194,8 +200,7 @@ func buildJWTGitlabRole(
 			Namespace: testNamespace,
 		},
 		Spec: vaultv1alpha1.VaultRoleSpec{
-			ConnectionRef:   sharedVaultConnectionName,
-			AuthPath:        jwtGitlabAuthPath,
+			ConnectionRef:   jwtGitlabConnectionName,
 			ServiceAccounts: []string{jwtGitlabSA},
 			Policies: []vaultv1alpha1.PolicyReference{{
 				Kind:      "VaultPolicy",

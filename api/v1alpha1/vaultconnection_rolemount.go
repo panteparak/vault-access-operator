@@ -31,8 +31,8 @@ import (
 // Resolution, in order:
 //  1. spec.defaults.authPath set → that mount. Family from
 //     spec.defaults.authType when set, otherwise inferred from the mount
-//     name (`kubernetes`/`jwt` exact or with a `-`/`_` separator — same
-//     rule as pkg/vault.AuthBackendForPath); unclassifiable names error.
+//     name (`kubernetes`/`jwt` exact or with a `-`/`_` separator);
+//     unclassifiable names error.
 //  2. Login mount: auth.kubernetes → (its authPath, kubernetes family);
 //     auth.jwt / auth.oidc → (its authPath, jwt family — Vault's OIDC
 //     method IS the jwt backend).
@@ -92,9 +92,10 @@ func bareMountNameOr(path, def string) string {
 
 // familyForMountName infers the backend family from a mount name's first
 // segment: `kubernetes`/`jwt` exact, or followed by `-`/`_` (multi-tenant
-// submounts like `kubernetes-prod`). Mirrors pkg/vault.AuthBackendForPath,
-// which this package cannot import (api stays dependency-light). Returns ""
-// for unclassifiable names.
+// submounts like `kubernetes-prod`). Requiring a separator avoids
+// false-positives like `kubernetestest` routing role writes through the
+// kubernetes code path against a mount that isn't kubernetes auth.
+// Returns "" for unclassifiable names.
 func familyForMountName(mount string) AuthBackendType {
 	seg, _, _ := strings.Cut(mount, "/")
 	switch {

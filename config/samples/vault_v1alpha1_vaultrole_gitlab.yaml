@@ -2,12 +2,32 @@
 # Demonstrates the multi-value boundClaimsList and boundClaimsType="string"
 # (exact match) added for CI/CD JWT auth — see docs/auth-methods/jwt-gitlab.md.
 #
+# The jwt-gitlab mount is declared ONCE on a dedicated VaultConnection
+# (platform team); roles carry no mount fields and follow their connection.
+#
 # Assumes the operator admin has already:
 #   1. enabled the JWT auth mount:  vault auth enable -path=jwt-gitlab jwt
 #   2. configured OIDC discovery + bound_issuer for the mount:
 #        vault write auth/jwt-gitlab/config \
 #            oidc_discovery_url=https://gitlab.example.com \
 #            bound_issuer=https://gitlab.example.com
+apiVersion: vault.platform.io/v1alpha1
+kind: VaultConnection
+metadata:
+  labels:
+    app.kubernetes.io/name: vault-access-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: vault-gitlab
+spec:
+  address: https://vault.example.com:8200
+  auth:
+    kubernetes:
+      role: vault-access-operator
+  # Roles referencing this connection land on auth/jwt-gitlab
+  # (the jwt-* name resolves to the jwt family automatically).
+  defaults:
+    authPath: jwt-gitlab
+---
 apiVersion: vault.platform.io/v1alpha1
 kind: VaultRole
 metadata:
@@ -17,12 +37,9 @@ metadata:
   name: gitlab-ci-role
   namespace: default
 spec:
-  connectionRef: vault-primary
+  connectionRef: vault-gitlab
   conflictPolicy: Fail
   deletionPolicy: Delete
-
-  # Targets the JWT mount the admin enabled for GitLab tokens.
-  authPath: auth/jwt-gitlab
 
   # Placeholder — bypassed for JWT roles bound via spec.jwt.boundClaims*.
   serviceAccounts:

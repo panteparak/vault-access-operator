@@ -17,7 +17,6 @@ metadata:
   name: {{.Name}}
 spec:
   connectionRef: {{.ConnectionRef}}
-  authPath: "auth/kubernetes"
   serviceAccounts:
     - name: {{.ServiceAccount}}
       namespace: {{.ServiceAccountNS}}

@@ -139,7 +139,6 @@ var _ = Describe("VaultClusterRole Tests", Ordered, Label("module"), func() {
 				},
 				Spec: vaultv1alpha1.VaultClusterRoleSpec{
 					ConnectionRef: sharedVaultConnectionName,
-					AuthPath:      "auth/kubernetes",
 					ServiceAccounts: []vaultv1alpha1.ServiceAccountRef{
 						{
 							Name:      clusterRoleSAName,
@@ -270,7 +269,6 @@ var _ = Describe("VaultClusterRole Tests", Ordered, Label("module"), func() {
 				},
 				Spec: vaultv1alpha1.VaultClusterRoleSpec{
 					ConnectionRef: sharedVaultConnectionName,
-					AuthPath:      "auth/kubernetes",
 					ServiceAccounts: []vaultv1alpha1.ServiceAccountRef{
 						{
 							Name:      clusterRoleSAName,
