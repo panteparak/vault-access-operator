@@ -222,8 +222,13 @@ jobs:
           platforms: ${{ matrix.platform }}
           push: true
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.guard.outputs.version }}-${{ steps.platform.outputs.pair }}
-          cache-from: type=gha,scope=release-${{ steps.platform.outputs.pair }}
-          cache-to: type=gha,scope=release-${{ steps.platform.outputs.pair }},mode=max
+          # Registry cache instead of GHA cache: the GHA cache backend has a
+          # hard 10GB-per-repo quota shared across all workflows and buildx
+          # never evicts it cleanly, so writes start failing with
+          # "failed to reserve cache" once full. Registry cache has no such
+          # ceiling and reuses the ghcr.io auth already in place above.
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/cache:release-${{ steps.platform.outputs.pair }}
+          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/cache:release-${{ steps.platform.outputs.pair }},mode=max
 
   # ============================================================================
   # Docker Release Manifest: Retag CI images or merge platform-specific builds
