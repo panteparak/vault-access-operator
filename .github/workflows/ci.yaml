@@ -452,8 +452,14 @@ jobs:
           platforms: ${{ matrix.platform }}
           push: true
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ steps.short-sha.outputs.sha }}-${{ steps.platform.outputs.pair }}
-          cache-from: type=gha,scope=build-${{ steps.platform.outputs.pair }}
-          cache-to: type=gha,scope=build-${{ steps.platform.outputs.pair }},mode=max
+          # Registry cache instead of GHA cache on the authenticated push path:
+          # the GHA cache backend has a hard 10GB-per-repo quota shared across
+          # all workflows and buildx never evicts it cleanly, so writes start
+          # failing with "failed to reserve cache" once full. Registry cache
+          # has no such ceiling. Left as type=gha on the PR build below since
+          # that step deliberately skips ghcr.io auth for fork PRs.
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/cache:build-${{ steps.platform.outputs.pair }}
+          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/cache:build-${{ steps.platform.outputs.pair }},mode=max
 
       # PRs: Build locally and save for e2e (amd64 only)
       - name: Build for PR
