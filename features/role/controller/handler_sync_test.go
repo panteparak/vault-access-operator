@@ -1294,6 +1294,59 @@ func TestSyncRole_InheritsLoginMount(t *testing.T) {
 	}
 }
 
+// TestSyncRole_JWT_ClaimsOnly: a role with no serviceAccounts binds on JWT
+// claims (CI OIDC tokens — GitHub/GitLab id_tokens — carry no k8s SA identity).
+// The written role has bound_claims and no bound_subject.
+func TestSyncRole_JWT_ClaimsOnly(t *testing.T) {
+	state := newMockVaultState()
+	conn := newTestVaultConnection()
+	conn.Spec.Auth = vaultv1alpha1.AuthConfig{
+		JWT: &vaultv1alpha1.JWTAuth{Role: "operator", AuthPath: "github"},
+	}
+	conn.Spec.Defaults = nil
+	role := newTestVaultRole()
+	role.Spec.ServiceAccounts = nil
+	role.Spec.JWT = &vaultv1alpha1.VaultRoleJWTSpec{
+		BoundClaimsList: map[string][]string{
+			"repository": {"org/repo"},
+			"ref_type":   {"branch"},
+		},
+	}
+
+	handler, server, _ := setupSyncRoleTest(t, role, conn, mockVaultServerConfig{state: state})
+	defer server.Close()
+
+	ctx := logr.NewContext(context.Background(), logr.Discard())
+	if err := handler.SyncRole(ctx, domain.NewVaultRoleAdapter(role)); err != nil {
+		t.Fatalf("SyncRole failed: %v", err)
+	}
+
+	expectedKey := "auth/github/role/" + naming.VaultName(naming.Placeholder, testNamespace, testRoleName)
+	state.mu.Lock()
+	roleData, exists := state.roles[expectedKey]
+	state.mu.Unlock()
+	if !exists {
+		t.Fatalf("role not written; keys: %v", keysOf(state.roles))
+	}
+	if roleData["role_type"] != string(vault.AuthBackendJWT) {
+		t.Errorf("expected role_type=jwt, got %v", roleData["role_type"])
+	}
+	if _, has := roleData["bound_subject"]; has {
+		t.Errorf("bound_subject should be absent for a claims-only role, got %v", roleData["bound_subject"])
+	}
+	claims, ok := roleData["bound_claims"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected bound_claims map, got %T", roleData["bound_claims"])
+	}
+	repo, ok := claims["repository"].([]interface{})
+	if !ok || len(repo) != 1 || repo[0] != "org/repo" {
+		t.Errorf("expected bound_claims.repository=[org/repo], got %v", claims["repository"])
+	}
+	if names, has := roleData["bound_service_account_names"]; has {
+		t.Errorf("JWT payload should not include bound_service_account_names, got %v", names)
+	}
+}
+
 // TestSyncRole_DefaultsOverrideLoginMount: defaults.authPath wins over the
 // login mount, including the backend family switch.
 func TestSyncRole_DefaultsOverrideLoginMount(t *testing.T) {

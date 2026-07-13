@@ -21,6 +21,7 @@ import (
 )
 
 // VaultClusterRoleSpec defines the desired state of VaultClusterRole.
+// +kubebuilder:validation:XValidation:rule="(has(self.serviceAccounts) && size(self.serviceAccounts) > 0) || (has(self.jwt) && (has(self.jwt.boundClaims) || has(self.jwt.boundClaimsList) || has(self.jwt.boundSubject)))",message="a role must bind something: set serviceAccounts, or jwt.boundClaims/boundClaimsList/boundSubject"
 type VaultClusterRoleSpec struct {
 	// ConnectionRef is the name of the VaultConnection to use
 	// +kubebuilder:validation:Required
@@ -31,10 +32,11 @@ type VaultClusterRoleSpec struct {
 	// +optional
 	ConflictPolicy ConflictPolicy `json:"conflictPolicy,omitempty"`
 
-	// ServiceAccounts defines which service accounts can use this role
-	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:MinItems=1
-	ServiceAccounts []ServiceAccountRef `json:"serviceAccounts"`
+	// ServiceAccounts defines which service accounts can use this role.
+	// May be omitted for jwt/oidc roles that bind on claims instead (jwt.boundClaims,
+	// jwt.boundClaimsList, or jwt.boundSubject) — e.g. GitHub/GitLab CI id_tokens.
+	// +optional
+	ServiceAccounts []ServiceAccountRef `json:"serviceAccounts,omitempty"`
 
 	// Policies defines which policies to attach to this role
 	// +kubebuilder:validation:Required

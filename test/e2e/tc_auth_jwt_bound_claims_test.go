@@ -262,6 +262,55 @@ var _ = Describe("JWT BoundClaims Tests", Label("auth"), Ordered, func() {
 				assertDriftedFalse(current)
 			})
 		})
+	// TC-AU08-07: claims-only role — no serviceAccounts at all. CI OIDC tokens
+	// (GitHub/GitLab id_tokens) carry no k8s SA identity; the role binds purely
+	// on claims and the operator derives no bound_subject.
+	Context("TC-AU08-07: claims-only role with no serviceAccounts",
+		Ordered, func() {
+			const crName = "tc-au08-07-claims-only"
+			vaultRoleName := vaultRoleNameOf(crName)
+
+			AfterAll(func() { cleanupJWTGitlabRole(ctx, crName, vaultRoleName) })
+
+			It("should admit, sync, and authenticate with no serviceAccounts", func() {
+				role := buildJWTGitlabRole(crName, &vaultv1alpha1.VaultRoleJWTSpec{
+					UserClaim:      "email",
+					BoundAudiences: []string{dexClientID},
+					BoundClaimsList: map[string][]string{
+						"email": {dexTestEmail},
+					},
+				})
+				role.Spec.ServiceAccounts = nil
+				Expect(utils.CreateVaultRoleCR(ctx, role)).To(Succeed())
+				waitForRoleActive(ctx, crName)
+
+				By("asserting the payload binds on claims with no bound_subject")
+				data := readJWTGitlabRoleData(ctx, vaultRoleName)
+				assertBoundClaimsListEqual(data, "email", []string{dexTestEmail})
+				Expect(data["bound_subject"]).To(Or(BeNil(), Equal("")),
+					"claims-only role must not derive a bound_subject")
+
+				By("authenticating with the Dex token")
+				secret := mustLoginWithDex(ctx, vaultRoleName)
+				Expect(secret.Auth.Policies).To(ContainElement(expectedPolicyName))
+			})
+		})
+
+	// TC-AU08-08: a role binding nothing — no serviceAccounts and no jwt
+	// claims/subject — is rejected at admission by the CRD CEL rule (holds
+	// even when the validating webhook is disabled).
+	Context("TC-AU08-08: role binding nothing is rejected at admission", func() {
+		It("should reject create with neither serviceAccounts nor claims", func() {
+			role := buildJWTGitlabRole("tc-au08-08-unbound", &vaultv1alpha1.VaultRoleJWTSpec{
+				UserClaim: "email",
+			})
+			role.Spec.ServiceAccounts = nil
+			err := utils.CreateVaultRoleCR(ctx, role)
+			Expect(err).To(HaveOccurred(),
+				"a role with no serviceAccounts and no claims must be rejected")
+			Expect(err.Error()).To(ContainSubstring("a role must bind something"))
+		})
+	})
 })
 
 // skipIfDexUnreachable shorts out the suite when Dex isn't listening.

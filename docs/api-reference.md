@@ -431,13 +431,15 @@ spec:
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `connectionRef` | string | Yes | - | Name of VaultConnection to use |
-| `serviceAccounts` | []string | Yes | - | Service account names (same namespace) |
+| `serviceAccounts` | []string | No* | - | Service account names (same namespace) |
 | `policies` | []PolicyReference | Yes | - | Policies to attach (min 1) |
 | `conflictPolicy` | string | No | `Fail` | `Fail` or `Adopt` |
 | `deletionPolicy` | string | No | `Delete` | `Delete` or `Retain` |
 | `tokenTTL` | duration | No | Vault default | Default token TTL |
 | `tokenMaxTTL` | duration | No | Vault default | Maximum token TTL |
 | `jwt` | VaultRoleJWTSpec | No | - | JWT-auth-specific overrides (only when the referenced connection resolves to a JWT mount) |
+
+\* A role must bind *something*: either `serviceAccounts` or a JWT identity binding (`jwt.boundClaims`, `jwt.boundClaimsList`, or `jwt.boundSubject`). Enforced by a CEL rule on the CRD. Claims-only roles (no `serviceAccounts`) serve OIDC tokens with no Kubernetes identity — e.g. GitHub Actions / GitLab CI `id_token`s bound on `repository`/`ref` claims.
 
 ### VaultRoleJWTSpec
 
@@ -447,7 +449,7 @@ Optional sub-object on `VaultRole` / `VaultClusterRole`. Used when the reference
 |-------|------|---------|-------------|
 | `userClaim` | string | `sub` | JWT claim to read as the Vault entity alias |
 | `boundAudiences` | []string | From connection or `["https://kubernetes.default.svc.cluster.local"]` | Required `aud` values |
-| `boundSubject` | string | `system:serviceaccount:<ns>:<sa>` | Exact `sub` claim match. Mutually exclusive with `boundClaims*` |
+| `boundSubject` | string | `system:serviceaccount:<ns>:<sa>` (when `serviceAccounts` is set) | Exact `sub` claim match. Mutually exclusive with `boundClaims*` |
 | `boundClaims` | map[string]string | - | **Deprecated.** Scalar claim restrictions. Use `boundClaimsList` for new specs |
 | `boundClaimsList` | map[string][]string | - | Multi-value claim restrictions, e.g. `ref: ["main","develop"]`. Mutually exclusive with `boundSubject` |
 | `boundClaimsType` | string (`string` \| `glob`) | `string` | Match mode for all keys in bound_claims. `glob` enables shell-style wildcards |
@@ -515,13 +517,15 @@ spec:
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `connectionRef` | string | Yes | - | Name of VaultConnection to use |
-| `serviceAccounts` | []ServiceAccountRef | Yes | - | Service accounts with namespace |
+| `serviceAccounts` | []ServiceAccountRef | No* | - | Service accounts with namespace |
 | `policies` | []PolicyReference | Yes | - | Policies to attach (min 1) |
 | `conflictPolicy` | string | No | `Fail` | `Fail` or `Adopt` |
 | `deletionPolicy` | string | No | `Delete` | `Delete` or `Retain` |
 | `tokenTTL` | duration | No | Vault default | Default token TTL |
 | `tokenMaxTTL` | duration | No | Vault default | Maximum token TTL |
 | `jwt` | VaultRoleJWTSpec | No | - | JWT-auth-specific overrides — same fields as [VaultRole.spec.jwt](#vaultrolejwtspec) |
+
+\* Same rule as VaultRole: a role must bind either `serviceAccounts` or a JWT identity (`jwt.boundClaims`/`boundClaimsList`/`boundSubject`).
 
 ### ServiceAccountRef
 

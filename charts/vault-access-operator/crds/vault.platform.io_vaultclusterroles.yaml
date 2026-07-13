@@ -135,7 +135,9 @@ spec:
                   boundSubject:
                     description: |-
                       BoundSubject restricts the token's sub claim to an exact match.
-                      Defaults to "system:serviceaccount:<namespace>:<serviceAccounts[0]>".
+                      Defaults to "system:serviceaccount:<namespace>:<serviceAccounts[0]>"
+                      when serviceAccounts is set; roles with no serviceAccounts must bind
+                      via BoundClaims/BoundClaimsList or an explicit BoundSubject.
                       Mutually exclusive with BoundClaims.
                     type: string
                   roleType:
@@ -176,8 +178,10 @@ spec:
                 minItems: 1
                 type: array
               serviceAccounts:
-                description: ServiceAccounts defines which service accounts can use
-                  this role
+                description: |-
+                  ServiceAccounts defines which service accounts can use this role.
+                  May be omitted for jwt/oidc roles that bind on claims instead (jwt.boundClaims,
+                  jwt.boundClaimsList, or jwt.boundSubject) — e.g. GitHub/GitLab CI id_tokens.
                 items:
                   description: ServiceAccountRef references a Kubernetes service account
                   properties:
@@ -191,7 +195,6 @@ spec:
                   - name
                   - namespace
                   type: object
-                minItems: 1
                 type: array
               tokenMaxTTL:
                 description: TokenMaxTTL is the maximum TTL for tokens issued by this
@@ -204,8 +207,12 @@ spec:
             required:
             - connectionRef
             - policies
-            - serviceAccounts
             type: object
+            x-kubernetes-validations:
+            - message: 'a role must bind something: set serviceAccounts, or jwt.boundClaims/boundClaimsList/boundSubject'
+              rule: (has(self.serviceAccounts) && size(self.serviceAccounts) > 0)
+                || (has(self.jwt) && (has(self.jwt.boundClaims) || has(self.jwt.boundClaimsList)
+                || has(self.jwt.boundSubject)))
           status:
             description: VaultClusterRoleStatus defines the observed state of VaultClusterRole.
             properties:

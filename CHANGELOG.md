@@ -7,6 +7,15 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added
+
+- **Claims-only JWT roles (no `serviceAccounts`).** `VaultRole`/`VaultClusterRole`
+  no longer require `serviceAccounts` when the `jwt` spec binds an identity via
+  `boundClaims`, `boundClaimsList`, or `boundSubject` — serving OIDC tokens with
+  no Kubernetes identity, e.g. GitHub Actions / GitLab CI `id_token`s bound on
+  `repository`/`ref` claims. A CEL rule on the CRD (mirrored by the validating
+  webhook) rejects roles that bind nothing. SA-based roles are unchanged.
+
 ## [0.11.1] - 2026-07-09
 
 ## [0.11.0] - 2026-07-08
