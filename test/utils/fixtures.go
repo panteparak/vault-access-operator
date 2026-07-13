@@ -327,8 +327,8 @@ func ValidateTestVaultRole(role *vaultv1alpha1.VaultRole) {
 	if role.Spec.ConnectionRef == "" {
 		panic("test fixture error: VaultRole.Spec.ConnectionRef is required")
 	}
-	if len(role.Spec.ServiceAccounts) == 0 {
-		panic("test fixture error: VaultRole.Spec.ServiceAccounts must not be empty")
+	if len(role.Spec.ServiceAccounts) == 0 && !jwtBindsIdentity(role.Spec.JWT) {
+		panic("test fixture error: VaultRole must bind something: serviceAccounts or jwt claims/subject")
 	}
 	if len(role.Spec.Policies) == 0 {
 		panic("test fixture error: VaultRole.Spec.Policies must not be empty (CRD requires MinItems=1)")
@@ -340,12 +340,18 @@ func ValidateTestVaultClusterRole(role *vaultv1alpha1.VaultClusterRole) {
 	if role.Spec.ConnectionRef == "" {
 		panic("test fixture error: VaultClusterRole.Spec.ConnectionRef is required")
 	}
-	if len(role.Spec.ServiceAccounts) == 0 {
-		panic("test fixture error: VaultClusterRole.Spec.ServiceAccounts must not be empty (CRD requires MinItems=1)")
+	if len(role.Spec.ServiceAccounts) == 0 && !jwtBindsIdentity(role.Spec.JWT) {
+		panic("test fixture error: VaultClusterRole must bind something: serviceAccounts or jwt claims/subject")
 	}
 	if len(role.Spec.Policies) == 0 {
 		panic("test fixture error: VaultClusterRole.Spec.Policies must not be empty (CRD requires MinItems=1)")
 	}
+}
+
+// jwtBindsIdentity mirrors the CRD CEL rule: a jwt spec with bound claims or
+// an explicit bound subject makes serviceAccounts optional.
+func jwtBindsIdentity(jwt *vaultv1alpha1.VaultRoleJWTSpec) bool {
+	return jwt != nil && (len(jwt.BoundClaims) > 0 || len(jwt.BoundClaimsList) > 0 || jwt.BoundSubject != "")
 }
 
 // ValidateTestVaultPolicy panics if the VaultPolicy is missing required fields.

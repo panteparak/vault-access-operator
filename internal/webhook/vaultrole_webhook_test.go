@@ -183,7 +183,7 @@ func TestVaultRoleValidator_ValidateCreate(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "empty service accounts list",
+			name: "empty service accounts and no jwt binding rejected",
 			role: &vaultv1alpha1.VaultRole{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-role",
@@ -201,7 +201,53 @@ func TestVaultRoleValidator_ValidateCreate(t *testing.T) {
 				},
 			},
 			wantErr:     true,
-			errContains: "serviceAccounts must not be empty",
+			errContains: "a role must bind something",
+		},
+		{
+			name: "empty service accounts with jwt lacking claims rejected",
+			role: &vaultv1alpha1.VaultRole{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-role",
+					Namespace: "default",
+				},
+				Spec: vaultv1alpha1.VaultRoleSpec{
+					ConnectionRef: "test-connection",
+					Policies: []vaultv1alpha1.PolicyReference{
+						{
+							Kind: "VaultPolicy",
+							Name: "my-policy",
+						},
+					},
+					JWT: &vaultv1alpha1.VaultRoleJWTSpec{UserClaim: "sub"},
+				},
+			},
+			wantErr:     true,
+			errContains: "a role must bind something",
+		},
+		{
+			name: "claims-only role with no service accounts allowed",
+			role: &vaultv1alpha1.VaultRole{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-role",
+					Namespace: "default",
+				},
+				Spec: vaultv1alpha1.VaultRoleSpec{
+					ConnectionRef: "test-connection",
+					Policies: []vaultv1alpha1.PolicyReference{
+						{
+							Kind: "VaultPolicy",
+							Name: "my-policy",
+						},
+					},
+					JWT: &vaultv1alpha1.VaultRoleJWTSpec{
+						BoundClaimsList: map[string][]string{
+							"repository": {"org/repo"},
+							"ref_type":   {"branch"},
+						},
+					},
+				},
+			},
+			wantErr: false,
 		},
 		{
 			name: "empty service account name in list",
@@ -651,7 +697,7 @@ func TestVaultClusterRoleValidator_ValidateCreate(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "empty service accounts list",
+			name: "empty service accounts and no jwt binding rejected",
 			role: &vaultv1alpha1.VaultClusterRole{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test-cluster-role",
@@ -668,7 +714,31 @@ func TestVaultClusterRoleValidator_ValidateCreate(t *testing.T) {
 				},
 			},
 			wantErr:     true,
-			errContains: "serviceAccounts must not be empty",
+			errContains: "a role must bind something",
+		},
+		{
+			name: "claims-only cluster role with no service accounts allowed",
+			role: &vaultv1alpha1.VaultClusterRole{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-cluster-role",
+				},
+				Spec: vaultv1alpha1.VaultClusterRoleSpec{
+					ConnectionRef: "test-connection",
+					Policies: []vaultv1alpha1.PolicyReference{
+						{
+							Kind: "VaultClusterPolicy",
+							Name: "shared-policy",
+						},
+					},
+					JWT: &vaultv1alpha1.VaultRoleJWTSpec{
+						BoundClaimsList: map[string][]string{
+							"repository": {"org/repo"},
+							"ref_type":   {"branch"},
+						},
+					},
+				},
+			},
+			wantErr: false,
 		},
 		{
 			name: "service account missing name",
@@ -1859,6 +1929,37 @@ func TestVaultRoleValidator_ValidateCreate_JWT(t *testing.T) {
 			},
 			wantErr:     true,
 			errContains: "has no role-capable auth mount",
+		},
+		{
+			name: "jwt-family connection, claims-only role with no SAs allowed",
+			role: &vaultv1alpha1.VaultRole{
+				ObjectMeta: metav1.ObjectMeta{Name: "r6", Namespace: "ns"},
+				Spec: vaultv1alpha1.VaultRoleSpec{
+					ConnectionRef: "jwt-conn",
+					Policies:      []vaultv1alpha1.PolicyReference{{Kind: "VaultClusterPolicy", Name: "p"}},
+					JWT: &vaultv1alpha1.VaultRoleJWTSpec{
+						BoundClaimsList: map[string][]string{
+							"repository":    {"org/repo"},
+							"ref":           {"main"},
+							"ref_type":      {"branch"},
+							"ref_protected": {"true"},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "jwt-family connection, no SAs and no claims rejected",
+			role: &vaultv1alpha1.VaultRole{
+				ObjectMeta: metav1.ObjectMeta{Name: "r7", Namespace: "ns"},
+				Spec: vaultv1alpha1.VaultRoleSpec{
+					ConnectionRef: "jwt-conn",
+					Policies:      []vaultv1alpha1.PolicyReference{{Kind: "VaultClusterPolicy", Name: "p"}},
+					JWT:           &vaultv1alpha1.VaultRoleJWTSpec{UserClaim: "sub"},
+				},
+			},
+			wantErr:     true,
+			errContains: "a role must bind something",
 		},
 		{
 			name: "missing connection allowed (reconcile backstop)",

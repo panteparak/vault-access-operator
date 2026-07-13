@@ -630,6 +630,42 @@ func TestBuildRoleData_JWT_BoundClaimsReplacesSubject(t *testing.T) {
 	}
 }
 
+// Claims-only role: no serviceAccounts at all (CI OIDC tokens carry no k8s SA
+// identity) — the payload binds on claims and derives no bound_subject.
+func TestBuildRoleData_JWT_BoundClaimsOnly_NoServiceAccounts(t *testing.T) {
+	role := newVaultRole("test-role", "bar")
+	role.Spec.ServiceAccounts = nil
+	role.Spec.JWT = &vaultv1alpha1.VaultRoleJWTSpec{
+		BoundClaimsList: map[string][]string{
+			"repository": {"org/repo"},
+			"ref_type":   {"branch"},
+		},
+	}
+
+	handler := NewHandler(newFakeClient(role), vault.NewClientCache(), nil, logr.Discard())
+	adapter := domain.NewVaultRoleAdapter(role)
+
+	roleData, err := handler.buildRoleData(
+		adapter, vault.AuthBackendJWT, []string{"p"}, adapter.GetServiceAccountBindings(), nil)
+	if err != nil {
+		t.Fatalf("buildRoleData returned error: %v", err)
+	}
+	if _, has := roleData["bound_subject"]; has {
+		t.Error("bound_subject should be absent for a claims-only role")
+	}
+	claims, ok := roleData["bound_claims"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected bound_claims map, got %T", roleData["bound_claims"])
+	}
+	repo, ok := claims["repository"].([]interface{})
+	if !ok || len(repo) != 1 || repo[0] != "org/repo" {
+		t.Errorf("expected bound_claims.repository=[org/repo], got %v", claims["repository"])
+	}
+	if _, has := roleData["bound_service_account_names"]; has {
+		t.Error("JWT payload should not include bound_service_account_names")
+	}
+}
+
 func TestBuildRoleData_JWT_BoundClaimsList_ScalarsAndLists(t *testing.T) {
 	role := newVaultRole("test-role", "bar")
 	role.Spec.ServiceAccounts = []string{"foo-sa"}

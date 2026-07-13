@@ -219,7 +219,9 @@ type VaultRoleJWTSpec struct {
 	BoundAudiences []string `json:"boundAudiences,omitempty"`
 
 	// BoundSubject restricts the token's sub claim to an exact match.
-	// Defaults to "system:serviceaccount:<namespace>:<serviceAccounts[0]>".
+	// Defaults to "system:serviceaccount:<namespace>:<serviceAccounts[0]>"
+	// when serviceAccounts is set; roles with no serviceAccounts must bind
+	// via BoundClaims/BoundClaimsList or an explicit BoundSubject.
 	// Mutually exclusive with BoundClaims.
 	// +optional
 	BoundSubject string `json:"boundSubject,omitempty"`

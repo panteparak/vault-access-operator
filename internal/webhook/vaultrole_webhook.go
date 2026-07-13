@@ -109,9 +109,11 @@ func (v *VaultRoleValidator) ValidateDelete(ctx context.Context, role *vaultv1al
 func (v *VaultRoleValidator) validate(role *vaultv1alpha1.VaultRole) error {
 	var errs []string
 
-	// Validate service accounts are not empty
-	if len(role.Spec.ServiceAccounts) == 0 {
-		errs = append(errs, "serviceAccounts must not be empty")
+	// A role must bind something: service accounts, or jwt claims/subject
+	// (claims-only roles serve CI OIDC tokens that have no k8s SA identity).
+	// Mirrors the CEL rule on the CRD spec.
+	if len(role.Spec.ServiceAccounts) == 0 && !jwtBindsIdentity(role.Spec.JWT) {
+		errs = append(errs, errRoleBindsNothing)
 	}
 
 	// Validate each service account is a simple name (no namespace prefix)
@@ -349,9 +351,11 @@ func (v *VaultClusterRoleValidator) ValidateDelete(ctx context.Context, role *va
 func (v *VaultClusterRoleValidator) validate(role *vaultv1alpha1.VaultClusterRole) error {
 	var errs []string
 
-	// Validate service accounts are not empty
-	if len(role.Spec.ServiceAccounts) == 0 {
-		errs = append(errs, "serviceAccounts must not be empty")
+	// A role must bind something: service accounts, or jwt claims/subject
+	// (claims-only roles serve CI OIDC tokens that have no k8s SA identity).
+	// Mirrors the CEL rule on the CRD spec.
+	if len(role.Spec.ServiceAccounts) == 0 && !jwtBindsIdentity(role.Spec.JWT) {
+		errs = append(errs, errRoleBindsNothing)
 	}
 
 	// Validate each service account has both name and namespace
@@ -487,6 +491,18 @@ func validateJWTSpec(
 	}
 
 	return warnings, errs
+}
+
+// errRoleBindsNothing rejects a role with neither serviceAccounts nor a
+// jwt identity binding. Same predicate as the CEL rule on the CRD spec.
+const errRoleBindsNothing = "a role must bind something: set serviceAccounts, " +
+	"or jwt.boundClaims/boundClaimsList/boundSubject"
+
+// jwtBindsIdentity reports whether the jwt spec pins an identity on its own —
+// via bound claims or an explicit bound subject — making serviceAccounts
+// optional (CI OIDC tokens carry no k8s SA identity).
+func jwtBindsIdentity(jwt *vaultv1alpha1.VaultRoleJWTSpec) bool {
+	return jwt != nil && (len(jwt.BoundClaims) > 0 || len(jwt.BoundClaimsList) > 0 || jwt.BoundSubject != "")
 }
 
 // jwtClaimIsBound reports whether the given claim key is bound by either
