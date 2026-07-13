@@ -3872,7 +3872,7 @@
 <tr>
 <td><code>serviceAccounts</code></td>
 <td>[]string</td>
-<td>Yes</td>
+<td>No*</td>
 <td>-</td>
 <td>Service account names (same namespace)</td>
 </tr>
@@ -3920,6 +3920,7 @@
 </tr>
 </tbody>
 </table>
+<p>* A role must bind <em>something</em>: either <code>serviceAccounts</code> or a JWT identity binding (<code>jwt.boundClaims</code>, <code>jwt.boundClaimsList</code>, or <code>jwt.boundSubject</code>). Enforced by a CEL rule on the CRD. Claims-only roles (no <code>serviceAccounts</code>) serve OIDC tokens with no Kubernetes identity — e.g. GitHub Actions / GitLab CI <code>id_token</code>s bound on <code>repository</code>/<code>ref</code> claims.</p>
 <h3 id="vaultrolejwtspec">VaultRoleJWTSpec<a class="headerlink" href="#vaultrolejwtspec" title="Permanent link">&para;</a></h3>
 <p>Optional sub-object on <code>VaultRole</code> / <code>VaultClusterRole</code>. Used when the referenced <code>VaultConnection</code> resolves to a JWT auth mount — a JWT/OIDC login, or a <code>defaults.authPath</code> of jwt family (e.g. <code>jwt</code>, <code>jwt-gitlab</code>). All fields are optional — defaults are derived from <code>serviceAccounts</code> and the referenced <code>VaultConnection</code>.</p>
 <table>
@@ -3947,7 +3948,7 @@
 <tr>
 <td><code>boundSubject</code></td>
 <td>string</td>
-<td><code>system:serviceaccount:&lt;ns&gt;:&lt;sa&gt;</code></td>
+<td><code>system:serviceaccount:&lt;ns&gt;:&lt;sa&gt;</code> (when <code>serviceAccounts</code> is set)</td>
 <td>Exact <code>sub</code> claim match. Mutually exclusive with <code>boundClaims*</code></td>
 </tr>
 <tr>
@@ -4087,7 +4088,7 @@
 <tr>
 <td><code>serviceAccounts</code></td>
 <td>[]ServiceAccountRef</td>
-<td>Yes</td>
+<td>No*</td>
 <td>-</td>
 <td>Service accounts with namespace</td>
 </tr>
@@ -4135,6 +4136,7 @@
 </tr>
 </tbody>
 </table>
+<p>* Same rule as VaultRole: a role must bind either <code>serviceAccounts</code> or a JWT identity (<code>jwt.boundClaims</code>/<code>boundClaimsList</code>/<code>boundSubject</code>).</p>
 <h3 id="serviceaccountref">ServiceAccountRef<a class="headerlink" href="#serviceaccountref" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
