@@ -58,6 +58,7 @@ type policyMockState struct {
 	policies map[string]string                 // policyName → HCL
 	managed  map[string]map[string]interface{} // full API path → managed metadata
 	roles    map[string]map[string]interface{} // full API path → role data (unused for policy tests)
+	writes   int                               // policy PUT/POST count
 }
 
 func newPolicyMockState() *policyMockState {
@@ -72,6 +73,9 @@ type policyMockConfig struct {
 	state          *policyMockState
 	writePolicyErr bool
 	readPolicyErr  bool
+	// lowercaseNames mimics Vault, which lowercases ACL policy names on
+	// write and matches them case-insensitively on read.
+	lowercaseNames bool
 }
 
 func newPolicyMockServer(cfg policyMockConfig) *httptest.Server {
@@ -116,6 +120,9 @@ func newPolicyMockServer(cfg policyMockConfig) *httptest.Server {
 		// --- Policy CRUD via sys/policies/acl ---
 		case strings.HasPrefix(apiPath, "sys/policies/acl/"):
 			policyName := strings.TrimPrefix(apiPath, "sys/policies/acl/")
+			if cfg.lowercaseNames {
+				policyName = strings.ToLower(policyName)
+			}
 			cfg.state.mu.Lock()
 			defer cfg.state.mu.Unlock()
 
@@ -133,6 +140,7 @@ func newPolicyMockServer(cfg policyMockConfig) *httptest.Server {
 				if policy, ok := data["policy"].(string); ok {
 					cfg.state.policies[policyName] = policy
 				}
+				cfg.state.writes++
 				w.WriteHeader(http.StatusNoContent)
 
 			case http.MethodGet:

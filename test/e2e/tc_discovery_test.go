@@ -18,6 +18,7 @@ package e2e
 
 import (
 	"context"
+	"os"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -57,6 +58,11 @@ var _ = Describe("Discovery Tests", Ordered, Label("discovery"), func() {
 	}
 
 	BeforeAll(func() {
+		// Discovery runs only with --managed-markers; the default local stack
+		// (make e2e-local-up) deploys without it (#18 review finding 10).
+		if os.Getenv("E2E_MANAGED_MARKERS") != "true" {
+			Skip("E2E_MANAGED_MARKERS != true: the operator is not deployed with --managed-markers, so discovery is off")
+		}
 		refreshDiscoveryToken()
 	})
 

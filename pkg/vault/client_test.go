@@ -1389,6 +1389,26 @@ func TestPolicyExists_False(t *testing.T) {
 	}
 }
 
+// Vault lowercases ACL policy names, so a bound name with capitals must
+// still match the listed (lowercase) name (#18 review finding 5).
+func TestPolicyExists_CaseInsensitive(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"data": map[string]interface{}{"keys": []string{"default", "vao.k8s-east.ns.x", "root"}},
+		})
+	}))
+	defer server.Close()
+
+	client, err := NewClient(ClientConfig{Address: server.URL})
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	exists, err := client.PolicyExists(context.Background(), "vao.K8s-East.ns.x")
+	if err != nil || !exists {
+		t.Errorf("PolicyExists(mixed case) = %v, %v; want true, nil", exists, err)
+	}
+}
+
 func TestListPolicies_Success(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		response := map[string]interface{}{

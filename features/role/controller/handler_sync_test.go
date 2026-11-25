@@ -126,6 +126,9 @@ type mockVaultServerConfig struct {
 	writeRoleErr bool // simulate role write failure
 	readRoleErr  bool // simulate role read failure
 	listPolicies []string
+	// dropAliasMetadata mimics Vault < 1.21.3: alias_metadata is accepted
+	// on a role write but not stored, so reads return no record.
+	dropAliasMetadata bool
 }
 
 // newMockVaultServer creates an httptest.Server that handles Vault API endpoints
@@ -206,6 +209,9 @@ func newMockVaultServer(cfg mockVaultServerConfig) *httptest.Server {
 				var data map[string]interface{}
 				_ = json.NewDecoder(r.Body).Decode(&data)
 				mockNormalizeTTLFields(data)
+				if cfg.dropAliasMetadata {
+					delete(data, vault.RoleAliasMetadataKey)
+				}
 				cfg.state.roles[key] = data
 				w.WriteHeader(http.StatusNoContent)
 

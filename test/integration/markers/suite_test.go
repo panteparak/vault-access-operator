@@ -50,9 +50,11 @@ var _ = BeforeSuite(func() {
 	env := integration.NewTestEnvironment(
 		integration.WithVaultOptions(
 			// alias_metadata on kubernetes/jwt auth roles (INT-MM08, ADR
-			// 0010) needs Vault ≥ 1.21 — older Vaults silently drop the
-			// parameter. The default container tag is older.
-			integration.WithImageTag("1.21"),
+			// 0010) needs Vault ≥ 1.21.3: older Vaults, including
+			// 1.21.0-1.21.2, accept the parameter and silently drop it. The
+			// default container tag is older. Pinned (not the floating
+			// "1.21") so a stale local 1.21.2 cannot be picked up.
+			integration.WithImageTag("1.21.4"),
 			integration.WithOperatorPolicy(),
 			integration.WithKV2SecretEngine("secret"),
 			integration.WithLogLevel("info"),

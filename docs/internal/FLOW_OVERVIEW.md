@@ -128,7 +128,7 @@ Six structured error types are defined. The classifier currently matches four; t
 |-----------|--------|--------|---------|-------------------|
 | `ConflictError` | ResourceType, ResourceName, Message | `checkConflict` (policy/role) | Vault resource exists & is owned by someone else, adoption not permitted | `Phase: Conflict`, `Reason: Conflict` |
 | `ValidationError` | Field, Value, Message | policy namespace-boundary check, role policy-ref kind check, JWT subject derivation | spec fails pre-sync validation | `Phase: Error`, `Reason: ValidationFailed` |
-| `DependencyError` | Resource, DependencyType, DependencyName, Reason | `vaultclient.Resolve` when VaultConnection missing or not Active | connection unready or missing | `Phase: Error`, `Reason: ConnectionNotReady`, sets `DependencyReady=False` |
+| `DependencyError` | Resource, DependencyType, DependencyName, Reason | `vaultclient.Resolve` when VaultConnection missing or not Active | connection unready or missing | `Phase: Error`, `Reason: ConnectionNotReady`, sets `DependencyReady=False`. Exception: reason `client not in cache` (connection Active, client not cached yet after a restart) leaves status unchanged and requeues in 2s ([FLOW_LIFECYCLE](FLOW_LIFECYCLE.md#startup-time-race-features-see-partial-state)) |
 | `TransientError` | Operation, Cause, Retryable | Vault API failures, readback mismatches | retryable | `Phase: Error`, `Reason: Failed` — requeue after interval |
 | `NotFoundError` | ResourceType, ResourceName, Namespace | could signal missing Secret/ServiceAccount references | — **not currently classified** → `Phase: Error`, `Reason: Failed` |
 | `ConnectionError` | ConnectionName, Address, Cause | transport-layer Vault failures (TLS, DNS, TCP) | — **not currently classified** → `Phase: Error`, `Reason: Failed` |
@@ -263,7 +263,7 @@ The operator itself **writes no files on disk**. All persistence is via K8s or V
 | `ServiceAccount` token | K8s object (virtual) | ✅ `TokenRequestProvider` | ❌ | short-lived |
 | `Event` | K8s object | ❌ | ✅ `BaseReconciler.recordEvent` | surfaced via `kubectl describe` |
 | `ConfigMap: vault-cleanup-queue` | K8s object | queue ([cleanup/queue.go](../../pkg/cleanup/queue.go)) | queue | JSON array of `Item` — **consumer not wired** |
-| Vault: in-band ownership header inside `sys/policies/acl/{name}` | Vault | ✅ conflict check, orphan, discovery | ✅ written with every policy write | parsed via `ParseOwnership`; checked **only when `--managed-markers=true`** |
+| Vault: in-band ownership header inside `sys/policies/acl/{name}` | Vault | ✅ conflict check, orphan, discovery | ✅ written with every policy write | parsed via `ParseOwnership`; checked on every sync, readback and delete (#18); `--managed-markers` gates only discovery and orphan detection |
 | Roles: no Vault-side record (ADR 0008) | — | ✅ conflict = exists + CR never synced; orphan = own-mount vs CR set | — | ownership memory is the CR status |
 | Vault sys: `sys/policies/acl/{name}` | Vault | ✅ drift | ✅ policy sync | HCL content |
 | Vault sys: `auth/{mount}/role/{name}` | Vault | ✅ drift | ✅ role sync | role params |

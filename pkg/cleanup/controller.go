@@ -172,7 +172,9 @@ func (c *Controller) processQueue(ctx context.Context) {
 		}
 
 		// Try to process the item
-		if err := c.processItem(ctx, item); err != nil {
+		skipped, err := c.processItem(ctx, item)
+		switch {
+		case err != nil:
 			c.log.Error(err, "cleanup retry failed",
 				"resourceType", item.ResourceType,
 				"vaultName", item.VaultName,
@@ -187,7 +189,13 @@ func (c *Controller) processQueue(ctx context.Context) {
 			}
 
 			metrics.IncrementCleanupRetry(string(item.ResourceType), false)
-		} else {
+		case skipped:
+			// Not ours any more: drop the item without counting a successful
+			// cleanup (skipForeign already logged why).
+			if err := c.queue.Dequeue(ctx, item.ID); err != nil {
+				c.log.Error(err, "failed to dequeue skipped item")
+			}
+		default:
 			c.log.Info("cleanup retry succeeded",
 				"resourceType", item.ResourceType,
 				"vaultName", item.VaultName)
@@ -208,13 +216,14 @@ func (c *Controller) processQueue(ctx context.Context) {
 
 // processItem attempts to clean up a single item. Every replayed delete
 // re-runs the ownership gate first: the name may have been taken by another
-// owner since the item was queued. A foreign object is skipped (the item is
-// done); a read error is returned so the item is retried, never deleted on.
-func (c *Controller) processItem(ctx context.Context, item Item) error {
+// owner since the item was queued. A foreign object is skipped (skipped =
+// true, the item is done but nothing was cleaned); a read error is returned
+// so the item is retried, never deleted on.
+func (c *Controller) processItem(ctx context.Context, item Item) (skipped bool, err error) {
 	// Get Vault client from cache
 	vaultClient, err := c.clientCache.Get(item.ConnectionName)
 	if err != nil {
-		return err
+		return false, err
 	}
 	owner := vaultClient.Owner(item.k8sResource())
 	if item.Owner != nil {
@@ -226,29 +235,29 @@ func (c *Controller) processItem(ctx context.Context, item Item) error {
 	case ResourceTypePolicy:
 		foreign, err := vault.ForeignPolicyOwner(ctx, vaultClient, item.VaultName, owner)
 		if err != nil {
-			return err
+			return false, err
 		}
 		if foreign != nil {
 			c.skipForeign(item, foreign)
-			return nil
+			return true, nil
 		}
-		return vaultClient.DeletePolicy(ctx, item.VaultName)
+		return false, vaultClient.DeletePolicy(ctx, item.VaultName)
 	case ResourceTypeRole:
 		foreign, err := vault.ForeignRoleOwner(ctx, vaultClient, item.AuthPath, item.VaultName, owner)
 		if err != nil {
-			return err
+			return false, err
 		}
 		if foreign != nil {
 			c.skipForeign(item, foreign)
-			return nil
+			return true, nil
 		}
-		return vaultClient.DeleteKubernetesAuthRole(ctx, item.AuthPath, item.VaultName)
+		return false, vaultClient.DeleteKubernetesAuthRole(ctx, item.AuthPath, item.VaultName)
 	default:
 		c.log.Error(nil, "unknown resource type in cleanup queue",
 			"resourceType", item.ResourceType,
 			"id", item.ID)
 		// Remove unknown items from queue
-		return nil
+		return true, nil
 	}
 }
 

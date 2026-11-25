@@ -349,6 +349,14 @@ spec:
                 description: NextRetryAt is the time of the next retry attempt
                 format: date-time
                 type: string
+              pendingVaultRoleName:
+                description: |-
+                  PendingVaultRoleName is the Vault name a sync is about to write when it
+                  differs from VaultRoleName (a rename or the first write). It is
+                  persisted before the Vault write and cleared when the sync commits, so
+                  a retry after a lost commit recognises the role it already wrote even
+                  on a Vault that drops alias_metadata (< 1.21.3).
+                type: string
               phase:
                 description: Phase represents the current phase of the resource
                 enum:

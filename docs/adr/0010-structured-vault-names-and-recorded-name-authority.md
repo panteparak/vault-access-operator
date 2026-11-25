@@ -93,8 +93,8 @@ cross-connection re-derivation bug.
 Research against the Vault 1.21 CE API: ACL policies accept only `name`+`policy`
 (no metadata surface, any edition — the comment header stays), but **both kubernetes
 and jwt auth roles support `alias_metadata`** (map<string,string>, stored on the role,
-echoed on read; Vault ≥ 1.21 — older Vaults, verified on 1.17, silently drop the
-parameter). Every role write now stamps the same ownership
+echoed on read; Vault ≥ 1.21.3 — older Vaults, verified on 1.17 and on 1.21.0, 1.21.1
+and 1.21.2, accept the parameter on write and silently drop it). Every role write now stamps the same ownership
 vocabulary as the policy header (`managed-by`, `auth-mount`, `cluster`,
 `k8s-resource`, `k8s-kind`) into `alias_metadata`:
 
@@ -125,8 +125,9 @@ vocabulary as the policy header (`managed-by`, `auth-mount`, `cluster`,
   `vao.kubernetes....` — consistent with policy headers, but may surprise.
 - `alias_metadata` propagates to workload entity aliases at login (documented Vault
   behavior). The keys are non-secret (ns/name/kind) and could even serve policy
-  templating later. Vaults older than 1.21 silently drop the parameter (verified
-  empirically on 1.17), degrading roles to pre-ADR-0010 ownership (status memory +
+  templating later. Vaults older than 1.21.3 silently drop the parameter (verified
+  empirically on 1.17, 1.21.0, 1.21.1 and 1.21.2; 1.21.3 is the first release that
+  stores it, #18 review), degrading roles to pre-ADR-0010 ownership (status memory +
   mount invariant).
 - The operator owns the whole `alias_metadata` map; if a user-facing
   `spec.aliasMetadata` is ever added, operator keys must win on merge.

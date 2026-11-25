@@ -535,14 +535,19 @@ func (c *Client) DeletePolicy(ctx context.Context, name string) error {
 	return c.Sys().DeletePolicyWithContext(ctx, name)
 }
 
-// PolicyExists checks if a policy exists in Vault
+// PolicyExists checks if a policy exists in Vault. Vault lowercases ACL
+// policy names on write and reads them case-insensitively, so the match is
+// case-insensitive: a bound name with capitals (a login mount or
+// --cluster-name with capitals) must still find the object it would
+// overwrite (#18 review finding 5). Generated names are not lowercased: a
+// rename would then delete the same object.
 func (c *Client) PolicyExists(ctx context.Context, name string) (bool, error) {
 	policies, err := c.Sys().ListPoliciesWithContext(ctx)
 	if err != nil {
 		return false, err
 	}
 	for _, p := range policies {
-		if p == name {
+		if strings.EqualFold(p, name) {
 			return true, nil
 		}
 	}

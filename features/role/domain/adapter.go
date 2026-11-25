@@ -79,6 +79,10 @@ type RoleAdapter interface {
 	// rename detection). Empty until the first successful sync.
 	GetVaultRoleNameStatus() string
 	SetVaultRoleName(name string)
+	// GetPendingVaultRoleName returns the name a sync persisted before
+	// writing it to Vault and has not yet committed (empty when none).
+	GetPendingVaultRoleName() string
+	SetPendingVaultRoleName(name string)
 	SetBoundServiceAccounts(accounts []string)
 	SetResolvedPolicies(policies []string)
 	GetPolicyBindings() []vaultv1alpha1.PolicyBinding
@@ -129,6 +133,12 @@ func (a *VaultRoleAdapter) IsNamespaced() bool               { return true }
 // Role-specific status fields
 func (a *VaultRoleAdapter) GetVaultRoleNameStatus() string { return a.Status.VaultRoleName }
 func (a *VaultRoleAdapter) SetVaultRoleName(name string)   { a.Status.VaultRoleName = name }
+func (a *VaultRoleAdapter) GetPendingVaultRoleName() string {
+	return a.Status.PendingVaultRoleName
+}
+func (a *VaultRoleAdapter) SetPendingVaultRoleName(name string) {
+	a.Status.PendingVaultRoleName = name
+}
 func (a *VaultRoleAdapter) SetBoundServiceAccounts(accounts []string) {
 	a.Status.BoundServiceAccounts = accounts
 }
@@ -188,6 +198,12 @@ func (a *VaultClusterRoleAdapter) IsNamespaced() bool               { return fal
 // Role-specific status fields
 func (a *VaultClusterRoleAdapter) GetVaultRoleNameStatus() string { return a.Status.VaultRoleName }
 func (a *VaultClusterRoleAdapter) SetVaultRoleName(name string)   { a.Status.VaultRoleName = name }
+func (a *VaultClusterRoleAdapter) GetPendingVaultRoleName() string {
+	return a.Status.PendingVaultRoleName
+}
+func (a *VaultClusterRoleAdapter) SetPendingVaultRoleName(name string) {
+	a.Status.PendingVaultRoleName = name
+}
 func (a *VaultClusterRoleAdapter) SetBoundServiceAccounts(accounts []string) {
 	a.Status.BoundServiceAccounts = accounts
 }

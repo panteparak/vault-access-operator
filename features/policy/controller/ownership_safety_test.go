@@ -22,9 +22,15 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-logr/logr"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/features/policy/domain"
 	"github.com/panteparak/vault-access-operator/pkg/vault"
+	"github.com/panteparak/vault-access-operator/shared/events"
 	infraerrors "github.com/panteparak/vault-access-operator/shared/infrastructure/errors"
+	"github.com/panteparak/vault-access-operator/shared/naming"
 )
 
 // AC1 (#18): an ownership-read error on delete is returned (so the caller
@@ -97,4 +103,84 @@ func newPolicyTestVaultClient(t *testing.T, url string) *vault.Client {
 	c.SetAuthenticated(true)
 	c.SetToken("s.test")
 	return c
+}
+
+// Review finding 2 (#18): Adopt must never take over a policy whose
+// ownership could not be read. The read error used to take an "adopting
+// policy (ownership unknown)" branch, so a transient GET failure let a CR
+// with conflictPolicy: Adopt overwrite another cluster's policy. It is now
+// a TransientError whatever the adoption setting, as on the role path.
+func TestSyncPolicy_AdoptOnOwnershipReadErrorIsTransient(t *testing.T) {
+	enableMarkersForTest(t)
+	state := newPolicyMockState()
+	name := naming.VaultName("my-cluster", policyTestNamespace, policyTestName)
+	foreign := vault.OwnershipHeader(vault.Ownership{ManagedBy: vault.KVManagedByValue,
+		AuthMount: "other-cluster", K8sResource: policyTestNamespace + "/" + policyTestName,
+		K8sKind: "VaultPolicy"}) + "\npath \"secret/data/other/*\" { capabilities = [\"read\"] }\n"
+	state.policies[name] = foreign
+	server := newPolicyMockServer(policyMockConfig{state: state, readPolicyErr: true})
+	t.Cleanup(server.Close)
+
+	conn := newPolicyTestConnection()
+	policy := newTestVaultPolicy()
+	policy.Spec.ConflictPolicy = vaultv1alpha1.ConflictPolicyAdopt
+	k8sClient := fake.NewClientBuilder().WithScheme(newPolicyTestScheme()).
+		WithObjects(conn, policy).WithStatusSubresource(conn, policy).Build()
+	cache := vault.NewClientCache()
+	vc := newPolicyCachedVaultClient(t, server.URL)
+	vc.SetAuthMount("my-cluster")
+	cache.Set(conn.Name, vc)
+	h := NewHandler(k8sClient, cache, events.NewEventBus(logr.Discard()), logr.Discard())
+	ctx := logr.NewContext(context.Background(), logr.Discard())
+
+	err := h.SyncPolicy(ctx, domain.NewVaultPolicyAdapter(policy))
+	if !infraerrors.IsTransientError(err) {
+		t.Errorf("want TransientError for an unreadable owner, got %v", err)
+	}
+	state.mu.Lock()
+	live := state.policies[name]
+	state.mu.Unlock()
+	if live != foreign {
+		own, _ := vault.ParseOwnership(live)
+		t.Fatalf("foreign-owned policy %s was overwritten; owner now %s", name, own.String())
+	}
+}
+
+// Review finding 5 (#18): Vault lowercases ACL policy names. PolicyExists
+// compared the bound name byte-for-byte against LIST, so a bound name with
+// capitals (login mount "K8s-East", or a --cluster-name with capitals)
+// never "existed": the ownership check was skipped and the write replaced
+// another owner's policy. The comparison is now case-insensitive.
+func TestSyncPolicy_MixedCaseNameStillChecksOwnership(t *testing.T) {
+	enableMarkersForTest(t)
+	state := newPolicyMockState()
+	lower := "vao.k8s-east.test-ns.app-read"
+	foreign := vault.OwnershipHeader(vault.Ownership{ManagedBy: vault.KVManagedByValue,
+		AuthMount: "k8s-east-other", K8sResource: policyTestNamespace + "/" + policyTestName,
+		K8sKind: "VaultPolicy"}) + "\npath \"secret/data/other/*\" { capabilities = [\"read\"] }\n"
+	state.policies[lower] = foreign
+	server := newPolicyMockServer(policyMockConfig{state: state, lowercaseNames: true})
+	t.Cleanup(server.Close)
+
+	conn := newPolicyTestConnection()
+	policy := newTestVaultPolicy()
+	k8sClient := fake.NewClientBuilder().WithScheme(newPolicyTestScheme()).
+		WithObjects(conn, policy).WithStatusSubresource(conn, policy).Build()
+	cache := vault.NewClientCache()
+	vc := newPolicyCachedVaultClient(t, server.URL)
+	vc.SetAuthMount("K8s-East") // the identity segment keeps the capitals
+	cache.Set(conn.Name, vc)
+	h := NewHandler(k8sClient, cache, events.NewEventBus(logr.Discard()), logr.Discard())
+	ctx := logr.NewContext(context.Background(), logr.Discard())
+
+	err := h.SyncPolicy(ctx, domain.NewVaultPolicyAdapter(policy))
+	if !infraerrors.IsConflictError(err) {
+		t.Errorf("want ConflictError for another owner's policy, got %v", err)
+	}
+	state.mu.Lock()
+	live := state.policies[lower]
+	state.mu.Unlock()
+	if live != foreign {
+		t.Fatalf("policy %s owned by another login mount was overwritten without a conflict check", lower)
+	}
 }

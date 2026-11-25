@@ -489,6 +489,7 @@ See [JWT for GitLab CI](auth-methods/jwt-gitlab.md) for an end-to-end example.
 |-------|------|-------------|
 | `phase` | string | `Pending`, `Syncing`, `Active`, `Conflict`, `Error`, `Deleting` |
 | `vaultRoleName` | string | Recorded name of the role in Vault (`vao.{identity}.{namespace}.{name}`, ADR 0010) — authoritative for cleanup/rename |
+| `pendingVaultRoleName` | string | Name a sync is writing that `vaultRoleName` does not record yet (rename or first write). Set before the Vault write, cleared on commit; a retry after a lost commit treats the role there as its own, and cleanup deletes it too |
 | `boundServiceAccounts` | []string | Resolved service account names |
 | `resolvedPolicies` | []string | Resolved Vault policy names |
 

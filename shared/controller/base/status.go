@@ -51,6 +51,12 @@ var (
 // IMPROVEMENTS Missing Features §C.
 const RequeueOnSealed = 10 * time.Second
 
+// RequeueOnClientWarmup is the requeue interval while a resource waits for
+// its VaultConnection's client after an operator start (the connection is
+// Active, its client is not cached yet). Short: the connection usually
+// reconciles within seconds (#18 review finding 6).
+const RequeueOnClientWarmup = 2 * time.Second
+
 func init() {
 	DefaultRequeueSuccess = ParseIntervalEnv(
 		"OPERATOR_REQUEUE_SUCCESS_INTERVAL", DefaultRequeueSuccess, os.Stderr)

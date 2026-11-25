@@ -30,6 +30,7 @@ import (
 	"github.com/go-logr/logr"
 	oplogger "github.com/panteparak/vault-access-operator/pkg/logger"
 	"github.com/panteparak/vault-access-operator/pkg/metrics"
+	infraerrors "github.com/panteparak/vault-access-operator/shared/infrastructure/errors"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -198,6 +199,13 @@ func (r *BaseReconciler[T]) Reconcile(
 	// Step 4: Feature-specific sync
 	r.recordEvent(resource, corev1.EventTypeNormal, EventReasonSyncing, "Syncing resource to Vault")
 	if err := handler.Sync(ctx, resource); err != nil {
+		// Restart warm-up (#18 review finding 6): the connection is Active
+		// but its client is not cached yet. Not a failure: no SyncFailed
+		// event, no error status, a short requeue until it is.
+		if infraerrors.IsClientNotCached(err) {
+			log.V(1).Info("waiting for the VaultConnection client after start-up", "error", err.Error())
+			return ctrl.Result{RequeueAfter: RequeueOnClientWarmup}, nil
+		}
 		log.Error(err, "sync failed")
 		r.recordEvent(resource, corev1.EventTypeWarning, EventReasonSyncFailed, err.Error())
 		return r.Status.Error(ctx, resource, err)

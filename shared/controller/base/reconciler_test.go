@@ -32,6 +32,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	infraerrors "github.com/panteparak/vault-access-operator/shared/infrastructure/errors"
 )
 
 // mockHandler is a test implementation of FeatureHandler.
@@ -218,6 +220,38 @@ func TestBaseReconciler_Reconcile_SyncError(t *testing.T) {
 
 	if result.RequeueAfter != DefaultRequeueError {
 		t.Errorf("expected RequeueAfter %v, got %v", DefaultRequeueError, result.RequeueAfter)
+	}
+}
+
+// Restart warm-up (#18 review finding 6): a sync blocked only because the
+// connection's client is not cached yet is not a failure. No error is
+// returned, no SyncFailed event, and the requeue is short.
+func TestBaseReconciler_Reconcile_ClientNotCachedRequeuesQuietly(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"}}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cm).Build()
+	recorder := record.NewFakeRecorder(10)
+	r := NewBaseReconciler[*corev1.ConfigMap](c, scheme, logr.Discard(), "test.finalizer", nil, recorder)
+	handler := &mockHandler{syncFunc: func(_ context.Context, _ *corev1.ConfigMap) error {
+		return infraerrors.NewDependencyError("default/test", "VaultConnection", "conn",
+			infraerrors.ReasonClientNotCached)
+	}}
+
+	result, err := r.Reconcile(context.Background(),
+		ctrl.Request{NamespacedName: types.NamespacedName{Name: "test", Namespace: "default"}},
+		handler, newConfigMap)
+	if err != nil {
+		t.Errorf("want no error during warm-up, got %v", err)
+	}
+	if result.RequeueAfter != RequeueOnClientWarmup {
+		t.Errorf("RequeueAfter = %v, want %v", result.RequeueAfter, RequeueOnClientWarmup)
+	}
+	close(recorder.Events)
+	for e := range recorder.Events {
+		if strings.Contains(e, EventReasonSyncFailed) {
+			t.Errorf("unexpected event during warm-up: %s", e)
+		}
 	}
 }
 
