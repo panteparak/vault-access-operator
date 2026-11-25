@@ -134,12 +134,23 @@ func IsVaultPermissionDenied(err error) bool {
 	return errors.As(err, &respErr) && respErr.StatusCode == 403
 }
 
-// IsVaultRequestRejected reports whether Vault answered a 4xx: it refused
-// the request, so a write did not land. A 5xx, a timeout or a transport
-// error is ambiguous (the write may have landed) and returns false.
+// IsVaultRequestRejected reports whether Vault refused a single-attempt
+// request with a 4xx, so a write did not land. 408, 412 and 429 are
+// excluded: they are retry signals (the SDK retries 412 and 429 itself),
+// so they say nothing about an earlier attempt. A 5xx, a timeout or a
+// transport error is ambiguous (the write may have landed) and returns
+// false. Only meaningful for a request made without SDK retries, such as
+// vault.Client.WriteKubernetesAuthRole.
 func IsVaultRequestRejected(err error) bool {
 	var respErr *vaultapi.ResponseError
-	return errors.As(err, &respErr) && respErr.StatusCode >= 400 && respErr.StatusCode < 500
+	if !errors.As(err, &respErr) || respErr.StatusCode < 400 || respErr.StatusCode >= 500 {
+		return false
+	}
+	switch respErr.StatusCode {
+	case 408, 412, 429:
+		return false
+	}
+	return true
 }
 
 // NotFoundError indicates a required resource doesn't exist.

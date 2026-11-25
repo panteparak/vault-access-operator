@@ -590,12 +590,28 @@ func (c *Client) ListKubernetesAuthRoles(ctx context.Context, authPath string) (
 // log lines and status messages name the failed resource — earlier
 // versions returned the raw error which lost that context once wrapped
 // at the call site.
+//
+// The write is a single attempt: the SDK's own retries (MaxRetries, which
+// retry 412, 429, 5xx and transport errors) are off for it, and the
+// controller's requeue is the retry. The role sync drops the name it made
+// pending when Vault refuses the write; with SDK retries the error it saw
+// could be a retry's 429 after an earlier attempt had landed with a 500
+// (#18 review round 3, finding A1). Every other request keeps the SDK
+// retries.
+// ponytail: one client clone per role write; reuse a no-retry clone per
+// Client if role writes ever get hot.
 func (c *Client) WriteKubernetesAuthRole(
 	ctx context.Context, authPath, roleName string, data map[string]interface{},
 ) error {
 	authPath = NormalizeAuthPath(authPath)
 	path := fmt.Sprintf("%s/role/%s", authPath, roleName)
-	if _, err := c.Logical().WriteWithContext(ctx, path, data); err != nil {
+	once, err := c.CloneWithHeaders()
+	if err != nil {
+		return fmt.Errorf("prepare kubernetes auth role write at %s: %w", path, err)
+	}
+	once.SetToken(c.Token())
+	once.SetMaxRetries(0)
+	if _, err := once.Logical().WriteWithContext(ctx, path, data); err != nil {
 		return fmt.Errorf("failed to write kubernetes auth role at %s: %w", path, err)
 	}
 	return nil

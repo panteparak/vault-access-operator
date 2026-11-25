@@ -69,8 +69,10 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
     `alias_metadata`: the target name is persisted as
     `status.pendingVaultRoleName` before the write, so a retry after a lost
     status commit finishes the rename instead of ending in a permanent
-    `ConflictError`, and deleting the CR also deletes the pending name. A
-    write Vault refuses (4xx) did not land, so it leaves no pending name. If
+    `ConflictError`, and deleting the CR also deletes the pending name. The
+    role write is a single attempt (no Vault SDK retries; the requeue
+    retries), so a 4xx means it did not land and it leaves no pending name;
+    408, 412 and 429 count as ambiguous, like a 5xx. If
     the bound name moves again before the retry, the retry deletes the role
     at the pending name instead of leaking it.
   - Readback fails with a `ConflictError` unless the ownership record read back

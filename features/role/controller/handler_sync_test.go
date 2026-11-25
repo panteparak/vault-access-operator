@@ -102,8 +102,13 @@ type mockVaultState struct {
 	managed map[string]map[string]interface{}
 	// roleWrites sets a role write's outcome by role name: "reject" answers
 	// 403 and stores nothing (the write did not land), "lost" stores the
-	// role and then answers 500 (it landed, the response did not).
+	// role and then answers 500 (it landed, the response did not), and
+	// "lost-then-429" / "lost-then-412" answer the first attempt like
+	// "lost" and any later attempt (an SDK retry) with that 4xx, storing
+	// nothing.
 	roleWrites map[string]string
+	// roleWriteCalls counts write attempts per role name.
+	roleWriteCalls map[string]int
 }
 
 func newMockVaultState() *mockVaultState {
@@ -151,7 +156,21 @@ func mockWriteRole(w http.ResponseWriter, r *http.Request, cfg mockVaultServerCo
 		fail(http.StatusInternalServerError, "internal error")
 		return
 	}
-	mode := cfg.state.roleWrites[key[strings.LastIndex(key, "/")+1:]]
+	name := key[strings.LastIndex(key, "/")+1:]
+	if cfg.state.roleWriteCalls == nil {
+		cfg.state.roleWriteCalls = map[string]int{}
+	}
+	cfg.state.roleWriteCalls[name]++
+	mode := cfg.state.roleWrites[name]
+	if mode == "lost-then-429" || mode == "lost-then-412" {
+		if cfg.state.roleWriteCalls[name] > 1 {
+			code := map[string]int{"lost-then-429": http.StatusTooManyRequests,
+				"lost-then-412": http.StatusPreconditionFailed}[mode]
+			fail(code, "retry refused")
+			return
+		}
+		mode = "lost"
+	}
 	if mode == "reject" {
 		fail(http.StatusForbidden, "permission denied")
 		return

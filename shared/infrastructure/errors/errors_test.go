@@ -20,6 +20,8 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+
+	vaultapi "github.com/hashicorp/vault/api"
 )
 
 func TestConflictError(t *testing.T) {
@@ -285,5 +287,23 @@ func TestErrorTypeChecking(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestIsVaultRequestRejected pins #18 review round 3, finding A1: only a
+// definite 4xx means a write did not land; retry signals and 5xx do not.
+func TestIsVaultRequestRejected(t *testing.T) {
+	for code, want := range map[int]bool{
+		400: true, 403: true, 404: true,
+		408: false, 412: false, 429: false,
+		500: false, 503: false,
+	} {
+		err := fmt.Errorf("write: %w", &vaultapi.ResponseError{StatusCode: code})
+		if got := IsVaultRequestRejected(err); got != want {
+			t.Errorf("IsVaultRequestRejected(%d) = %v, want %v", code, got, want)
+		}
+	}
+	if IsVaultRequestRejected(errors.New("dial tcp: connection refused")) {
+		t.Error("a transport error must not count as rejected")
 	}
 }

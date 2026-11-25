@@ -328,6 +328,43 @@ func TestSyncRole_AmbiguousRenameWriteKeepsPendingName(t *testing.T) {
 	}
 }
 
+// Review round 3, finding A1 (#18): with the SDK's own retries, a role
+// write's first attempt could land and answer 500, and a retry then get
+// 429 or 412 (both retried by the SDK). Read as "refused", that dropped the
+// pending name, so on Vault < 1.21.3 the retry self-conflicted and deleting
+// the CR leaked the role. The write is now one attempt, so the 500 is what
+// the sync sees and the pending name stays.
+func TestSyncRole_LandedWriteThenRetryRefusalKeepsPendingName(t *testing.T) {
+	for _, mode := range []string{"lost-then-429", "lost-then-412"} {
+		t.Run(mode, func(t *testing.T) {
+			h, fetch, state, newName, _ := renameHarness(t)
+			ctx := logr.NewContext(context.Background(), logr.Discard())
+
+			setRoleWrite(state, newName, mode)
+			if err := h.SyncRole(ctx, domain.NewVaultRoleAdapter(fetch())); err == nil {
+				t.Fatal("sync 2: want the failed write to fail the sync")
+			}
+			state.mu.Lock()
+			_, landed := state.roles["auth/kubernetes/role/"+newName]
+			attempts := state.roleWriteCalls[newName]
+			state.mu.Unlock()
+			if !landed {
+				t.Fatalf("sync 2: the first attempt did not land")
+			}
+			if got := fetch().Status.PendingVaultRoleName; got != newName {
+				t.Errorf("pendingVaultRoleName = %q after a write that landed (attempts %d), want %q",
+					got, attempts, newName)
+			}
+			if err := h.CleanupRole(ctx, domain.NewVaultRoleAdapter(fetch())); err != nil {
+				t.Fatalf("cleanup: %v", err)
+			}
+			if len(state.roles) != 0 {
+				t.Errorf("roles left after cleanup: %v", keysOf(state.roles))
+			}
+		})
+	}
+}
+
 // Review round 2, finding B (#18): a rename write lands but its response is
 // lost, then the naming input flips back before the retry. The retry writes
 // the recorded name and must delete the role the pending name points at
