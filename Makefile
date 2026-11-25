@@ -477,7 +477,7 @@ e2e-local-test-cluster-name: ## Run cluster-name prefix E2E tests (needs e2e-loc
 		go test ./test/e2e/ -v -ginkgo.v -ginkgo.fail-fast -ginkgo.label-filter="cluster-name" -timeout 15m
 
 .PHONY: e2e-local-test-markers
-e2e-local-test-markers: ## Run managed-marker E2E tests (needs e2e-local-up-with-markers for opt-in cases)
+e2e-local-test-markers: ## Run managed-marker E2E tests (TC-MM; any stack since #18)
 	KUBECONFIG=$(E2E_KUBECONFIG) VAULT_ADDR=http://localhost:8200 \
 		E2E_K8S_HOST=https://k3s:6443 \
 		E2E_OPERATOR_IMAGE=$(E2E_OPERATOR_IMAGE) \
