@@ -349,7 +349,9 @@ Every policy and role written through this connection is named `vao.ci-project.{
 Rules:
 
 - **Refused identities.** `_`, and any name equal (case-insensitively) to the sanitized name of an auth mount on the server, are refused with Phase=Error and reason `IdentityCollidesWithAuthMount`: a connection logging in through that mount would derive the same names. The check reads `sys/auth`, so the operator needs `read` on `sys/auth` once any connection sets an identity (see [What the Operator Needs](getting-started.md#what-the-operator-needs)); connections without one never read it. If `sys/auth` cannot be read the connection is refused (fail closed).
-- **Ownership is still the login mount.** The identity names objects; it does not own them. Two clusters that share an identity but log in through different mounts each see the other's objects as foreign (ConflictError), never overwrite or delete them.
+- **Ownership is still the login mount.** The identity names objects; it does not own them. Two clusters that share an identity but log in through different mounts each see the other's objects as foreign (ConflictError), never overwrite or delete them. For roles this needs a Vault that stores `alias_metadata` (1.21.3 or later): on older Vaults a role carries no record, and only the owning CR's status protects it.
+- **An identity equal to another cluster's `--cluster-name` is not detected.** The refusal check sees only the server's auth mounts. Pick identities that no operator uses as `--cluster-name`.
+- **Upgrade every operator first.** Upgrade every operator that shares the Vault server before any connection sets `spec.identity`. A v0.12.0 operator running with markers off writes without checking ownership, so it can overwrite objects named under the new identity.
 - **Co-location.** A role named under one identity that references a policy named under another gets a `PolicyIdentityMismatch` Warning: its grants depend on a policy another connection or cluster owns and can delete.
 - **Moving an identity to another login mount is delete-then-create.** Delete the CR on the old cluster first; its ownership-gated delete removes the Vault object. Then apply it on the new cluster. The gap is one reconcile. If you apply on the new cluster first, the new CR stays in Conflict (with backoff) until the old CR is deleted, which lengthens the gap.
 - KV secrets (`VaultKVSecret`) do not use the identity: their paths are spelled out in the spec.
@@ -369,9 +371,9 @@ Where the record lives:
 
 | Object | In-band record |
 |--------|----------------|
-| ACL policy | Structured comment header inside the policy document (`# managed-by`, `# auth-mount`, `# cluster`, `# k8s-resource`, `# k8s-kind`) |
+| ACL policy | Structured comment header inside the policy document (`# managed-by`, `# auth-mount`, `# cluster`, `# identity`, `# k8s-resource`, `# k8s-kind`; `identity` only when the connection sets `spec.identity`) |
 | KV secret (`VaultKVSecret`) | `custom_metadata` on the secret's own path (`managed-by`, `k8s-resource`, `auth-mount`, `cluster`, `managed-at`, `last-updated`) |
-| Auth role | `alias_metadata` on the role (`managed-by`, `auth-mount`, `cluster`, `k8s-resource`, `k8s-kind`) — supported by the kubernetes and jwt auth backends on Vault ≥ 1.21.3 (older Vaults, including 1.21.0-1.21.2, accept the parameter on write and silently drop it) ([ADR 0010](adr/0010-structured-vault-names-and-recorded-name-authority.md)); Vault also copies these keys onto entity aliases at login. On older Vaults the parameter is dropped and ownership falls back to the owning CR's status plus the one-cluster-per-auth-mount invariant |
+| Auth role | `alias_metadata` on the role (`managed-by`, `auth-mount`, `cluster`, `identity`, `k8s-resource`, `k8s-kind`; `identity` only when the connection sets `spec.identity`) — supported by the kubernetes and jwt auth backends on Vault ≥ 1.21.3 (older Vaults, including 1.21.0-1.21.2, accept the parameter on write and silently drop it) ([ADR 0010](adr/0010-structured-vault-names-and-recorded-name-authority.md)); Vault also copies these keys onto entity aliases at login. On older Vaults the parameter is dropped and ownership falls back to the owning CR's status plus the one-cluster-per-auth-mount invariant |
 
 The operator's **identity** is the auth mount path its connection logged in
 through. Ownership requires the sentinel **+ the same identity + the same
