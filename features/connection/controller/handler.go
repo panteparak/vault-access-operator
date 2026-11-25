@@ -151,8 +151,16 @@ func (h *Handler) Sync(ctx context.Context, conn *vaultv1alpha1.VaultConnection)
 
 	// Naming identity (ADR 0011) goes on the client before it is shared, so
 	// a re-authenticated client never serves a policy/role sync with the
-	// wrong identity. It is validated further down; until then (and on a
-	// refusal) vaultclient.Resolve holds syncs back on Phase/generation.
+	// wrong identity. vaultClient may be the cached client that syncs past
+	// vaultclient.Resolve already hold, so a changed identity is checked
+	// first: a refused one never reaches it (#18 review finding 9). An
+	// unchanged identity was checked when it was set; resolveIdentity below
+	// re-checks it each pass.
+	if spec := specIdentityName(conn); spec != "" && spec != vaultClient.SpecIdentity() {
+		if err := checkIdentity(ctx, spec, vaultClient); err != nil {
+			return h.handleSyncError(ctx, conn, err)
+		}
+	}
 	vaultClient.SetSpecIdentity(specIdentityName(conn))
 
 	// Store client in cache
