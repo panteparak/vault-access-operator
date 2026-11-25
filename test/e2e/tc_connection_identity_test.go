@@ -44,8 +44,13 @@ import (
 // Make target), lets that release write objects, then swaps back. It skips
 // when E2E_UPGRADE_FROM_IMAGE is empty. It runs first, before any
 // identity-bearing connection exists, because the old release does not know
-// spec.identity and would rename those objects.
-var _ = Describe("Connection Identity", Ordered, Label("connection-identity"), func() {
+// spec.identity and would rename those objects: that is the only reason the
+// container is Ordered.
+//
+// ContinueOnFailure, and every spec sets up what it needs itself
+// (ensureIdentityConnection, its own policies and roles), so one failing
+// spec cannot skip or break the others (#18 review finding 3).
+var _ = Describe("Connection Identity", Ordered, ContinueOnFailure, Label("connection-identity"), func() {
 	const (
 		operatorNS     = "vault-access-operator-system"
 		idName         = "tc-id-proj"
@@ -55,13 +60,26 @@ var _ = Describe("Connection Identity", Ordered, Label("connection-identity"), f
 		idPolicy       = "tc-id-policy"
 		idRole         = "tc-id-role"
 		idSA           = "tc-id-sa"
-		foreignPolicy  = "tc-id03-policy"
-		migratePolicy  = "tc-id05-policy"
+		foreignPolicy  = "tc-id04-policy"
+		restartPolicy  = "tc-id05-policy"
+		restartRole    = "tc-id05-role"
+		migratePolicy  = "tc-id06-policy"
 		k8sLoginMount  = "kubernetes"
 		operatorK8sRol = "vault-access-operator"
 	)
 
 	ctx := context.Background()
+
+	// ensureIdentityConnection creates the identity-bearing connection unless
+	// it already exists, and waits for it to be Active. Each spec that needs
+	// it calls this, so none depends on another spec having run or passed.
+	ensureIdentityConnection := func() {
+		GinkgoHelper()
+		if _, err := utils.GetVaultConnection(ctx, idConnName, ""); err != nil {
+			Expect(utils.CreateVaultConnectionCR(ctx, identityConnection(idConnName, idName))).To(Succeed())
+		}
+		Expect(utils.WaitForVaultConnectionPhase(ctx, idConnName, "Active", 2*time.Minute, 5*time.Second)).To(Succeed())
+	}
 
 	BeforeAll(func() {
 		RefreshSharedVaultToken(ctx)
@@ -70,8 +88,10 @@ var _ = Describe("Connection Identity", Ordered, Label("connection-identity"), f
 
 	AfterAll(func() {
 		By("cleaning up connection-identity test resources")
-		_ = utils.DeleteVaultRoleCR(ctx, idRole, testNamespace)
-		for _, p := range []string{idPolicy, foreignPolicy, migratePolicy} {
+		for _, r := range []string{idRole, restartRole} {
+			_ = utils.DeleteVaultRoleCR(ctx, r, testNamespace)
+		}
+		for _, p := range []string{idPolicy, foreignPolicy, restartPolicy, migratePolicy} {
 			_ = utils.DeleteVaultPolicyCR(ctx, p, testNamespace)
 		}
 		for _, c := range []string{idConnName, idK8sConnName, collideConn} {
@@ -155,8 +175,7 @@ var _ = Describe("Connection Identity", Ordered, Label("connection-identity"), f
 	})
 
 	It("TC-ID03: names, ownership records and status carry the connection identity", func() {
-		Expect(utils.CreateVaultConnectionCR(ctx, identityConnection(idConnName, idName))).To(Succeed())
-		Expect(utils.WaitForVaultConnectionPhase(ctx, idConnName, "Active", 2*time.Minute, 5*time.Second)).To(Succeed())
+		ensureIdentityConnection()
 
 		conn, err := utils.GetVaultConnection(ctx, idConnName, "")
 		Expect(err).NotTo(HaveOccurred())
@@ -200,11 +219,12 @@ var _ = Describe("Connection Identity", Ordered, Label("connection-identity"), f
 		data, err := vc.ReadAuthRole(ctx, k8sLoginMount, vaultRoleName)
 		Expect(err).NotTo(HaveOccurred())
 		roleOwn, ok := vault.ParseAliasMetadata(data)
-		Expect(ok).To(BeTrue(), "expected alias_metadata record (Vault >= 1.21), got %v", data)
+		Expect(ok).To(BeTrue(), "expected alias_metadata record (Vault >= 1.21.3; e2e pins 1.21.4), got %v", data)
 		Expect(roleOwn.Identity).To(Equal(idName))
 	})
 
 	It("TC-ID04: a foreign-owned object at the identity name is a Conflict; nothing is written or deleted", func() {
+		ensureIdentityConnection()
 		vaultPolicyName := utils.ExpectedVaultName(idName, testNamespace, foreignPolicy)
 		foreign := vault.OwnershipHeader(vault.Ownership{
 			ManagedBy:   vault.KVManagedByValue,
@@ -241,17 +261,28 @@ var _ = Describe("Connection Identity", Ordered, Label("connection-identity"), f
 	})
 
 	It("TC-ID05: an operator restart gives no conflict events and no rewrites", func() {
-		before := snapshotPolicyAndRole(ctx, idPolicy, idRole)
+		ensureIdentityConnection()
+		policy := BuildTestPolicy(restartPolicy)
+		policy.Spec.ConnectionRef = idConnName
+		Expect(utils.CreateVaultPolicyCR(ctx, policy)).To(Succeed())
+		ExpectPolicyActive(ctx, restartPolicy)
+		role := BuildTestRole(restartRole, idSA, restartPolicy)
+		role.Spec.ConnectionRef = idConnName
+		Expect(utils.CreateVaultRoleCR(ctx, role)).To(Succeed())
+		ExpectRoleActive(ctx, restartRole)
+
+		before := snapshotPolicyAndRole(ctx, restartPolicy, restartRole)
 		deploy := operatorDeployment(operatorNS)
 		kubectlOut("rollout", "restart", "deployment/"+deploy, "-n", operatorNS)
 		kubectlOut("rollout", "status", "deployment/"+deploy, "-n", operatorNS, "--timeout=180s")
 		Consistently(func(g Gomega) {
-			g.Expect(snapshotPolicyAndRole(ctx, idPolicy, idRole)).To(Equal(before))
+			g.Expect(snapshotPolicyAndRole(ctx, restartPolicy, restartRole)).To(Equal(before))
 		}, 60*time.Second, 5*time.Second).Should(Succeed())
-		Expect(conflictEvents(idPolicy) + conflictEvents(idRole)).To(BeEmpty())
+		Expect(conflictEvents(restartPolicy) + conflictEvents(restartRole)).To(BeEmpty())
 	})
 
 	It("TC-ID06: moving an identity to another login mount is delete-then-create", func() {
+		ensureIdentityConnection()
 		vaultPolicyName := utils.ExpectedVaultName(idName, testNamespace, migratePolicy)
 		policy := BuildTestPolicy(migratePolicy)
 		policy.Spec.ConnectionRef = idConnName
