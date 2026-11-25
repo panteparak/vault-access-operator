@@ -329,6 +329,42 @@ func TestSyncRole_AmbiguousRenameWriteKeepsPendingName(t *testing.T) {
 	}
 }
 
+// Review round 2, finding B (#18): a rename write lands but its response is
+// lost, then the naming input flips back before the retry. The retry writes
+// the recorded name and must delete the role the pending name points at
+// (through the ownership gate), or it leaks: cleanup then sees no pending.
+func TestSyncRole_FlipBackDeletesPendingName(t *testing.T) {
+	h, fetch, state, newName, _ := renameHarness(t)
+	ctx := logr.NewContext(context.Background(), logr.Discard())
+	oldName := fetch().Status.VaultRoleName
+
+	setRoleWrite(state, newName, "lost")
+	if err := h.SyncRole(ctx, domain.NewVaultRoleAdapter(fetch())); err == nil {
+		t.Fatal("sync 2: want the lost response to fail the sync")
+	}
+	setRoleWrite(state, newName, "")
+	naming.SetCluster("") // the naming input flips back
+
+	if err := h.SyncRole(ctx, domain.NewVaultRoleAdapter(fetch())); err != nil {
+		t.Fatalf("sync 3: %v", err)
+	}
+	got := fetch()
+	if got.Status.Phase != vaultv1alpha1.PhaseActive || got.Status.VaultRoleName != oldName ||
+		got.Status.PendingVaultRoleName != "" {
+		t.Errorf("sync 3: phase=%s name=%s pending=%q, want Active at %s, no pending",
+			got.Status.Phase, got.Status.VaultRoleName, got.Status.PendingVaultRoleName, oldName)
+	}
+	if _, ok := state.roles["auth/kubernetes/role/"+newName]; ok {
+		t.Errorf("role %s written in sync 2 survives sync 3", newName)
+	}
+	if err := h.CleanupRole(ctx, domain.NewVaultRoleAdapter(fetch())); err != nil {
+		t.Fatalf("cleanup: %v", err)
+	}
+	if len(state.roles) != 0 {
+		t.Errorf("roles left after cleanup: %v", keysOf(state.roles))
+	}
+}
+
 // Review finding 1 (#18): on a Vault that drops alias_metadata (< 1.21.3),
 // a rename whose Vault write lands but whose status commit is lost
 // (operator restart, 409) left our record-less role at the new name. The
