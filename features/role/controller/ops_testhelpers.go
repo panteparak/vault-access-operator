@@ -13,6 +13,10 @@ You may obtain a copy of the License at
 package controller
 
 import (
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/features/role/domain"
 )
 
@@ -24,9 +28,17 @@ import (
 //
 // This helper is intentionally kept out of production builds — the build tag
 // ensures it is only compiled when `go test -tags integration` is invoked.
+//
+// WriteToVault persists status.pendingVaultRoleName before writing (#18
+// review finding 1), so the ops carry a fake K8s client holding the role.
 func NewRoleOpsForTest(adapter domain.RoleAdapter, authPath string, roleData map[string]interface{}) *RoleOps {
+	scheme := runtime.NewScheme()
+	_ = vaultv1alpha1.AddToScheme(scheme)
+	k8s := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(adapter.GetObject()).WithStatusSubresource(adapter.GetObject()).Build()
 	return &RoleOps{
 		adapter:  adapter,
+		handler:  &Handler{client: k8s},
 		authPath: authPath,
 		roleData: roleData,
 	}
