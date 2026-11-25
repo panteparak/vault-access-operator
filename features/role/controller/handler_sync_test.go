@@ -134,6 +134,38 @@ type mockVaultServerConfig struct {
 	dropAliasMetadata bool
 }
 
+// mockWriteRole serves a role write: writeRoleErr answers 500, the per-name
+// roleWrites outcome may reject it (403, not stored) or lose its response
+// (stored, then 500), and dropAliasMetadata drops the record as Vault
+// < 1.21.3 does. The caller holds cfg.state.mu.
+func mockWriteRole(w http.ResponseWriter, r *http.Request, cfg mockVaultServerConfig, key string) {
+	fail := func(code int, msg string) {
+		w.WriteHeader(code)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"errors": []string{msg}})
+	}
+	if cfg.writeRoleErr {
+		fail(http.StatusInternalServerError, "internal error")
+		return
+	}
+	mode := cfg.state.roleWrites[key[strings.LastIndex(key, "/")+1:]]
+	if mode == "reject" {
+		fail(http.StatusForbidden, "permission denied")
+		return
+	}
+	var data map[string]interface{}
+	_ = json.NewDecoder(r.Body).Decode(&data)
+	mockNormalizeTTLFields(data)
+	if cfg.dropAliasMetadata {
+		delete(data, vault.RoleAliasMetadataKey)
+	}
+	cfg.state.roles[key] = data
+	if mode == "lost" {
+		fail(http.StatusInternalServerError, "response lost")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // newMockVaultServer creates an httptest.Server that handles Vault API endpoints
 // needed by SyncRole and SyncPolicy.
 func newMockVaultServer(cfg mockVaultServerConfig) *httptest.Server {
@@ -202,32 +234,7 @@ func newMockVaultServer(cfg mockVaultServerConfig) *httptest.Server {
 
 			switch r.Method {
 			case http.MethodPut, http.MethodPost:
-				if cfg.writeRoleErr {
-					w.WriteHeader(http.StatusInternalServerError)
-					_ = json.NewEncoder(w).Encode(map[string]interface{}{
-						"errors": []string{"internal error"},
-					})
-					return
-				}
-				mode := cfg.state.roleWrites[key[strings.LastIndex(key, "/")+1:]]
-				if mode == "reject" {
-					w.WriteHeader(http.StatusForbidden)
-					_ = json.NewEncoder(w).Encode(map[string]interface{}{"errors": []string{"permission denied"}})
-					return
-				}
-				var data map[string]interface{}
-				_ = json.NewDecoder(r.Body).Decode(&data)
-				mockNormalizeTTLFields(data)
-				if cfg.dropAliasMetadata {
-					delete(data, vault.RoleAliasMetadataKey)
-				}
-				cfg.state.roles[key] = data
-				if mode == "lost" {
-					w.WriteHeader(http.StatusInternalServerError)
-					_ = json.NewEncoder(w).Encode(map[string]interface{}{"errors": []string{"response lost"}})
-					return
-				}
-				w.WriteHeader(http.StatusNoContent)
+				mockWriteRole(w, r, cfg, key)
 
 			case http.MethodGet:
 				if cfg.readRoleErr {
