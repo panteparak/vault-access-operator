@@ -761,7 +761,10 @@ func TestCheckConflict_MarkersEnabled(t *testing.T) {
 		}
 	})
 
-	t.Run("ownership read error, Adopt: adopted; Fail: transient", func(t *testing.T) {
+	// Changed on purpose (#18 review finding 2): a read error under Adopt
+	// used to adopt, which could take over a policy whose unread record
+	// names another owner. It is now transient under Fail and Adopt alike.
+	t.Run("ownership read error: transient under Fail and Adopt", func(t *testing.T) {
 		m := newMockVaultClient()
 		m.policyExists = true
 		m.ownershipErr = errors.New("boom")
@@ -775,8 +778,9 @@ func TestCheckConflict_MarkersEnabled(t *testing.T) {
 		a = newAdapter(func(p *vaultv1alpha1.VaultPolicy) {
 			p.Spec.ConflictPolicy = vaultv1alpha1.ConflictPolicyAdopt
 		})
-		if err := h.checkConflict(context.Background(), m, a, domain.DeriveVaultName(a, naming.Placeholder)); err != nil {
-			t.Errorf("read error with Adopt should adopt, got %v", err)
+		err = h.checkConflict(context.Background(), m, a, domain.DeriveVaultName(a, naming.Placeholder))
+		if !infraerrors.IsTransientError(err) {
+			t.Errorf("read error under Adopt should be transient (never adopt unknown ownership), got %v", err)
 		}
 	})
 }

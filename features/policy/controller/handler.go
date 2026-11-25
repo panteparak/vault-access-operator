@@ -363,12 +363,9 @@ func (h *Handler) checkConflict(
 	// Policy exists — read its in-band ownership header.
 	own, err := vaultClient.GetPolicyOwnership(ctx, vaultPolicyName)
 	if err != nil {
-		// Can't determine ownership - check if adoption is allowed
-		if h.shouldAdopt(adapter) {
-			log.Info("adopting policy (ownership unknown)", "policyName", vaultPolicyName)
-			metrics.IncrementAdoption(kindForMetric(adapter), adapter.GetNamespace(), true)
-			return nil
-		}
+		// Unknown ownership is never adopted: the record may name another
+		// owner, and Adopt never takes over a foreign object. Retry, as on
+		// the role path (review finding 2, #18).
 		return infraerrors.NewTransientError("check policy ownership", err)
 	}
 

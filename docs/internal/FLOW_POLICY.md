@@ -206,6 +206,7 @@ Once the client is resolved, `Ops.BindVaultName` derives this sync's Vault-side 
 With markers **off** (the default) this step is skipped entirely: the operator writes the policy and forgets it (write-and-forget). When markers are on:
 - If policy doesn't exist in Vault → no conflict.
 - If exists, read the policy's in-band ownership header (`GetPolicyOwnership` = `ReadPolicy` + `ParseOwnership`). Ownership requires the sentinel + the same auth-mount identity + the same owning CR (`Ownership.SameOwner`); a header naming another operator or CR is foreign → conflict, adoption blocked.
+  - Ownership read fails → `TransientError`, whatever the adoption setting: unknown ownership is never adopted (#18 review finding 2; until then `Adopt` took over on a read error).
   - Same K8s owner → OK.
   - Different owner → `ConflictError` (cannot adopt under another operator).
   - No owner (not managed), but the CR has synced before (`LastAppliedHash` set) **and** the recorded `status.vaultName` equals the bound name → ours (a manual full replacement wiped the header). During a rename the bound name is new to the CR, so this memory does not apply: a header-less object at the new name is a `ConflictError` (#18 AC3).
