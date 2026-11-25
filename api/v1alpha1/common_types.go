@@ -303,11 +303,15 @@ type VaultResourceBinding struct {
 	AuthMount string `json:"authMount,omitempty"`
 
 	// Connection is the VaultConnection the object was last written through.
+	// Set for policies and roles; not used by VaultKVSecret.
 	// +optional
 	Connection string `json:"connection,omitempty"`
 
-	// Identity is that connection's spec.identity.name at the last sync;
-	// empty when the connection sets none (ADR 0011).
+	// Identity is the identity segment of VaultResourceName, the name the
+	// object was last written under: spec.identity.name, --cluster-name or
+	// the login mount, and "_" when none applies (ADR 0011). Set on each
+	// write, so an object synced by v0.12.0 gains it at its next write. Set
+	// for policies and roles; not used by VaultKVSecret.
 	// +optional
 	Identity string `json:"identity,omitempty"`
 

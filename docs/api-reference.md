@@ -330,7 +330,7 @@ All synced resources include a `binding` field in their status that acts as a fo
 | `vaultPath` | string | Full API path to the Vault resource (e.g., `sys/policies/acl/prod-my-policy`) |
 | `vaultResourceName` | string | Name of the resource in Vault (e.g., `prod-my-policy`) |
 | `authMount` | string | Auth mount path (roles only, e.g., `kubernetes`) |
-| `identity` | string | Identity segment of `vaultResourceName` (ADR 0011). Set on the next write after upgrading from v0.12.0 |
+| `identity` | string | Identity segment of `vaultResourceName`, the bound Vault name: `spec.identity.name`, `--cluster-name` or the login mount, `_` when none (ADR 0011). Set on each write, so an object synced by v0.12.0 gains it at its next write |
 | `connection` | string | The `VaultConnection` the resource was written through |
 | `boundAt` | time | When the binding was established |
 | `bindingVerified` | bool | Whether the binding was verified against Vault |
