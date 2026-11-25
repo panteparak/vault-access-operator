@@ -261,14 +261,8 @@ func (w *SyncWorkflow) initializeSync(
 // identitySource labels where the naming identity segment came from, for
 // debug logs ("why did it pick this name").
 func identitySource(vaultClient VaultOpsClient) string {
-	switch {
-	case naming.Cluster() != "":
-		return "cluster-name"
-	case vaultClient.AuthMount() != "":
-		return "auth-mount"
-	default:
-		return "none"
-	}
+	_, source := naming.Identity(vaultClient.SpecIdentity(), naming.Cluster(), vaultClient.AuthMount())
+	return source
 }
 
 func (w *SyncWorkflow) handleDriftDetection(

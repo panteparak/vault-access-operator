@@ -84,6 +84,9 @@ type Client struct {
 	// identity (ADR 0008: one cluster per auth mount). Empty for static
 	// token auth — no mount, no identity.
 	authMount string
+	// specIdentity is the connection's spec.identity.name (ADR 0011), set
+	// by the connection controller after validation; "" when unset.
+	specIdentity string
 }
 
 // ClientConfig holds configuration for creating a Vault client
@@ -187,6 +190,36 @@ func (c *Client) AuthMount() string {
 // live records against it.
 func (c *Client) Owner(k8sResource string) Owner {
 	return Owner{AuthMount: c.AuthMount(), K8sResource: k8sResource}
+}
+
+// SpecIdentity is the connection's spec.identity.name ("" when unset): the
+// naming identity that wins over --cluster-name and the login mount, and the
+// `identity` key of the ownership record (ADR 0011).
+func (c *Client) SpecIdentity() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.specIdentity
+}
+
+// SetSpecIdentity records the connection's validated spec.identity.name.
+func (c *Client) SetSpecIdentity(name string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.specIdentity = name
+}
+
+// AuthMountNames lists the auth mounts enabled on the server (paths without
+// the trailing slash). Needs `read` on sys/auth.
+func (c *Client) AuthMountNames(ctx context.Context) ([]string, error) {
+	auths, err := c.Sys().ListAuthWithContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list auth methods: %w", err)
+	}
+	names := make([]string, 0, len(auths))
+	for path := range auths {
+		names = append(names, strings.TrimSuffix(path, "/"))
+	}
+	return names, nil
 }
 
 // SetAuthMount records the auth mount path. Called by the login path; exposed

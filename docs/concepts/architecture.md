@@ -217,11 +217,11 @@ Features publish events via `EventBus.Publish()` (synchronous) or `EventBus.Publ
 
 ## Managed Markers and Orphan Detection
 
-Ownership tracking is opt-in via the `--managed-markers` flag (default off). Ownership records are **in-band** ([ADR 0008](../adr/0008-in-band-ownership-markers.md)) — stored ON the managed Vault objects themselves, so no extra Vault grant is needed:
+Ownership checks always run (since #18, [ADR 0011](../adr/0011-per-connection-naming-identity.md)); the `--managed-markers` flag (default off) gates only discovery and orphan detection. Ownership records are **in-band** ([ADR 0008](../adr/0008-in-band-ownership-markers.md)) — stored ON the managed Vault objects themselves, so no extra Vault grant is needed:
 
 - **Policies** carry a structured comment header inside the policy document (`managed-by`, `auth-mount`, `cluster`, `k8s-resource`, `k8s-kind`).
 - **KV secrets** carry `custom_metadata` on their own metadata path.
-- **Roles** carry nothing (Vault auth roles have no metadata surface); ownership memory is the owning CR's status.
+- **Roles** carry `alias_metadata` on the role (same keys; Vault >= 1.21, [ADR 0010](../adr/0010-structured-vault-names-and-recorded-name-authority.md)).
 
 The operator's identity is the **auth mount path** its connection logged in through. On a shared Vault, **each cluster's operator MUST authenticate through its own auth mount** (one cluster per mount) — the mount is what tells operators apart. When the flag is off, the operator skips ownership, discovery, and orphan detection entirely.
 

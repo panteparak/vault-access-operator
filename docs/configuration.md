@@ -264,7 +264,7 @@ The operator supports the following environment variables for runtime configurat
 | `OPERATOR_NAMESPACE` | (from downward API) | Namespace where the operator is running |
 | `OPERATOR_SERVICE_ACCOUNT` | (from downward API) | Service account name used by the operator |
 | `CLUSTER_NAME` | `""` | Per-cluster prefix for all Vault resource names (see [`--cluster-name`](#cli-flags) and [Sharing one Vault across clusters](#sharing-one-vault-across-clusters)). The `--cluster-name` flag takes precedence. |
-| `MANAGED_MARKERS` | `false` | Enable in-band ownership tracking, discovery, and orphan detection (see [`--managed-markers`](#cli-flags) and [Managed markers](#managed-markers)). The `--managed-markers` flag takes precedence. |
+| `MANAGED_MARKERS` | `false` | Enable the discovery and orphan-detection controllers (see [`--managed-markers`](#cli-flags) and [Managed markers](#managed-markers)). Ownership checks run regardless. The `--managed-markers` flag takes precedence. |
 
 These can be set via the `extraEnv` Helm value:
 
@@ -297,7 +297,7 @@ The operator binary accepts the following command-line flags:
 | `--enable-http2` | `false` | Enable HTTP/2 for metrics and webhook servers |
 | `--enable-webhooks` | `false` | Enable admission webhooks (requires certificate configuration) |
 | `--cluster-name` | `""` | Per-cluster prefix for all Vault resource names (policies, roles). Set a unique value per cluster when multiple operators share one Vault server; empty disables prefixing. When set, every operator log line also carries a `cluster` field so aggregated logs from multiple clusters stay attributable. Also settable via the `CLUSTER_NAME` env var. See [Sharing one Vault across clusters](#sharing-one-vault-across-clusters). |
-| `--managed-markers` | `false` | Enable in-band ownership tracking, discovery, and orphan detection (ADR 0008). Default OFF: the operator skips conflict/ownership detection (write-and-forget) and does not run the discovery or orphan controllers. When ON, ownership travels on the managed objects themselves — no extra Vault grant. Also settable via the `MANAGED_MARKERS` env var. See [Managed markers](#managed-markers). |
+| `--managed-markers` | `false` | Enable the discovery and orphan-detection controllers (ADR 0008). Ownership/conflict checks and adoption run whether or not this is set (since #18; until v0.12.0, OFF meant write-and-forget). Also settable via the `MANAGED_MARKERS` env var. See [Managed markers](#managed-markers). |
 
 ---
 
@@ -308,7 +308,7 @@ Vault Community Edition has no [namespaces](https://developer.hashicorp.com/vaul
 Two settings work together (see [ADR 0008](adr/0008-in-band-ownership-markers.md) and [ADR 0010](adr/0010-structured-vault-names-and-recorded-name-authority.md)):
 
 1. **One auth mount per cluster — hard requirement.** Each cluster's operator MUST authenticate through its own auth mount (e.g. `auth/k8s-east`, `auth/k8s-west`). The mount path is the operator's **ownership identity**: it is stamped into every in-band ownership record, so cross-cluster fights are *detected and blocked* (conflict instead of silent overwrite) even when names collide. Roles are additionally isolated structurally — they live under their cluster's own mount.
-2. **Structured names** (ADR 0010) — every derived Vault resource name has the fixed 4-segment shape `vao.{identity}.{namespace}.{name}` (`_` fills an absent segment). The identity segment is `--cluster-name` when set, **else the connection's login auth mount** — so on a properly-partitioned shared Vault the names cannot collide even with no configuration at all:
+2. **Structured names** (ADR 0010) — every derived Vault resource name has the fixed 4-segment shape `vao.{identity}.{namespace}.{name}` (`_` fills an absent segment). The identity segment is the connection's [`spec.identity.name`](#connection-identity) when set, else `--cluster-name` when set, **else the connection's login auth mount** — so on a properly-partitioned shared Vault the names cannot collide even with no configuration at all:
 
 | Setting | `VaultPolicy` `default/admin` → Vault policy |
 |---------|----------------------------------------------|
@@ -324,6 +324,35 @@ Both clusters then coexist on one Vault with no collisions. Notes:
 - **Renames are migrated, not orphaned**: the name each sync actually wrote is recorded in `status.vaultName`/`status.vaultRoleName` and is authoritative for deletion. Changing `--cluster-name` (or upgrading to the ADR 0010 scheme) makes the next sync write the new name and clean up the old one; if that cleanup fails it is queued for retry (see the cleanup queue) and surfaced via a `StaleVaultNameQueued` warning event.
 - A **static-token** connection has no auth mount, so with no `--cluster-name` its identity is the placeholder `_` — fine for a single-cluster Vault, unsupported for shared Vaults (no ownership identity either; see managed markers below).
 - Valid `--cluster-name` characters: `^[a-zA-Z0-9-]+$` — no dots (they separate name segments) and not the reserved `_`.
+
+### Connection identity
+
+A binding that belongs to no single cluster, such as CI access for a project that spans environments, can keep one Vault name across clusters and login-mount changes. Set `spec.identity.name` on the `VaultConnection` it syncs through ([ADR 0011](adr/0011-per-connection-naming-identity.md)):
+
+```yaml
+apiVersion: vault.platform.io/v1alpha1
+kind: VaultConnection
+metadata:
+  name: ci-project
+spec:
+  address: https://vault.example.com
+  auth:
+    kubernetes:
+      role: vault-access-operator
+      authPath: k8s-east
+  identity:
+    name: ci-project        # ^[a-z0-9-]+$, at most 40 characters
+```
+
+Every policy and role written through this connection is named `vao.ci-project.{namespace}.{name}`. Precedence is `spec.identity.name`, then `--cluster-name`, then the login mount, then `_`. `status.identity` shows the identity in use and its source (`spec`, `cluster-name`, `auth-mount` or `none`). The policy header and role `alias_metadata` gain an `identity` line; `status.binding` on each policy and role gains `identity` and `connection`.
+
+Rules:
+
+- **Refused identities.** `_`, and any name equal (case-insensitively) to the sanitized name of an auth mount on the server, are refused with Phase=Error and reason `IdentityCollidesWithAuthMount`: a connection logging in through that mount would derive the same names. The check reads `sys/auth`, so the operator needs `read` on `sys/auth` once any connection sets an identity (see [What the Operator Needs](getting-started.md#what-the-operator-needs)); connections without one never read it. If `sys/auth` cannot be read the connection is refused (fail closed).
+- **Ownership is still the login mount.** The identity names objects; it does not own them. Two clusters that share an identity but log in through different mounts each see the other's objects as foreign (ConflictError), never overwrite or delete them.
+- **Co-location.** A role named under one identity that references a policy named under another gets a `PolicyIdentityMismatch` Warning: its grants depend on a policy another connection or cluster owns and can delete.
+- **Moving an identity to another login mount is delete-then-create.** Delete the CR on the old cluster first; its ownership-gated delete removes the Vault object. Then apply it on the new cluster. The gap is one reconcile. If you apply on the new cluster first, the new CR stays in Conflict (with backoff) until the old CR is deleted, which lengthens the gap.
+- KV secrets (`VaultKVSecret`) do not use the identity: their paths are spelled out in the spec.
 
 ---
 
@@ -350,33 +379,42 @@ owning CR** — a record naming another operator's mount is *foreign*: it
 conflicts, cannot be adopted, is never deleted by cleanup, and is excluded
 from discovery.
 
-**The whole mechanism is OFF by default** and gated behind a single toggle:
+**Ownership checks always run** (since #18, [ADR 0011](adr/0011-per-connection-naming-identity.md)).
+The records are written with every policy and role, and every write, readback
+and delete is gated on them, whatever the toggle below says. Adoption
+(`conflictPolicy: Adopt` or `vault.platform.io/adopt=true`) works the same way
+with or without it. No additional Vault grant is required: the records live
+inside objects the operator already reads and writes.
+
+The toggle gates only the discovery and orphan-detection controllers:
 
 | Setting | Default | Effect |
 |---------|---------|--------|
-| `--managed-markers` flag | `false` | See below |
+| `--managed-markers` flag | `false` | Runs discovery + orphan detection |
 | `MANAGED_MARKERS` env var | `false` | Same; the flag takes precedence |
 | `managedMarkers.enabled` Helm value | `false` | Renders the flag |
 
-**When OFF (default):** the operator skips conflict/ownership detection
-entirely (write-and-forget) and does **not** run the discovery or
-orphan-detection controllers.
-
-**When ON:** full ownership tracking, discovery, and orphan detection —
-**no additional Vault grant is required**; the records live inside objects the
-operator already reads and writes.
-
 A static-token `VaultConnection` has no auth mount and therefore no ownership
-identity; with markers on it emits a `Warning` event
-`OwnershipIdentityUnavailable` (unsupported for multi-operator Vaults).
+identity; it emits a `Warning` event `OwnershipIdentityUnavailable` when it
+becomes Active (unsupported for multi-operator Vaults).
 
-!!! warning "Used but not activated"
-    If markers are OFF and a CR sets `conflictPolicy: Adopt` (or the annotation
-    `vault.platform.io/adopt=true`), that CR is expressing ownership intent the
-    operator cannot honor. The controller emits a `Warning` event
-    `ManagedMarkersDisabled` (reconcile still proceeds), and — when
-    `--enable-webhooks` is set — the validating webhook **rejects the create at
-    admission**. A plain or defaulted `conflictPolicy: Fail` is allowed silently.
+!!! warning "Upgrading to v0.13.0: ownership checks are now on by default"
+    Until v0.12.0, `--managed-markers` OFF (the default) skipped the conflict
+    check and overwrote whatever was at a name. Now:
+
+    - Objects written by v0.12.0, with markers on or off, carry the ownership
+      record (the header and `alias_metadata` were always written), so they are
+      recognised as ours. Nothing conflicts and nothing is rewritten.
+    - A **new** CR pointed at an existing Vault object that has no record (created
+      by hand or by another tool) now gets `ConflictError` instead of silently
+      overwriting it. Set `conflictPolicy: Adopt` (or the adopt annotation) to
+      take it over.
+    - The validating webhook no longer rejects adoption intent when markers are
+      off, and the `ManagedMarkersDisabled` warning is gone.
+    - The new CRD fields ship in the chart's `crds/` directory, which
+      `helm upgrade` does not update. Apply the new CRDs on upgrade
+      (`kubectl apply -f charts/vault-access-operator/crds/`); Argo CD applies
+      them by default.
 
 !!! danger "Migration — breaking changes"
     1. **Default-off.** Deployments that relied on always-on markers (pre-0.8)

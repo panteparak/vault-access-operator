@@ -67,6 +67,7 @@ type mockVaultClient struct {
 	ownership         *vault.Ownership // in-band header of the live policy (nil = unmanaged/absent)
 	ownershipErr      error
 	authMount         string // this operator's identity (ADR 0008)
+	specIdentity      string // connection spec.identity.name (ADR 0011)
 	authenticated     bool
 	writePolicyCalls  []writePolicyCall
 	deletePolicyCalls []string
@@ -115,6 +116,8 @@ func (m *mockVaultClient) GetPolicyOwnership(_ context.Context, _ string) (*vaul
 func (m *mockVaultClient) Owner(k8sResource string) vault.Owner {
 	return vault.Owner{AuthMount: m.authMount, K8sResource: k8sResource}
 }
+
+func (m *mockVaultClient) SpecIdentity() string { return m.specIdentity }
 
 func (m *mockVaultClient) IsAuthenticated() bool {
 	return m.authenticated
@@ -591,12 +594,11 @@ func TestGeneratePolicyHCL(t *testing.T) {
 	})
 }
 
-// TestCheckConflict_MarkersDisabled pins the critical default: with managed
-// markers OFF, checkConflict short-circuits — it never reads Vault ownership
-// data and returns nil so the reconcile proceeds write-and-forget, even when
-// the policy already exists in Vault.
-func TestCheckConflict_MarkersDisabled(t *testing.T) {
-	// markers default OFF; assert it explicitly rather than relying on order.
+// TestCheckConflict_MarkersOffStillChecks pins #18 AC7 (a deliberate change
+// from v0.12.0, where markers OFF short-circuited to write-and-forget):
+// ownership checks run for every connection whatever --managed-markers
+// says, so a foreign-owned policy is a ConflictError with markers off too.
+func TestCheckConflict_MarkersOffStillChecks(t *testing.T) {
 	markers.SetEnabled(false)
 
 	mockClient := newMockVaultClient()
@@ -613,11 +615,9 @@ func TestCheckConflict_MarkersDisabled(t *testing.T) {
 
 	err := handler.checkConflict(
 		context.Background(), mockClient, adapter, domain.DeriveVaultName(adapter, naming.Placeholder))
-	if err != nil {
-		t.Fatalf("markers disabled: checkConflict should return nil, got %v", err)
+	if !infraerrors.IsConflictError(err) {
+		t.Fatalf("markers off: foreign-owned policy must be a ConflictError, got %v", err)
 	}
-	// PolicyExists is the first Vault call inside the ownership branch; it must
-	// not have been reached.
 	if len(mockClient.writePolicyCalls) != 0 {
 		t.Error("checkConflict must not write policies")
 	}

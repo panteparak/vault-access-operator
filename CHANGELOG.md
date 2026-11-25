@@ -7,6 +7,40 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added
+
+- **Per-connection naming identity (#18, ADR 0011).** `VaultConnection.spec.identity.name`
+  (`^[a-z0-9-]+$`, max 40) names every policy and role written through the
+  connection `vao.{identity}.{namespace}.{name}`, overriding `--cluster-name` and
+  the login mount, so a binding shared across clusters keeps one Vault name.
+  `status.identity {name, source}` shows the identity in use. The policy header
+  and role `alias_metadata` gain an `identity` key (only when set), and policy and
+  role `status.binding` gain `identity` and `connection`. `_` and any identity
+  equal to an auth mount's name on the server are refused
+  (`IdentityCollidesWithAuthMount`); the check needs `read` on `sys/auth`.
+  Moving an identity to another login mount is delete-then-create.
+- A role that references a policy named under another identity gets a
+  `PolicyIdentityMismatch` Warning event.
+
+### Changed
+
+- **Ownership checks are always on (#18).** The policy and role conflict checks
+  and the readback record check now run for every connection; `--managed-markers`
+  gates only the discovery and orphan controllers. Adoption (`conflictPolicy: Adopt`
+  or the adopt annotation) is accepted without `--managed-markers`: the webhook no
+  longer rejects it and the `ManagedMarkersDisabled` warning is gone. The
+  static-token `OwnershipIdentityUnavailable` warning now fires regardless of the
+  flag.
+
+  **Upgrade note.** Objects written by v0.12.0, with markers on or off, carry the
+  ownership record and are recognised as ours: nothing conflicts and nothing is
+  rewritten (names, records and content hashes are byte-identical when no
+  identity is set). A *new* CR pointed at an existing Vault object with no
+  ownership record now gets `ConflictError` instead of overwriting it; set
+  `conflictPolicy: Adopt` to take it over. The new CRD fields ship in the
+  chart's `crds/` directory, which `helm upgrade` does not update: apply the new
+  CRDs on upgrade (Argo CD applies them by default).
+
 ### Fixed
 
 - **Ownership-safe deletes and readback (#18).** These change only failure
@@ -20,8 +54,8 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   - The "CR synced before, so a header-less object is ours" rule now applies only
     at the CR's recorded Vault name. During a rename, a header-less object at the
     new name is a `ConflictError` instead of being taken over.
-  - With ownership checks on (`--managed-markers`), readback fails with a
-    `ConflictError` unless the ownership record read back is the one just written.
+  - Readback fails with a `ConflictError` unless the ownership record read back
+    is the one just written.
     A role read back with no record passes (Vault < 1.21 drops `alias_metadata`);
     on Vault 1.21 or later it also emits a non-blocking `OwnershipRecordMissing`
     Warning event.

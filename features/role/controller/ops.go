@@ -34,7 +34,6 @@ import (
 	"github.com/panteparak/vault-access-operator/shared/controller/workflow"
 	"github.com/panteparak/vault-access-operator/shared/events"
 	infraerrors "github.com/panteparak/vault-access-operator/shared/infrastructure/errors"
-	"github.com/panteparak/vault-access-operator/shared/markers"
 	"github.com/panteparak/vault-access-operator/shared/naming"
 )
 
@@ -103,7 +102,7 @@ func (o *RoleOps) BindVaultName(vaultClient workflow.VaultOpsClient) string {
 		o.vaultName = o.adapter.GetVaultRoleNameStatus()
 		return o.vaultName
 	}
-	identity := naming.Identity(naming.Cluster(), vaultClient.AuthMount())
+	identity, _ := naming.Identity(vaultClient.SpecIdentity(), naming.Cluster(), vaultClient.AuthMount())
 	o.vaultName = domain.DeriveVaultName(o.adapter, identity)
 	return o.vaultName
 }
@@ -174,6 +173,7 @@ func (o *RoleOps) ownership(vaultClient workflow.VaultOpsClient) vault.Ownership
 		ManagedBy:   vault.KVManagedByValue,
 		AuthMount:   vaultClient.AuthMount(),
 		Cluster:     naming.Cluster(),
+		Identity:    vaultClient.SpecIdentity(),
 		K8sResource: o.adapter.GetK8sResourceIdentifier(),
 		K8sKind:     o.ResourceKind(),
 	}
@@ -192,9 +192,10 @@ func (o *RoleOps) authBackend() vault.AuthBackend {
 
 // DetectDrift compares expected vs actual role data in Vault.
 func (o *RoleOps) DetectDrift(ctx context.Context, vaultClient workflow.VaultOpsClient) (bool, string) {
-	return o.handler.detectRoleDrift(
+	hasDrift, summary, _ := o.handler.detectRoleDrift(
 		ctx, vaultClient, o.authBackend(), o.authPath, o.vaultName, o.roleData,
 	)
+	return hasDrift, summary
 }
 
 // WriteToVault creates/updates the Kubernetes auth role in Vault. Skipped under:
@@ -230,32 +231,33 @@ func (o *RoleOps) ReadbackVerify(ctx context.Context, vaultClient workflow.Vault
 			"role", o.vaultName)
 		return nil
 	}
-	hasDrift, summary := o.handler.detectRoleDrift(
+	hasDrift, summary, readback := o.handler.detectRoleDrift(
 		ctx, vaultClient, o.authBackend(), o.authPath, o.vaultName, o.roleData,
 	)
 	if hasDrift {
 		return infraerrors.NewTransientError(
 			"readback verification", fmt.Errorf("role content mismatch after write: %s", summary))
 	}
-	if markers.Enabled() && !dryrun.IsActive(o.adapter) {
-		return o.verifyOwnershipReadback(ctx, vaultClient)
+	if dryrun.IsActive(o.adapter) {
+		return nil
 	}
-	return nil
+	return o.verifyOwnershipReadback(ctx, vaultClient, readback)
 }
 
 // verifyOwnershipReadback fails unless the alias_metadata record read back
 // is the one just written: role drift ignores alias_metadata, so a
 // same-content write by another owner would otherwise pass readback.
-// Read errors stay non-fatal, as for the content check.
+// A failed or empty read stays non-fatal, as for the content check.
 //
 // ponytail: a role read back with no record at all passes. Vault < 1.21
 // silently drops alias_metadata (ADR 0010), so there is nothing to compare;
 // failing would put every role on such a Vault into Conflict. On those
 // Vaults no writer leaves a record, so the readback cannot tell owners
 // apart either way.
-func (o *RoleOps) verifyOwnershipReadback(ctx context.Context, vaultClient workflow.VaultOpsClient) error {
-	data, err := vaultClient.ReadKubernetesAuthRole(ctx, o.authPath, o.vaultName)
-	if err != nil || data == nil {
+func (o *RoleOps) verifyOwnershipReadback(
+	ctx context.Context, vaultClient workflow.VaultOpsClient, data map[string]interface{},
+) error {
+	if data == nil {
 		return nil
 	}
 	got, ok := vault.ParseAliasMetadata(data)
@@ -369,6 +371,7 @@ func (o *RoleOps) ApplyBindings() {
 	// passing the normalized o.authPath here used to record a double-prefixed
 	// vaultPath like auth/auth/kubernetes/role/<x>.
 	roleBinding := binding.NewRoleBinding(vault.AuthMountName(o.authPath), o.vaultName)
+	roleBinding.Connection = o.adapter.GetConnectionRef()
 	o.adapter.SetBinding(roleBinding)
 
 	previous := o.adapter.GetPolicyBindings()
@@ -376,6 +379,8 @@ func (o *RoleOps) ApplyBindings() {
 	o.adapter.SetPolicyBindings(policyBindings)
 
 	o.handler.emitPolicyResolvedEvents(o.adapter, previous, policyBindings)
+	roleIdentity, _ := naming.IdentityOf(o.vaultName)
+	o.handler.warnIdentityMismatch(o.adapter, roleIdentity, o.resolution)
 }
 
 // PublishSyncEvent publishes a RoleCreated event.

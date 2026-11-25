@@ -201,13 +201,12 @@ logging:
 # namespaces). Empty disables prefixing (single-cluster default).
 clusterName: ""
 
-# In-band ownership tracking (ADR 0008): conflict/adoption detection, discovery,
-# and orphan detection. Ownership travels ON the managed Vault objects (policy
-# comment header, KV custom_metadata) keyed to the connection's auth mount — no
-# extra Vault grant is required, but on a shared Vault every cluster MUST
-# authenticate through its own auth mount. Disabled by default (opt-in).
+# Discovery and orphan detection (ADR 0008): controllers that scan Vault for
+# objects by their in-band ownership records. Ownership/conflict checks and
+# adoption run whether or not this is set (#18); on a shared Vault every
+# cluster MUST authenticate through its own auth mount. Disabled by default.
 managedMarkers:
-  # -- Enable managed-marker tracking (sets the operator's --managed-markers flag).
+  # -- Enable discovery + orphan detection (sets the operator's --managed-markers flag).
   enabled: false
 
 # Additional environment variables

@@ -98,9 +98,10 @@ func TestRoleOps_ReadbackVerify_OwnershipRecord(t *testing.T) {
 			t.Errorf("want nil, got %v", err)
 		}
 	})
-	t.Run("checks off: content only, as v0.12.0", func(t *testing.T) {
-		if err := run(t, false, "cluster-b"); err != nil {
-			t.Errorf("want nil, got %v", err)
+	// #18 AC7: checks always run, markers on or off.
+	t.Run("markers off: still checked", func(t *testing.T) {
+		if err := run(t, false, "cluster-b"); !infraerrors.IsConflictError(err) {
+			t.Errorf("want ConflictError, got %v", err)
 		}
 	})
 }

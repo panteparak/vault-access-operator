@@ -220,7 +220,7 @@ Primary callers: `role/controller/handler.go` (drift comparison for roles), poli
 
 ### Managed-marker schema
 
-Gated by `--managed-markers` (default OFF). Ownership is **in-band** (ADR 0008) via [pkg/vault/managed.go](../../pkg/vault/managed.go): policies carry a structured comment header; KV secrets carry `custom_metadata` on their own path; roles carry nothing (CR status). The keys below appear in the policy header and the KV `custom_metadata`:
+Checks always run (#18); `--managed-markers` (default OFF) gates only discovery and orphan detection. Ownership is **in-band** (ADR 0008) via [pkg/vault/managed.go](../../pkg/vault/managed.go): policies carry a structured comment header; KV secrets carry `custom_metadata` on their own path; roles carry `alias_metadata` (ADR 0010). The keys below appear in the policy header and the KV `custom_metadata`:
 
 ```json
 {

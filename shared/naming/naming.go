@@ -70,24 +70,36 @@ func Cluster() string {
 	return name
 }
 
-// Identity resolves the identity segment: clusterName wins; else the
-// sanitized auth mount; else Placeholder. Pure — callers pass Cluster()
-// explicitly so per-connection mount fallback stays possible.
-func Identity(clusterName, authMount string) string {
-	if clusterName != "" {
-		return clusterName
+// Identity sources (VaultConnection status.identity.source, ADR 0011).
+const (
+	SourceSpec        = "spec"
+	SourceClusterName = "cluster-name"
+	SourceAuthMount   = "auth-mount"
+	SourceNone        = "none"
+)
+
+// Identity resolves the identity segment and where it came from:
+// spec (the connection's spec.identity.name, ADR 0011) wins; else
+// clusterName; else the sanitized auth mount; else Placeholder. Pure —
+// callers pass Cluster() explicitly so per-connection values stay possible.
+func Identity(spec, clusterName, authMount string) (identity, source string) {
+	switch {
+	case spec != "":
+		return spec, SourceSpec
+	case clusterName != "":
+		return clusterName, SourceClusterName
 	}
-	if m := sanitizeMount(authMount); m != "" {
-		return m
+	if m := SanitizeMount(authMount); m != "" {
+		return m, SourceAuthMount
 	}
-	return Placeholder
+	return Placeholder, SourceNone
 }
 
-// sanitizeMount maps a mount path onto the dot-free segment charset
+// SanitizeMount maps a mount path onto the dot-free segment charset
 // [A-Za-z0-9_-]: every other rune (dots, slashes on nested mounts, …)
 // becomes '-'. A result of exactly Placeholder becomes "-" so a mount
 // literally named "_" cannot impersonate an absent identity.
-func sanitizeMount(mount string) string {
+func SanitizeMount(mount string) string {
 	if mount == "" {
 		return ""
 	}
@@ -115,4 +127,14 @@ func VaultName(identity, namespace, name string) string {
 		namespace = Placeholder
 	}
 	return Marker + separator + identity + separator + namespace + separator + name
+}
+
+// IdentityOf returns the identity segment of a name built by VaultName, or
+// ok=false for a name of another shape (e.g. a pre-ADR 0010 name).
+func IdentityOf(vaultName string) (identity string, ok bool) {
+	parts := strings.SplitN(vaultName, separator, 3)
+	if len(parts) != 3 || parts[0] != Marker || parts[1] == "" {
+		return "", false
+	}
+	return parts[1], true
 }

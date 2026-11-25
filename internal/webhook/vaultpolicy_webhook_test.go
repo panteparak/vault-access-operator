@@ -625,13 +625,12 @@ func TestVaultPolicyValidator_ValidateDelete(t *testing.T) {
 	}
 }
 
-// TestVaultPolicyValidator_AdoptIntentGatedOnMarkers pins the admission gate:
-// requesting adoption (ConflictPolicy: Adopt, or the adopt annotation) is
-// rejected when managed markers are disabled (the operator would silently
-// no-op the adopt at reconcile), and accepted when markers are enabled.
-// Plain/defaulted Fail is always allowed. Covers both VaultPolicy and
-// VaultClusterPolicy.
-func TestVaultPolicyValidator_AdoptIntentGatedOnMarkers(t *testing.T) {
+// TestVaultPolicyValidator_AdoptIntentAcceptedWithoutMarkers pins #18 AC7:
+// ownership checks always run, so adoption (ConflictPolicy: Adopt, or the
+// adopt annotation) is meaningful — and accepted — whether or not
+// --managed-markers is set. (Until v0.12.0 it was rejected with markers off.)
+// Covers both VaultPolicy and VaultClusterPolicy.
+func TestVaultPolicyValidator_AdoptIntentAcceptedWithoutMarkers(t *testing.T) {
 	validRule := []vaultv1alpha1.PolicyRule{
 		{Path: "secret/data/app/*", Capabilities: []vaultv1alpha1.Capability{vaultv1alpha1.CapabilityRead}},
 	}
@@ -657,8 +656,8 @@ func TestVaultPolicyValidator_AdoptIntentGatedOnMarkers(t *testing.T) {
 		markersOn bool
 		wantErr   bool
 	}{
-		{name: "adopt annotation, markers off -> rejected", anno: adoptAnno, markersOn: false, wantErr: true},
-		{name: "ConflictPolicy Adopt, markers off -> rejected", cp: vaultv1alpha1.ConflictPolicyAdopt, markersOn: false, wantErr: true},
+		{name: "adopt annotation, markers off -> allowed", anno: adoptAnno, markersOn: false, wantErr: false},
+		{name: "ConflictPolicy Adopt, markers off -> allowed", cp: vaultv1alpha1.ConflictPolicyAdopt, markersOn: false, wantErr: false},
 		{name: "adopt annotation, markers on -> allowed", anno: adoptAnno, markersOn: true, wantErr: false},
 		{name: "ConflictPolicy Adopt, markers on -> allowed", cp: vaultv1alpha1.ConflictPolicyAdopt, markersOn: true, wantErr: false},
 		{name: "plain Fail, markers off -> allowed", cp: vaultv1alpha1.ConflictPolicyFail, markersOn: false, wantErr: false},

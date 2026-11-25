@@ -6,7 +6,8 @@ Package markers provides integration tests for managed-marker tracking.
 Tests use the naming convention: INT-MM{NN}_{Description}. They exercise the
 flag-gated marker behavior end to end against a real Vault (Testcontainers),
 mirroring the orphan-detection suite. Managed markers are enabled for the whole
-suite; the flag-OFF case (INT-MM04) toggles it within the spec.
+suite; the flag-OFF cases (INT-MM04) toggle it within the spec and show that
+ownership checks run either way (#18).
 */
 
 package markers

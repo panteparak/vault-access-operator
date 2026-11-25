@@ -60,4 +60,8 @@ type VaultOpsClient interface {
 	// Owner is the record a live object must carry to count as ours for the
 	// given CR; delete gates and cleanup-queue items use it.
 	Owner(k8sResource string) vault.Owner
+	// SpecIdentity is the connection's spec.identity.name ("" when unset):
+	// it wins the naming precedence and is stamped as the record's
+	// `identity` key (ADR 0011).
+	SpecIdentity() string
 }

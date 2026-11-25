@@ -6,8 +6,8 @@ Policies declare what Vault paths a set of capabilities (read/write/etc.) can ac
 
 **All state transitions and Vault writes are driven by `workflow.SyncWorkflow`** ([shared/controller/workflow/sync.go](../../shared/controller/workflow/sync.go)), which both policy and role share.
 
-!!! note "Ownership tracking gated by `--managed-markers` (default OFF)"
-    The `CheckConflict` ownership read runs **only when `--managed-markers=true`**. With markers off (the default), the workflow writes the policy and forgets it — conflict/ownership detection is skipped. Ownership is **in-band** (ADR 0008): a structured comment header inside the policy document itself (`managed-by`, `auth-mount`, `cluster`, `k8s-resource`, `k8s-kind`), written as part of every policy write and read back via `ReadPolicy` + `ParseOwnership`. There is no marker path and no marker-specific grant. See [ADR 0008](../adr/0008-in-band-ownership-markers.md), [CONTEXT.md `Managed marker`](CONTEXT.md#managed-marker).
+!!! note "Ownership checks always run (#18, ADR 0011)"
+    The `CheckConflict` ownership read and the readback record check run for **every connection**. `--managed-markers` no longer gates them; it gates only the discovery and orphan controllers. Until v0.12.0, markers off meant write-and-forget. Ownership is **in-band** (ADR 0008): a structured comment header inside the policy document itself (`managed-by`, `auth-mount`, `cluster`, `k8s-resource`, `k8s-kind`), written as part of every policy write and read back via `ReadPolicy` + `ParseOwnership`. There is no marker path and no marker-specific grant. See [ADR 0008](../adr/0008-in-band-ownership-markers.md), [CONTEXT.md `Managed marker`](CONTEXT.md#managed-marker).
 
 ## Participants
 
@@ -88,7 +88,7 @@ sequenceDiagram
     Ops->>VC: PolicyExists(name)
     VC->>V: GET /sys/policies/acl/{name}
     V-->>VC: exists?
-    alt exists (ownership check only when --managed-markers=true)
+    alt exists (ownership check, always on)
         Ops->>VC: GetPolicyManagedBy(name)
         VC->>V: READ sys/policies/acl/{name}<br/>parse in-band ownership header (ADR 0008)
         V-->>VC: managedBy string
@@ -196,14 +196,14 @@ Only if not already `Syncing` or `Active`. Avoids unnecessary status writes on r
 `DependencyError` maps to `DependencyReady=False` with reason `ConnectionNotReady`. The resource remains in `Phase=Error` until the connection recovers; the **phase-changed predicate** will re-requeue this policy the moment the connection flips to Active.
 
 ### Step 3b: Bind the Vault name (ADR 0010)
-Once the client is resolved, `Ops.BindVaultName` derives this sync's Vault-side name `vao.{identity}.{namespace}.{name}` — identity = `--cluster-name`, else the client's login auth mount, else `_` — and compares it with the RECORDED `status.vaultName`. A mismatch (naming config changed) arms a **rename**: `state.staleVaultName` remembers the old name; after readback succeeds the old-named object is deleted (ownership-checked; failure never fails the sync — the old name is queued on the ADR 0005 cleanup queue with a `StaleVaultNameQueued` warning event). Dry-run binds the recorded name and never deletes. Log line `"vault name changed, migrating"` (oldName/newName) is the rename audit trail.
+Once the client is resolved, `Ops.BindVaultName` derives this sync's Vault-side name `vao.{identity}.{namespace}.{name}`. The identity is the connection's `spec.identity.name` (ADR 0011), else `--cluster-name`, else the client's login auth mount, else `_` (`naming.Identity`). It then compares it with the RECORDED `status.vaultName`. A mismatch (naming config changed) arms a **rename**: `state.staleVaultName` remembers the old name; after readback succeeds the old-named object is deleted (ownership-checked; failure never fails the sync — the old name is queued on the ADR 0005 cleanup queue with a `StaleVaultNameQueued` warning event). Dry-run binds the recorded name and never deletes. Log line `"vault name changed, migrating"` (oldName/newName) is the rename audit trail.
 
 ### Step 4: Validate (Ops.Validate)
 - Namespaced VaultPolicy with `enforceNamespaceBoundary=true`: each `rules[i].path` must contain `{{namespace}}` and must NOT have `*` before `{{namespace}}` (would allow cross-namespace access).
 - VaultClusterPolicy: no-op.
 
-### Step 5: Check conflict (Ops.CheckConflict) — only when `--managed-markers=true`
-With markers **off** (the default) this step is skipped entirely: the operator writes the policy and forgets it (write-and-forget). When markers are on:
+### Step 5: Check conflict (Ops.CheckConflict)
+Runs for every connection, whatever `--managed-markers` says (#18 AC7). Until v0.12.0, markers off skipped this step (write-and-forget).
 - If policy doesn't exist in Vault → no conflict.
 - If exists, read the policy's in-band ownership header (`GetPolicyOwnership` = `ReadPolicy` + `ParseOwnership`). Ownership requires the sentinel + the same auth-mount identity + the same owning CR (`Ownership.SameOwner`); a header naming another operator or CR is foreign → conflict, adoption blocked.
   - Same K8s owner → OK.
@@ -231,11 +231,11 @@ With markers **off** (the default) this step is skipped entirely: the operator w
 - `discovery-pending=true` annotation → skip write (preserves adopted placeholder policies).
 - Otherwise `WritePolicy`. Readback via `ReadPolicy`, compare normalized HCL.
 - Readback mismatch returns `TransientError` — the next reconcile will retry.
-- With ownership checks on (and no dry-run), the header read back must equal the record just written. `normalizeHCL` strips comments, so without this a same-content write by another owner between our write and the readback would pass. A different record is a `ConflictError` (#18 AC4).
+- Unless dry-run, the header read back must equal the record just written. `normalizeHCL` strips comments, so without this a same-content write by another owner between our write and the readback would pass. A different record is a `ConflictError` (#18 AC4).
 
 ### Step 10: Mark managed + apply bindings + active status
-- The ownership header is prepended by `PrepareContent` (`vault.OwnershipHeader`) and written together with the rules in `WriteToVault` — always emitted; only the *checking* is gated by `--managed-markers`.
-- `ApplyBindings` sets `Status.Binding = {vaultPath: sys/policies/acl/{name}, vaultResourceName: {name}}`.
+- The ownership header is prepended by `PrepareContent` (`vault.OwnershipHeader`) and written together with the rules in `WriteToVault`. It gains an `identity: <name>` line only when the connection sets `spec.identity`, so without one the document and its hash are byte-identical to v0.12.0's (`TestGolden_V012_PolicyUnchangedWithoutIdentity`).
+- `ApplyBindings` sets `Status.Binding = {vaultPath: sys/policies/acl/{name}, vaultResourceName: {name}, identity, connection}`. `identity` is the identity segment of the bound name (`naming.IdentityOf`); `connection` is `spec.connectionRef`. Bindings are written only on a write, so CRs synced by v0.12.0 gain the two fields at their next write.
 - `ApplyActiveStatus` records `Status.VaultName` = the bound name — the authoritative record cleanup and rename detection read (ADR 0010).
 
 ### Step 11: Finalize status + event
@@ -335,7 +335,7 @@ sequenceDiagram
 | `ConflictError` | CheckConflict | resource exists, not adopted, different owner | user deletes Vault policy or adds adopt annotation |
 | `TransientError` | WriteToVault / ReadbackVerify | Vault API error / content mismatch after write | retry after 30s |
 | readback mismatch | ReadbackVerify | Vault stored a different HCL than we sent (unusual) | retry |
-| `ConflictError` (readback) | ReadbackVerify | checks on; another owner's header read back right after our write | Phase=Conflict; next sync's CheckConflict names the owner |
+| `ConflictError` (readback) | ReadbackVerify | another owner's header read back right after our write | Phase=Conflict; next sync's CheckConflict names the owner |
 | status 409 | Status.Update | concurrent modification | next reconcile |
 | discovery-pending annotation + user never fills in rules | WriteToVault (skipped) | operator keeps skipping writes forever | user must remove annotation after editing rules |
 
@@ -346,7 +346,7 @@ sequenceDiagram
 | VaultPolicy / VaultClusterPolicy CR | R + status W | every reconcile |
 | VaultConnection CR | R | dependency resolution, driftmode |
 | Vault `/sys/policies/acl/{name}` | R (drift + readback + exists) + W (sync) + DELETE (cleanup) | WriteToVault, DetectDrift, ReadbackVerify, CheckConflict, DeleteFromVault |
-| Vault `sys/policies/acl/{name}` in-band ownership header (checked **only when `--managed-markers=true`**) | R (GetPolicyOwnership) — written as part of the policy document itself | CheckConflict, DeleteFromVault ownership gate |
+| Vault `sys/policies/acl/{name}` in-band ownership header (checked on every sync) | R (GetPolicyOwnership) — written as part of the policy document itself | CheckConflict, DeleteFromVault ownership gate |
 | K8s Event | W | at Syncing/Synced/SyncFailed/DriftDetected/DriftCorrected |
 
 ## Divergences from Role Flow

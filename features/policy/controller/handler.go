@@ -36,7 +36,6 @@ import (
 	"github.com/panteparak/vault-access-operator/shared/controller/workflow"
 	"github.com/panteparak/vault-access-operator/shared/events"
 	infraerrors "github.com/panteparak/vault-access-operator/shared/infrastructure/errors"
-	"github.com/panteparak/vault-access-operator/shared/markers"
 )
 
 // Kind labels for adoption + reconcile metrics. Constants because each label
@@ -342,13 +341,6 @@ func (h *Handler) checkConflict(
 	adapter domain.PolicyAdapter,
 	vaultPolicyName string,
 ) error {
-	// Managed markers disabled: ownership tracking is off — proceed
-	// (write-and-forget). Explicit adopt-intent is surfaced separately.
-	if !markers.Enabled() {
-		conflict.WarnAdoptIntentInert(h.recorder, adapter.GetObject(), adapter)
-		return nil
-	}
-
 	log := logr.FromContextOrDiscard(ctx)
 
 	exists, err := vaultClient.PolicyExists(ctx, vaultPolicyName)

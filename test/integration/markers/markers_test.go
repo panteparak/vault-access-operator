@@ -39,7 +39,8 @@ const mmConnName = "default-connection"
 // binds: identity is the client's stamped "kubernetes" auth mount (no
 // --cluster-name in tests), namespace is always "default" here.
 func mmVaultName(name string) string {
-	return naming.VaultName(naming.Identity("", "kubernetes"), "default", name)
+	identity, _ := naming.Identity("", "", "kubernetes")
+	return naming.VaultName(identity, "default", name)
 }
 
 // setupPolicyHandler builds a policy handler wired to the suite's envtest
@@ -450,9 +451,51 @@ var _ = Describe("In-band Ownership Integration Tests", func() {
 		})
 	})
 
+	// #18 (ADR 0011): a connection's spec.identity names and records the
+	// objects written through it; against a real Vault, sys/auth lists the
+	// mounts the collision check compares with.
+	Context("INT-MM: Connection identity", func() {
+		Describe("INT-MM10: spec identity names and records a policy under it", func() {
+			It("writes vao.{identity}.{ns}.{name} with an identity header line, and lists sys/auth", func() {
+				opVC.SetSpecIdentity("int-proj")
+				DeferCleanup(func() { opVC.SetSpecIdentity("") })
+
+				policy := newTestPolicy("int-mm10-policy")
+				Expect(testEnv.K8sClient.Create(ctx, policy)).To(Succeed())
+				Expect(syncAndPhase(policy)).To(Equal(vaultv1alpha1.PhaseActive))
+
+				name := naming.VaultName("int-proj", "default", "int-mm10-policy")
+				own, err := opVC.GetPolicyOwnership(ctx, name)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(own).NotTo(BeNil())
+				Expect(own.Identity).To(Equal("int-proj"))
+				Expect(own.AuthMount).To(Equal("kubernetes"))
+
+				fetched := &vaultv1alpha1.VaultPolicy{}
+				Expect(testEnv.K8sClient.Get(ctx,
+					types.NamespacedName{Name: policy.Name, Namespace: policy.Namespace}, fetched)).To(Succeed())
+				Expect(fetched.Status.VaultName).To(Equal(name))
+				Expect(fetched.Status.Binding.Connection).To(Equal(mmConnName))
+
+				mounts, err := opVC.AuthMountNames(ctx)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(mounts).To(ContainElement("token"), "sys/auth paths are listed without the trailing slash")
+
+				cleanupCR(policy)
+				exists, err := opVC.PolicyExists(ctx, name)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(exists).To(BeFalse(), "the ownership-gated delete removes our own policy")
+			})
+		})
+	})
+
 	Context("INT-MM: Flag-off behavior", func() {
-		Describe("INT-MM04: Flag-off existing-object reconcile proceeds without conflict", func() {
-			It("write-and-forgets even when a foreign-owned policy already exists", func() {
+		// #18 AC7 (deliberate change from v0.12.0, where markers OFF skipped
+		// the conflict check and overwrote whatever was there): ownership
+		// checks run for every connection; --managed-markers only gates the
+		// discovery and orphan controllers.
+		Describe("INT-MM04: Flag-off existing-object reconcile still checks ownership", func() {
+			It("conflicts on a foreign-owned policy and leaves it untouched", func() {
 				By("Disabling markers for this spec only")
 				markers.SetEnabled(false)
 				DeferCleanup(func() { markers.SetEnabled(true) })
@@ -466,10 +509,46 @@ var _ = Describe("In-band Ownership Integration Tests", func() {
 				}) + "\npath \"secret/*\" { capabilities = [\"read\"] }"
 				Expect(opVC.WritePolicy(ctx, mmVaultName("int-mm04-policy"), foreign)).To(Succeed())
 
-				By("Syncing the CR → with markers OFF it reaches Active (no conflict check)")
+				By("Syncing the CR → with markers OFF it is still a Conflict")
 				policy := newTestPolicy("int-mm04-policy")
 				Expect(testEnv.K8sClient.Create(ctx, policy)).To(Succeed())
-				Expect(syncAndPhase(policy)).To(Equal(vaultv1alpha1.PhaseActive))
+				Expect(syncAndPhase(policy)).To(Equal(vaultv1alpha1.PhaseConflict))
+
+				By("Verifying the foreign policy was not overwritten")
+				own, err := opVC.GetPolicyOwnership(ctx, mmVaultName("int-mm04-policy"))
+				Expect(err).NotTo(HaveOccurred())
+				Expect(own).NotTo(BeNil())
+				Expect(own.AuthMount).To(Equal("k8s-other-cluster"))
+
+				By("Cleaning up")
+				cleanupCR(policy)
+			})
+
+			It("conflicts on an unrecorded policy, then adopts with ConflictPolicy: Adopt", func() {
+				By("Disabling markers for this spec only")
+				markers.SetEnabled(false)
+				DeferCleanup(func() { markers.SetEnabled(true) })
+
+				By("Pre-writing an unmanaged policy (no ownership header)")
+				Expect(opVC.WritePolicy(ctx, mmVaultName("int-mm04b-policy"),
+					`path "secret/*" { capabilities = ["read"] }`)).To(Succeed())
+
+				By("Syncing a colliding CR → expect Conflict")
+				policy := newTestPolicy("int-mm04b-policy")
+				Expect(testEnv.K8sClient.Create(ctx, policy)).To(Succeed())
+				Expect(syncAndPhase(policy)).To(Equal(vaultv1alpha1.PhaseConflict))
+
+				By("Setting ConflictPolicy: Adopt → Active, with our header")
+				fetched := &vaultv1alpha1.VaultPolicy{}
+				Expect(testEnv.K8sClient.Get(ctx,
+					types.NamespacedName{Name: policy.Name, Namespace: policy.Namespace}, fetched)).To(Succeed())
+				fetched.Spec.ConflictPolicy = vaultv1alpha1.ConflictPolicyAdopt
+				Expect(testEnv.K8sClient.Update(ctx, fetched)).To(Succeed())
+				Expect(syncAndPhase(fetched)).To(Equal(vaultv1alpha1.PhaseActive))
+				own, err := opVC.GetPolicyOwnership(ctx, mmVaultName("int-mm04b-policy"))
+				Expect(err).NotTo(HaveOccurred())
+				Expect(own).NotTo(BeNil())
+				Expect(own.K8sResource).To(Equal("default/int-mm04b-policy"))
 
 				By("Cleaning up")
 				cleanupCR(policy)

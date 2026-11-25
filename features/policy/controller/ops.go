@@ -33,7 +33,6 @@ import (
 	"github.com/panteparak/vault-access-operator/shared/controller/workflow"
 	"github.com/panteparak/vault-access-operator/shared/events"
 	infraerrors "github.com/panteparak/vault-access-operator/shared/infrastructure/errors"
-	"github.com/panteparak/vault-access-operator/shared/markers"
 	"github.com/panteparak/vault-access-operator/shared/naming"
 )
 
@@ -86,7 +85,7 @@ func (o *PolicyOps) BindVaultName(vaultClient workflow.VaultOpsClient) string {
 		o.vaultName = o.adapter.GetVaultName()
 		return o.vaultName
 	}
-	identity := naming.Identity(naming.Cluster(), vaultClient.AuthMount())
+	identity, _ := naming.Identity(vaultClient.SpecIdentity(), naming.Cluster(), vaultClient.AuthMount())
 	o.vaultName = domain.DeriveVaultName(o.adapter, identity)
 	return o.vaultName
 }
@@ -126,6 +125,7 @@ func (o *PolicyOps) ownership(vaultClient workflow.VaultOpsClient) vault.Ownersh
 		ManagedBy:   vault.KVManagedByValue,
 		AuthMount:   vaultClient.AuthMount(),
 		Cluster:     naming.Cluster(),
+		Identity:    vaultClient.SpecIdentity(),
 		K8sResource: o.adapter.GetK8sResourceIdentifier(),
 		K8sKind:     o.ResourceKind(),
 	}
@@ -206,9 +206,9 @@ func (o *PolicyOps) ReadbackVerify(ctx context.Context, vaultClient workflow.Vau
 	}
 	// normalizeHCL strips the header, so a same-content write by another
 	// owner between our write and this read would pass the check above.
-	// With ownership checks on, the record read back must be ours.
-	if markers.Enabled() && !dryrun.IsActive(o.adapter) {
-		want := o.ownership(vaultClient)
+	// The record read back must be ours.
+	if !dryrun.IsActive(o.adapter) {
+		want, _ := vault.ParseOwnership(o.hcl)
 		if got, _ := vault.ParseOwnership(readbackHCL); got != want {
 			return infraerrors.NewConflictError("policy", o.vaultName, fmt.Sprintf(
 				"but the ownership record read back after our write names %q, not %q",
@@ -261,6 +261,7 @@ func (o *PolicyOps) ApplyActiveStatus(_ string, _ *metav1.Time) {
 // ApplyBindings sets the policy binding after sync.
 func (o *PolicyOps) ApplyBindings() {
 	policyBinding := binding.NewPolicyBinding(o.vaultName)
+	policyBinding.Connection = o.adapter.GetConnectionRef()
 	o.adapter.SetBinding(policyBinding)
 }
 

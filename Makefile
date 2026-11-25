@@ -485,6 +485,26 @@ e2e-local-test-markers: ## Run managed-marker E2E tests (needs e2e-local-up-with
 		E2E_SKIP_BUILD=true E2E_SKIP_IMAGE_LOAD=true \
 		go test ./test/e2e/ -v -ginkgo.v -ginkgo.fail-fast -ginkgo.label-filter="managed-markers" -timeout 15m
 
+# Previous release image the TC-ID01 upgrade case starts from (#18 AC11). Set
+# E2E_UPGRADE_FROM_IMAGE= (empty) to skip the pull and the upgrade case.
+E2E_UPGRADE_FROM_IMAGE ?= ghcr.io/panteparak/vault-access-operator:0.12.0
+
+.PHONY: e2e-import-upgrade-from
+e2e-import-upgrade-from: ## Pull E2E_UPGRADE_FROM_IMAGE and import it into k3s (no-op when empty)
+	@if [ -n "$(E2E_UPGRADE_FROM_IMAGE)" ]; then \
+		docker pull $(E2E_UPGRADE_FROM_IMAGE) && \
+		docker save $(E2E_UPGRADE_FROM_IMAGE) | $(E2E_COMPOSE) exec -T k3s ctr --namespace k8s.io images import -; \
+	fi
+
+.PHONY: e2e-local-test-connection-identity
+e2e-local-test-connection-identity: e2e-import-upgrade-from ## Run connection-identity E2E tests (TC-ID) against the default e2e-local-up stack
+	KUBECONFIG=$(E2E_KUBECONFIG) VAULT_ADDR=http://localhost:8200 \
+		E2E_K8S_HOST=https://k3s:6443 \
+		E2E_OPERATOR_IMAGE=$(E2E_OPERATOR_IMAGE) \
+		E2E_UPGRADE_FROM_IMAGE=$(E2E_UPGRADE_FROM_IMAGE) \
+		E2E_SKIP_BUILD=true E2E_SKIP_IMAGE_LOAD=true \
+		go test ./test/e2e/ -v -ginkgo.v -ginkgo.fail-fast -ginkgo.label-filter="connection-identity" -timeout 20m
+
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter
 	$(GOLANGCI_LINT) run

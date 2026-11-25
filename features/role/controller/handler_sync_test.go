@@ -39,6 +39,7 @@ import (
 	"github.com/panteparak/vault-access-operator/features/role/domain"
 	"github.com/panteparak/vault-access-operator/pkg/vault"
 	"github.com/panteparak/vault-access-operator/shared/events"
+	infraerrors "github.com/panteparak/vault-access-operator/shared/infrastructure/errors"
 	"github.com/panteparak/vault-access-operator/shared/markers"
 	"github.com/panteparak/vault-access-operator/shared/naming"
 )
@@ -612,8 +613,11 @@ func TestSyncRole_ConflictError_Fail(t *testing.T) {
 // OFF, an existing role owned by another resource does NOT trigger a conflict —
 // the reconcile proceeds write-and-forget. Same setup as ConflictError_Fail but
 // without enabling markers.
-func TestSyncRole_MarkersDisabled_NoConflict(t *testing.T) {
-	// markers default OFF; assert explicitly rather than relying on order.
+// TestSyncRole_MarkersOff_UnrecordedRoleNeedsAdopt pins #18 AC7 (a
+// deliberate change from v0.12.0, where markers OFF overwrote any existing
+// role): checks always run, so a new CR targeting an existing record-less
+// role is a ConflictError, and succeeds with ConflictPolicy: Adopt.
+func TestSyncRole_MarkersOff_UnrecordedRoleNeedsAdopt(t *testing.T) {
 	markers.SetEnabled(false)
 
 	state := newMockVaultState()
@@ -631,15 +635,29 @@ func TestSyncRole_MarkersDisabled_NoConflict(t *testing.T) {
 	ctx := logr.NewContext(context.Background(), logr.Discard())
 	adapter := domain.NewVaultRoleAdapter(role)
 
-	if err := handler.SyncRole(ctx, adapter); err != nil {
-		t.Fatalf("markers disabled: SyncRole should not conflict, got %v", err)
+	if err := handler.SyncRole(ctx, adapter); !infraerrors.IsConflictError(err) {
+		t.Fatalf("markers off: unrecorded existing role must be a ConflictError, got %v", err)
 	}
-	// The role should have been (over)written — write-and-forget proceeds.
 	state.mu.Lock()
-	_, exists := state.roles["auth/kubernetes/role/"+vaultRoleName]
+	policies := state.roles["auth/kubernetes/role/"+vaultRoleName]["policies"]
 	state.mu.Unlock()
-	if !exists {
-		t.Error("role should have been written under write-and-forget")
+	if fmt.Sprint(policies) != "[old-policy]" {
+		t.Errorf("conflicting role was overwritten: policies = %v", policies)
+	}
+
+	// Adopt takes it over.
+	role.Spec.ConflictPolicy = vaultv1alpha1.ConflictPolicyAdopt
+	if err := handler.client.Update(ctx, role); err != nil {
+		t.Fatal(err)
+	}
+	if err := handler.SyncRole(ctx, domain.NewVaultRoleAdapter(role)); err != nil {
+		t.Fatalf("ConflictPolicy Adopt: SyncRole should succeed, got %v", err)
+	}
+	state.mu.Lock()
+	_, owned := vault.ParseAliasMetadata(state.roles["auth/kubernetes/role/"+vaultRoleName])
+	state.mu.Unlock()
+	if !owned {
+		t.Error("adopted role should carry this operator's alias_metadata record")
 	}
 }
 

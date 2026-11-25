@@ -30,6 +30,10 @@ const (
 	OwnershipClusterKey = "cluster"
 	// OwnershipK8sKindKey records the owning CR kind (e.g. "VaultPolicy").
 	OwnershipK8sKindKey = "k8s-kind"
+	// OwnershipIdentityKey records the connection's spec.identity.name
+	// (ADR 0011). Written only when set, so records (and content hashes) of
+	// connections without an identity stay byte-identical to v0.12.0.
+	OwnershipIdentityKey = "identity"
 )
 
 // Ownership is the in-band ownership record attached to a managed Vault
@@ -43,6 +47,9 @@ type Ownership struct {
 	AuthMount string
 	// Cluster is the owning operator's --cluster-name, empty when unset.
 	Cluster string
+	// Identity is the writing connection's spec.identity.name, empty when
+	// unset (ADR 0011). Informational: SameOwner does not compare it.
+	Identity string
 	// K8sResource is the owning CR ("namespace/name", or "name" for
 	// cluster-scoped CRs).
 	K8sResource string
@@ -136,6 +143,9 @@ func OwnershipHeader(o Ownership) string {
 	if o.Cluster != "" {
 		fmt.Fprintf(&b, "# %s: %s\n", OwnershipClusterKey, o.Cluster)
 	}
+	if o.Identity != "" {
+		fmt.Fprintf(&b, "# %s: %s\n", OwnershipIdentityKey, o.Identity)
+	}
 	if o.K8sResource != "" {
 		fmt.Fprintf(&b, "# %s: %s\n", KVK8sResourceKey, o.K8sResource)
 	}
@@ -173,6 +183,8 @@ func ParseOwnership(hcl string) (Ownership, bool) {
 			o.AuthMount = value
 		case OwnershipClusterKey:
 			o.Cluster = value
+		case OwnershipIdentityKey:
+			o.Identity = value
 		case KVK8sResourceKey:
 			o.K8sResource = value
 		case OwnershipK8sKindKey:
@@ -200,6 +212,9 @@ func OwnershipAliasMetadata(o Ownership) map[string]string {
 	if o.Cluster != "" {
 		m[OwnershipClusterKey] = o.Cluster
 	}
+	if o.Identity != "" {
+		m[OwnershipIdentityKey] = o.Identity
+	}
 	if o.K8sResource != "" {
 		m[KVK8sResourceKey] = o.K8sResource
 	}
@@ -222,6 +237,7 @@ func ParseAliasMetadata(roleData map[string]interface{}) (Ownership, bool) {
 		ManagedBy:   get(KVManagedByKey),
 		AuthMount:   get(OwnershipAuthMountKey),
 		Cluster:     get(OwnershipClusterKey),
+		Identity:    get(OwnershipIdentityKey),
 		K8sResource: get(KVK8sResourceKey),
 		K8sKind:     get(OwnershipK8sKindKey),
 	}
