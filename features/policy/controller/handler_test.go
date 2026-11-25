@@ -112,6 +112,10 @@ func (m *mockVaultClient) GetPolicyOwnership(_ context.Context, _ string) (*vaul
 	return m.ownership, m.ownershipErr
 }
 
+func (m *mockVaultClient) Owner(k8sResource string) vault.Owner {
+	return vault.Owner{AuthMount: m.authMount, K8sResource: k8sResource}
+}
+
 func (m *mockVaultClient) IsAuthenticated() bool {
 	return m.authenticated
 }
@@ -718,10 +722,29 @@ func TestCheckConflict_MarkersEnabled(t *testing.T) {
 		m.ownership = nil
 		a := newAdapter(func(p *vaultv1alpha1.VaultPolicy) {
 			p.Status.LastAppliedHash = "previously-synced"
+			p.Status.VaultName = naming.VaultName(naming.Placeholder, p.Namespace, p.Name)
 		})
 		h := &Handler{log: logr.Discard(), recorder: record.NewFakeRecorder(10)}
 		if err := h.checkConflict(context.Background(), m, a, domain.DeriveVaultName(a, naming.Placeholder)); err != nil {
 			t.Errorf("previously-synced CR should own its headerless policy, got %v", err)
+		}
+	})
+
+	// AC3 (#18): the status memory was earned at the RECORDED name. During a
+	// rename the bound name is new to this CR, so a header-less object
+	// already sitting there is someone else's.
+	t.Run("headerless at the new name during a rename: conflict", func(t *testing.T) {
+		m := newMockVaultClient()
+		m.policyExists = true
+		m.ownership = nil
+		a := newAdapter(func(p *vaultv1alpha1.VaultPolicy) {
+			p.Status.LastAppliedHash = "previously-synced"
+			p.Status.VaultName = naming.VaultName("old-identity", p.Namespace, p.Name)
+		})
+		h := &Handler{log: logr.Discard(), recorder: record.NewFakeRecorder(10)}
+		err := h.checkConflict(context.Background(), m, a, domain.DeriveVaultName(a, naming.Placeholder))
+		if !infraerrors.IsConflictError(err) {
+			t.Errorf("header-less object at the rename target must conflict, got %v", err)
 		}
 	})
 

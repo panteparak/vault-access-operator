@@ -57,4 +57,7 @@ type VaultOpsClient interface {
 	// or not operator-managed).
 	AuthMount() string
 	GetPolicyOwnership(ctx context.Context, name string) (*vault.Ownership, error)
+	// Owner is the record a live object must carry to count as ours for the
+	// given CR; delete gates and cleanup-queue items use it.
+	Owner(k8sResource string) vault.Owner
 }

@@ -392,8 +392,10 @@ func (h *Handler) checkConflict(
 	// replacement in Vault wipes the in-band header along with the rules.
 	// The CR's own status is the ownership memory here (same rule as roles)
 	// — proceed, and let drift detection flag/correct the divergence (a
-	// corrective write re-stamps the header).
-	if adapter.GetLastAppliedHash() != "" {
+	// corrective write re-stamps the header). The memory was earned at the
+	// RECORDED name only: during a rename the bound name is new to this CR,
+	// so a header-less object already there is someone else's (conflict).
+	if adapter.GetLastAppliedHash() != "" && adapter.GetVaultName() == vaultPolicyName {
 		log.Info("policy header missing but CR previously synced — treating as ours (manual overwrite?)",
 			"policyName", vaultPolicyName)
 		return nil

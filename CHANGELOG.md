@@ -7,6 +7,22 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Ownership-safe deletes and readback (#18).** These change only failure
+  paths; a healthy single-cluster install behaves exactly as before.
+  - A failed ownership read before a policy or role delete is now returned and
+    queued for retry instead of falling through to the delete.
+  - Cleanup-queue items record the expected owner (login mount + CR), and every
+    replayed delete re-checks ownership and skips an object that now belongs to
+    someone else. Items queued by older versions are checked against the
+    connection's current identity.
+  - The "CR synced before, so a header-less object is ours" rule now applies only
+    at the CR's recorded Vault name. During a rename, a header-less object at the
+    new name is a `ConflictError` instead of being taken over.
+  - With ownership checks on (`--managed-markers`), readback fails with a
+    `ConflictError` unless the ownership record read back is the one just written.
+
 ## [0.12.0] - 2026-07-13
 
 ### Added

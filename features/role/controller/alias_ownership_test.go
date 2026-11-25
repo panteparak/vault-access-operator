@@ -84,9 +84,11 @@ func TestRoleCheckConflict_AliasMetadata(t *testing.T) {
 		}
 	})
 
-	t.Run("record-less role with status memory: ours", func(t *testing.T) {
+	recordLess := func(t *testing.T, recordedName string) error {
+		t.Helper()
 		role2 := newTestVaultRole()
 		role2.Status.LastAppliedHash = "prior-sync"
+		role2.Status.VaultRoleName = recordedName
 		a2 := domain.NewVaultRoleAdapter(role2)
 		state := roleAliasVaultState(roleKey, nil)
 		delete(state.roles[roleKey], vault.RoleAliasMetadataKey)
@@ -94,10 +96,22 @@ func TestRoleCheckConflict_AliasMetadata(t *testing.T) {
 		t.Cleanup(server.Close)
 		vc := newTestCachedVaultClient(t, server.URL)
 		h := &Handler{log: logr.Discard(), recorder: record.NewFakeRecorder(10)}
-		err := h.checkConflict(logr.NewContext(context.Background(), logr.Discard()),
+		return h.checkConflict(logr.NewContext(context.Background(), logr.Discard()),
 			vc, a2, "auth/kubernetes", "vao._.test-ns.test-role")
-		if err != nil {
+	}
+
+	t.Run("record-less role with status memory: ours", func(t *testing.T) {
+		if err := recordLess(t, "vao._.test-ns.test-role"); err != nil {
 			t.Errorf("record-less role with prior sync should not conflict, got %v", err)
+		}
+	})
+
+	// AC3 (#18): status memory counts only at the recorded name; during a
+	// rename a record-less role at the new name is someone else's.
+	t.Run("record-less role at the new name during a rename: conflict", func(t *testing.T) {
+		err := recordLess(t, "vao.old-identity.test-ns.test-role")
+		if !infraerrors.IsConflictError(err) {
+			t.Errorf("record-less role at the rename target must conflict, got %v", err)
 		}
 	})
 }

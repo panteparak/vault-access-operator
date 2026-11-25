@@ -28,6 +28,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+
+	"github.com/panteparak/vault-access-operator/pkg/vault"
 )
 
 // mockVaultClient implements the VaultClient interface for testing
@@ -36,7 +38,31 @@ type mockVaultClient struct {
 	deleteRoleErr   error
 	deletedPolicies []string
 	deletedRoles    []string
+	authMount       string                            // this connection's login mount
+	policyOwners    map[string]*vault.Ownership       // live policy records by name
+	roleData        map[string]map[string]interface{} // live roles by authPath/name
+	readErr         error                             // ownership read failure
 	mu              sync.Mutex
+}
+
+func (m *mockVaultClient) GetPolicyOwnership(_ context.Context, name string) (*vault.Ownership, error) {
+	if m.readErr != nil {
+		return nil, m.readErr
+	}
+	return m.policyOwners[name], nil
+}
+
+func (m *mockVaultClient) ReadKubernetesAuthRole(
+	_ context.Context, authPath, name string,
+) (map[string]interface{}, error) {
+	if m.readErr != nil {
+		return nil, m.readErr
+	}
+	return m.roleData[authPath+"/"+name], nil
+}
+
+func (m *mockVaultClient) Owner(k8sResource string) vault.Owner {
+	return vault.Owner{AuthMount: m.authMount, K8sResource: k8sResource}
 }
 
 func (m *mockVaultClient) DeletePolicy(ctx context.Context, name string) error {

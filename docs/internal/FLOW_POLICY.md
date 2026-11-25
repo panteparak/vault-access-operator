@@ -208,6 +208,7 @@ With markers **off** (the default) this step is skipped entirely: the operator w
 - If exists, read the policy's in-band ownership header (`GetPolicyOwnership` = `ReadPolicy` + `ParseOwnership`). Ownership requires the sentinel + the same auth-mount identity + the same owning CR (`Ownership.SameOwner`); a header naming another operator or CR is foreign → conflict, adoption blocked.
   - Same K8s owner → OK.
   - Different owner → `ConflictError` (cannot adopt under another operator).
+  - No owner (not managed), but the CR has synced before (`LastAppliedHash` set) **and** the recorded `status.vaultName` equals the bound name → ours (a manual full replacement wiped the header). During a rename the bound name is new to the CR, so this memory does not apply: a header-less object at the new name is a `ConflictError` (#18 AC3).
   - No owner (not managed) → `ConflictError` unless `shouldAdopt(adapter)` (annotation or `ConflictPolicy: Adopt`).
 
 ### Step 6: Prepare content (Ops.PrepareContent)
@@ -230,6 +231,7 @@ With markers **off** (the default) this step is skipped entirely: the operator w
 - `discovery-pending=true` annotation → skip write (preserves adopted placeholder policies).
 - Otherwise `WritePolicy`. Readback via `ReadPolicy`, compare normalized HCL.
 - Readback mismatch returns `TransientError` — the next reconcile will retry.
+- With ownership checks on (and no dry-run), the header read back must equal the record just written. `normalizeHCL` strips comments, so without this a same-content write by another owner between our write and the readback would pass. A different record is a `ConflictError` (#18 AC4).
 
 ### Step 10: Mark managed + apply bindings + active status
 - The ownership header is prepended by `PrepareContent` (`vault.OwnershipHeader`) and written together with the rules in `WriteToVault` — always emitted; only the *checking* is gated by `--managed-markers`.
@@ -333,6 +335,7 @@ sequenceDiagram
 | `ConflictError` | CheckConflict | resource exists, not adopted, different owner | user deletes Vault policy or adds adopt annotation |
 | `TransientError` | WriteToVault / ReadbackVerify | Vault API error / content mismatch after write | retry after 30s |
 | readback mismatch | ReadbackVerify | Vault stored a different HCL than we sent (unusual) | retry |
+| `ConflictError` (readback) | ReadbackVerify | checks on; another owner's header read back right after our write | Phase=Conflict; next sync's CheckConflict names the owner |
 | status 409 | Status.Update | concurrent modification | next reconcile |
 | discovery-pending annotation + user never fills in rules | WriteToVault (skipped) | operator keeps skipping writes forever | user must remove annotation after editing rules |
 

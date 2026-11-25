@@ -235,8 +235,10 @@ func (h *Handler) checkConflict(
 		)
 	}
 
-	// This CR has synced the role before — it's ours.
-	if adapter.GetLastAppliedHash() != "" {
+	// This CR has synced the role before — it's ours. Only at the RECORDED
+	// name: during a rename the bound name is new to this CR, so a
+	// record-less role already there is someone else's (conflict).
+	if adapter.GetLastAppliedHash() != "" && adapter.GetVaultRoleNameStatus() == vaultRoleName {
 		return nil
 	}
 

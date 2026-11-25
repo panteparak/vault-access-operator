@@ -59,6 +59,57 @@ func (o Ownership) SameOwner(authMount, k8sResource string) bool {
 		o.K8sResource == k8sResource
 }
 
+// Owner is the operator instance and CR a sync or delete acts for: what an
+// Ownership record must name for the object to count as ours. It is stored
+// on cleanup-queue items so a replayed delete re-checks the same owner.
+type Owner struct {
+	// AuthMount is the login mount of the acting connection ("" for a
+	// static token).
+	AuthMount string `json:"authMount"`
+	// K8sResource is the owning CR ("namespace/name", or "name").
+	K8sResource string `json:"k8sResource"`
+}
+
+// OwnedBy reports whether this record names owner (SameOwner on its fields).
+func (o Ownership) OwnedBy(w Owner) bool {
+	return o.SameOwner(w.AuthMount, w.K8sResource)
+}
+
+// PolicyOwnershipReader is the read a policy delete gate needs.
+type PolicyOwnershipReader interface {
+	GetPolicyOwnership(ctx context.Context, name string) (*Ownership, error)
+}
+
+// RoleReader is the read a role delete gate needs.
+type RoleReader interface {
+	ReadKubernetesAuthRole(ctx context.Context, authPath, roleName string) (map[string]interface{}, error)
+}
+
+// ForeignPolicyOwner re-reads a policy's in-band record before a destructive
+// delete. It returns the record only when it names someone other than owner;
+// nil means absent, header-less, or ours. A read error is returned and never
+// treated as permission to delete (fail closed): callers queue a retry.
+func ForeignPolicyOwner(ctx context.Context, c PolicyOwnershipReader, name string, owner Owner) (*Ownership, error) {
+	own, err := c.GetPolicyOwnership(ctx, name)
+	if err != nil || own == nil || own.OwnedBy(owner) {
+		return nil, err
+	}
+	return own, nil
+}
+
+// ForeignRoleOwner is ForeignPolicyOwner for auth roles (alias_metadata).
+func ForeignRoleOwner(ctx context.Context, c RoleReader, authPath, name string, owner Owner) (*Ownership, error) {
+	data, err := c.ReadKubernetesAuthRole(ctx, authPath, name)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read role %s for ownership check: %w", name, err)
+	}
+	own, ok := ParseAliasMetadata(data)
+	if !ok || own.OwnedBy(owner) {
+		return nil, nil
+	}
+	return &own, nil
+}
+
 // String renders a compact human-readable owner description for conflict
 // messages and events.
 func (o Ownership) String() string {

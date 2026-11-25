@@ -25,6 +25,7 @@ import (
 	"github.com/go-logr/logr"
 
 	"github.com/panteparak/vault-access-operator/pkg/metrics"
+	"github.com/panteparak/vault-access-operator/pkg/vault"
 )
 
 // DefaultRetryInterval is the default interval between cleanup retry cycles.
@@ -33,10 +34,14 @@ const DefaultRetryInterval = 5 * time.Minute
 // DefaultMaxAttempts is the default maximum number of retry attempts.
 const DefaultMaxAttempts = 10
 
-// VaultClient defines the Vault operations needed for cleanup.
+// VaultClient defines the Vault operations needed for cleanup: the deletes,
+// plus the reads and identity the ownership gate re-checks before each one.
 type VaultClient interface {
 	DeletePolicy(ctx context.Context, name string) error
 	DeleteKubernetesAuthRole(ctx context.Context, authPath, roleName string) error
+	GetPolicyOwnership(ctx context.Context, name string) (*vault.Ownership, error)
+	ReadKubernetesAuthRole(ctx context.Context, authPath, roleName string) (map[string]interface{}, error)
+	Owner(k8sResource string) vault.Owner
 }
 
 // ClientCache defines the client cache operations needed for cleanup.
@@ -201,19 +206,42 @@ func (c *Controller) processQueue(ctx context.Context) {
 	metrics.SetCleanupQueueSize(newSize)
 }
 
-// processItem attempts to clean up a single item.
+// processItem attempts to clean up a single item. Every replayed delete
+// re-runs the ownership gate first: the name may have been taken by another
+// owner since the item was queued. A foreign object is skipped (the item is
+// done); a read error is returned so the item is retried, never deleted on.
 func (c *Controller) processItem(ctx context.Context, item Item) error {
 	// Get Vault client from cache
 	vaultClient, err := c.clientCache.Get(item.ConnectionName)
 	if err != nil {
 		return err
 	}
+	owner := vaultClient.Owner(item.k8sResource())
+	if item.Owner != nil {
+		owner = *item.Owner
+	}
 
 	// Perform the cleanup based on resource type
 	switch item.ResourceType {
 	case ResourceTypePolicy:
+		foreign, err := vault.ForeignPolicyOwner(ctx, vaultClient, item.VaultName, owner)
+		if err != nil {
+			return err
+		}
+		if foreign != nil {
+			c.skipForeign(item, foreign)
+			return nil
+		}
 		return vaultClient.DeletePolicy(ctx, item.VaultName)
 	case ResourceTypeRole:
+		foreign, err := vault.ForeignRoleOwner(ctx, vaultClient, item.AuthPath, item.VaultName, owner)
+		if err != nil {
+			return err
+		}
+		if foreign != nil {
+			c.skipForeign(item, foreign)
+			return nil
+		}
 		return vaultClient.DeleteKubernetesAuthRole(ctx, item.AuthPath, item.VaultName)
 	default:
 		c.log.Error(nil, "unknown resource type in cleanup queue",
@@ -222,6 +250,15 @@ func (c *Controller) processItem(ctx context.Context, item Item) error {
 		// Remove unknown items from queue
 		return nil
 	}
+}
+
+// skipForeign logs a replayed delete dropped because the object now belongs
+// to someone else.
+func (c *Controller) skipForeign(item Item, foreign *vault.Ownership) {
+	c.log.Info("skipping replayed delete — Vault object is owned by someone else",
+		"resourceType", item.ResourceType,
+		"vaultName", item.VaultName,
+		"owner", foreign.String())
 }
 
 // NeedsLeaderElection returns true as this controller should only run on the leader.

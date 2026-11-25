@@ -130,6 +130,8 @@ sequenceDiagram
                 C->>Q: Dequeue(id)
                 Note over C: give up silently
             else
+                C->>VC: read live record; compare with item.owner (fallback: connection's current owner)
+                Note over C,VC: foreign ⇒ skip + Dequeue; read error ⇒ retry (never delete)
                 C->>VC: DeletePolicy/DeleteKubernetesAuthRole (based on ResourceType)
                 alt success
                     C->>Q: Dequeue(id)
@@ -206,7 +208,9 @@ The orphan controller **does not delete** — it only logs and publishes metrics
 
 ## Resource Type Matrix
 
-Ownership records are in-band (ADR 0008), so deletion needs no marker step: the policy header dies with the policy, KV custom_metadata dies with the secret, and roles have no record. Before a policy delete, cleanup re-reads the live header and **skips the delete when it names a foreign owner** (`ForeignPolicyNotDeleted` warning) — names can collide across clusters on a shared Vault.
+Ownership records are in-band (ADR 0008), so deletion needs no marker step: the policy header dies with the policy, KV custom_metadata dies with the secret, and roles carry theirs in `alias_metadata` (ADR 0010). Before a policy or role delete, cleanup re-reads the live record and **skips the delete when it names a foreign owner** (`ForeignPolicyNotDeleted` / `ForeignRoleNotDeleted` warning) — names can collide across clusters on a shared Vault.
+
+The gate fails closed (#18): if the record cannot be read, `DeleteFromVault` returns the error, nothing is deleted, and the item goes on the cleanup queue. The queue item carries the expected owner (`owner: {authMount, k8sResource}`, the login mount and the CR), and **every replayed delete re-runs the same gate** (`vault.ForeignPolicyOwner` / `vault.ForeignRoleOwner`): a foreign object is skipped and dropped from the queue, a read error is retried. Items queued by v0.12.0 have no `owner`; the replay then expects the connection's current login mount and the CR named on the item.
 
 | CR kind | Cleanup calls | Vault path deleted | Ownership record |
 |---------|--------------|--------------------|-------------------------------------------------------|

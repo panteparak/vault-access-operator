@@ -32,6 +32,7 @@ import (
 	"github.com/panteparak/vault-access-operator/shared/controller/workflow"
 	"github.com/panteparak/vault-access-operator/shared/events"
 	infraerrors "github.com/panteparak/vault-access-operator/shared/infrastructure/errors"
+	"github.com/panteparak/vault-access-operator/shared/markers"
 	"github.com/panteparak/vault-access-operator/shared/naming"
 )
 
@@ -234,6 +235,27 @@ func (o *RoleOps) ReadbackVerify(ctx context.Context, vaultClient workflow.Vault
 		return infraerrors.NewTransientError(
 			"readback verification", fmt.Errorf("role content mismatch after write: %s", summary))
 	}
+	if markers.Enabled() && !dryrun.IsActive(o.adapter) {
+		return o.verifyOwnershipReadback(ctx, vaultClient)
+	}
+	return nil
+}
+
+// verifyOwnershipReadback fails unless the alias_metadata record read back
+// is the one just written: role drift ignores alias_metadata, so a
+// same-content write by another owner would otherwise pass readback.
+// Read errors stay non-fatal, as for the content check.
+func (o *RoleOps) verifyOwnershipReadback(ctx context.Context, vaultClient workflow.VaultOpsClient) error {
+	data, err := vaultClient.ReadKubernetesAuthRole(ctx, o.authPath, o.vaultName)
+	if err != nil || data == nil {
+		return nil
+	}
+	want := o.ownership(vaultClient)
+	if got, _ := vault.ParseAliasMetadata(data); got != want {
+		return infraerrors.NewConflictError("role", o.vaultName, fmt.Sprintf(
+			"but the ownership record read back after our write names %q, not %q",
+			got.String(), want.String()))
+	}
 	return nil
 }
 
@@ -246,8 +268,8 @@ func (o *RoleOps) ReadbackVerify(ctx context.Context, vaultClient workflow.Vault
 // record-less role (hand-created, pre-ADR-0010) is deleted as instructed —
 // backstopped by the one-cluster-per-auth-mount invariant, since the mount
 // is resolved from the recorded binding (or connection), never the role CR.
-// Read failures fall through to the delete: its own error handling enqueues
-// a retry, whereas skipping here would leak the role silently.
+// A read failure is returned without deleting (fail closed): the caller
+// queues a retry, and the replay re-runs this same gate (pkg/cleanup).
 func (o *RoleOps) DeleteFromVault(ctx context.Context, vaultClient workflow.VaultOpsClient, name string) error {
 	log := logr.FromContextOrDiscard(ctx)
 	if o.authPath == "" {
@@ -262,18 +284,20 @@ func (o *RoleOps) DeleteFromVault(ctx context.Context, vaultClient workflow.Vaul
 			"role", name)
 		return nil
 	}
-	if data, err := vaultClient.ReadKubernetesAuthRole(ctx, o.authPath, name); err == nil && data != nil {
-		if own, ok := vault.ParseAliasMetadata(data); ok &&
-			!own.SameOwner(vaultClient.AuthMount(), o.adapter.GetK8sResourceIdentifier()) {
-			log.Info("skipping DeleteKubernetesAuthRole — Vault role is owned by someone else",
-				"role", name, "owner", own.String())
-			if o.handler.recorder != nil {
-				o.handler.recorder.Eventf(o.adapter.GetObject(), corev1.EventTypeWarning,
-					"ForeignRoleNotDeleted",
-					"Vault role %q was not deleted: it is owned by %s", name, own.String())
-			}
-			return nil
+	own, err := vault.ForeignRoleOwner(ctx, vaultClient, o.authPath, name,
+		vaultClient.Owner(o.adapter.GetK8sResourceIdentifier()))
+	if err != nil {
+		return err
+	}
+	if own != nil {
+		log.Info("skipping DeleteKubernetesAuthRole — Vault role is owned by someone else",
+			"role", name, "owner", own.String())
+		if o.handler.recorder != nil {
+			o.handler.recorder.Eventf(o.adapter.GetObject(), corev1.EventTypeWarning,
+				"ForeignRoleNotDeleted",
+				"Vault role %q was not deleted: it is owned by %s", name, own.String())
 		}
+		return nil
 	}
 	return vaultClient.DeleteKubernetesAuthRole(ctx, o.authPath, name)
 }

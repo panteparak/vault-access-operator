@@ -258,6 +258,12 @@ The role's payload also carries its in-band ownership record in `alias_metadata`
 ### Step 7 onwards
 Same as policy: drift detection, write, readback, apply bindings, status, event.
 
+Role specifics of the shared ownership rules (#18):
+
+- **Conflict:** a record-less role counts as ours via `LastAppliedHash` only when the recorded `status.vaultRoleName` equals the bound name. During a rename, a record-less role at the new name is a `ConflictError`.
+- **Readback:** role drift ignores `alias_metadata`, so with checks on (and no dry-run) `ReadbackVerify` re-reads the role and fails with `ConflictError` unless the `alias_metadata` record read back is the one just written.
+- **Delete:** a failed read of the role before delete is returned (queued), never deleted on.
+
 ## Cleanup Target Resolution (binding-first)
 
 [resolveCleanupTarget](../../features/role/controller/handler.go:161) picks the mount to **delete** from:
@@ -293,6 +299,7 @@ Same as policy: drift detection, write, readback, apply bindings, status, event.
 | `DependencyError` | vaultclient.Resolve | connection not Active |
 | Vault 403 → `Reason=VaultPermissionDenied` | any Vault write/read | operator token lacks a grant on the resolved mount — permanent until the operator's Vault policy changes (still requeued at 30s) |
 | `TransientError "readback verification"` | ReadbackVerify | role content differs after write (rare) |
+| `ConflictError` (readback) | ReadbackVerify | checks on; another owner's `alias_metadata` read back right after our write |
 | Warning `PolicyNotInVault` | verifyPoliciesExistInVault | referenced policy missing — non-fatal |
 
 ## Cross-References

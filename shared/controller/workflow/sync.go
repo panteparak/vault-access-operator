@@ -193,6 +193,7 @@ func (w *SyncWorkflow) deleteStaleName(
 			K8sNamespace:   resource.GetNamespace(),
 			K8sName:        resource.GetName(),
 			LastError:      err.Error(),
+			Owner:          ownerOf(state.vaultClient, resource),
 		}
 		if qErr := w.queue.Enqueue(ctx, item); qErr != nil {
 			state.log.Error(qErr, "failed to enqueue stale vault name for retry",

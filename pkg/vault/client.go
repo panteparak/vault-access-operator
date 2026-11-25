@@ -182,6 +182,13 @@ func (c *Client) AuthMount() string {
 	return c.authMount
 }
 
+// Owner is the expected owner of objects this connection writes for the given
+// CR: the login mount plus the CR (ADR 0008). Delete and write gates compare
+// live records against it.
+func (c *Client) Owner(k8sResource string) Owner {
+	return Owner{AuthMount: c.AuthMount(), K8sResource: k8sResource}
+}
+
 // SetAuthMount records the auth mount path. Called by the login path; exposed
 // for tests that build clients without going through a real login.
 func (c *Client) SetAuthMount(mount string) {

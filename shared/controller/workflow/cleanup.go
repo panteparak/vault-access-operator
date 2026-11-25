@@ -32,6 +32,7 @@ import (
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/pkg/cleanup"
 	"github.com/panteparak/vault-access-operator/pkg/metrics"
+	"github.com/panteparak/vault-access-operator/pkg/vault"
 	"github.com/panteparak/vault-access-operator/shared/controller/conditions"
 	"github.com/panteparak/vault-access-operator/shared/events"
 )
@@ -151,12 +152,13 @@ func (w *CleanupWorkflow) Execute(ctx context.Context, resource SyncableResource
 			// so the cleanup controller retries later when Vault is reachable.
 			log.Info("failed to get Vault client during deletion — enqueuing for retry",
 				"error", err, "resource", vaultResourceName)
-			w.enqueueForRetry(ctx, resource, ops, deleteName, err)
+			w.enqueueForRetry(ctx, resource, ops, deleteName, nil, err)
 		case !vaultClient.IsAuthenticated():
 			// Cached client exists but has no valid token — same fate: queue it.
 			log.Info("cached Vault client is unauthenticated — enqueuing for retry",
 				"resource", vaultResourceName)
-			w.enqueueForRetry(ctx, resource, ops, deleteName, errors.New("vault client unauthenticated"))
+			w.enqueueForRetry(ctx, resource, ops, deleteName, ownerOf(vaultClient, resource),
+				errors.New("vault client unauthenticated"))
 		default:
 			if deleteName == "" {
 				deleteName = ops.BindVaultName(vaultClient)
@@ -170,7 +172,7 @@ func (w *CleanupWorkflow) Execute(ctx context.Context, resource SyncableResource
 				} else {
 					log.Error(err, "failed to delete "+label+" from Vault — enqueuing for retry",
 						"resource", deleteName)
-					w.enqueueForRetry(ctx, resource, ops, deleteName, err)
+					w.enqueueForRetry(ctx, resource, ops, deleteName, ownerOf(vaultClient, resource), err)
 				}
 			} else {
 				log.Info("deleted "+label+" from Vault", "resource", deleteName)
@@ -212,9 +214,11 @@ func (w *CleanupWorkflow) Execute(ctx context.Context, resource SyncableResource
 //
 // The caller has already logged the underlying Vault error at Info or Error
 // level; passing cause here is for correlating the queue item with the
-// triggering condition in future log searches.
+// triggering condition in future log searches. owner is the record the
+// replay must still find before deleting (nil when no client was available).
 func (w *CleanupWorkflow) enqueueForRetry(
-	ctx context.Context, resource SyncableResource, ops ResourceOps, name string, cause error,
+	ctx context.Context, resource SyncableResource, ops ResourceOps, name string,
+	owner *vault.Owner, cause error,
 ) {
 	if w.queue == nil {
 		// Pre-§2 behavior — no queue wired (e.g., unit tests). The finalizer
@@ -239,6 +243,7 @@ func (w *CleanupWorkflow) enqueueForRetry(
 		K8sNamespace:   resource.GetNamespace(),
 		K8sName:        resource.GetName(),
 		LastError:      cause.Error(),
+		Owner:          owner,
 	}
 	if err := w.queue.Enqueue(ctx, item); err != nil {
 		// Not returning this error: finalizer removal must not block on a
@@ -260,6 +265,12 @@ func (w *CleanupWorkflow) enqueueForRetry(
 				"Vault resource %q is queued for retry by the cleanup controller",
 			cause.Error(), item.VaultName)
 	}
+}
+
+// ownerOf is the expected owner a queued delete carries for resource.
+func ownerOf(vaultClient VaultOpsClient, resource SyncableResource) *vault.Owner {
+	owner := vaultClient.Owner(resource.GetK8sResourceIdentifier())
+	return &owner
 }
 
 // cleanupResourceType maps a ResourceKind string (e.g. "VaultPolicy",
