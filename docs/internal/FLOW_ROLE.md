@@ -262,7 +262,7 @@ Role specifics of the shared ownership rules (#18):
 
 - **Conflict:** a record-less role counts as ours via `LastAppliedHash` only when the recorded `status.vaultRoleName` equals the bound name. During a rename, a record-less role at the new name is a `ConflictError`, unless it is the pending name below.
 - **Pending name:** before writing a name that `status.vaultRoleName` does not record (a rename or the first write), `WriteToVault` persists it as `status.pendingVaultRoleName`; no write happens unless that status update succeeds. The successful commit clears it. If the commit is lost after the write (operator restart, 409), the retry's conflict check treats a record-less role at the pending name as ours, and cleanup deletes the pending name as well as the recorded one (both through the ownership gate). This keeps renames restart-safe on a Vault that drops `alias_metadata` (review finding 1, #18). Policies do not need it: their header is always stored, so `SameOwner` recognises them.
-- **Readback:** role drift ignores `alias_metadata`, so with checks on (and no dry-run) `ReadbackVerify` re-reads the role and fails with `ConflictError` unless the `alias_metadata` record read back is the one just written. A role read back with no record at all passes: Vault < 1.21 drops `alias_metadata`, so there is nothing to compare. When the connection's `status.vaultVersion` is 1.21 or later (a Vault that keeps the record), a record-less readback also emits a non-blocking `OwnershipRecordMissing` Warning on the role; it never fails the sync or changes the phase. An unknown or unparseable version emits nothing.
+- **Readback:** role drift ignores `alias_metadata`, so with checks on (and no dry-run) `ReadbackVerify` re-reads the role and fails with `ConflictError` unless the `alias_metadata` record read back is the one just written. A role read back with no record at all passes: Vault < 1.21.3 (including 1.21.0-1.21.2) accepts `alias_metadata` on write and drops it, so there is nothing to compare. When the connection's `status.vaultVersion` is 1.21.3 or later (a Vault that keeps the record), a record-less readback also emits a non-blocking `OwnershipRecordMissing` Warning on the role; it never fails the sync or changes the phase. An unknown or unparseable version emits nothing.
 - **Delete:** a failed read of the role before delete is returned (queued), never deleted on.
 
 ## Cleanup Target Resolution (binding-first)
@@ -301,7 +301,7 @@ Role specifics of the shared ownership rules (#18):
 | Vault 403 → `Reason=VaultPermissionDenied` | any Vault write/read | operator token lacks a grant on the resolved mount — permanent until the operator's Vault policy changes (still requeued at 30s) |
 | `TransientError "readback verification"` | ReadbackVerify | role content differs after write (rare) |
 | `ConflictError` (readback) | ReadbackVerify | checks on; another owner's `alias_metadata` read back right after our write |
-| `OwnershipRecordMissing` Warning (non-blocking) | ReadbackVerify | checks on; role read back with no record on Vault >= 1.21 (from the connection's `status.vaultVersion`) |
+| `OwnershipRecordMissing` Warning (non-blocking) | ReadbackVerify | checks on; role read back with no record on Vault >= 1.21.3 (from the connection's `status.vaultVersion`) |
 | Warning `PolicyNotInVault` | verifyPoliciesExistInVault | referenced policy missing — non-fatal |
 
 ## Cross-References

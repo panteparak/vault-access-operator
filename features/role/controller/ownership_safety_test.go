@@ -115,8 +115,10 @@ func TestRoleOps_ReadbackVerify_OwnershipRecord(t *testing.T) {
 }
 
 // Owner decision on 867eb67 (A + E): a record-less readback still passes,
-// but on a Vault that stores alias_metadata (status.vaultVersion >= 1.21)
-// it emits a non-blocking OwnershipRecordMissing Warning.
+// but on a Vault that stores alias_metadata it emits a non-blocking
+// OwnershipRecordMissing Warning. Vault 1.21.0-1.21.2 accept alias_metadata
+// on write and drop it; 1.21.3 is the first release that stores it
+// (review finding 4, measured), so 1.21.2 must stay silent.
 func TestRoleOps_ReadbackVerify_OwnershipRecordMissingWarning(t *testing.T) {
 	run := func(t *testing.T, vaultVersion, aliasMount string) ([]string, error) {
 		t.Helper()
@@ -160,8 +162,13 @@ func TestRoleOps_ReadbackVerify_OwnershipRecordMissingWarning(t *testing.T) {
 		name, version string
 		wantEvent     bool
 	}{
-		{"Vault 1.21.2, no record: warning", "1.21.2", true},
+		{"Vault 1.21.3, no record: warning", "1.21.3", true},
+		{"Vault 1.21.4, no record: warning", "1.21.4", true},
 		{"Vault v1.22.0+ent, no record: warning", "v1.22.0+ent", true},
+		{"Vault 1.22, no patch: warning", "1.22", true},
+		{"Vault 1.21.2 (drops the record), no record: silent", "1.21.2", false},
+		{"Vault 1.21.1 (drops the record), no record: silent", "1.21.1", false},
+		{"Vault 1.21, no patch: silent", "1.21", false},
 		{"Vault 1.17.2, no record: silent", "1.17.2", false},
 		{"unparseable version: silent", "unknown", false},
 		{"unknown version: silent", "", false},
@@ -177,8 +184,8 @@ func TestRoleOps_ReadbackVerify_OwnershipRecordMissingWarning(t *testing.T) {
 			}
 		})
 	}
-	t.Run("foreign record on 1.21: still conflicts", func(t *testing.T) {
-		if _, err := run(t, "1.21.2", "cluster-b"); !infraerrors.IsConflictError(err) {
+	t.Run("foreign record on 1.21.3: still conflicts", func(t *testing.T) {
+		if _, err := run(t, "1.21.3", "cluster-b"); !infraerrors.IsConflictError(err) {
 			t.Errorf("want ConflictError, got %v", err)
 		}
 	})

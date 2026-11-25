@@ -342,7 +342,7 @@ Where the record lives:
 |--------|----------------|
 | ACL policy | Structured comment header inside the policy document (`# managed-by`, `# auth-mount`, `# cluster`, `# k8s-resource`, `# k8s-kind`) |
 | KV secret (`VaultKVSecret`) | `custom_metadata` on the secret's own path (`managed-by`, `k8s-resource`, `auth-mount`, `cluster`, `managed-at`, `last-updated`) |
-| Auth role | `alias_metadata` on the role (`managed-by`, `auth-mount`, `cluster`, `k8s-resource`, `k8s-kind`) — supported by the kubernetes and jwt auth backends on Vault ≥ 1.21 (older Vaults silently drop the parameter) ([ADR 0010](adr/0010-structured-vault-names-and-recorded-name-authority.md)); Vault also copies these keys onto entity aliases at login. On older Vaults the parameter is dropped and ownership falls back to the owning CR's status plus the one-cluster-per-auth-mount invariant |
+| Auth role | `alias_metadata` on the role (`managed-by`, `auth-mount`, `cluster`, `k8s-resource`, `k8s-kind`) — supported by the kubernetes and jwt auth backends on Vault ≥ 1.21.3 (older Vaults, including 1.21.0-1.21.2, accept the parameter on write and silently drop it) ([ADR 0010](adr/0010-structured-vault-names-and-recorded-name-authority.md)); Vault also copies these keys onto entity aliases at login. On older Vaults the parameter is dropped and ownership falls back to the owning CR's status plus the one-cluster-per-auth-mount invariant |
 
 The operator's **identity** is the auth mount path its connection logged in
 through. Ownership requires the sentinel **+ the same identity + the same

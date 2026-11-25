@@ -14,8 +14,8 @@ import (
 //     document (Vault stores HCL verbatim, so comments round-trip).
 //   - KV secrets carry custom_metadata on their own path (kvsecret.go).
 //   - Auth roles carry the same record in alias_metadata (ADR 0010): both
-//     kubernetes and jwt auth roles store it (Vault >=1.21; older Vaults
-//     silently drop the parameter) and echo it on read; Vault additionally
+//     kubernetes and jwt auth roles store it (Vault >= 1.21.3; older Vaults,
+//     including 1.21.0-1.21.2, silently drop the parameter) and echo it on read; Vault additionally
 //     copies it onto entity aliases at login.
 //
 // The operator's identity is the auth mount path it logged in through
@@ -184,8 +184,8 @@ func ParseOwnership(hcl string) (Ownership, bool) {
 
 // RoleAliasMetadataKey is the auth-role payload field carrying the ownership
 // record (ADR 0010, amending ADR 0008's "roles carry nothing"). Supported by
-// the kubernetes and jwt auth backends on Vault >= 1.21; older Vaults
-// (verified on 1.17) silently drop the parameter, degrading roles back to
+// the kubernetes and jwt auth backends on Vault >= 1.21.3; older Vaults
+// (verified on 1.17 and 1.21.0-1.21.2) silently drop the parameter, degrading roles back to
 // no in-band ownership.
 const RoleAliasMetadataKey = "alias_metadata"
 

@@ -280,7 +280,7 @@ func (o *RoleOps) ReadbackVerify(ctx context.Context, vaultClient workflow.Vault
 // same-content write by another owner would otherwise pass readback.
 // Read errors stay non-fatal, as for the content check.
 //
-// ponytail: a role read back with no record at all passes. Vault < 1.21
+// ponytail: a role read back with no record at all passes. Vault < 1.21.3
 // silently drops alias_metadata (ADR 0010), so there is nothing to compare;
 // failing would put every role on such a Vault into Conflict. On those
 // Vaults no writer leaves a record, so the readback cannot tell owners
@@ -309,7 +309,7 @@ const eventReasonOwnershipRecordMissing = "OwnershipRecordMissing"
 
 // warnRecordMissing emits a non-blocking Warning when a role read back with
 // no ownership record although the connection's Vault (status.vaultVersion)
-// is 1.21 or later, which stores alias_metadata: something stripped the
+// is 1.21.3 or later, which stores alias_metadata: something stripped the
 // record, so ownership of this role can no longer be proven. An unknown or
 // unparseable version emits nothing. Never fails the sync.
 func (h *Handler) warnRecordMissing(ctx context.Context, adapter domain.RoleAdapter) {
@@ -329,15 +329,25 @@ func (h *Handler) warnRecordMissing(ctx context.Context, adapter domain.RoleAdap
 		conn.Status.VaultVersion)
 }
 
-// storesAliasMetadata reports whether a Vault version string ("1.21.2",
-// "v1.21.0+ent") is 1.21 or later, the first release that keeps role
-// alias_metadata. Unparseable = false.
+// storesAliasMetadata reports whether a Vault version string ("1.21.3",
+// "v1.22.0+ent") is 1.21.3 or later. Vault 1.21.0-1.21.2 accept role
+// alias_metadata on write and drop it; 1.21.3 is the first release that
+// stores it (review finding 4, #18, measured). A missing patch counts as
+// 0, so "1.21" = false and "1.22" = true. Unparseable = false.
 func storesAliasMetadata(version string) bool {
-	var major, minor int
-	if _, err := fmt.Sscanf(strings.TrimPrefix(version, "v"), "%d.%d", &major, &minor); err != nil {
+	var major, minor, patch int
+	n, _ := fmt.Sscanf(strings.TrimPrefix(version, "v"), "%d.%d.%d", &major, &minor, &patch)
+	if n < 2 {
 		return false
 	}
-	return major > 1 || (major == 1 && minor >= 21)
+	switch {
+	case major != 1:
+		return major > 1
+	case minor != 21:
+		return minor > 21
+	default:
+		return patch >= 3
+	}
 }
 
 // DeleteFromVault deletes the auth role from Vault. Skipped under dry-run;
