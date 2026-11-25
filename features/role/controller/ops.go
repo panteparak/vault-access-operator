@@ -245,13 +245,22 @@ func (o *RoleOps) ReadbackVerify(ctx context.Context, vaultClient workflow.Vault
 // is the one just written: role drift ignores alias_metadata, so a
 // same-content write by another owner would otherwise pass readback.
 // Read errors stay non-fatal, as for the content check.
+//
+// ponytail: a role read back with no record at all passes. Vault < 1.21
+// silently drops alias_metadata (ADR 0010), so there is nothing to compare;
+// failing would put every role on such a Vault into Conflict. On those
+// Vaults no writer leaves a record, so the readback cannot tell owners
+// apart either way.
 func (o *RoleOps) verifyOwnershipReadback(ctx context.Context, vaultClient workflow.VaultOpsClient) error {
 	data, err := vaultClient.ReadKubernetesAuthRole(ctx, o.authPath, o.vaultName)
 	if err != nil || data == nil {
 		return nil
 	}
-	want := o.ownership(vaultClient)
-	if got, _ := vault.ParseAliasMetadata(data); got != want {
+	got, ok := vault.ParseAliasMetadata(data)
+	if !ok {
+		return nil
+	}
+	if want := o.ownership(vaultClient); got != want {
 		return infraerrors.NewConflictError("role", o.vaultName, fmt.Sprintf(
 			"but the ownership record read back after our write names %q, not %q",
 			got.String(), want.String()))

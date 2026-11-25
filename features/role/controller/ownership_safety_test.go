@@ -66,13 +66,13 @@ func TestRoleOps_ReadbackVerify_OwnershipRecord(t *testing.T) {
 		ops.roleData = map[string]interface{}{"policies": []string{"p"}}
 		own := ops.ownership(vc)
 		own.AuthMount = aliasMount
-		live := map[string]interface{}{}
-		for k, v := range vault.OwnershipAliasMetadata(own) {
-			live[k] = v
-		}
-		state.roles[safetyRoleKey] = map[string]interface{}{
-			"policies":                 []interface{}{"p"},
-			vault.RoleAliasMetadataKey: live,
+		state.roles[safetyRoleKey] = map[string]interface{}{"policies": []interface{}{"p"}}
+		if aliasMount != "" { // "" = Vault dropped alias_metadata
+			live := map[string]interface{}{}
+			for k, v := range vault.OwnershipAliasMetadata(own) {
+				live[k] = v
+			}
+			state.roles[safetyRoleKey][vault.RoleAliasMetadataKey] = live
 		}
 		return ops.ReadbackVerify(context.Background(), vc)
 	}
@@ -85,6 +85,13 @@ func TestRoleOps_ReadbackVerify_OwnershipRecord(t *testing.T) {
 	t.Run("foreign record, identical content: conflict", func(t *testing.T) {
 		if err := run(t, true, "cluster-b"); !infraerrors.IsConflictError(err) {
 			t.Errorf("want ConflictError, got %v", err)
+		}
+	})
+	// Vault < 1.21 drops alias_metadata: no record to compare, so readback
+	// passes rather than putting every role into Conflict.
+	t.Run("record-less read back (Vault < 1.21): ok", func(t *testing.T) {
+		if err := run(t, true, ""); err != nil {
+			t.Errorf("want nil, got %v", err)
 		}
 	})
 	t.Run("checks off: content only, as v0.12.0", func(t *testing.T) {
