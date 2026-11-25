@@ -20,6 +20,11 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   - The "CR synced before, so a header-less object is ours" rule now applies only
     at the CR's recorded Vault name. During a rename, a header-less object at the
     new name is a `ConflictError` instead of being taken over.
+  - Role renames (and first writes) are restart-safe on a Vault that drops
+    `alias_metadata`: the target name is persisted as
+    `status.pendingVaultRoleName` before the write, so a retry after a lost
+    status commit finishes the rename instead of ending in a permanent
+    `ConflictError`, and deleting the CR also deletes the pending name.
   - With ownership checks on (`--managed-markers`), readback fails with a
     `ConflictError` unless the ownership record read back is the one just written.
     A role read back with no record passes (Vault < 1.21 drops `alias_metadata`);

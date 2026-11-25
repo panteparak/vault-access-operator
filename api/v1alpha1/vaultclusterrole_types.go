@@ -80,6 +80,14 @@ type VaultClusterRoleStatus struct {
 	// +optional
 	VaultRoleName string `json:"vaultRoleName,omitempty"`
 
+	// PendingVaultRoleName is the Vault name a sync is about to write when it
+	// differs from VaultRoleName (a rename or the first write). It is
+	// persisted before the Vault write and cleared when the sync commits, so
+	// a retry after a lost commit recognises the role it already wrote even
+	// on a Vault that drops alias_metadata (< 1.21.3).
+	// +optional
+	PendingVaultRoleName string `json:"pendingVaultRoleName,omitempty"`
+
 	// BoundServiceAccounts lists the service accounts bound to this role
 	// +optional
 	BoundServiceAccounts []string `json:"boundServiceAccounts,omitempty"`

@@ -217,7 +217,39 @@ func (o *RoleOps) WriteToVault(ctx context.Context, vaultClient workflow.VaultOp
 		)
 		return nil
 	}
+	if err := o.persistPendingName(ctx); err != nil {
+		return err
+	}
 	return vaultClient.WriteKubernetesAuthRole(ctx, o.authPath, o.vaultName, o.roleData)
+}
+
+// persistPendingName records the name about to be written in
+// status.pendingVaultRoleName before a write to a name status does not
+// record yet (a rename or the first write). A Vault that drops
+// alias_metadata (< 1.21.3) leaves the role record-less; if the sync's
+// status commit is then lost, the retry's conflict check finds our own
+// role at a name status does not record. The pending name lets it
+// recognise the role (checkConflict) and lets cleanup delete it. No write
+// happens unless the pending name is stored.
+func (o *RoleOps) persistPendingName(ctx context.Context) error {
+	if o.vaultName == o.adapter.GetVaultRoleNameStatus() || o.vaultName == o.adapter.GetPendingVaultRoleName() {
+		return nil
+	}
+	o.adapter.SetPendingVaultRoleName(o.vaultName)
+	if err := o.handler.client.Status().Update(ctx, o.adapter.GetObject()); err != nil {
+		return fmt.Errorf("record pending vault role name %q: %w", o.vaultName, err)
+	}
+	return nil
+}
+
+// PendingVaultName returns the name a sync wrote (or was about to write)
+// without committing it, so cleanup deletes it as well as the recorded
+// name. Empty when none, or when it equals the recorded name.
+func (o *RoleOps) PendingVaultName() string {
+	if p := o.adapter.GetPendingVaultRoleName(); p != o.adapter.GetVaultRoleNameStatus() {
+		return p
+	}
+	return ""
 }
 
 // ReadbackVerify reads back the role and checks for drift.
@@ -354,6 +386,7 @@ func (o *RoleOps) DeleteFromVault(ctx context.Context, vaultClient workflow.Vaul
 // ApplyActiveStatus sets role-specific status fields.
 func (o *RoleOps) ApplyActiveStatus(_ string, _ *metav1.Time) {
 	o.adapter.SetVaultRoleName(o.vaultName)
+	o.adapter.SetPendingVaultRoleName("")
 	o.adapter.SetBoundServiceAccounts(o.serviceAccountBindings)
 	o.adapter.SetResolvedPolicies(o.policyNames)
 }

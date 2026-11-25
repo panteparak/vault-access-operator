@@ -18,15 +18,24 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
+	"github.com/go-logr/logr"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
+	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/features/role/domain"
 	"github.com/panteparak/vault-access-operator/pkg/vault"
+	"github.com/panteparak/vault-access-operator/shared/events"
 	infraerrors "github.com/panteparak/vault-access-operator/shared/infrastructure/errors"
+	"github.com/panteparak/vault-access-operator/shared/naming"
 )
 
 const safetyRoleKey = "auth/kubernetes/role/vao.cluster-a.test-ns.test-role"
@@ -173,4 +182,116 @@ func TestRoleOps_ReadbackVerify_OwnershipRecordMissingWarning(t *testing.T) {
 			t.Errorf("want ConflictError, got %v", err)
 		}
 	})
+}
+
+// interruptedRename syncs a role, switches the naming identity so the next
+// sync renames it, and runs that sync with its status commit lost: the
+// write to the new name lands, status still records the old one. The mock
+// Vault drops alias_metadata like Vault < 1.21.3, so the role is
+// record-less.
+func interruptedRename(t *testing.T) (
+	h *Handler, fetch func() *vaultv1alpha1.VaultRole, state *mockVaultState, newName string,
+) {
+	t.Helper()
+	enableMarkersForTest(t)
+	state = newMockVaultState()
+	server := newMockVaultServer(mockVaultServerConfig{state: state, dropAliasMetadata: true})
+	t.Cleanup(server.Close)
+
+	newName = naming.VaultName("pe", testNamespace, testRoleName)
+	conn := newTestVaultConnection()
+	role := newTestVaultRole()
+	refPolicy := &vaultv1alpha1.VaultPolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "app-read", Namespace: testNamespace},
+		Spec:       vaultv1alpha1.VaultPolicySpec{ConnectionRef: testConnName},
+		Status: vaultv1alpha1.VaultPolicyStatus{
+			VaultName: naming.VaultName(naming.Placeholder, testNamespace, "app-read"),
+		},
+	}
+	// Lose the status commit that records the new name, once: the write
+	// to Vault has landed by then.
+	loseRenameCommit := false
+	k8sClient := fake.NewClientBuilder().WithScheme(newTestScheme()).
+		WithObjects(conn, role, refPolicy).WithStatusSubresource(conn, role, refPolicy).
+		WithInterceptorFuncs(interceptor.Funcs{SubResourceUpdate: func(ctx context.Context, c client.Client,
+			sub string, obj client.Object, opts ...client.SubResourceUpdateOption) error {
+			if r, ok := obj.(*vaultv1alpha1.VaultRole); ok && loseRenameCommit && r.Status.VaultRoleName == newName {
+				loseRenameCommit = false
+				return errors.New("simulated: operator restarted before the status commit")
+			}
+			return c.SubResource(sub).Update(ctx, obj, opts...)
+		}}).Build()
+	cache := vault.NewClientCache()
+	cache.Set(conn.Name, newTestCachedVaultClient(t, server.URL))
+	h = NewHandler(k8sClient, cache, events.NewEventBus(logr.Discard()), logr.Discard())
+	ctx := logr.NewContext(context.Background(), logr.Discard())
+	fetch = func() *vaultv1alpha1.VaultRole {
+		var r vaultv1alpha1.VaultRole
+		if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: testNamespace, Name: testRoleName}, &r); err != nil {
+			t.Fatal(err)
+		}
+		return &r
+	}
+
+	if err := h.SyncRole(ctx, domain.NewVaultRoleAdapter(fetch())); err != nil {
+		t.Fatalf("sync 1: %v", err)
+	}
+	naming.SetCluster("pe") // naming config change: the next sync renames
+	t.Cleanup(func() { naming.SetCluster("") })
+	loseRenameCommit = true
+	if err := h.SyncRole(ctx, domain.NewVaultRoleAdapter(fetch())); err == nil {
+		t.Fatal("sync 2: want the lost status commit to fail the sync")
+	}
+	if _, ok := state.roles["auth/kubernetes/role/"+newName]; !ok {
+		t.Fatalf("sync 2 did not write the new name; roles: %v", keysOf(state.roles))
+	}
+	return h, fetch, state, newName
+}
+
+// Review finding 1 (#18): on a Vault that drops alias_metadata (< 1.21.3),
+// a rename whose Vault write lands but whose status commit is lost
+// (operator restart, 409) left our record-less role at the new name. The
+// AC3 rule (recorded name == bound name) then made every retry a
+// ConflictError, and deleting the CR cleaned only the old name. The rename
+// target is persisted before the write, so the retry recognises it.
+func TestSyncRole_InterruptedRenameResumes(t *testing.T) {
+	h, fetch, state, newName := interruptedRename(t)
+	ctx := logr.NewContext(context.Background(), logr.Discard())
+
+	if err := h.SyncRole(ctx, domain.NewVaultRoleAdapter(fetch())); err != nil {
+		t.Fatalf("sync 3 (retry): %v", err)
+	}
+	got := fetch()
+	if got.Status.Phase != vaultv1alpha1.PhaseActive || got.Status.VaultRoleName != newName {
+		t.Fatalf("sync 3: phase=%s vaultRoleName=%s, want Active at %s",
+			got.Status.Phase, got.Status.VaultRoleName, newName)
+	}
+	if pending := got.Status.PendingVaultRoleName; pending != "" {
+		t.Errorf("pendingVaultRoleName = %q after commit, want empty", pending)
+	}
+
+	if err := h.CleanupRole(ctx, domain.NewVaultRoleAdapter(fetch())); err != nil {
+		t.Fatalf("cleanup: %v", err)
+	}
+	if len(state.roles) != 0 {
+		t.Errorf("roles left after cleanup: %v", keysOf(state.roles))
+	}
+}
+
+// The CR is deleted before any retry: cleanup deletes the pending name as
+// well as the recorded one, so the role written by the interrupted rename
+// does not leak.
+func TestCleanupRole_DeletesPendingName(t *testing.T) {
+	h, fetch, state, newName := interruptedRename(t)
+	ctx := logr.NewContext(context.Background(), logr.Discard())
+
+	if got := fetch().Status.PendingVaultRoleName; got != newName {
+		t.Fatalf("pendingVaultRoleName = %q, want %q", got, newName)
+	}
+	if err := h.CleanupRole(ctx, domain.NewVaultRoleAdapter(fetch())); err != nil {
+		t.Fatalf("cleanup: %v", err)
+	}
+	if len(state.roles) != 0 {
+		t.Errorf("roles left after cleanup: %v", keysOf(state.roles))
+	}
 }

@@ -237,8 +237,16 @@ func (h *Handler) checkConflict(
 
 	// This CR has synced the role before — it's ours. Only at the RECORDED
 	// name: during a rename the bound name is new to this CR, so a
-	// record-less role already there is someone else's (conflict).
+	// record-less role already there is someone else's (conflict). The one
+	// exception is the PENDING name: an earlier sync of this CR passed this
+	// check for it and persisted it just before writing it, then lost its
+	// status commit (review finding 1, #18).
 	if adapter.GetLastAppliedHash() != "" && adapter.GetVaultRoleNameStatus() == vaultRoleName {
+		return nil
+	}
+	if adapter.GetPendingVaultRoleName() == vaultRoleName {
+		log.Info("role is the pending name of an earlier sync of this resource — treating as ours",
+			"roleName", vaultRoleName)
 		return nil
 	}
 
