@@ -18,7 +18,11 @@ package controller
 
 import (
 	"context"
+	"strings"
 	"testing"
+
+	"k8s.io/client-go/tools/record"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/panteparak/vault-access-operator/features/role/domain"
 	"github.com/panteparak/vault-access-operator/pkg/vault"
@@ -97,6 +101,76 @@ func TestRoleOps_ReadbackVerify_OwnershipRecord(t *testing.T) {
 	t.Run("checks off: content only, as v0.12.0", func(t *testing.T) {
 		if err := run(t, false, "cluster-b"); err != nil {
 			t.Errorf("want nil, got %v", err)
+		}
+	})
+}
+
+// Owner decision on 867eb67 (A + E): a record-less readback still passes,
+// but on a Vault that stores alias_metadata (status.vaultVersion >= 1.21)
+// it emits a non-blocking OwnershipRecordMissing Warning.
+func TestRoleOps_ReadbackVerify_OwnershipRecordMissingWarning(t *testing.T) {
+	run := func(t *testing.T, vaultVersion, aliasMount string) ([]string, error) {
+		t.Helper()
+		enableMarkersForTest(t)
+		state := newMockVaultState()
+		server := newMockVaultServer(mockVaultServerConfig{state: state})
+		t.Cleanup(server.Close)
+		vc := newTestCachedVaultClient(t, server.URL)
+		vc.SetAuthMount("cluster-a")
+
+		conn := newTestVaultConnection()
+		conn.Status.VaultVersion = vaultVersion
+		recorder := record.NewFakeRecorder(10)
+		h := &Handler{
+			client:   fake.NewClientBuilder().WithScheme(newTestScheme()).WithObjects(conn).Build(),
+			recorder: recorder,
+		}
+		ops := NewRoleOps(domain.NewVaultRoleAdapter(newTestVaultRole()), h, &roleTarget{mount: "kubernetes"})
+		ops.vaultName = "vao.cluster-a.test-ns.test-role"
+		ops.roleData = map[string]interface{}{"policies": []string{"p"}}
+		state.roles[safetyRoleKey] = map[string]interface{}{"policies": []interface{}{"p"}}
+		if aliasMount != "" {
+			own := ops.ownership(vc)
+			own.AuthMount = aliasMount
+			live := map[string]interface{}{}
+			for k, v := range vault.OwnershipAliasMetadata(own) {
+				live[k] = v
+			}
+			state.roles[safetyRoleKey][vault.RoleAliasMetadataKey] = live
+		}
+		err := ops.ReadbackVerify(context.Background(), vc)
+		close(recorder.Events)
+		events := make([]string, 0, len(recorder.Events))
+		for e := range recorder.Events {
+			events = append(events, e)
+		}
+		return events, err
+	}
+
+	for _, tc := range []struct {
+		name, version string
+		wantEvent     bool
+	}{
+		{"Vault 1.21.2, no record: warning", "1.21.2", true},
+		{"Vault v1.22.0+ent, no record: warning", "v1.22.0+ent", true},
+		{"Vault 1.17.2, no record: silent", "1.17.2", false},
+		{"unparseable version: silent", "unknown", false},
+		{"unknown version: silent", "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			events, err := run(t, tc.version, "")
+			if err != nil {
+				t.Fatalf("readback must not fail, got %v", err)
+			}
+			got := len(events) == 1 && strings.Contains(events[0], "Warning "+eventReasonOwnershipRecordMissing)
+			if got != tc.wantEvent || (!tc.wantEvent && len(events) != 0) {
+				t.Errorf("events = %v, want warning = %v", events, tc.wantEvent)
+			}
+		})
+	}
+	t.Run("foreign record on 1.21: still conflicts", func(t *testing.T) {
+		if _, err := run(t, "1.21.2", "cluster-b"); !infraerrors.IsConflictError(err) {
+			t.Errorf("want ConflictError, got %v", err)
 		}
 	})
 }

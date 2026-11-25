@@ -19,10 +19,12 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/features/role/domain"
@@ -258,6 +260,7 @@ func (o *RoleOps) verifyOwnershipReadback(ctx context.Context, vaultClient workf
 	}
 	got, ok := vault.ParseAliasMetadata(data)
 	if !ok {
+		o.handler.warnRecordMissing(ctx, o.adapter)
 		return nil
 	}
 	if want := o.ownership(vaultClient); got != want {
@@ -266,6 +269,43 @@ func (o *RoleOps) verifyOwnershipReadback(ctx context.Context, vaultClient workf
 			got.String(), want.String()))
 	}
 	return nil
+}
+
+// eventReasonOwnershipRecordMissing is the Warning reason emitted when a
+// role reads back with no alias_metadata record on a Vault that stores it.
+const eventReasonOwnershipRecordMissing = "OwnershipRecordMissing"
+
+// warnRecordMissing emits a non-blocking Warning when a role read back with
+// no ownership record although the connection's Vault (status.vaultVersion)
+// is 1.21 or later, which stores alias_metadata: something stripped the
+// record, so ownership of this role can no longer be proven. An unknown or
+// unparseable version emits nothing. Never fails the sync.
+func (h *Handler) warnRecordMissing(ctx context.Context, adapter domain.RoleAdapter) {
+	if h.recorder == nil || h.client == nil {
+		return
+	}
+	var conn vaultv1alpha1.VaultConnection
+	if err := h.client.Get(ctx, client.ObjectKey{Name: adapter.GetConnectionRef()}, &conn); err != nil {
+		return
+	}
+	if !storesAliasMetadata(conn.Status.VaultVersion) {
+		return
+	}
+	h.recorder.Eventf(adapter.GetObject(), corev1.EventTypeWarning, eventReasonOwnershipRecordMissing,
+		"Role read back with no alias_metadata ownership record although Vault %s stores it; "+
+			"ownership of this role cannot be proven until the record is restored (next write)",
+		conn.Status.VaultVersion)
+}
+
+// storesAliasMetadata reports whether a Vault version string ("1.21.2",
+// "v1.21.0+ent") is 1.21 or later, the first release that keeps role
+// alias_metadata. Unparseable = false.
+func storesAliasMetadata(version string) bool {
+	var major, minor int
+	if _, err := fmt.Sscanf(strings.TrimPrefix(version, "v"), "%d.%d", &major, &minor); err != nil {
+		return false
+	}
+	return major > 1 || (major == 1 && minor >= 21)
 }
 
 // DeleteFromVault deletes the auth role from Vault. Skipped under dry-run;

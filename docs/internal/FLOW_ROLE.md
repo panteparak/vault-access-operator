@@ -261,7 +261,7 @@ Same as policy: drift detection, write, readback, apply bindings, status, event.
 Role specifics of the shared ownership rules (#18):
 
 - **Conflict:** a record-less role counts as ours via `LastAppliedHash` only when the recorded `status.vaultRoleName` equals the bound name. During a rename, a record-less role at the new name is a `ConflictError`.
-- **Readback:** role drift ignores `alias_metadata`, so with checks on (and no dry-run) `ReadbackVerify` re-reads the role and fails with `ConflictError` unless the `alias_metadata` record read back is the one just written. A role read back with no record at all passes: Vault < 1.21 drops `alias_metadata`, so there is nothing to compare.
+- **Readback:** role drift ignores `alias_metadata`, so with checks on (and no dry-run) `ReadbackVerify` re-reads the role and fails with `ConflictError` unless the `alias_metadata` record read back is the one just written. A role read back with no record at all passes: Vault < 1.21 drops `alias_metadata`, so there is nothing to compare. When the connection's `status.vaultVersion` is 1.21 or later (a Vault that keeps the record), a record-less readback also emits a non-blocking `OwnershipRecordMissing` Warning on the role; it never fails the sync or changes the phase. An unknown or unparseable version emits nothing.
 - **Delete:** a failed read of the role before delete is returned (queued), never deleted on.
 
 ## Cleanup Target Resolution (binding-first)
@@ -300,6 +300,7 @@ Role specifics of the shared ownership rules (#18):
 | Vault 403 → `Reason=VaultPermissionDenied` | any Vault write/read | operator token lacks a grant on the resolved mount — permanent until the operator's Vault policy changes (still requeued at 30s) |
 | `TransientError "readback verification"` | ReadbackVerify | role content differs after write (rare) |
 | `ConflictError` (readback) | ReadbackVerify | checks on; another owner's `alias_metadata` read back right after our write |
+| `OwnershipRecordMissing` Warning (non-blocking) | ReadbackVerify | checks on; role read back with no record on Vault >= 1.21 (from the connection's `status.vaultVersion`) |
 | Warning `PolicyNotInVault` | verifyPoliciesExistInVault | referenced policy missing — non-fatal |
 
 ## Cross-References

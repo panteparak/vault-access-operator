@@ -22,6 +22,9 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
     new name is a `ConflictError` instead of being taken over.
   - With ownership checks on (`--managed-markers`), readback fails with a
     `ConflictError` unless the ownership record read back is the one just written.
+    A role read back with no record passes (Vault < 1.21 drops `alias_metadata`);
+    on Vault 1.21 or later it also emits a non-blocking `OwnershipRecordMissing`
+    Warning event.
 
 ## [0.12.0] - 2026-07-13
 
