@@ -58,6 +58,7 @@ type policyMockState struct {
 	policies map[string]string                 // policyName → HCL
 	managed  map[string]map[string]interface{} // full API path → managed metadata
 	roles    map[string]map[string]interface{} // full API path → role data (unused for policy tests)
+	writes   int                               // policy PUT/POST count
 }
 
 func newPolicyMockState() *policyMockState {
@@ -139,6 +140,7 @@ func newPolicyMockServer(cfg policyMockConfig) *httptest.Server {
 				if policy, ok := data["policy"].(string); ok {
 					cfg.state.policies[policyName] = policy
 				}
+				cfg.state.writes++
 				w.WriteHeader(http.StatusNoContent)
 
 			case http.MethodGet:

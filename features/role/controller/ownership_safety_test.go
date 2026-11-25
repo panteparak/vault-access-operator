@@ -151,11 +151,11 @@ func TestRoleOps_ReadbackVerify_OwnershipRecordMissingWarning(t *testing.T) {
 		}
 		err := ops.ReadbackVerify(context.Background(), vc)
 		close(recorder.Events)
-		events := make([]string, 0, len(recorder.Events))
+		emitted := make([]string, 0, len(recorder.Events))
 		for e := range recorder.Events {
-			events = append(events, e)
+			emitted = append(emitted, e)
 		}
-		return events, err
+		return emitted, err
 	}
 
 	for _, tc := range []struct {

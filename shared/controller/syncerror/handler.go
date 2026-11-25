@@ -81,6 +81,18 @@ func Handle(
 	ctx context.Context, k8sClient client.Client, log logr.Logger,
 	target StatusTarget, err error, recorder ...record.EventRecorder,
 ) error {
+	// Restart warm-up (#18 review finding 6): the connection reports Active
+	// and healthy, this process just has not cached its client yet. Leave
+	// status alone, so an Active resource stays Active and its next sync
+	// takes the unchanged path instead of rewriting it; the reconciler
+	// requeues quietly. Real connection failures (not found, not Active,
+	// spec pending, unhealthy) still set Phase=Error below.
+	if infraerrors.IsClientNotCached(err) {
+		log.V(1).Info("vault client not cached yet (connection warming up); status left unchanged",
+			"error", err.Error())
+		return err
+	}
+
 	gen := target.GetGeneration()
 
 	phase, reason := classifyError(err)

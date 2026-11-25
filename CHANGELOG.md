@@ -26,6 +26,11 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   - A policy whose ownership cannot be read is never adopted: the read error is
     retried instead of `conflictPolicy: Adopt` overwriting a policy whose
     record may name another owner.
+  - An operator restart no longer flips Active policies and roles to `Error`
+    (`ConnectionNotReady`, "client not in cache") and then rewrites them: while
+    the connection is Active but its client is not cached yet, status is left
+    alone and the resource requeues in 2s. Real connection failures (missing,
+    not Active, unhealthy) still set `Error`.
   - Role renames (and first writes) are restart-safe on a Vault that drops
     `alias_metadata`: the target name is persisted as
     `status.pendingVaultRoleName` before the write, so a retry after a lost

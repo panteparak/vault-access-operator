@@ -248,6 +248,18 @@ func NewDependencyError(resource, depType, depName, reason string) *DependencyEr
 	}
 }
 
+// ReasonClientNotCached is the DependencyError reason vaultclient.Resolve
+// gives when the VaultConnection reports Active and healthy but this
+// process has not cached its client yet: the warm-up after an operator
+// restart, before the connection reconciles.
+const ReasonClientNotCached = "client not in cache"
+
+// IsClientNotCached reports whether err is the warm-up DependencyError.
+func IsClientNotCached(err error) bool {
+	var depErr *DependencyError
+	return errors.As(err, &depErr) && depErr.Reason == ReasonClientNotCached
+}
+
 // IsDependencyError returns true if the error is a DependencyError.
 func IsDependencyError(err error) bool {
 	var depErr *DependencyError

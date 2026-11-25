@@ -70,9 +70,14 @@ func Resolve(
 		)
 	}
 
+	// The connection reports Active and healthy but this process has no
+	// client yet: the warm-up after an operator restart, until the
+	// connection reconciles. Callers leave status alone and requeue
+	// (infraerrors.IsClientNotCached, #18 review finding 6).
 	vaultClient, err := cache.Get(connRef)
 	if err != nil {
-		return nil, infraerrors.NewDependencyError(resourceID, "VaultConnection", connRef, "client not in cache")
+		return nil, infraerrors.NewDependencyError(resourceID, "VaultConnection", connRef,
+			infraerrors.ReasonClientNotCached)
 	}
 
 	return vaultClient, nil
