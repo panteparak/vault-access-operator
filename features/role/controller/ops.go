@@ -372,6 +372,7 @@ func (o *RoleOps) ApplyBindings() {
 	// vaultPath like auth/auth/kubernetes/role/<x>.
 	roleBinding := binding.NewRoleBinding(vault.AuthMountName(o.authPath), o.vaultName)
 	roleBinding.Connection = o.adapter.GetConnectionRef()
+	roleBinding.Identity, _ = naming.IdentityOf(o.vaultName)
 	o.adapter.SetBinding(roleBinding)
 
 	previous := o.adapter.GetPolicyBindings()
@@ -379,8 +380,7 @@ func (o *RoleOps) ApplyBindings() {
 	o.adapter.SetPolicyBindings(policyBindings)
 
 	o.handler.emitPolicyResolvedEvents(o.adapter, previous, policyBindings)
-	roleIdentity, _ := naming.IdentityOf(o.vaultName)
-	o.handler.warnIdentityMismatch(o.adapter, roleIdentity, o.resolution)
+	o.handler.warnIdentityMismatch(o.adapter, roleBinding.Identity, o.resolution)
 }
 
 // PublishSyncEvent publishes a RoleCreated event.

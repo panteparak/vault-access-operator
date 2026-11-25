@@ -106,7 +106,7 @@ func TestPolicyOps_SpecIdentity(t *testing.T) {
 		t.Errorf("header lacks the identity line:\n%s", ops.hcl)
 	}
 	ops.ApplyBindings()
-	if b := p.Status.Binding; b.Connection != "proj-conn" {
-		t.Errorf("binding connection = %q, want proj-conn", b.Connection)
+	if b := p.Status.Binding; b.Identity != "proj" || b.Connection != "proj-conn" {
+		t.Errorf("binding identity/connection = %q/%q, want proj/proj-conn", b.Identity, b.Connection)
 	}
 }

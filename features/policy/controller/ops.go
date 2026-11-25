@@ -262,6 +262,7 @@ func (o *PolicyOps) ApplyActiveStatus(_ string, _ *metav1.Time) {
 func (o *PolicyOps) ApplyBindings() {
 	policyBinding := binding.NewPolicyBinding(o.vaultName)
 	policyBinding.Connection = o.adapter.GetConnectionRef()
+	policyBinding.Identity, _ = naming.IdentityOf(o.vaultName)
 	o.adapter.SetBinding(policyBinding)
 }
 

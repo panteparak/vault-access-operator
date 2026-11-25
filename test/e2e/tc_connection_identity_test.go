@@ -175,6 +175,7 @@ var _ = Describe("Connection Identity", Ordered, Label("connection-identity"), f
 		p, err := utils.GetVaultPolicy(ctx, idPolicy, testNamespace)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(p.Status.VaultName).To(Equal(vaultPolicyName))
+		Expect(p.Status.Binding.Identity).To(Equal(idName))
 		Expect(p.Status.Binding.Connection).To(Equal(idConnName))
 
 		vc, err := utils.GetTestVaultClient()
@@ -195,6 +196,7 @@ var _ = Describe("Connection Identity", Ordered, Label("connection-identity"), f
 		Expect(err).NotTo(HaveOccurred())
 		vaultRoleName := utils.ExpectedVaultName(idName, testNamespace, idRole)
 		Expect(r.Status.VaultRoleName).To(Equal(vaultRoleName))
+		Expect(r.Status.Binding.Identity).To(Equal(idName))
 		data, err := vc.ReadAuthRole(ctx, k8sLoginMount, vaultRoleName)
 		Expect(err).NotTo(HaveOccurred())
 		roleOwn, ok := vault.ParseAliasMetadata(data)

@@ -475,6 +475,7 @@ var _ = Describe("In-band Ownership Integration Tests", func() {
 				Expect(testEnv.K8sClient.Get(ctx,
 					types.NamespacedName{Name: policy.Name, Namespace: policy.Namespace}, fetched)).To(Succeed())
 				Expect(fetched.Status.VaultName).To(Equal(name))
+				Expect(fetched.Status.Binding.Identity).To(Equal("int-proj"))
 				Expect(fetched.Status.Binding.Connection).To(Equal(mmConnName))
 
 				mounts, err := opVC.AuthMountNames(ctx)
