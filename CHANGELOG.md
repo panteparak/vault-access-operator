@@ -20,6 +20,9 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   - The "CR synced before, so a header-less object is ours" rule now applies only
     at the CR's recorded Vault name. During a rename, a header-less object at the
     new name is a `ConflictError` instead of being taken over.
+  - The policy conflict check matches names case-insensitively, as Vault does:
+    a bound name with capitals (a login mount or `--cluster-name` with capitals)
+    no longer skips the check and overwrites another owner's lowercase policy.
   - A policy whose ownership cannot be read is never adopted: the read error is
     retried instead of `conflictPolicy: Adopt` overwriting a policy whose
     record may name another owner.

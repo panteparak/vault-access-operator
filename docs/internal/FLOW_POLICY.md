@@ -204,7 +204,7 @@ Once the client is resolved, `Ops.BindVaultName` derives this sync's Vault-side 
 
 ### Step 5: Check conflict (Ops.CheckConflict) — only when `--managed-markers=true`
 With markers **off** (the default) this step is skipped entirely: the operator writes the policy and forgets it (write-and-forget). When markers are on:
-- If policy doesn't exist in Vault → no conflict.
+- If policy doesn't exist in Vault → no conflict. Existence is matched case-insensitively (`PolicyExists` uses `strings.EqualFold` against LIST), because Vault lowercases ACL policy names; generated names keep their case. Roles need no change: their check is a GET, which Vault matches case-insensitively.
 - If exists, read the policy's in-band ownership header (`GetPolicyOwnership` = `ReadPolicy` + `ParseOwnership`). Ownership requires the sentinel + the same auth-mount identity + the same owning CR (`Ownership.SameOwner`); a header naming another operator or CR is foreign → conflict, adoption blocked.
   - Ownership read fails → `TransientError`, whatever the adoption setting: unknown ownership is never adopted (#18 review finding 2; until then `Adopt` took over on a read error).
   - Same K8s owner → OK.

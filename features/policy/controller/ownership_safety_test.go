@@ -144,3 +144,42 @@ func TestSyncPolicy_AdoptOnOwnershipReadErrorIsTransient(t *testing.T) {
 		t.Fatalf("foreign-owned policy %s was overwritten; owner now %s", name, own.String())
 	}
 }
+
+// Review finding 5 (#18): Vault lowercases ACL policy names. PolicyExists
+// compared the bound name byte-for-byte against LIST, so a bound name with
+// capitals (login mount "K8s-East", or a --cluster-name with capitals)
+// never "existed": the ownership check was skipped and the write replaced
+// another owner's policy. The comparison is now case-insensitive.
+func TestSyncPolicy_MixedCaseNameStillChecksOwnership(t *testing.T) {
+	enableMarkersForTest(t)
+	state := newPolicyMockState()
+	lower := "vao.k8s-east.test-ns.app-read"
+	foreign := vault.OwnershipHeader(vault.Ownership{ManagedBy: vault.KVManagedByValue,
+		AuthMount: "k8s-east-other", K8sResource: policyTestNamespace + "/" + policyTestName,
+		K8sKind: "VaultPolicy"}) + "\npath \"secret/data/other/*\" { capabilities = [\"read\"] }\n"
+	state.policies[lower] = foreign
+	server := newPolicyMockServer(policyMockConfig{state: state, lowercaseNames: true})
+	t.Cleanup(server.Close)
+
+	conn := newPolicyTestConnection()
+	policy := newTestVaultPolicy()
+	k8sClient := fake.NewClientBuilder().WithScheme(newPolicyTestScheme()).
+		WithObjects(conn, policy).WithStatusSubresource(conn, policy).Build()
+	cache := vault.NewClientCache()
+	vc := newPolicyCachedVaultClient(t, server.URL)
+	vc.SetAuthMount("K8s-East") // the identity segment keeps the capitals
+	cache.Set(conn.Name, vc)
+	h := NewHandler(k8sClient, cache, events.NewEventBus(logr.Discard()), logr.Discard())
+	ctx := logr.NewContext(context.Background(), logr.Discard())
+
+	err := h.SyncPolicy(ctx, domain.NewVaultPolicyAdapter(policy))
+	if !infraerrors.IsConflictError(err) {
+		t.Errorf("want ConflictError for another owner's policy, got %v", err)
+	}
+	state.mu.Lock()
+	live := state.policies[lower]
+	state.mu.Unlock()
+	if live != foreign {
+		t.Fatalf("policy %s owned by another login mount was overwritten without a conflict check", lower)
+	}
+}
