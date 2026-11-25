@@ -23,7 +23,9 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
@@ -227,11 +229,38 @@ func (o *RoleOps) WriteToVault(ctx context.Context, vaultClient workflow.VaultOp
 		// Vault refused the write (4xx), so nothing landed at the name this
 		// sync made pending: forget it, or a record-less role someone else
 		// creates there would count as ours (#18 review round 2, finding A).
-		// The error path's status update persists this. An ambiguous
-		// failure (5xx, timeout) keeps it: the write may have landed.
-		o.adapter.SetPendingVaultRoleName(prevPending)
+		// An ambiguous failure (5xx, 408/412/429, timeout) keeps it: the
+		// write may have landed.
+		if rerr := o.restorePendingName(ctx, prevPending); rerr != nil {
+			log.Error(rerr, "failed to persist the restored pending vault role name; the error path's status update retries it",
+				"refused", o.vaultName, "restored", prevPending)
+		}
 	}
 	return err
+}
+
+// restorePendingName puts back the pending name this sync replaced, after
+// Vault refused the write to o.vaultName, and persists it in its own
+// status update. The error path's single update is not enough: if it
+// fails, pending stays at the refused name, and later refused writes set
+// nothing so restore nothing (#18 review round 3, finding A2). On a
+// conflict it re-fetches and restores only while pending is still the
+// name this sync set, so a claim recorded since is kept.
+func (o *RoleOps) restorePendingName(ctx context.Context, prev string) error {
+	obj := o.adapter.GetObject()
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		if o.adapter.GetPendingVaultRoleName() != o.vaultName {
+			return nil
+		}
+		o.adapter.SetPendingVaultRoleName(prev)
+		err := o.handler.client.Status().Update(ctx, obj)
+		if apierrors.IsConflict(err) {
+			if getErr := o.handler.client.Get(ctx, client.ObjectKeyFromObject(obj), obj); getErr != nil {
+				return getErr
+			}
+		}
+		return err
+	})
 }
 
 // persistPendingName records the name about to be written in

@@ -24,7 +24,9 @@ import (
 	"testing"
 
 	"github.com/go-logr/logr"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -201,9 +203,9 @@ func interruptedRename(t *testing.T) (
 	h *Handler, fetch func() *vaultv1alpha1.VaultRole, state *mockVaultState, newName string,
 ) {
 	t.Helper()
-	h, fetch, state, newName, loseRenameCommit := renameHarness(t)
+	h, fetch, state, newName, faults := renameHarness(t)
 	ctx := logr.NewContext(context.Background(), logr.Discard())
-	*loseRenameCommit = true
+	faults.loseRenameCommit = true
 	if err := h.SyncRole(ctx, domain.NewVaultRoleAdapter(fetch())); err == nil {
 		t.Fatal("sync 2: want the lost status commit to fail the sync")
 	}
@@ -216,10 +218,14 @@ func interruptedRename(t *testing.T) (
 // renameHarness syncs a role under identity "_" on a mock Vault that drops
 // alias_metadata (< 1.21.3, so roles are record-less), then switches the
 // naming identity to "pe" so the next sync renames it to newName. Setting
-// *loseRenameCommit fails the next status update that records newName, once.
+// faults.loseRenameCommit fails the next status update that records
+// newName, once; faults.failErrorUpdates fails that many Phase=Error status
+// updates (the sync's error path); faults.conflictRestores answers that
+// many restores of a refused write's pending name (pending empty, not
+// Phase=Error) with a conflict.
 func renameHarness(t *testing.T) (
 	h *Handler, fetch func() *vaultv1alpha1.VaultRole, state *mockVaultState, newName string,
-	loseRenameCommit *bool,
+	faults *renameFaults,
 ) {
 	t.Helper()
 	state = newMockVaultState()
@@ -236,14 +242,26 @@ func renameHarness(t *testing.T) (
 			VaultName: naming.VaultName(naming.Placeholder, testNamespace, "app-read"),
 		},
 	}
-	loseRenameCommit = new(bool)
+	faults = &renameFaults{}
 	k8sClient := fake.NewClientBuilder().WithScheme(newTestScheme()).
 		WithObjects(conn, role, refPolicy).WithStatusSubresource(conn, role, refPolicy).
 		WithInterceptorFuncs(interceptor.Funcs{SubResourceUpdate: func(ctx context.Context, c client.Client,
 			sub string, obj client.Object, opts ...client.SubResourceUpdateOption) error {
-			if r, ok := obj.(*vaultv1alpha1.VaultRole); ok && *loseRenameCommit && r.Status.VaultRoleName == newName {
-				*loseRenameCommit = false
-				return errors.New("simulated: operator restarted before the status commit")
+			if r, ok := obj.(*vaultv1alpha1.VaultRole); ok {
+				if faults.loseRenameCommit && r.Status.VaultRoleName == newName {
+					faults.loseRenameCommit = false
+					return errors.New("simulated: operator restarted before the status commit")
+				}
+				if faults.failErrorUpdates > 0 && r.Status.Phase == vaultv1alpha1.PhaseError {
+					faults.failErrorUpdates--
+					return errors.New("simulated: error-path status update failed")
+				}
+				if faults.conflictRestores > 0 && r.Status.PendingVaultRoleName == "" &&
+					r.Status.Phase != vaultv1alpha1.PhaseError {
+					faults.conflictRestores--
+					return apierrors.NewConflict(schema.GroupResource{Resource: "vaultroles"}, r.Name,
+						errors.New("simulated: object modified"))
+				}
 			}
 			return c.SubResource(sub).Update(ctx, obj, opts...)
 		}}).Build()
@@ -264,7 +282,14 @@ func renameHarness(t *testing.T) (
 	}
 	naming.SetCluster("pe") // naming config change: the next sync renames
 	t.Cleanup(func() { naming.SetCluster("") })
-	return h, fetch, state, newName, loseRenameCommit
+	return h, fetch, state, newName, faults
+}
+
+// renameFaults are renameHarness's status-update fault switches.
+type renameFaults struct {
+	loseRenameCommit bool
+	failErrorUpdates int
+	conflictRestores int
 }
 
 // setRoleWrite sets the mock's outcome for writes to one role name ("" clears it).
@@ -310,6 +335,46 @@ func TestSyncRole_RejectedRenameWriteDropsPendingName(t *testing.T) {
 	defer state.mu.Unlock()
 	if got := state.roles[key]; fmt.Sprint(got["bound_service_account_names"]) != "[intruder]" {
 		t.Errorf("role at %s was taken over or deleted: %v", newName, got)
+	}
+}
+
+// Review round 3, finding A2 (#18): the restore of a refused write's
+// pending name was persisted only by the error path's single status
+// update. When that update failed once, pending stayed at the refused
+// name; later refused writes set nothing so restored nothing, and a
+// record-less role someone else then created there was taken over.
+// The restore persists itself, retrying a conflict.
+func TestSyncRole_RejectedWriteRestoreSurvivesFailedErrorUpdate(t *testing.T) {
+	t.Run("error update fails", func(t *testing.T) { restoreSurvives(t, renameFaults{failErrorUpdates: 1}) })
+	t.Run("restore conflicts once", func(t *testing.T) {
+		restoreSurvives(t, renameFaults{failErrorUpdates: 1, conflictRestores: 1})
+	})
+}
+
+func restoreSurvives(t *testing.T, f renameFaults) {
+	h, fetch, state, newName, faults := renameHarness(t)
+	ctx := logr.NewContext(context.Background(), logr.Discard())
+	key := "auth/kubernetes/role/" + newName
+
+	setRoleWrite(state, newName, "reject")
+	*faults = f
+	_ = h.SyncRole(ctx, domain.NewVaultRoleAdapter(fetch()))
+	_ = h.SyncRole(ctx, domain.NewVaultRoleAdapter(fetch()))
+	if got := fetch().Status.PendingVaultRoleName; got != "" {
+		t.Errorf("pendingVaultRoleName = %q after refused writes, want empty", got)
+	}
+
+	setRoleWrite(state, newName, "")
+	state.mu.Lock()
+	state.roles[key] = map[string]interface{}{"bound_service_account_names": []interface{}{"intruder"}}
+	state.mu.Unlock()
+	if err := h.SyncRole(ctx, domain.NewVaultRoleAdapter(fetch())); !infraerrors.IsConflictError(err) {
+		t.Errorf("sync 4: want ConflictError for the record-less role at %s, got %v", newName, err)
+	}
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if got := state.roles[key]; fmt.Sprint(got["bound_service_account_names"]) != "[intruder]" {
+		t.Errorf("role at %s was taken over: %v", newName, got)
 	}
 }
 
