@@ -179,7 +179,7 @@ func TestController_ProcessItem_Policy_Success(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	err := c.processItem(ctx, item)
+	_, err := c.processItem(ctx, item)
 
 	if err != nil {
 		t.Errorf("processItem failed: %v", err)
@@ -218,7 +218,7 @@ func TestController_ProcessItem_Role_Success(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	err := c.processItem(ctx, item)
+	_, err := c.processItem(ctx, item)
 
 	if err != nil {
 		t.Errorf("processItem failed: %v", err)
@@ -256,7 +256,7 @@ func TestController_ProcessItem_PolicyDeleteError(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	err := c.processItem(ctx, item)
+	_, err := c.processItem(ctx, item)
 
 	if err == nil {
 		t.Error("Expected error, got nil")
@@ -289,7 +289,7 @@ func TestController_ProcessItem_ClientCacheError(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	err := c.processItem(ctx, item)
+	_, err := c.processItem(ctx, item)
 
 	if err == nil {
 		t.Error("Expected error, got nil")
@@ -323,7 +323,7 @@ func TestController_ProcessItem_UnknownResourceType(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	err := c.processItem(ctx, item)
+	_, err := c.processItem(ctx, item)
 
 	// Unknown resource types should not error - they're just skipped
 	if err != nil {

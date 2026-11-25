@@ -26,6 +26,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
+
+	"github.com/panteparak/vault-access-operator/pkg/metrics"
 	"github.com/panteparak/vault-access-operator/pkg/vault"
 )
 
@@ -83,7 +86,7 @@ func TestReplayGate_Policy(t *testing.T) {
 			c, _ := newGateController(t, vc)
 			item := Item{ID: "p", ResourceType: ResourceTypePolicy, VaultName: "vao.proj._.x",
 				ConnectionName: "conn", K8sName: "x", Owner: tc.itemOwner}
-			if err := c.processItem(context.Background(), item); err != nil {
+			if _, err := c.processItem(context.Background(), item); err != nil {
 				t.Fatalf("processItem: %v", err)
 			}
 			if got := len(vc.deletedPolicies) == 1; got != tc.wantDelete {
@@ -109,7 +112,7 @@ func TestReplayGate_Role(t *testing.T) {
 			c, _ := newGateController(t, vc)
 			item := Item{ID: "r", ResourceType: ResourceTypeRole, VaultName: "vao.proj.ns.x",
 				ConnectionName: "conn", AuthPath: "github", K8sNamespace: "ns", K8sName: "x", Owner: owner}
-			if err := c.processItem(context.Background(), item); err != nil {
+			if _, err := c.processItem(context.Background(), item); err != nil {
 				t.Fatalf("processItem: %v", err)
 			}
 			if got := len(vc.deletedRoles) == 1; got != tc.wantDelete {
@@ -156,12 +159,18 @@ func TestReplayGate_ForeignDequeued(t *testing.T) {
 	ctx := context.Background()
 	_ = q.Enqueue(ctx, Item{ID: "p", ResourceType: ResourceTypePolicy, VaultName: "vao.proj._.x",
 		ConnectionName: "conn", K8sName: "x", Owner: &vault.Owner{AuthMount: "cluster-a", K8sResource: "x"}})
+	successes := metrics.CleanupRetriesTotal.WithLabelValues(string(ResourceTypePolicy), "success")
+	before := testutil.ToFloat64(successes)
 	c.processQueue(ctx)
 	if len(vc.deletedPolicies) != 0 {
 		t.Fatalf("foreign policy deleted: %v", vc.deletedPolicies)
 	}
 	if n, _ := q.Size(ctx); n != 0 {
 		t.Errorf("queue size = %d, want 0", n)
+	}
+	// A skipped delete is not a successful cleanup (#18 review nit).
+	if got := testutil.ToFloat64(successes) - before; got != 0 {
+		t.Errorf("skipped foreign item counted as %v successful cleanup retries, want 0", got)
 	}
 }
 
