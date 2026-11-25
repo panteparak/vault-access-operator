@@ -44,8 +44,11 @@ import (
 	"github.com/panteparak/vault-access-operator/shared/naming"
 )
 
-// enableMarkersForTest turns managed-marker tracking on for the test. Marker /
-// conflict assertions are gated on this (markers default OFF in production).
+// enableMarkersForTest turns --managed-markers on for the test. Since #18
+// (AC7) ownership checks ignore the flag, which now gates only discovery and
+// orphan detection (cmd/main.go). Only tests that run under both values, to
+// prove that, call it: the rest run at the default (off), so a check gated
+// on the flag again would fail them.
 func enableMarkersForTest(t *testing.T) {
 	t.Helper()
 	markers.SetEnabled(true)
@@ -418,7 +421,6 @@ func setupSyncRoleTest(
 // --- SyncRole Tests ---
 
 func TestSyncRole_Success_NewRole(t *testing.T) {
-	enableMarkersForTest(t)
 	state := newMockVaultState()
 	conn := newTestVaultConnection()
 	role := newTestVaultRole()
@@ -560,7 +562,6 @@ func TestSyncRole_Success_ClusterRole(t *testing.T) {
 }
 
 func TestSyncRole_ConflictError_Adopt(t *testing.T) {
-	enableMarkersForTest(t)
 	state := newMockVaultState()
 	// Pre-populate an existing role in Vault (unmanaged)
 	state.roles["auth/kubernetes/role/"+testNamespace+"-"+testRoleName] = map[string]interface{}{
@@ -586,7 +587,6 @@ func TestSyncRole_ConflictError_Adopt(t *testing.T) {
 }
 
 func TestSyncRole_ConflictError_Fail(t *testing.T) {
-	enableMarkersForTest(t)
 	state := newMockVaultState()
 	vaultRoleName := naming.VaultName(naming.Placeholder, testNamespace, testRoleName)
 	// Pre-populate an existing role managed by someone else
@@ -615,10 +615,6 @@ func TestSyncRole_ConflictError_Fail(t *testing.T) {
 	}
 }
 
-// TestSyncRole_MarkersDisabled_NoConflict pins the default: with managed markers
-// OFF, an existing role owned by another resource does NOT trigger a conflict —
-// the reconcile proceeds write-and-forget. Same setup as ConflictError_Fail but
-// without enabling markers.
 // TestSyncRole_MarkersOff_UnrecordedRoleNeedsAdopt pins #18 AC7 (a
 // deliberate change from v0.12.0, where markers OFF overwrote any existing
 // role): checks always run, so a new CR targeting an existing record-less

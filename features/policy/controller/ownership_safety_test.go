@@ -111,7 +111,6 @@ func newPolicyTestVaultClient(t *testing.T, url string) *vault.Client {
 // with conflictPolicy: Adopt overwrite another cluster's policy. It is now
 // a TransientError whatever the adoption setting, as on the role path.
 func TestSyncPolicy_AdoptOnOwnershipReadErrorIsTransient(t *testing.T) {
-	enableMarkersForTest(t)
 	state := newPolicyMockState()
 	name := naming.VaultName("my-cluster", policyTestNamespace, policyTestName)
 	foreign := vault.OwnershipHeader(vault.Ownership{ManagedBy: vault.KVManagedByValue,
@@ -152,7 +151,6 @@ func TestSyncPolicy_AdoptOnOwnershipReadErrorIsTransient(t *testing.T) {
 // never "existed": the ownership check was skipped and the write replaced
 // another owner's policy. The comparison is now case-insensitive.
 func TestSyncPolicy_MixedCaseNameStillChecksOwnership(t *testing.T) {
-	enableMarkersForTest(t)
 	state := newPolicyMockState()
 	lower := "vao.k8s-east.test-ns.app-read"
 	foreign := vault.OwnershipHeader(vault.Ownership{ManagedBy: vault.KVManagedByValue,

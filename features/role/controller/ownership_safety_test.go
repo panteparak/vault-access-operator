@@ -123,7 +123,6 @@ func TestRoleOps_ReadbackVerify_OwnershipRecord(t *testing.T) {
 func TestRoleOps_ReadbackVerify_OwnershipRecordMissingWarning(t *testing.T) {
 	run := func(t *testing.T, vaultVersion, aliasMount string) ([]string, error) {
 		t.Helper()
-		enableMarkersForTest(t)
 		state := newMockVaultState()
 		server := newMockVaultServer(mockVaultServerConfig{state: state})
 		t.Cleanup(server.Close)
@@ -201,7 +200,6 @@ func interruptedRename(t *testing.T) (
 	h *Handler, fetch func() *vaultv1alpha1.VaultRole, state *mockVaultState, newName string,
 ) {
 	t.Helper()
-	enableMarkersForTest(t)
 	state = newMockVaultState()
 	server := newMockVaultServer(mockVaultServerConfig{state: state, dropAliasMetadata: true})
 	t.Cleanup(server.Close)

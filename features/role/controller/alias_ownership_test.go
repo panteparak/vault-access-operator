@@ -28,7 +28,6 @@ import (
 	"github.com/panteparak/vault-access-operator/features/role/domain"
 	"github.com/panteparak/vault-access-operator/pkg/vault"
 	infraerrors "github.com/panteparak/vault-access-operator/shared/infrastructure/errors"
-	"github.com/panteparak/vault-access-operator/shared/markers"
 )
 
 // roleAliasVaultState seeds the shared mock Vault with a role that carries
@@ -47,9 +46,6 @@ func roleAliasVaultState(roleKey string, own map[string]interface{}) *mockVaultS
 // ours; one naming a different owner is a hard conflict regardless of
 // adoption settings; a record-less role falls back to status memory.
 func TestRoleCheckConflict_AliasMetadata(t *testing.T) {
-	markers.SetEnabled(true)
-	t.Cleanup(func() { markers.SetEnabled(false) })
-
 	role := newTestVaultRole()
 	adapter := domain.NewVaultRoleAdapter(role)
 	roleKey := "auth/kubernetes/role/vao._.test-ns.test-role"

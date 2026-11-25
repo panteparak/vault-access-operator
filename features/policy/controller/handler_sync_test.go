@@ -41,9 +41,11 @@ import (
 	"github.com/panteparak/vault-access-operator/shared/naming"
 )
 
-// enableMarkersForTest turns managed-marker tracking on for the duration of a
-// test. Every marker/conflict assertion below is gated on this (markers default
-// OFF in production).
+// enableMarkersForTest turns --managed-markers on for the test. Since #18
+// (AC7) ownership checks ignore the flag, which now gates only discovery and
+// orphan detection (cmd/main.go). Only tests that run under both values, to
+// prove that, call it: the rest run at the default (off), so a check gated
+// on the flag again would fail them.
 func enableMarkersForTest(t *testing.T) {
 	t.Helper()
 	markers.SetEnabled(true)
@@ -301,7 +303,6 @@ func setupPolicySyncTest(
 // --- SyncPolicy Tests ---
 
 func TestSyncPolicy_Success_NewPolicy(t *testing.T) {
-	enableMarkersForTest(t)
 	state := newPolicyMockState()
 	conn := newPolicyTestConnection()
 	policy := newTestVaultPolicy()
@@ -347,7 +348,6 @@ func TestSyncPolicy_Success_NewPolicy(t *testing.T) {
 }
 
 func TestSyncPolicy_Success_ClusterPolicy(t *testing.T) {
-	enableMarkersForTest(t)
 	state := newPolicyMockState()
 	conn := newPolicyTestConnection()
 
@@ -483,7 +483,6 @@ func TestSyncPolicy_NamespaceBoundaryViolation(t *testing.T) {
 }
 
 func TestSyncPolicy_ConflictError_Adopt(t *testing.T) {
-	enableMarkersForTest(t)
 	state := newPolicyMockState()
 	vaultPolicyName := naming.VaultName(naming.Placeholder, policyTestNamespace, policyTestName)
 	// Pre-populate an existing policy (unmanaged)
@@ -508,7 +507,6 @@ func TestSyncPolicy_ConflictError_Adopt(t *testing.T) {
 }
 
 func TestSyncPolicy_ConflictError_Fail(t *testing.T) {
-	enableMarkersForTest(t)
 	state := newPolicyMockState()
 	vaultPolicyName := naming.VaultName(naming.Placeholder, policyTestNamespace, policyTestName)
 	// Pre-populate an existing policy managed by someone else: its in-band
@@ -912,7 +910,6 @@ func TestCleanupPolicy_RetainPolicy(t *testing.T) {
 }
 
 func TestCleanupPolicy_DeletePolicy(t *testing.T) {
-	enableMarkersForTest(t)
 	state := newPolicyMockState()
 	policyName := naming.VaultName(naming.Placeholder, policyTestNamespace, policyTestName)
 	state.policies[policyName] = existingPolicyHCL
