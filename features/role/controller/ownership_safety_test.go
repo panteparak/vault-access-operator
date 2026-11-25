@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -200,6 +201,27 @@ func interruptedRename(t *testing.T) (
 	h *Handler, fetch func() *vaultv1alpha1.VaultRole, state *mockVaultState, newName string,
 ) {
 	t.Helper()
+	h, fetch, state, newName, loseRenameCommit := renameHarness(t)
+	ctx := logr.NewContext(context.Background(), logr.Discard())
+	*loseRenameCommit = true
+	if err := h.SyncRole(ctx, domain.NewVaultRoleAdapter(fetch())); err == nil {
+		t.Fatal("sync 2: want the lost status commit to fail the sync")
+	}
+	if _, ok := state.roles["auth/kubernetes/role/"+newName]; !ok {
+		t.Fatalf("sync 2 did not write the new name; roles: %v", keysOf(state.roles))
+	}
+	return h, fetch, state, newName
+}
+
+// renameHarness syncs a role under identity "_" on a mock Vault that drops
+// alias_metadata (< 1.21.3, so roles are record-less), then switches the
+// naming identity to "pe" so the next sync renames it to newName. Setting
+// *loseRenameCommit fails the next status update that records newName, once.
+func renameHarness(t *testing.T) (
+	h *Handler, fetch func() *vaultv1alpha1.VaultRole, state *mockVaultState, newName string,
+	loseRenameCommit *bool,
+) {
+	t.Helper()
 	state = newMockVaultState()
 	server := newMockVaultServer(mockVaultServerConfig{state: state, dropAliasMetadata: true})
 	t.Cleanup(server.Close)
@@ -214,15 +236,13 @@ func interruptedRename(t *testing.T) (
 			VaultName: naming.VaultName(naming.Placeholder, testNamespace, "app-read"),
 		},
 	}
-	// Lose the status commit that records the new name, once: the write
-	// to Vault has landed by then.
-	loseRenameCommit := false
+	loseRenameCommit = new(bool)
 	k8sClient := fake.NewClientBuilder().WithScheme(newTestScheme()).
 		WithObjects(conn, role, refPolicy).WithStatusSubresource(conn, role, refPolicy).
 		WithInterceptorFuncs(interceptor.Funcs{SubResourceUpdate: func(ctx context.Context, c client.Client,
 			sub string, obj client.Object, opts ...client.SubResourceUpdateOption) error {
-			if r, ok := obj.(*vaultv1alpha1.VaultRole); ok && loseRenameCommit && r.Status.VaultRoleName == newName {
-				loseRenameCommit = false
+			if r, ok := obj.(*vaultv1alpha1.VaultRole); ok && *loseRenameCommit && r.Status.VaultRoleName == newName {
+				*loseRenameCommit = false
 				return errors.New("simulated: operator restarted before the status commit")
 			}
 			return c.SubResource(sub).Update(ctx, obj, opts...)
@@ -244,14 +264,104 @@ func interruptedRename(t *testing.T) (
 	}
 	naming.SetCluster("pe") // naming config change: the next sync renames
 	t.Cleanup(func() { naming.SetCluster("") })
-	loseRenameCommit = true
+	return h, fetch, state, newName, loseRenameCommit
+}
+
+// setRoleWrite sets the mock's outcome for writes to one role name ("" clears it).
+func setRoleWrite(state *mockVaultState, name, mode string) {
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if state.roleWrites == nil {
+		state.roleWrites = map[string]string{}
+	}
+	state.roleWrites[name] = mode
+}
+
+// Review round 2, finding A (#18): a rename whose Vault write is rejected
+// (403: it did not land) must not leave the new name pending. Otherwise a
+// record-less role someone else then creates at that name (Vault < 1.21.3
+// stores no record) counts as ours: the retry overwrites it and deleting
+// the CR deletes it.
+func TestSyncRole_RejectedRenameWriteDropsPendingName(t *testing.T) {
+	h, fetch, state, newName, _ := renameHarness(t)
+	ctx := logr.NewContext(context.Background(), logr.Discard())
+	key := "auth/kubernetes/role/" + newName
+
+	setRoleWrite(state, newName, "reject")
 	if err := h.SyncRole(ctx, domain.NewVaultRoleAdapter(fetch())); err == nil {
-		t.Fatal("sync 2: want the lost status commit to fail the sync")
+		t.Fatal("sync 2: want the rejected write to fail the sync")
 	}
-	if _, ok := state.roles["auth/kubernetes/role/"+newName]; !ok {
-		t.Fatalf("sync 2 did not write the new name; roles: %v", keysOf(state.roles))
+	if got := fetch().Status.PendingVaultRoleName; got != "" {
+		t.Errorf("pendingVaultRoleName = %q after a rejected write, want empty", got)
 	}
-	return h, fetch, state, newName
+
+	setRoleWrite(state, newName, "")
+	foreign := map[string]interface{}{"bound_service_account_names": []interface{}{"intruder"}}
+	state.mu.Lock()
+	state.roles[key] = foreign
+	state.mu.Unlock()
+	if err := h.SyncRole(ctx, domain.NewVaultRoleAdapter(fetch())); !infraerrors.IsConflictError(err) {
+		t.Errorf("sync 3: want ConflictError for the record-less role at %s, got %v", newName, err)
+	}
+	if err := h.CleanupRole(ctx, domain.NewVaultRoleAdapter(fetch())); err != nil {
+		t.Fatalf("cleanup: %v", err)
+	}
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if got := state.roles[key]; fmt.Sprint(got["bound_service_account_names"]) != "[intruder]" {
+		t.Errorf("role at %s was taken over or deleted: %v", newName, got)
+	}
+}
+
+// A write that fails ambiguously (5xx: it may have landed) keeps the
+// pending name, so the retry and cleanup still find the role.
+func TestSyncRole_AmbiguousRenameWriteKeepsPendingName(t *testing.T) {
+	h, fetch, state, newName, _ := renameHarness(t)
+	ctx := logr.NewContext(context.Background(), logr.Discard())
+
+	setRoleWrite(state, newName, "lost")
+	if err := h.SyncRole(ctx, domain.NewVaultRoleAdapter(fetch())); err == nil {
+		t.Fatal("sync 2: want the lost response to fail the sync")
+	}
+	if got := fetch().Status.PendingVaultRoleName; got != newName {
+		t.Errorf("pendingVaultRoleName = %q after an ambiguous write, want %q", got, newName)
+	}
+}
+
+// Review round 2, finding B (#18): a rename write lands but its response is
+// lost, then the naming input flips back before the retry. The retry writes
+// the recorded name and must delete the role the pending name points at
+// (through the ownership gate), or it leaks: cleanup then sees no pending.
+func TestSyncRole_FlipBackDeletesPendingName(t *testing.T) {
+	h, fetch, state, newName, _ := renameHarness(t)
+	ctx := logr.NewContext(context.Background(), logr.Discard())
+	oldName := fetch().Status.VaultRoleName
+
+	setRoleWrite(state, newName, "lost")
+	if err := h.SyncRole(ctx, domain.NewVaultRoleAdapter(fetch())); err == nil {
+		t.Fatal("sync 2: want the lost response to fail the sync")
+	}
+	setRoleWrite(state, newName, "")
+	naming.SetCluster("") // the naming input flips back
+
+	if err := h.SyncRole(ctx, domain.NewVaultRoleAdapter(fetch())); err != nil {
+		t.Fatalf("sync 3: %v", err)
+	}
+	got := fetch()
+	if got.Status.Phase != vaultv1alpha1.PhaseActive || got.Status.VaultRoleName != oldName ||
+		got.Status.PendingVaultRoleName != "" {
+		t.Errorf("sync 3: phase=%s name=%s pending=%q, want Active at %s, no pending",
+			got.Status.Phase, got.Status.VaultRoleName, got.Status.PendingVaultRoleName, oldName)
+	}
+	if _, ok := state.roles["auth/kubernetes/role/"+newName]; ok {
+		t.Errorf("role %s written in sync 2 survives sync 3", newName)
+	}
+	if err := h.CleanupRole(ctx, domain.NewVaultRoleAdapter(fetch())); err != nil {
+		t.Fatalf("cleanup: %v", err)
+	}
+	if len(state.roles) != 0 {
+		t.Errorf("roles left after cleanup: %v", keysOf(state.roles))
+	}
 }
 
 // Review finding 1 (#18): on a Vault that drops alias_metadata (< 1.21.3),
