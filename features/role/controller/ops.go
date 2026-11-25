@@ -217,10 +217,20 @@ func (o *RoleOps) WriteToVault(ctx context.Context, vaultClient workflow.VaultOp
 		)
 		return nil
 	}
+	prevPending := o.adapter.GetPendingVaultRoleName()
 	if err := o.persistPendingName(ctx); err != nil {
 		return err
 	}
-	return vaultClient.WriteKubernetesAuthRole(ctx, o.authPath, o.vaultName, o.roleData)
+	err := vaultClient.WriteKubernetesAuthRole(ctx, o.authPath, o.vaultName, o.roleData)
+	if err != nil && infraerrors.IsVaultRequestRejected(err) && o.adapter.GetPendingVaultRoleName() != prevPending {
+		// Vault refused the write (4xx), so nothing landed at the name this
+		// sync made pending: forget it, or a record-less role someone else
+		// creates there would count as ours (#18 review round 2, finding A).
+		// The error path's status update persists this. An ambiguous
+		// failure (5xx, timeout) keeps it: the write may have landed.
+		o.adapter.SetPendingVaultRoleName(prevPending)
+	}
+	return err
 }
 
 // persistPendingName records the name about to be written in

@@ -96,6 +96,10 @@ type mockVaultState struct {
 	policies map[string]string
 	// managed maps resourcePath to managed metadata
 	managed map[string]map[string]interface{}
+	// roleWrites sets a role write's outcome by role name: "reject" answers
+	// 403 and stores nothing (the write did not land), "lost" stores the
+	// role and then answers 500 (it landed, the response did not).
+	roleWrites map[string]string
 }
 
 func newMockVaultState() *mockVaultState {
@@ -205,6 +209,12 @@ func newMockVaultServer(cfg mockVaultServerConfig) *httptest.Server {
 					})
 					return
 				}
+				mode := cfg.state.roleWrites[key[strings.LastIndex(key, "/")+1:]]
+				if mode == "reject" {
+					w.WriteHeader(http.StatusForbidden)
+					_ = json.NewEncoder(w).Encode(map[string]interface{}{"errors": []string{"permission denied"}})
+					return
+				}
 				var data map[string]interface{}
 				_ = json.NewDecoder(r.Body).Decode(&data)
 				mockNormalizeTTLFields(data)
@@ -212,6 +222,11 @@ func newMockVaultServer(cfg mockVaultServerConfig) *httptest.Server {
 					delete(data, vault.RoleAliasMetadataKey)
 				}
 				cfg.state.roles[key] = data
+				if mode == "lost" {
+					w.WriteHeader(http.StatusInternalServerError)
+					_ = json.NewEncoder(w).Encode(map[string]interface{}{"errors": []string{"response lost"}})
+					return
+				}
 				w.WriteHeader(http.StatusNoContent)
 
 			case http.MethodGet:

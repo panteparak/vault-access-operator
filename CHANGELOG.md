@@ -35,7 +35,8 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
     `alias_metadata`: the target name is persisted as
     `status.pendingVaultRoleName` before the write, so a retry after a lost
     status commit finishes the rename instead of ending in a permanent
-    `ConflictError`, and deleting the CR also deletes the pending name.
+    `ConflictError`, and deleting the CR also deletes the pending name. A
+    write Vault refuses (4xx) did not land, so it leaves no pending name.
   - With ownership checks on (`--managed-markers`), readback fails with a
     `ConflictError` unless the ownership record read back is the one just written.
     A role read back with no record passes (Vault < 1.21.3 drops `alias_metadata`);

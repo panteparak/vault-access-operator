@@ -134,6 +134,14 @@ func IsVaultPermissionDenied(err error) bool {
 	return errors.As(err, &respErr) && respErr.StatusCode == 403
 }
 
+// IsVaultRequestRejected reports whether Vault answered a 4xx: it refused
+// the request, so a write did not land. A 5xx, a timeout or a transport
+// error is ambiguous (the write may have landed) and returns false.
+func IsVaultRequestRejected(err error) bool {
+	var respErr *vaultapi.ResponseError
+	return errors.As(err, &respErr) && respErr.StatusCode >= 400 && respErr.StatusCode < 500
+}
+
 // NotFoundError indicates a required resource doesn't exist.
 // This may be permanent (missing dependency) or transient (not yet created).
 type NotFoundError struct {
