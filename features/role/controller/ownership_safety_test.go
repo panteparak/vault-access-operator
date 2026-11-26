@@ -222,7 +222,9 @@ func interruptedRename(t *testing.T) (
 // newName, once; faults.failErrorUpdates fails that many Phase=Error status
 // updates (the sync's error path); faults.conflictRestores answers that
 // many restores of a refused write's pending name (pending empty, not
-// Phase=Error) with a conflict.
+// Phase=Error) with a conflict; with faults.staleGetOnConflict, the cached
+// client's next role Get after that conflict returns the role as sync 1
+// left it (an informer that has not seen this sync's own update).
 func renameHarness(t *testing.T) (
 	h *Handler, fetch func() *vaultv1alpha1.VaultRole, state *mockVaultState, newName string,
 	faults *renameFaults,
@@ -243,9 +245,22 @@ func renameHarness(t *testing.T) (
 		},
 	}
 	faults = &renameFaults{}
-	k8sClient := fake.NewClientBuilder().WithScheme(newTestScheme()).
-		WithObjects(conn, role, refPolicy).WithStatusSubresource(conn, role, refPolicy).
-		WithInterceptorFuncs(interceptor.Funcs{SubResourceUpdate: func(ctx context.Context, c client.Client,
+	var staleSnap *vaultv1alpha1.VaultRole // the role as sync 1 left it
+	// base is the API server; k8sClient is the manager's cached client in
+	// front of it, which can lag (faults.staleGet).
+	base := fake.NewClientBuilder().WithScheme(newTestScheme()).
+		WithObjects(conn, role, refPolicy).WithStatusSubresource(conn, role, refPolicy).Build()
+	k8sClient := interceptor.NewClient(base, interceptor.Funcs{
+		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object,
+			opts ...client.GetOption) error {
+			if r, ok := obj.(*vaultv1alpha1.VaultRole); ok && faults.staleGet && staleSnap != nil {
+				faults.staleGet = false
+				staleSnap.DeepCopyInto(r)
+				return nil
+			}
+			return c.Get(ctx, key, obj, opts...)
+		},
+		SubResourceUpdate: func(ctx context.Context, c client.Client,
 			sub string, obj client.Object, opts ...client.SubResourceUpdateOption) error {
 			if r, ok := obj.(*vaultv1alpha1.VaultRole); ok {
 				if faults.loseRenameCommit && r.Status.VaultRoleName == newName {
@@ -259,15 +274,18 @@ func renameHarness(t *testing.T) (
 				if faults.conflictRestores > 0 && r.Status.PendingVaultRoleName == "" &&
 					r.Status.Phase != vaultv1alpha1.PhaseError {
 					faults.conflictRestores--
+					faults.staleGet = faults.staleGetOnConflict
 					return apierrors.NewConflict(schema.GroupResource{Resource: "vaultroles"}, r.Name,
 						errors.New("simulated: object modified"))
 				}
 			}
 			return c.SubResource(sub).Update(ctx, obj, opts...)
-		}}).Build()
+		},
+	})
 	cache := vault.NewClientCache()
 	cache.Set(conn.Name, newTestCachedVaultClient(t, server.URL))
 	h = NewHandler(k8sClient, cache, events.NewEventBus(logr.Discard()), logr.Discard())
+	h.SetAPIReader(base)
 	ctx := logr.NewContext(context.Background(), logr.Discard())
 	fetch = func() *vaultv1alpha1.VaultRole {
 		var r vaultv1alpha1.VaultRole
@@ -280,6 +298,7 @@ func renameHarness(t *testing.T) (
 	if err := h.SyncRole(ctx, domain.NewVaultRoleAdapter(fetch())); err != nil {
 		t.Fatalf("sync 1: %v", err)
 	}
+	staleSnap = fetch()
 	naming.SetCluster("pe") // naming config change: the next sync renames
 	t.Cleanup(func() { naming.SetCluster("") })
 	return h, fetch, state, newName, faults
@@ -290,6 +309,9 @@ type renameFaults struct {
 	loseRenameCommit bool
 	failErrorUpdates int
 	conflictRestores int
+
+	staleGetOnConflict bool
+	staleGet           bool
 }
 
 // setRoleWrite sets the mock's outcome for writes to one role name ("" clears it).
@@ -349,6 +371,13 @@ func TestSyncRole_RejectedWriteRestoreSurvivesFailedErrorUpdate(t *testing.T) {
 	t.Run("restore conflicts once", func(t *testing.T) {
 		restoreSurvives(t, renameFaults{failErrorUpdates: 1, conflictRestores: 1})
 	})
+	// Review round 4, S14 (#18): the re-fetch after the conflict must not
+	// read the informer cache, which may not have seen this sync's own
+	// pending persist yet; the restore then saw "pending moved", wrote
+	// nothing, and the error-path update failed on the stale copy.
+	t.Run("restore conflicts once, cache lags", func(t *testing.T) {
+		restoreSurvives(t, renameFaults{conflictRestores: 1, staleGetOnConflict: true})
+	})
 }
 
 func restoreSurvives(t *testing.T, f renameFaults) {
@@ -359,6 +388,7 @@ func restoreSurvives(t *testing.T, f renameFaults) {
 	setRoleWrite(state, newName, "reject")
 	*faults = f
 	_ = h.SyncRole(ctx, domain.NewVaultRoleAdapter(fetch()))
+	faults.staleGet = false // the cache catches up
 	_ = h.SyncRole(ctx, domain.NewVaultRoleAdapter(fetch()))
 	if got := fetch().Status.PendingVaultRoleName; got != "" {
 		t.Errorf("pendingVaultRoleName = %q after refused writes, want empty", got)

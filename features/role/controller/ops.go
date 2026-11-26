@@ -245,7 +245,10 @@ func (o *RoleOps) WriteToVault(ctx context.Context, vaultClient workflow.VaultOp
 // fails, pending stays at the refused name, and later refused writes set
 // nothing so restore nothing (#18 review round 3, finding A2). On a
 // conflict it re-fetches and restores only while pending is still the
-// name this sync set, so a claim recorded since is kept.
+// name this sync set, so a claim recorded since is kept. The re-fetch
+// reads the API server, not the informer cache: a cache that has not seen
+// this sync's own pending persist would show "pending moved" and skip the
+// restore (#18 review round 4, S14).
 func (o *RoleOps) restorePendingName(ctx context.Context, prev string) error {
 	obj := o.adapter.GetObject()
 	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
@@ -255,7 +258,7 @@ func (o *RoleOps) restorePendingName(ctx context.Context, prev string) error {
 		o.adapter.SetPendingVaultRoleName(prev)
 		err := o.handler.client.Status().Update(ctx, obj)
 		if apierrors.IsConflict(err) {
-			if getErr := o.handler.client.Get(ctx, client.ObjectKeyFromObject(obj), obj); getErr != nil {
+			if getErr := o.handler.uncachedReader().Get(ctx, client.ObjectKeyFromObject(obj), obj); getErr != nil {
 				return getErr
 			}
 		}

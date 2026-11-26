@@ -67,7 +67,10 @@ func roleKindForMetric(adapter domain.RoleAdapter) string {
 // Handler provides shared role sync/cleanup logic.
 // It works with RoleAdapter to handle both VaultRole and VaultClusterRole.
 type Handler struct {
-	client          client.Client
+	client client.Client
+	// apiReader reads straight from the API server (mgr.GetAPIReader()),
+	// for a re-fetch that must see this sync's own writes; nil uses client.
+	apiReader       client.Reader
 	clientCache     *vault.ClientCache
 	eventBus        *events.EventBus
 	recorder        record.EventRecorder
@@ -102,6 +105,18 @@ func NewHandler(
 	h.syncWorkflow = workflow.NewSyncWorkflow(c, resolver, bus, log, h.recorder)
 	h.cleanupWorkflow = workflow.NewCleanupWorkflow(c, cleanupGetter, bus, log).WithRecorder(h.recorder)
 	return h
+}
+
+// SetAPIReader sets the uncached reader used where a read must see this
+// sync's own status writes (the informer cache may lag).
+func (h *Handler) SetAPIReader(r client.Reader) { h.apiReader = r }
+
+// uncachedReader returns the API reader, or the client when none is set.
+func (h *Handler) uncachedReader() client.Reader {
+	if h.apiReader != nil {
+		return h.apiReader
+	}
+	return h.client
 }
 
 // SetCleanupQueue replaces the handler's CleanupWorkflow with one that

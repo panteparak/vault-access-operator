@@ -106,6 +106,7 @@ func (f *Feature) WithCleanupQueue(q workflow.CleanupQueuer) *Feature {
 // SetupWithManager registers the Role feature's controllers with the manager.
 func (f *Feature) SetupWithManager(mgr ctrl.Manager) error {
 	f.log.Info("setting up Role feature")
+	f.handler.SetAPIReader(mgr.GetAPIReader())
 
 	// Setup VaultRole controller
 	if err := f.RoleReconciler.SetupWithManager(mgr); err != nil {
