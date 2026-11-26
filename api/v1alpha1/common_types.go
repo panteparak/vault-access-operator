@@ -302,6 +302,19 @@ type VaultResourceBinding struct {
 	// +optional
 	AuthMount string `json:"authMount,omitempty"`
 
+	// Connection is the VaultConnection the object was last written through.
+	// Set for policies and roles; not used by VaultKVSecret.
+	// +optional
+	Connection string `json:"connection,omitempty"`
+
+	// Identity is the identity segment of VaultResourceName, the name the
+	// object was last written under: spec.identity.name, --cluster-name or
+	// the login mount, and "_" when none applies (ADR 0011). Set on each
+	// write, so an object synced by v0.12.0 gains it at its next write. Set
+	// for policies and roles; not used by VaultKVSecret.
+	// +optional
+	Identity string `json:"identity,omitempty"`
+
 	// BoundAt is when the binding was established
 	// +optional
 	BoundAt *metav1.Time `json:"boundAt,omitempty"`
@@ -442,6 +455,12 @@ const (
 	// ReasonFailed so dashboards and `kubectl get` surface the actual
 	// remediation instead of a generic retry loop.
 	ReasonPermissionDenied = "VaultPermissionDenied"
+
+	// ReasonIdentityCollidesWithAuthMount is set on a VaultConnection whose
+	// spec.identity.name equals the sanitized name of an auth mount on the
+	// Vault server, or "_" (ADR 0011). Phase=Error, so nothing syncs
+	// through the connection.
+	ReasonIdentityCollidesWithAuthMount = "IdentityCollidesWithAuthMount"
 )
 
 // ToSecretReference converts LocalSecretKeySelector to a corev1.SecretKeySelector

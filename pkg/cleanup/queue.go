@@ -30,6 +30,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/panteparak/vault-access-operator/pkg/vault"
 )
 
 // ResourceType represents the type of Vault resource.
@@ -73,6 +75,20 @@ type Item struct {
 	Attempts int `json:"attempts"`
 	// LastError is the error message from the last failed attempt.
 	LastError string `json:"lastError"`
+	// Owner is the ownership record the object must still carry for the
+	// replayed delete to run (ADR 0008 gate). nil on items queued by v0.12.0
+	// or before a client was available: the replay then expects the
+	// connection's current identity for this CR.
+	Owner *vault.Owner `json:"owner,omitempty"`
+}
+
+// k8sResource renders the owning CR the way Owner.K8sResource does
+// ("namespace/name", or "name" when cluster-scoped).
+func (i Item) k8sResource() string {
+	if i.K8sNamespace == "" {
+		return i.K8sName
+	}
+	return i.K8sNamespace + "/" + i.K8sName
 }
 
 // Queue provides a persistent cleanup queue backed by a Kubernetes ConfigMap.

@@ -22,6 +22,7 @@ import (
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/pkg/cleanup"
+	"github.com/panteparak/vault-access-operator/pkg/vault"
 	"github.com/panteparak/vault-access-operator/shared/events"
 )
 
@@ -107,6 +108,11 @@ func TestCleanupWorkflow_EnqueuesOnVaultUnreachable(t *testing.T) {
 	if items[0].ConnectionName != policy.Spec.ConnectionRef {
 		t.Errorf("queue item ConnectionName = %q, want %q",
 			items[0].ConnectionName, policy.Spec.ConnectionRef)
+	}
+	// No client, so no known login mount: the replay falls back to the
+	// connection's identity at replay time (pkg/cleanup).
+	if items[0].Owner != nil {
+		t.Errorf("queue item Owner = %+v, want nil without a client", items[0].Owner)
 	}
 	// DeleteFromVault must NOT have been called (no client available).
 	if containsCall(ops.calls, "DeleteFromVault") {
@@ -254,5 +260,35 @@ func TestCleanupWorkflow_NeverSyncedSkipsEnqueue(t *testing.T) {
 	if items := queue.snapshot(); len(items) != 0 {
 		t.Errorf("expected 0 queue items (never synced → nothing to delete), got %d: %+v",
 			len(items), items)
+	}
+}
+
+// TestCleanupWorkflow_QueuedItemCarriesOwner pins AC2 (#18): a failed delete
+// (including an ownership-read failure, AC1) is queued with the expected
+// owner — login mount + CR — so the replay re-runs the same gate.
+func TestCleanupWorkflow_QueuedItemCarriesOwner(t *testing.T) {
+	t.Parallel()
+
+	policy := newPolicyForCleanup(t)
+	k8sClient := newFakeK8sClient(t, policy)
+	resource := newTestResource(policy)
+
+	vc := newAuthenticatedVaultClient(t)
+	vc.SetAuthMount("cluster-a")
+	getter := func(_ string) (VaultOpsClient, error) { return vc, nil }
+	queue := &fakeQueue{}
+	ops := &mockOps{recordedName: "vao.cluster-a.default.enqueue-test", deleteErr: errors.New("ownership read: 500")}
+
+	wf := NewCleanupWorkflowWithQueue(k8sClient, getter, events.NewEventBus(logr.Discard()), queue, logr.Discard())
+	if err := wf.Execute(context.Background(), resource, ops); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	items := queue.snapshot()
+	if len(items) != 1 {
+		t.Fatalf("expected 1 queue item, got %d", len(items))
+	}
+	want := vault.Owner{AuthMount: "cluster-a", K8sResource: "default/enqueue-test"}
+	if items[0].Owner == nil || *items[0].Owner != want {
+		t.Errorf("queue item Owner = %+v, want %+v", items[0].Owner, want)
 	}
 }

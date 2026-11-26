@@ -142,10 +142,11 @@ below for each mount your connections resolve.
 | Path | Capabilities | Enable when |
 |------|--------------|-------------|
 | `secret/{data,metadata}/<prefix>/*` | data: create · metadata: read, patch, delete | You use the [`VaultKVSecret`](api-reference.md#vaultkvsecret) CRD |
+| `sys/auth` | read | A `VaultConnection` sets [`spec.identity`](configuration.md#connection-identity) (the identity is checked against the server's auth mounts) |
 
-`--managed-markers` (ownership tracking, discovery, orphan detection) needs **no
-extra grant**: ownership records travel in-band on the managed objects
-themselves ([ADR 0008](adr/0008-in-band-ownership-markers.md)).
+Ownership checks (always on) and `--managed-markers` (discovery, orphan
+detection) need **no extra grant**: ownership records travel in-band on the
+managed objects themselves ([ADR 0008](adr/0008-in-band-ownership-markers.md)).
 
 #### What the Operator Does NOT Need
 

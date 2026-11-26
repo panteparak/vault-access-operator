@@ -32,6 +32,7 @@ import (
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/pkg/cleanup"
 	"github.com/panteparak/vault-access-operator/pkg/metrics"
+	"github.com/panteparak/vault-access-operator/pkg/vault"
 	"github.com/panteparak/vault-access-operator/shared/controller/conditions"
 	"github.com/panteparak/vault-access-operator/shared/events"
 )
@@ -144,6 +145,13 @@ func (w *CleanupWorkflow) Execute(ctx context.Context, resource SyncableResource
 		// record) falls back to deriving — and only when a client is at hand.
 		vaultClient, err := w.getVaultClient(resource.GetConnectionRef())
 		deleteName := ops.RecordedVaultName()
+		// A role can also hold a pending name: written (or about to be) by a
+		// sync whose status commit was lost. Delete it too, through the
+		// same ownership gate, so it does not leak.
+		pending := ""
+		if pn, ok := ops.(pendingNamer); ok {
+			pending = pn.PendingVaultName()
+		}
 		switch {
 		case err != nil:
 			// IMPROVEMENTS §2: previously this path logged + proceeded with
@@ -151,29 +159,25 @@ func (w *CleanupWorkflow) Execute(ctx context.Context, resource SyncableResource
 			// so the cleanup controller retries later when Vault is reachable.
 			log.Info("failed to get Vault client during deletion — enqueuing for retry",
 				"error", err, "resource", vaultResourceName)
-			w.enqueueForRetry(ctx, resource, ops, deleteName, err)
+			for _, name := range withPending(deleteName, pending) {
+				w.enqueueForRetry(ctx, resource, ops, name, nil, err)
+			}
 		case !vaultClient.IsAuthenticated():
 			// Cached client exists but has no valid token — same fate: queue it.
 			log.Info("cached Vault client is unauthenticated — enqueuing for retry",
 				"resource", vaultResourceName)
-			w.enqueueForRetry(ctx, resource, ops, deleteName, errors.New("vault client unauthenticated"))
+			for _, name := range withPending(deleteName, pending) {
+				w.enqueueForRetry(ctx, resource, ops, name, ownerOf(vaultClient, resource),
+					errors.New("vault client unauthenticated"))
+			}
 		default:
 			if deleteName == "" {
 				deleteName = ops.BindVaultName(vaultClient)
 			}
 			// Step 5: Delete resource from Vault. Treat 404 as success —
 			// the resource is already gone and retries would only generate noise.
-			if err := ops.DeleteFromVault(ctx, vaultClient, deleteName); err != nil {
-				if isVaultNotFound(err) {
-					log.V(1).Info("vault resource already absent (404 treated as success)",
-						"resource", deleteName)
-				} else {
-					log.Error(err, "failed to delete "+label+" from Vault — enqueuing for retry",
-						"resource", deleteName)
-					w.enqueueForRetry(ctx, resource, ops, deleteName, err)
-				}
-			} else {
-				log.Info("deleted "+label+" from Vault", "resource", deleteName)
+			for _, name := range withPending(deleteName, pending) {
+				w.deleteOrEnqueue(ctx, resource, ops, vaultClient, label, name)
 			}
 			// No marker removal step: ownership is in-band (ADR 0008) — the
 			// policy header dies with the policy, KV custom_metadata dies with
@@ -212,9 +216,11 @@ func (w *CleanupWorkflow) Execute(ctx context.Context, resource SyncableResource
 //
 // The caller has already logged the underlying Vault error at Info or Error
 // level; passing cause here is for correlating the queue item with the
-// triggering condition in future log searches.
+// triggering condition in future log searches. owner is the record the
+// replay must still find before deleting (nil when no client was available).
 func (w *CleanupWorkflow) enqueueForRetry(
-	ctx context.Context, resource SyncableResource, ops ResourceOps, name string, cause error,
+	ctx context.Context, resource SyncableResource, ops ResourceOps, name string,
+	owner *vault.Owner, cause error,
 ) {
 	if w.queue == nil {
 		// Pre-§2 behavior — no queue wired (e.g., unit tests). The finalizer
@@ -239,6 +245,7 @@ func (w *CleanupWorkflow) enqueueForRetry(
 		K8sNamespace:   resource.GetNamespace(),
 		K8sName:        resource.GetName(),
 		LastError:      cause.Error(),
+		Owner:          owner,
 	}
 	if err := w.queue.Enqueue(ctx, item); err != nil {
 		// Not returning this error: finalizer removal must not block on a
@@ -260,6 +267,12 @@ func (w *CleanupWorkflow) enqueueForRetry(
 				"Vault resource %q is queued for retry by the cleanup controller",
 			cause.Error(), item.VaultName)
 	}
+}
+
+// ownerOf is the expected owner a queued delete carries for resource.
+func ownerOf(vaultClient VaultOpsClient, resource SyncableResource) *vault.Owner {
+	owner := vaultClient.Owner(resource.GetK8sResourceIdentifier())
+	return &owner
 }
 
 // cleanupResourceType maps a ResourceKind string (e.g. "VaultPolicy",
@@ -298,4 +311,38 @@ func isVaultNotFound(err error) bool {
 		strings.Contains(msg, "code: 404") ||
 		strings.Contains(msg, "404 not found") ||
 		strings.Contains(msg, "[404]")
+}
+
+// pendingNamer is implemented by ops whose resources persist the name they
+// are about to write before writing it (roles, review finding 1 of #18).
+type pendingNamer interface {
+	PendingVaultName() string
+}
+
+// withPending returns the names cleanup must delete: the recorded name and,
+// when set and different, the pending one.
+func withPending(recorded, pending string) []string {
+	if pending == "" || pending == recorded {
+		return []string{recorded}
+	}
+	return []string{recorded, pending}
+}
+
+// deleteOrEnqueue deletes one Vault name. A 404 counts as success; any
+// other failure is queued for retry (ADR 0005).
+func (w *CleanupWorkflow) deleteOrEnqueue(
+	ctx context.Context, resource SyncableResource, ops ResourceOps,
+	vaultClient VaultOpsClient, label, name string,
+) {
+	log := logr.FromContextOrDiscard(ctx)
+	err := ops.DeleteFromVault(ctx, vaultClient, name)
+	switch {
+	case err == nil:
+		log.Info("deleted "+label+" from Vault", "resource", name)
+	case isVaultNotFound(err):
+		log.V(1).Info("vault resource already absent (404 treated as success)", "resource", name)
+	default:
+		log.Error(err, "failed to delete "+label+" from Vault — enqueuing for retry", "resource", name)
+		w.enqueueForRetry(ctx, resource, ops, name, ownerOf(vaultClient, resource), err)
+	}
 }

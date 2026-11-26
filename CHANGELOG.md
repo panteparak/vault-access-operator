@@ -7,6 +7,80 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added
+
+- **Per-connection naming identity (#18, ADR 0011).** `VaultConnection.spec.identity.name`
+  (`^[a-z0-9-]+$`, max 40) names every policy and role written through the
+  connection `vao.{identity}.{namespace}.{name}`, overriding `--cluster-name` and
+  the login mount, so a binding shared across clusters keeps one Vault name.
+  `status.identity {name, source}` shows the identity in use. The policy header
+  and role `alias_metadata` gain an `identity` key (only when set), and policy and
+  role `status.binding` gain `identity` and `connection`. `_` and any identity
+  equal to an auth mount's name on the server are refused
+  (`IdentityCollidesWithAuthMount`); the check needs `read` on `sys/auth`.
+  Moving an identity to another login mount is delete-then-create.
+- A role that references a policy named under another identity gets a
+  `PolicyIdentityMismatch` Warning event.
+
+### Changed
+
+- **Ownership checks are always on (#18).** The policy and role conflict checks
+  and the readback record check now run for every connection; `--managed-markers`
+  gates only the discovery and orphan controllers. Adoption (`conflictPolicy: Adopt`
+  or the adopt annotation) is accepted without `--managed-markers`: the webhook no
+  longer rejects it and the `ManagedMarkersDisabled` warning is gone. The
+  static-token `OwnershipIdentityUnavailable` warning now fires regardless of the
+  flag.
+
+  **Upgrade note.** Objects written by v0.12.0, with markers on or off, carry the
+  ownership record and are recognised as ours: nothing conflicts and nothing is
+  rewritten (names, records and content hashes are byte-identical when no
+  identity is set). A *new* CR pointed at an existing Vault object with no
+  ownership record now gets `ConflictError` instead of overwriting it; set
+  `conflictPolicy: Adopt` to take it over. The new CRD fields ship in the
+  chart's `crds/` directory, which `helm upgrade` does not update: apply the new
+  CRDs on upgrade (Argo CD applies them by default).
+
+### Fixed
+
+- **Ownership-safe deletes and readback (#18).** These change only failure
+  paths; a healthy single-cluster install behaves exactly as before.
+  - A failed ownership read before a policy or role delete is now returned and
+    queued for retry instead of falling through to the delete.
+  - Cleanup-queue items record the expected owner (login mount + CR), and every
+    replayed delete re-checks ownership and skips an object that now belongs to
+    someone else. Items queued by older versions are checked against the
+    connection's current identity.
+  - The "CR synced before, so a header-less object is ours" rule now applies only
+    at the CR's recorded Vault name. During a rename, a header-less object at the
+    new name is a `ConflictError` instead of being taken over.
+  - The policy conflict check matches names case-insensitively, as Vault does:
+    a bound name with capitals (a login mount or `--cluster-name` with capitals)
+    no longer skips the check and overwrites another owner's lowercase policy.
+  - A policy whose ownership cannot be read is never adopted: the read error is
+    retried instead of `conflictPolicy: Adopt` overwriting a policy whose
+    record may name another owner.
+  - An operator restart no longer flips Active policies and roles to `Error`
+    (`ConnectionNotReady`, "client not in cache") and then rewrites them: while
+    the connection is Active but its client is not cached yet, status is left
+    alone and the resource requeues in 2s. Real connection failures (missing,
+    not Active, unhealthy) still set `Error`.
+  - Role renames (and first writes) are restart-safe on a Vault that drops
+    `alias_metadata`: the target name is persisted as
+    `status.pendingVaultRoleName` before the write, so a retry after a lost
+    status commit finishes the rename instead of ending in a permanent
+    `ConflictError`, and deleting the CR also deletes the pending name. The
+    role write is a single attempt (no Vault SDK retries; the requeue
+    retries), so a 4xx means it did not land and it leaves no pending name;
+    408, 412 and 429 count as ambiguous, like a 5xx. If
+    the bound name moves again before the retry, the retry deletes the role
+    at the pending name instead of leaking it.
+  - Readback fails with a `ConflictError` unless the ownership record read back
+    is the one just written.
+    A role read back with no record passes (Vault < 1.21.3 drops `alias_metadata`);
+    on Vault 1.21.3 or later it also emits a non-blocking `OwnershipRecordMissing`
+    Warning event.
+
 ## [0.12.0] - 2026-07-13
 
 ### Added

@@ -44,7 +44,7 @@ import (
 	"github.com/panteparak/vault-access-operator/shared/controller/workflow"
 	"github.com/panteparak/vault-access-operator/shared/events"
 	infraerrors "github.com/panteparak/vault-access-operator/shared/infrastructure/errors"
-	"github.com/panteparak/vault-access-operator/shared/markers"
+	"github.com/panteparak/vault-access-operator/shared/naming"
 )
 
 // Kind labels used in adoption + reconcile metrics. Extracted as constants
@@ -67,7 +67,10 @@ func roleKindForMetric(adapter domain.RoleAdapter) string {
 // Handler provides shared role sync/cleanup logic.
 // It works with RoleAdapter to handle both VaultRole and VaultClusterRole.
 type Handler struct {
-	client          client.Client
+	client client.Client
+	// apiReader reads straight from the API server (mgr.GetAPIReader()),
+	// for a re-fetch that must see this sync's own writes; nil uses client.
+	apiReader       client.Reader
 	clientCache     *vault.ClientCache
 	eventBus        *events.EventBus
 	recorder        record.EventRecorder
@@ -102,6 +105,18 @@ func NewHandler(
 	h.syncWorkflow = workflow.NewSyncWorkflow(c, resolver, bus, log, h.recorder)
 	h.cleanupWorkflow = workflow.NewCleanupWorkflow(c, cleanupGetter, bus, log).WithRecorder(h.recorder)
 	return h
+}
+
+// SetAPIReader sets the uncached reader used where a read must see this
+// sync's own status writes (the informer cache may lag).
+func (h *Handler) SetAPIReader(r client.Reader) { h.apiReader = r }
+
+// uncachedReader returns the API reader, or the client when none is set.
+func (h *Handler) uncachedReader() client.Reader {
+	if h.apiReader != nil {
+		return h.apiReader
+	}
+	return h.client
 }
 
 // SetCleanupQueue replaces the handler's CleanupWorkflow with one that
@@ -206,13 +221,6 @@ func (h *Handler) checkConflict(
 	adapter domain.RoleAdapter,
 	authPath, vaultRoleName string,
 ) error {
-	// Managed markers disabled: ownership tracking is off — proceed
-	// (write-and-forget). Explicit adopt-intent is surfaced separately.
-	if !markers.Enabled() {
-		conflict.WarnAdoptIntentInert(h.recorder, adapter.GetObject(), adapter)
-		return nil
-	}
-
 	log := logr.FromContextOrDiscard(ctx)
 
 	data, err := vaultClient.ReadKubernetesAuthRole(ctx, authPath, vaultRoleName)
@@ -235,8 +243,18 @@ func (h *Handler) checkConflict(
 		)
 	}
 
-	// This CR has synced the role before — it's ours.
-	if adapter.GetLastAppliedHash() != "" {
+	// This CR has synced the role before — it's ours. Only at the RECORDED
+	// name: during a rename the bound name is new to this CR, so a
+	// record-less role already there is someone else's (conflict). The one
+	// exception is the PENDING name: an earlier sync of this CR passed this
+	// check for it and persisted it just before writing it, then lost its
+	// status commit (review finding 1, #18).
+	if adapter.GetLastAppliedHash() != "" && adapter.GetVaultRoleNameStatus() == vaultRoleName {
+		return nil
+	}
+	if adapter.GetPendingVaultRoleName() == vaultRoleName {
+		log.Info("role is the pending name of an earlier sync of this resource — treating as ours",
+			"roleName", vaultRoleName)
 		return nil
 	}
 
@@ -263,7 +281,9 @@ func (h *Handler) shouldAdopt(adapter domain.RoleAdapter) bool {
 }
 
 // detectRoleDrift compares the expected role data with the current Vault role.
-// Returns whether drift was detected and a summary of differing fields.
+// Returns whether drift was detected, a summary of differing fields, and the
+// role data it read (nil when absent or unreadable), so readback can check
+// the ownership record without a second read.
 // Uses the shared drift.Comparator for consistent field comparison.
 // Branches on the auth backend so JWT and k8s-auth roles compare only fields
 // they each actually set.
@@ -273,7 +293,7 @@ func (h *Handler) detectRoleDrift(
 	backend vault.AuthBackend,
 	authPath, roleName string,
 	expectedData map[string]interface{},
-) (bool, string) {
+) (bool, string, map[string]interface{}) {
 	log := logr.FromContextOrDiscard(ctx)
 
 	currentData, err := vaultClient.ReadKubernetesAuthRole(ctx, authPath, roleName)
@@ -287,10 +307,10 @@ func (h *Handler) detectRoleDrift(
 			"error", err.Error(),
 			"hint", "drift state preserved from last successful read; will retry on next reconcile",
 		)
-		return false, ""
+		return false, "", nil
 	}
 	if currentData == nil {
-		return false, ""
+		return false, "", nil
 	}
 
 	comparator := drift.NewComparator()
@@ -311,7 +331,7 @@ func (h *Handler) detectRoleDrift(
 	comparator.CompareValuesIfExpected("token_max_ttl", expectedMaxTTL, currentData["token_max_ttl"])
 
 	result := comparator.Result()
-	return result.HasDrift, result.Summary
+	return result.HasDrift, result.Summary, currentData
 }
 
 // compareKubernetesRoleFields compares k8s-auth-specific role fields.
@@ -390,6 +410,34 @@ func (h *Handler) emitPolicyResolvedEvents(
 			"Policy dependency %q is now resolved (Vault policy %q)",
 			b.K8sRef, b.VaultPolicyPath,
 		)
+	}
+}
+
+// eventReasonPolicyIdentityMismatch is the Warning reason emitted when a role
+// references a policy named under another naming identity (ADR 0011).
+const eventReasonPolicyIdentityMismatch = "PolicyIdentityMismatch"
+
+// warnIdentityMismatch emits a Warning for each resolved policy reference
+// whose Vault name carries a different identity than the role's own (#18
+// AC10): the role's grants then depend on a policy another connection, or
+// another cluster's operator, owns and may delete. The identity is read
+// from the policy's recorded name, so policies synced by v0.12.0 count too.
+// Emitted on each write (ApplyBindings); the event recorder aggregates repeats.
+func (h *Handler) warnIdentityMismatch(
+	adapter domain.RoleAdapter, roleIdentity string, resolution []resolvedPolicyRef,
+) {
+	if h.recorder == nil || roleIdentity == "" {
+		return
+	}
+	for _, r := range resolution {
+		policyIdentity, ok := naming.IdentityOf(r.VaultName)
+		if !r.Resolved || !ok || policyIdentity == roleIdentity {
+			continue
+		}
+		h.recorder.Eventf(adapter.GetObject(), corev1.EventTypeWarning, eventReasonPolicyIdentityMismatch,
+			"Role is named under identity %q but references %s %q (Vault policy %q) named under identity %q; "+
+				"the policy is owned through another connection or cluster and can be deleted there",
+			roleIdentity, r.Ref.Kind, r.Ref.Name, r.VaultName, policyIdentity)
 	}
 }
 

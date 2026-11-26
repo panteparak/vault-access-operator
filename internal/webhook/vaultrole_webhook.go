@@ -74,10 +74,6 @@ func (v *VaultClusterRoleValidator) SetupWebhookWithManager(mgr ctrl.Manager) er
 func (v *VaultRoleValidator) ValidateCreate(ctx context.Context, role *vaultv1alpha1.VaultRole) (admission.Warnings, error) {
 	vaultrolelog.Info("validating VaultRole create", "name", role.Name, "namespace", role.Namespace)
 
-	if err := rejectAdoptIntentWithoutMarkers(role.GetAnnotations(), role.Spec.ConflictPolicy); err != nil {
-		return nil, err
-	}
-
 	// No naming-collision checks (ADR 0010): the fixed 4-segment shape
 	// vao.{identity}.{namespace}.{name} is injective — no two distinct CRs
 	// can derive the same Vault role name. The pre-0010 checks guarded the
@@ -316,10 +312,6 @@ func (v *VaultRoleValidator) checkPolicyExists(ctx context.Context, ref vaultv1a
 // ValidateCreate implements admission.Validator for VaultClusterRole
 func (v *VaultClusterRoleValidator) ValidateCreate(ctx context.Context, role *vaultv1alpha1.VaultClusterRole) (admission.Warnings, error) {
 	vaultrolelog.Info("validating VaultClusterRole create", "name", role.Name)
-
-	if err := rejectAdoptIntentWithoutMarkers(role.GetAnnotations(), role.Spec.ConflictPolicy); err != nil {
-		return nil, err
-	}
 
 	// No naming-collision check against VaultRole (ADR 0010): the "_"
 	// namespace segment of cluster-scoped names cannot equal a real

@@ -18,15 +18,16 @@ package controller
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/go-logr/logr"
 	"k8s.io/client-go/tools/record"
 
+	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/features/role/domain"
 	"github.com/panteparak/vault-access-operator/pkg/vault"
 	infraerrors "github.com/panteparak/vault-access-operator/shared/infrastructure/errors"
-	"github.com/panteparak/vault-access-operator/shared/markers"
 )
 
 // roleAliasVaultState seeds the shared mock Vault with a role that carries
@@ -45,9 +46,6 @@ func roleAliasVaultState(roleKey string, own map[string]interface{}) *mockVaultS
 // ours; one naming a different owner is a hard conflict regardless of
 // adoption settings; a record-less role falls back to status memory.
 func TestRoleCheckConflict_AliasMetadata(t *testing.T) {
-	markers.SetEnabled(true)
-	t.Cleanup(func() { markers.SetEnabled(false) })
-
 	role := newTestVaultRole()
 	adapter := domain.NewVaultRoleAdapter(role)
 	roleKey := "auth/kubernetes/role/vao._.test-ns.test-role"
@@ -84,9 +82,11 @@ func TestRoleCheckConflict_AliasMetadata(t *testing.T) {
 		}
 	})
 
-	t.Run("record-less role with status memory: ours", func(t *testing.T) {
+	recordLess := func(t *testing.T, recordedName string) error {
+		t.Helper()
 		role2 := newTestVaultRole()
 		role2.Status.LastAppliedHash = "prior-sync"
+		role2.Status.VaultRoleName = recordedName
 		a2 := domain.NewVaultRoleAdapter(role2)
 		state := roleAliasVaultState(roleKey, nil)
 		delete(state.roles[roleKey], vault.RoleAliasMetadataKey)
@@ -94,10 +94,49 @@ func TestRoleCheckConflict_AliasMetadata(t *testing.T) {
 		t.Cleanup(server.Close)
 		vc := newTestCachedVaultClient(t, server.URL)
 		h := &Handler{log: logr.Discard(), recorder: record.NewFakeRecorder(10)}
-		err := h.checkConflict(logr.NewContext(context.Background(), logr.Discard()),
+		return h.checkConflict(logr.NewContext(context.Background(), logr.Discard()),
 			vc, a2, "auth/kubernetes", "vao._.test-ns.test-role")
-		if err != nil {
+	}
+
+	t.Run("record-less role with status memory: ours", func(t *testing.T) {
+		if err := recordLess(t, "vao._.test-ns.test-role"); err != nil {
 			t.Errorf("record-less role with prior sync should not conflict, got %v", err)
 		}
 	})
+
+	// AC3 (#18): status memory counts only at the recorded name; during a
+	// rename a record-less role at the new name is someone else's.
+	t.Run("record-less role at the new name during a rename: conflict", func(t *testing.T) {
+		err := recordLess(t, "vao.old-identity.test-ns.test-role")
+		if !infraerrors.IsConflictError(err) {
+			t.Errorf("record-less role at the rename target must conflict, got %v", err)
+		}
+	})
+}
+
+// TestWarnIdentityMismatch pins #18 AC10: a role named under one identity
+// that references a policy named under another gets a Warning per such
+// policy; matching, unresolved and pre-ADR 0010 names stay silent.
+func TestWarnIdentityMismatch(t *testing.T) {
+	ref := func(name string) vaultv1alpha1.PolicyReference {
+		return vaultv1alpha1.PolicyReference{Kind: "VaultPolicy", Name: name}
+	}
+	resolution := []resolvedPolicyRef{
+		{Ref: ref("same"), VaultName: "vao.proj.ns.same", Resolved: true},
+		{Ref: ref("other"), VaultName: "vao.cluster-a.ns.other", Resolved: true},
+		{Ref: ref("pending"), VaultName: "", Resolved: false},
+		{Ref: ref("legacy"), VaultName: "legacy-name", Resolved: true},
+	}
+	recorder := record.NewFakeRecorder(10)
+	h := &Handler{recorder: recorder}
+	h.warnIdentityMismatch(domain.NewVaultRoleAdapter(newTestVaultRole()), "proj", resolution)
+	close(recorder.Events)
+	got := make([]string, 0, len(recorder.Events))
+	for e := range recorder.Events {
+		got = append(got, e)
+	}
+	if len(got) != 1 || !strings.Contains(got[0], "Warning "+eventReasonPolicyIdentityMismatch) ||
+		!strings.Contains(got[0], `"other"`) || !strings.Contains(got[0], `"cluster-a"`) {
+		t.Fatalf("events = %v, want one PolicyIdentityMismatch for policy other (identity cluster-a)", got)
+	}
 }

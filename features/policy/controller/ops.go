@@ -85,7 +85,7 @@ func (o *PolicyOps) BindVaultName(vaultClient workflow.VaultOpsClient) string {
 		o.vaultName = o.adapter.GetVaultName()
 		return o.vaultName
 	}
-	identity := naming.Identity(naming.Cluster(), vaultClient.AuthMount())
+	identity, _ := naming.Identity(vaultClient.SpecIdentity(), naming.Cluster(), vaultClient.AuthMount())
 	o.vaultName = domain.DeriveVaultName(o.adapter, identity)
 	return o.vaultName
 }
@@ -125,6 +125,7 @@ func (o *PolicyOps) ownership(vaultClient workflow.VaultOpsClient) vault.Ownersh
 		ManagedBy:   vault.KVManagedByValue,
 		AuthMount:   vaultClient.AuthMount(),
 		Cluster:     naming.Cluster(),
+		Identity:    vaultClient.SpecIdentity(),
 		K8sResource: o.adapter.GetK8sResourceIdentifier(),
 		K8sKind:     o.ResourceKind(),
 	}
@@ -203,6 +204,17 @@ func (o *PolicyOps) ReadbackVerify(ctx context.Context, vaultClient workflow.Vau
 		return infraerrors.NewTransientError(
 			"readback verification", fmt.Errorf("policy content mismatch after write"))
 	}
+	// normalizeHCL strips the header, so a same-content write by another
+	// owner between our write and this read would pass the check above.
+	// The record read back must be ours.
+	if !dryrun.IsActive(o.adapter) {
+		want, _ := vault.ParseOwnership(o.hcl)
+		if got, _ := vault.ParseOwnership(readbackHCL); got != want {
+			return infraerrors.NewConflictError("policy", o.vaultName, fmt.Sprintf(
+				"but the ownership record read back after our write names %q, not %q",
+				got.String(), want.String()))
+		}
+	}
 	return nil
 }
 
@@ -213,17 +225,21 @@ func (o *PolicyOps) ReadbackVerify(ctx context.Context, vaultClient workflow.Vau
 // (possible when two clusters derive colliding names on a shared Vault), the
 // delete is skipped with a Warning event instead of destroying the other
 // owner's policy. A header-less policy (adopted / pre-ADR-0008) is deleted
-// as instructed by DeletionPolicy. Read failures fall through to the delete —
-// its own error handling enqueues a retry, whereas skipping here would remove
-// the finalizer and leak the policy silently.
+// as instructed by DeletionPolicy. A read failure is returned without
+// deleting (fail closed): the caller queues a retry, and the replay re-runs
+// this same gate (pkg/cleanup).
 func (o *PolicyOps) DeleteFromVault(ctx context.Context, vaultClient workflow.VaultOpsClient, name string) error {
 	log := logr.FromContextOrDiscard(ctx)
 	if dryrun.IsActive(o.adapter) {
 		log.Info("skipping DeletePolicy due to dry-run annotation", "policy", name)
 		return nil
 	}
-	if own, err := vaultClient.GetPolicyOwnership(ctx, name); err == nil && own != nil &&
-		!own.SameOwner(vaultClient.AuthMount(), o.adapter.GetK8sResourceIdentifier()) {
+	own, err := vault.ForeignPolicyOwner(ctx, vaultClient, name,
+		vaultClient.Owner(o.adapter.GetK8sResourceIdentifier()))
+	if err != nil {
+		return err
+	}
+	if own != nil {
 		log.Info("skipping DeletePolicy — Vault policy is owned by someone else",
 			"policy", name, "owner", own.String())
 		if o.handler.recorder != nil {
@@ -245,6 +261,8 @@ func (o *PolicyOps) ApplyActiveStatus(_ string, _ *metav1.Time) {
 // ApplyBindings sets the policy binding after sync.
 func (o *PolicyOps) ApplyBindings() {
 	policyBinding := binding.NewPolicyBinding(o.vaultName)
+	policyBinding.Connection = o.adapter.GetConnectionRef()
+	policyBinding.Identity, _ = naming.IdentityOf(o.vaultName)
 	o.adapter.SetBinding(policyBinding)
 }
 

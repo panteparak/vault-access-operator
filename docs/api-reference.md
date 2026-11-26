@@ -28,6 +28,8 @@ When creating resources that may already exist in Vault:
 | `Fail` | Fail if a resource with the same name exists (default) |
 | `Adopt` | Adopt and manage the existing resource |
 
+The check runs for every connection (since #18; until v0.12.0 it ran only with `--managed-markers`). An object whose in-band ownership record names this CR is ours and never conflicts. `Adopt` takes over an object with no record; it never takes over an object whose record names another owner.
+
 ### Deletion Policies
 
 Control what happens when a Kubernetes resource is deleted:
@@ -91,6 +93,17 @@ spec:
 | `auth` | AuthConfig | Yes | - | Authentication configuration |
 | `tls` | TLSConfig | No | - | TLS configuration |
 | `healthCheckInterval` | duration | No | `30s` | Health check interval |
+| `identity` | ConnectionIdentity | No | - | Naming identity for every Vault object written through this connection (see below) |
+
+### ConnectionIdentity
+
+Sets the identity segment of Vault names (`vao.{identity}.{namespace}.{name}`) for policies and roles synced through this connection, overriding `--cluster-name` and the login mount ([ADR 0011](adr/0011-per-connection-naming-identity.md), [Connection identity](configuration.md#connection-identity)).
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | Yes | `^[a-z0-9-]+$`, at most 40 characters. `_` and any name equal to the sanitized name of an auth mount on the Vault server are refused (Phase=Error, reason `IdentityCollidesWithAuthMount`). Checking needs `read` on `sys/auth` |
+
+Ownership is still keyed to the login mount: moving an identity to another login mount is delete-then-create.
 
 ### AuthConfig
 
@@ -229,6 +242,7 @@ Optional platform-team knobs inherited by resources referencing this connection.
 | `lastHealthyTime` | time | Timestamp of the last successful health check |
 | `healthCheckError` | string | Error message from the last failed health check |
 | `consecutiveFails` | int | Number of consecutive failed health checks |
+| `identity` | IdentityStatus | Naming identity in use: `name` (`_` for none) and `source` (`spec`, `cluster-name`, `auth-mount` or `none`) |
 
 ### AuthStatus
 
@@ -316,6 +330,8 @@ All synced resources include a `binding` field in their status that acts as a fo
 | `vaultPath` | string | Full API path to the Vault resource (e.g., `sys/policies/acl/prod-my-policy`) |
 | `vaultResourceName` | string | Name of the resource in Vault (e.g., `prod-my-policy`) |
 | `authMount` | string | Auth mount path (roles only, e.g., `kubernetes`) |
+| `identity` | string | Identity segment of `vaultResourceName`, the bound Vault name: `spec.identity.name`, `--cluster-name` or the login mount, `_` when none (ADR 0011). Set on each write, so an object synced by v0.12.0 gains it at its next write |
+| `connection` | string | The `VaultConnection` the resource was written through |
 | `boundAt` | time | When the binding was established |
 | `bindingVerified` | bool | Whether the binding was verified against Vault |
 | `lastVerifiedAt` | time | When the binding was last verified |
@@ -473,6 +489,7 @@ See [JWT for GitLab CI](auth-methods/jwt-gitlab.md) for an end-to-end example.
 |-------|------|-------------|
 | `phase` | string | `Pending`, `Syncing`, `Active`, `Conflict`, `Error`, `Deleting` |
 | `vaultRoleName` | string | Recorded name of the role in Vault (`vao.{identity}.{namespace}.{name}`, ADR 0010) — authoritative for cleanup/rename |
+| `pendingVaultRoleName` | string | Name a sync is writing that `vaultRoleName` does not record yet (rename or first write). Set before the Vault write, cleared on commit; a retry after a lost commit treats the role there as its own, and cleanup deletes it too |
 | `boundServiceAccounts` | []string | Resolved service account names |
 | `resolvedPolicies` | []string | Resolved Vault policy names |
 

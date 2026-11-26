@@ -19,6 +19,7 @@ import (
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/features/role/domain"
@@ -137,9 +138,15 @@ func TestRoleOps_DeleteFromVault_SkipsDryRun(t *testing.T) {
 func TestRoleOps_WriteToVault_NormalWhenAnnotationAbsent(t *testing.T) {
 	h := newRoleDryRunHarness(t)
 	adapter := newDryRunRoleAdapter(nil)
+	// A write to a name status does not record yet first persists it as
+	// status.pendingVaultRoleName (review finding 1, #18), so the ops need
+	// a K8s client holding the role.
+	k8s := fake.NewClientBuilder().WithScheme(newTestScheme()).
+		WithObjects(adapter.GetObject()).WithStatusSubresource(adapter.GetObject()).Build()
 
 	ops := &RoleOps{
 		adapter:   adapter,
+		handler:   &Handler{client: k8s},
 		vaultName: "test-vault-name",
 		authPath:  "auth/kubernetes",
 		roleData: map[string]interface{}{
@@ -153,5 +160,8 @@ func TestRoleOps_WriteToVault_NormalWhenAnnotationAbsent(t *testing.T) {
 	}
 	if got := atomic.LoadInt32(&h.writeHit); got != 1 {
 		t.Errorf("expected 1 Vault role write without dry-run, got %d", got)
+	}
+	if got := adapter.GetPendingVaultRoleName(); got != "test-vault-name" {
+		t.Errorf("pendingVaultRoleName = %q, want the name written", got)
 	}
 }

@@ -18,8 +18,6 @@ package e2e
 
 import (
 	"context"
-	"os"
-	"os/exec"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -30,12 +28,12 @@ import (
 	"github.com/panteparak/vault-access-operator/test/utils"
 )
 
-// In-band ownership tests (ADR 0008). Ownership tracking is opt-in
-// (--managed-markers), OFF on the default E2E stack. Opt-out cases (TC-MM01,
-// TC-MM04) verify the disabled behavior on the default stack. Opt-in cases
-// (TC-MM10, TC-MM13) require the operator deployed WITH --managed-markers and
-// are gated on E2E_MANAGED_MARKERS (set by `make e2e-local-test-markers`);
-// they Skip otherwise.
+// In-band ownership tests (ADR 0008). Since #18 the ownership checks run on
+// every stack; --managed-markers only gates the discovery and orphan
+// controllers. TC-MM01 checks no marker subtree is ever created, TC-MM04 that
+// the adopt annotation takes over an unrecorded policy, and TC-MM10/TC-MM13 the in-band record
+// and the foreign-owner block, on the default stack and on the
+// --managed-markers stack (`make e2e-local-test-markers`) alike.
 var _ = Describe("Managed Markers", Ordered, Label("managed-markers"), func() {
 	const (
 		mmOptOutPolicy = "tc-mm-optout-policy"
@@ -45,10 +43,8 @@ var _ = Describe("Managed Markers", Ordered, Label("managed-markers"), func() {
 	)
 
 	ctx := context.Background()
-	markersEnabled := false
 
 	BeforeAll(func() {
-		markersEnabled = os.Getenv("E2E_MANAGED_MARKERS") != ""
 		RefreshSharedVaultToken(ctx)
 	})
 
@@ -60,11 +56,8 @@ var _ = Describe("Managed Markers", Ordered, Label("managed-markers"), func() {
 		_ = utils.DeleteVaultPolicyCR(ctx, mmConflictPol, testNamespace)
 	})
 
-	Context("TC-MM: markers disabled (default stack, opt-out)", func() {
+	Context("TC-MM: in-band ownership (any stack)", func() {
 		It("TC-MM01: the resource reaches Active and no marker subtree is created", func() {
-			if markersEnabled {
-				Skip("E2E_MANAGED_MARKERS set: this opt-out case asserts the DISABLED behavior")
-			}
 
 			By("creating a VaultPolicy")
 			Expect(utils.CreateVaultPolicyCR(ctx, BuildTestPolicy(mmOptOutPolicy))).To(Succeed())
@@ -82,38 +75,33 @@ var _ = Describe("Managed Markers", Ordered, Label("managed-markers"), func() {
 			}, 10*time.Second, 2*time.Second).Should(Succeed())
 		})
 
-		It("TC-MM04: adopt-intent emits a ManagedMarkersDisabled Warning event", func() {
-			if markersEnabled {
-				Skip("E2E_MANAGED_MARKERS set: the disabled-warning only fires when markers are OFF")
-			}
+		// #18 AC7 (changed from v0.12.0, which rejected or ignored adopt-intent
+		// with markers off): ownership checks always run, so the adopt
+		// annotation takes over an unrecorded policy with or without
+		// --managed-markers. (TC-ID07 covers spec.conflictPolicy: Adopt.)
+		It("TC-MM04: the adopt annotation takes over an unrecorded policy, with or without --managed-markers", func() {
+			vaultPolicyName := nsVaultName(mmAdoptPolicy)
+			vc, err := utils.GetTestVaultClient()
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() { _ = vc.DeletePolicy(ctx, vaultPolicyName) })
+
+			By("placing an unrecorded policy at the CR's Vault name")
+			Expect(vc.WritePolicy(ctx, vaultPolicyName,
+				`path "secret/data/unrecorded-mm04/*" { capabilities = ["read"] }`)).To(Succeed())
 
 			By("creating a VaultPolicy that requests adoption via annotation")
 			p := BuildTestPolicy(mmAdoptPolicy)
 			p.Annotations = map[string]string{vaultv1alpha1.AnnotationAdopt: vaultv1alpha1.AnnotationValueTrue}
-			// NOTE: with the admission webhook enabled this create is REJECTED
-			// (adopt-intent needs markers). The default stack runs without the
-			// validating webhook, so the create succeeds and the runtime warning
-			// path is what we exercise here.
 			Expect(utils.CreateVaultPolicyCR(ctx, p)).To(Succeed())
+			ExpectPolicyActive(ctx, mmAdoptPolicy)
 
-			By("verifying a Warning event with reason ManagedMarkersDisabled is emitted")
-			Eventually(func(g Gomega) {
-				out, err := utils.Run(exec.Command( //nolint:gosec // fixed args
-					"kubectl", "get", "events", "-n", testNamespace,
-					"--field-selector", "reason=ManagedMarkersDisabled",
-					"-o", "jsonpath={.items[*].involvedObject.name}"))
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(out).To(ContainSubstring(mmAdoptPolicy))
-			}, 90*time.Second, 5*time.Second).Should(Succeed())
-		})
-	})
-
-	Context("TC-MM: markers enabled (opt-in stack)", func() {
-		BeforeEach(func() {
-			if !markersEnabled {
-				Skip("E2E_MANAGED_MARKERS not set: operator is not deployed with --managed-markers. " +
-					"Run `make e2e-local-up-with-markers e2e-local-test-markers`.")
-			}
+			By("verifying the policy now carries this CR's ownership header")
+			hcl, err := vc.ReadPolicy(ctx, vaultPolicyName)
+			Expect(err).NotTo(HaveOccurred())
+			own, ok := vault.ParseOwnership(hcl)
+			Expect(ok).To(BeTrue(), "expected an ownership header after adoption, got:\n%s", hcl)
+			Expect(own.K8sResource).To(Equal(testNamespace + "/" + mmAdoptPolicy))
+			Expect(hcl).NotTo(ContainSubstring("unrecorded-mm04"), "adoption must replace the unrecorded rules")
 		})
 
 		It("TC-MM10: the ownership header travels inside the policy document", func() {

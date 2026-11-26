@@ -18,6 +18,7 @@ func TestOwnership_HeaderRoundTrip(t *testing.T) {
 		ManagedBy:   KVManagedByValue,
 		AuthMount:   "k8s-prod-eu",
 		Cluster:     "prod-eu",
+		Identity:    "my-project",
 		K8sResource: "team-a/my-policy",
 		K8sKind:     "VaultPolicy",
 	}
@@ -41,7 +42,7 @@ func TestOwnership_HeaderOmitsEmptyFields(t *testing.T) {
 		K8sResource: "team-a/p",
 		K8sKind:     "VaultPolicy",
 	})
-	for _, banned := range []string{OwnershipAuthMountKey, OwnershipClusterKey} {
+	for _, banned := range []string{OwnershipAuthMountKey, OwnershipClusterKey, OwnershipIdentityKey} {
 		if strings.Contains(h, banned) {
 			t.Errorf("header contains %q line for empty field:\n%s", banned, h)
 		}

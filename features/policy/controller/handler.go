@@ -36,7 +36,6 @@ import (
 	"github.com/panteparak/vault-access-operator/shared/controller/workflow"
 	"github.com/panteparak/vault-access-operator/shared/events"
 	infraerrors "github.com/panteparak/vault-access-operator/shared/infrastructure/errors"
-	"github.com/panteparak/vault-access-operator/shared/markers"
 )
 
 // Kind labels for adoption + reconcile metrics. Constants because each label
@@ -342,13 +341,6 @@ func (h *Handler) checkConflict(
 	adapter domain.PolicyAdapter,
 	vaultPolicyName string,
 ) error {
-	// Managed markers disabled: ownership tracking is off — proceed
-	// (write-and-forget). Explicit adopt-intent is surfaced separately.
-	if !markers.Enabled() {
-		conflict.WarnAdoptIntentInert(h.recorder, adapter.GetObject(), adapter)
-		return nil
-	}
-
 	log := logr.FromContextOrDiscard(ctx)
 
 	exists, err := vaultClient.PolicyExists(ctx, vaultPolicyName)
@@ -363,12 +355,9 @@ func (h *Handler) checkConflict(
 	// Policy exists — read its in-band ownership header.
 	own, err := vaultClient.GetPolicyOwnership(ctx, vaultPolicyName)
 	if err != nil {
-		// Can't determine ownership - check if adoption is allowed
-		if h.shouldAdopt(adapter) {
-			log.Info("adopting policy (ownership unknown)", "policyName", vaultPolicyName)
-			metrics.IncrementAdoption(kindForMetric(adapter), adapter.GetNamespace(), true)
-			return nil
-		}
+		// Unknown ownership is never adopted: the record may name another
+		// owner, and Adopt never takes over a foreign object. Retry, as on
+		// the role path (review finding 2, #18).
 		return infraerrors.NewTransientError("check policy ownership", err)
 	}
 
@@ -392,8 +381,10 @@ func (h *Handler) checkConflict(
 	// replacement in Vault wipes the in-band header along with the rules.
 	// The CR's own status is the ownership memory here (same rule as roles)
 	// — proceed, and let drift detection flag/correct the divergence (a
-	// corrective write re-stamps the header).
-	if adapter.GetLastAppliedHash() != "" {
+	// corrective write re-stamps the header). The memory was earned at the
+	// RECORDED name only: during a rename the bound name is new to this CR,
+	// so a header-less object already there is someone else's (conflict).
+	if adapter.GetLastAppliedHash() != "" && adapter.GetVaultName() == vaultPolicyName {
 		log.Info("policy header missing but CR previously synced — treating as ours (manual overwrite?)",
 			"policyName", vaultPolicyName)
 		return nil

@@ -34,5 +34,6 @@ func ExpectedVaultName(identity, namespace, name string) string {
 // connection): E2E_CLUSTER_NAME when the cluster-name variant stack is up
 // (make e2e-local-up-with-cluster-name), else the "_" placeholder.
 func DefaultIdentity() string {
-	return naming.Identity(os.Getenv("E2E_CLUSTER_NAME"), "")
+	identity, _ := naming.Identity("", os.Getenv("E2E_CLUSTER_NAME"), "")
+	return identity
 }

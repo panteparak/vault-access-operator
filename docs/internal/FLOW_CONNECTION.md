@@ -215,10 +215,21 @@ The 75% threshold is a constant (`renewalThreshold = 0.75`) at [handler.go:587](
 [getOrRenewClient](../../features/connection/controller/handler.go:591) — see flowchart above. Returns `(*vault.Client, renewed bool, error)`.
 
 ### Step 4: Cache store
-Always overwrite: `ClientCache.Set(conn.Name, vaultClient)`. The cache value is a `*vault.Client` with TTL-aware state. Other features `Get` this by name.
+Before the client is shared, `vaultClient.SetSpecIdentity(spec.identity.name)` stamps the connection's naming identity on it (ADR 0011; "" when unset), so a re-authenticated client never serves a policy/role sync under the wrong identity. `vaultClient` may be the cached client that running syncs already hold, so when `spec.identity.name` differs from the client's current one it is checked first (`checkIdentity`, the Step 5b rules); a refused name goes to `handleSyncError` and never reaches the client (#18 review finding 9). Then always overwrite: `ClientCache.Set(conn.Name, vaultClient)`. The cache value is a `*vault.Client` with TTL-aware state. Other features `Get` this by name. The identity is validated in Step 5b; until it passes, `vaultclient.Resolve` holds dependent syncs back on the connection's Phase and observed generation.
 
 ### Step 5: Version + health
 `GetVersion` (GET `/sys/seal-status`) and `IsHealthy` (GET `/sys/health`). Both are required to reach `Phase: Active`. Failures go through `handleSyncError`.
+
+### Step 5b: Naming identity (ADR 0011)
+[`resolveIdentity`](../../features/connection/controller/identity.go) runs after health. A connection without `spec.identity` reads nothing extra. One with it is refused when:
+- the name fails `^[a-z0-9-]+$` / maxLength 40 (reason `ValidationFailed`; the CRD enforces this too, but CRDs in the chart's `crds/` are not upgraded by `helm upgrade`);
+- the name is `_` (reason `IdentityCollidesWithAuthMount`);
+- the name equals, case-insensitively, the sanitized name of an auth mount listed by `GET sys/auth` (reason `IdentityCollidesWithAuthMount`). A connection logging in through that mount derives the same identity, so the two would write the same Vault names.
+- `sys/auth` cannot be read: fail closed, reason `Failed`.
+
+A refusal goes through `handleSyncError` (Phase=Error), so nothing syncs through the connection. On success `status.identity = {name, source}` records the identity actually used: `spec`, `cluster-name`, `auth-mount` or `none` (`_`).
+
+The static-token `OwnershipIdentityUnavailable` Warning (no login mount, so ownership records cannot tell operators apart) now fires on the transition into Active whatever `--managed-markers` says, since ownership checks always run (#18).
 
 ### Step 6: Status + event publication
 - `updateHealthStatus` — `Healthy=true`, resets `ConsecutiveFails`, records heartbeat.
@@ -303,6 +314,9 @@ sequenceDiagram
 | Vault sealed | step 5 (`IsHealthy`) | seal operation | Error | user unseals Vault |
 | `BootstrapFailed` | runBootstrap | bootstrap token lacks permissions | Error | user provides higher-privilege token |
 | `kubernetes auth config required for bootstrap` | runBootstrap | `Spec.Auth.Kubernetes` missing | Error | user adds `Auth.Kubernetes` spec |
+| `IdentityCollidesWithAuthMount` | step 5b | `spec.identity.name` is `_` or equals an auth mount's sanitized name | Error | user picks another identity |
+| `ValidationFailed` (identity) | step 5b | `spec.identity.name` fails the pattern or length (CRD not upgraded) | Error | user fixes the name / applies the new CRDs |
+| sys/auth unreadable | step 5b | operator lacks `read` on `sys/auth` and the connection sets an identity | Error | grant `read` on `sys/auth` |
 | Dependents exist | Cleanup | policies/roles reference this connection | Deleting + ChildrenExist cond | user deletes dependents |
 | Status conflict (409) | Status().Update | discovery also updating status | (retried implicitly by controller-runtime, or explicitly in discovery) | — |
 
@@ -313,7 +327,7 @@ sequenceDiagram
 | `VaultConnection` CR | R + status W | every reconcile |
 | `Secret` (bootstrap, token, appRole, jwt, gcp, tls.ca) | R | per-auth-method branches |
 | `ServiceAccount` TokenRequest | R (synthetic) | k8s + JWT + OIDC auth flows |
-| Vault `/sys/auth` | R + W | bootstrap only |
+| Vault `/sys/auth` | R + W | bootstrap; R on every sync of a connection that sets `spec.identity` |
 | Vault `/auth/{mount}/config` | W | bootstrap only |
 | Vault `/auth/{mount}/role/{operatorRole}` | W | bootstrap only |
 | Vault `/sys/policies/acl/vault-access-operator` | W | bootstrap only |

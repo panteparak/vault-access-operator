@@ -41,9 +41,11 @@ import (
 	"github.com/panteparak/vault-access-operator/shared/naming"
 )
 
-// enableMarkersForTest turns managed-marker tracking on for the duration of a
-// test. Every marker/conflict assertion below is gated on this (markers default
-// OFF in production).
+// enableMarkersForTest turns --managed-markers on for the test. Since #18
+// (AC7) ownership checks ignore the flag, which now gates only discovery and
+// orphan detection (cmd/main.go). Only tests that run under both values, to
+// prove that, call it: the rest run at the default (off), so a check gated
+// on the flag again would fail them.
 func enableMarkersForTest(t *testing.T) {
 	t.Helper()
 	markers.SetEnabled(true)
@@ -58,6 +60,7 @@ type policyMockState struct {
 	policies map[string]string                 // policyName → HCL
 	managed  map[string]map[string]interface{} // full API path → managed metadata
 	roles    map[string]map[string]interface{} // full API path → role data (unused for policy tests)
+	writes   int                               // policy PUT/POST count
 }
 
 func newPolicyMockState() *policyMockState {
@@ -72,6 +75,9 @@ type policyMockConfig struct {
 	state          *policyMockState
 	writePolicyErr bool
 	readPolicyErr  bool
+	// lowercaseNames mimics Vault, which lowercases ACL policy names on
+	// write and matches them case-insensitively on read.
+	lowercaseNames bool
 }
 
 func newPolicyMockServer(cfg policyMockConfig) *httptest.Server {
@@ -116,6 +122,9 @@ func newPolicyMockServer(cfg policyMockConfig) *httptest.Server {
 		// --- Policy CRUD via sys/policies/acl ---
 		case strings.HasPrefix(apiPath, "sys/policies/acl/"):
 			policyName := strings.TrimPrefix(apiPath, "sys/policies/acl/")
+			if cfg.lowercaseNames {
+				policyName = strings.ToLower(policyName)
+			}
 			cfg.state.mu.Lock()
 			defer cfg.state.mu.Unlock()
 
@@ -133,6 +142,7 @@ func newPolicyMockServer(cfg policyMockConfig) *httptest.Server {
 				if policy, ok := data["policy"].(string); ok {
 					cfg.state.policies[policyName] = policy
 				}
+				cfg.state.writes++
 				w.WriteHeader(http.StatusNoContent)
 
 			case http.MethodGet:
@@ -293,7 +303,6 @@ func setupPolicySyncTest(
 // --- SyncPolicy Tests ---
 
 func TestSyncPolicy_Success_NewPolicy(t *testing.T) {
-	enableMarkersForTest(t)
 	state := newPolicyMockState()
 	conn := newPolicyTestConnection()
 	policy := newTestVaultPolicy()
@@ -339,7 +348,6 @@ func TestSyncPolicy_Success_NewPolicy(t *testing.T) {
 }
 
 func TestSyncPolicy_Success_ClusterPolicy(t *testing.T) {
-	enableMarkersForTest(t)
 	state := newPolicyMockState()
 	conn := newPolicyTestConnection()
 
@@ -475,7 +483,6 @@ func TestSyncPolicy_NamespaceBoundaryViolation(t *testing.T) {
 }
 
 func TestSyncPolicy_ConflictError_Adopt(t *testing.T) {
-	enableMarkersForTest(t)
 	state := newPolicyMockState()
 	vaultPolicyName := naming.VaultName(naming.Placeholder, policyTestNamespace, policyTestName)
 	// Pre-populate an existing policy (unmanaged)
@@ -500,7 +507,6 @@ func TestSyncPolicy_ConflictError_Adopt(t *testing.T) {
 }
 
 func TestSyncPolicy_ConflictError_Fail(t *testing.T) {
-	enableMarkersForTest(t)
 	state := newPolicyMockState()
 	vaultPolicyName := naming.VaultName(naming.Placeholder, policyTestNamespace, policyTestName)
 	// Pre-populate an existing policy managed by someone else: its in-band
@@ -904,7 +910,6 @@ func TestCleanupPolicy_RetainPolicy(t *testing.T) {
 }
 
 func TestCleanupPolicy_DeletePolicy(t *testing.T) {
-	enableMarkersForTest(t)
 	state := newPolicyMockState()
 	policyName := naming.VaultName(naming.Placeholder, policyTestNamespace, policyTestName)
 	state.policies[policyName] = existingPolicyHCL

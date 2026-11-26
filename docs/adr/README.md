@@ -18,6 +18,7 @@ ADRs are immutable once Accepted. If a decision is reversed or superseded, write
 | [0008](0008-in-band-ownership-markers.md) | In-band ownership markers on the managed Vault objects | Accepted | 2026-07-02 |
 | [0009](0009-connection-owned-role-mount.md) | The VaultConnection owns the role auth mount | Accepted | 2026-07-08 |
 | [0010](0010-structured-vault-names-and-recorded-name-authority.md) | Structured Vault names and recorded-name authority | Accepted | 2026-07-08 |
+| [0011](0011-per-connection-naming-identity.md) | Per-connection naming identity and always-on ownership checks | Proposed | 2026-11-25 |
 
 ## Process
 

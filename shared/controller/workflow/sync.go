@@ -161,49 +161,75 @@ func (w *SyncWorkflow) Execute(ctx context.Context, resource SyncableResource, o
 	return w.finalizeSuccessfulSync(ctx, resource, ops, state)
 }
 
-// deleteStaleName removes the old-named Vault object after a rename
-// (ADR 0010). Runs only after the new-named object passed ReadbackVerify, so
-// Vault never has zero copies. Failures never fail the sync — the new object
-// is live and status must record it; the stale delete is enqueued to the
-// ADR 0005 cleanup queue instead.
+// deleteStaleName removes Vault objects this resource left at names it no
+// longer binds: the old name after a rename (ADR 0010) and, for roles, a
+// pending name an earlier failed sync wrote (or may have written) before
+// the bound name moved again (#18 review round 2, finding B; the successful
+// commit then clears the pending name). Runs only after the bound object
+// passed ReadbackVerify, so Vault never has zero copies. Deletes go through
+// ops.DeleteFromVault, the ownership gate. Failures never fail the sync —
+// the bound object is live and status must record it; the stale delete is
+// enqueued to the ADR 0005 cleanup queue instead.
 func (w *SyncWorkflow) deleteStaleName(
 	ctx context.Context,
 	resource SyncableResource,
 	ops ResourceOps,
 	state *syncExecutionState,
 ) {
-	if state.staleVaultName == "" || isDryRunResource(resource) {
+	if isDryRunResource(resource) {
 		return
 	}
-	err := ops.DeleteFromVault(ctx, state.vaultClient, state.staleVaultName)
+	stale := []string{}
+	if state.staleVaultName != "" {
+		stale = append(stale, state.staleVaultName)
+	}
+	if pn, ok := ops.(pendingNamer); ok {
+		if p := pn.PendingVaultName(); p != "" && p != state.vaultResourceName && p != state.staleVaultName {
+			stale = append(stale, p)
+		}
+	}
+	for _, name := range stale {
+		w.deleteStaleObject(ctx, resource, ops, state, name)
+	}
+}
+
+func (w *SyncWorkflow) deleteStaleObject(
+	ctx context.Context,
+	resource SyncableResource,
+	ops ResourceOps,
+	state *syncExecutionState,
+	name string,
+) {
+	err := ops.DeleteFromVault(ctx, state.vaultClient, name)
 	if err == nil || isVaultNotFound(err) {
-		state.log.Info("removed stale vault object after rename",
-			"oldName", state.staleVaultName, "newName", state.vaultResourceName)
+		state.log.Info("removed stale vault object",
+			"oldName", name, "newName", state.vaultResourceName)
 		return
 	}
-	state.log.Error(err, "failed to delete stale vault object after rename — enqueuing for retry",
-		"oldName", state.staleVaultName, "newName", state.vaultResourceName)
+	state.log.Error(err, "failed to delete stale vault object — enqueuing for retry",
+		"oldName", name, "newName", state.vaultResourceName)
 	if w.queue != nil {
 		item := cleanup.Item{
-			ID:             fmt.Sprintf("%s/%s", ops.ResourceKind(), state.staleVaultName),
+			ID:             fmt.Sprintf("%s/%s", ops.ResourceKind(), name),
 			ResourceType:   cleanupResourceType(ops.ResourceKind()),
-			VaultName:      state.staleVaultName,
+			VaultName:      name,
 			ConnectionName: resource.GetConnectionRef(),
 			AuthPath:       ops.AuthPath(),
 			K8sNamespace:   resource.GetNamespace(),
 			K8sName:        resource.GetName(),
 			LastError:      err.Error(),
+			Owner:          ownerOf(state.vaultClient, resource),
 		}
 		if qErr := w.queue.Enqueue(ctx, item); qErr != nil {
 			state.log.Error(qErr, "failed to enqueue stale vault name for retry",
-				"oldName", state.staleVaultName)
+				"oldName", name)
 		}
 	}
 	if w.recorder != nil {
 		w.recorder.Eventf(resource.GetObject(), corev1.EventTypeWarning,
 			"StaleVaultNameQueued",
-			"Vault object %q (pre-rename name) could not be deleted and was queued for retry; "+
-				"the object now lives at %q", state.staleVaultName, state.vaultResourceName)
+			"Vault object %q (a name no longer bound) could not be deleted and was queued for retry; "+
+				"the object now lives at %q", name, state.vaultResourceName)
 	}
 }
 
@@ -260,14 +286,8 @@ func (w *SyncWorkflow) initializeSync(
 // identitySource labels where the naming identity segment came from, for
 // debug logs ("why did it pick this name").
 func identitySource(vaultClient VaultOpsClient) string {
-	switch {
-	case naming.Cluster() != "":
-		return "cluster-name"
-	case vaultClient.AuthMount() != "":
-		return "auth-mount"
-	default:
-		return "none"
-	}
+	_, source := naming.Identity(vaultClient.SpecIdentity(), naming.Cluster(), vaultClient.AuthMount())
+	return source
 }
 
 func (w *SyncWorkflow) handleDriftDetection(

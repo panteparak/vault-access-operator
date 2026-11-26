@@ -29,11 +29,11 @@ import (
 	"github.com/panteparak/vault-access-operator/shared/markers"
 )
 
-// TestVaultRoleValidator_AdoptIntentGatedOnMarkers mirrors the policy gate:
-// adoption intent (ConflictPolicy: Adopt or the adopt annotation) is rejected
-// at admission when managed markers are disabled, allowed when enabled; plain
-// Fail is always allowed. Covers VaultRole and VaultClusterRole.
-func TestVaultRoleValidator_AdoptIntentGatedOnMarkers(t *testing.T) {
+// TestVaultRoleValidator_AdoptIntentAcceptedWithoutMarkers mirrors the policy
+// case (#18 AC7): adoption intent is accepted whether or not --managed-markers
+// is set, since ownership checks always run. Covers VaultRole and
+// VaultClusterRole.
+func TestVaultRoleValidator_AdoptIntentAcceptedWithoutMarkers(t *testing.T) {
 	pols := []vaultv1alpha1.PolicyReference{{Kind: "VaultPolicy", Name: "p"}}
 	adoptAnno := map[string]string{vaultv1alpha1.AnnotationAdopt: vaultv1alpha1.AnnotationValueTrue}
 
@@ -65,8 +65,8 @@ func TestVaultRoleValidator_AdoptIntentGatedOnMarkers(t *testing.T) {
 		markersOn bool
 		wantErr   bool
 	}{
-		{name: "adopt annotation, markers off -> rejected", anno: adoptAnno, markersOn: false, wantErr: true},
-		{name: "ConflictPolicy Adopt, markers off -> rejected", cp: vaultv1alpha1.ConflictPolicyAdopt, markersOn: false, wantErr: true},
+		{name: "adopt annotation, markers off -> allowed", anno: adoptAnno, markersOn: false, wantErr: false},
+		{name: "ConflictPolicy Adopt, markers off -> allowed", cp: vaultv1alpha1.ConflictPolicyAdopt, markersOn: false, wantErr: false},
 		{name: "adopt annotation, markers on -> allowed", anno: adoptAnno, markersOn: true, wantErr: false},
 		{name: "plain Fail, markers off -> allowed", cp: vaultv1alpha1.ConflictPolicyFail, markersOn: false, wantErr: false},
 	}

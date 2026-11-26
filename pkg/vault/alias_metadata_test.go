@@ -28,6 +28,7 @@ func TestOwnershipAliasMetadata_RoundTrip(t *testing.T) {
 		ManagedBy:   KVManagedByValue,
 		AuthMount:   "ep-digital-pe",
 		Cluster:     "pe",
+		Identity:    "my-project",
 		K8sResource: "default/app-role",
 		K8sKind:     "VaultRole",
 	}

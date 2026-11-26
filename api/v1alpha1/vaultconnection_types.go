@@ -49,6 +49,41 @@ type VaultConnectionSpec struct {
 	// that are not managed by any K8s resource.
 	// +optional
 	Discovery *DiscoveryConfig `json:"discovery,omitempty"`
+
+	// Identity sets the naming identity segment for every Vault object written
+	// through this connection (vao.{identity}.{namespace}.{name}), overriding
+	// --cluster-name and the login auth mount (ADR 0011). Omit to keep the
+	// default (--cluster-name, else the login mount). Ownership is still
+	// keyed to the login mount: moving an identity to another login mount is
+	// delete-then-create.
+	// +optional
+	Identity *ConnectionIdentity `json:"identity,omitempty"`
+}
+
+// ConnectionIdentity is an explicit naming identity for a VaultConnection
+// (ADR 0011).
+type ConnectionIdentity struct {
+	// Name is the identity segment. Lowercase letters, digits and dashes
+	// only (no dots, so names stay parseable; no "_", which marks "no
+	// identity"). Must not equal the sanitized name of any auth mount on the
+	// Vault server, or it would collide with a mount-derived identity.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Pattern=`^[a-z0-9-]+$`
+	// +kubebuilder:validation:MaxLength=40
+	Name string `json:"name"`
+}
+
+// IdentityStatus is the naming identity a connection resolved at its last
+// successful sync, and where it came from.
+type IdentityStatus struct {
+	// Name is the identity segment used in Vault object names ("_" for none).
+	// +optional
+	Name string `json:"name,omitempty"`
+
+	// Source is where Name came from: spec, cluster-name, auth-mount or none.
+	// +kubebuilder:validation:Enum=spec;cluster-name;auth-mount;none
+	// +optional
+	Source string `json:"source,omitempty"`
 }
 
 // TLSConfig defines TLS settings for Vault connection
@@ -535,6 +570,11 @@ type VaultConnectionStatus struct {
 	// DiscoveryStatus contains resource discovery status.
 	// +optional
 	DiscoveryStatus *DiscoveryStatus `json:"discoveryStatus,omitempty"`
+
+	// Identity is the naming identity resolved at the last successful sync
+	// (ADR 0011).
+	// +optional
+	Identity *IdentityStatus `json:"identity,omitempty"`
 }
 
 // AuthStatus contains authentication-related status information.

@@ -84,6 +84,9 @@ type Client struct {
 	// identity (ADR 0008: one cluster per auth mount). Empty for static
 	// token auth — no mount, no identity.
 	authMount string
+	// specIdentity is the connection's spec.identity.name (ADR 0011), set
+	// by the connection controller after validation; "" when unset.
+	specIdentity string
 }
 
 // ClientConfig holds configuration for creating a Vault client
@@ -180,6 +183,43 @@ func (c *Client) AuthMount() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.authMount
+}
+
+// Owner is the expected owner of objects this connection writes for the given
+// CR: the login mount plus the CR (ADR 0008). Delete and write gates compare
+// live records against it.
+func (c *Client) Owner(k8sResource string) Owner {
+	return Owner{AuthMount: c.AuthMount(), K8sResource: k8sResource}
+}
+
+// SpecIdentity is the connection's spec.identity.name ("" when unset): the
+// naming identity that wins over --cluster-name and the login mount, and the
+// `identity` key of the ownership record (ADR 0011).
+func (c *Client) SpecIdentity() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.specIdentity
+}
+
+// SetSpecIdentity records the connection's validated spec.identity.name.
+func (c *Client) SetSpecIdentity(name string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.specIdentity = name
+}
+
+// AuthMountNames lists the auth mounts enabled on the server (paths without
+// the trailing slash). Needs `read` on sys/auth.
+func (c *Client) AuthMountNames(ctx context.Context) ([]string, error) {
+	auths, err := c.Sys().ListAuthWithContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list auth methods: %w", err)
+	}
+	names := make([]string, 0, len(auths))
+	for path := range auths {
+		names = append(names, strings.TrimSuffix(path, "/"))
+	}
+	return names, nil
 }
 
 // SetAuthMount records the auth mount path. Called by the login path; exposed
@@ -495,14 +535,19 @@ func (c *Client) DeletePolicy(ctx context.Context, name string) error {
 	return c.Sys().DeletePolicyWithContext(ctx, name)
 }
 
-// PolicyExists checks if a policy exists in Vault
+// PolicyExists checks if a policy exists in Vault. Vault lowercases ACL
+// policy names on write and reads them case-insensitively, so the match is
+// case-insensitive: a bound name with capitals (a login mount or
+// --cluster-name with capitals) must still find the object it would
+// overwrite (#18 review finding 5). Generated names are not lowercased: a
+// rename would then delete the same object.
 func (c *Client) PolicyExists(ctx context.Context, name string) (bool, error) {
 	policies, err := c.Sys().ListPoliciesWithContext(ctx)
 	if err != nil {
 		return false, err
 	}
 	for _, p := range policies {
-		if p == name {
+		if strings.EqualFold(p, name) {
 			return true, nil
 		}
 	}
@@ -545,12 +590,28 @@ func (c *Client) ListKubernetesAuthRoles(ctx context.Context, authPath string) (
 // log lines and status messages name the failed resource — earlier
 // versions returned the raw error which lost that context once wrapped
 // at the call site.
+//
+// The write is a single attempt: the SDK's own retries (MaxRetries, which
+// retry 412, 429, 5xx and transport errors) are off for it, and the
+// controller's requeue is the retry. The role sync drops the name it made
+// pending when Vault refuses the write; with SDK retries the error it saw
+// could be a retry's 429 after an earlier attempt had landed with a 500
+// (#18 review round 3, finding A1). Every other request keeps the SDK
+// retries.
+// ponytail: one client clone per role write; reuse a no-retry clone per
+// Client if role writes ever get hot.
 func (c *Client) WriteKubernetesAuthRole(
 	ctx context.Context, authPath, roleName string, data map[string]interface{},
 ) error {
 	authPath = NormalizeAuthPath(authPath)
 	path := fmt.Sprintf("%s/role/%s", authPath, roleName)
-	if _, err := c.Logical().WriteWithContext(ctx, path, data); err != nil {
+	once, err := c.CloneWithHeaders()
+	if err != nil {
+		return fmt.Errorf("prepare kubernetes auth role write at %s: %w", path, err)
+	}
+	once.SetToken(c.Token())
+	once.SetMaxRetries(0)
+	if _, err := once.Logical().WriteWithContext(ctx, path, data); err != nil {
 		return fmt.Errorf("failed to write kubernetes auth role at %s: %w", path, err)
 	}
 	return nil

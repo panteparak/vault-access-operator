@@ -778,6 +778,10 @@ func TestSyncWorkflow_RenameDeleteFailureEnqueuesAndSucceeds(t *testing.T) {
 	if items[0].VaultName != renameOldName {
 		t.Errorf("queue item VaultName = %q, want %q", items[0].VaultName, renameOldName)
 	}
+	// AC2 (#18): the item carries the owner the replay must still find.
+	if o := items[0].Owner; o == nil || o.K8sResource != res.GetK8sResourceIdentifier() {
+		t.Errorf("queue item Owner = %+v, want K8sResource %q", o, res.GetK8sResourceIdentifier())
+	}
 }
 
 // TestSyncWorkflow_DryRunNeverDeletesStaleName pins the workflow-level

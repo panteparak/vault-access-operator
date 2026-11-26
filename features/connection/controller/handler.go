@@ -44,7 +44,6 @@ import (
 	"github.com/panteparak/vault-access-operator/shared/controller/conditions"
 	"github.com/panteparak/vault-access-operator/shared/events"
 	infraerrors "github.com/panteparak/vault-access-operator/shared/infrastructure/errors"
-	"github.com/panteparak/vault-access-operator/shared/markers"
 )
 
 // Default auth path constant.
@@ -150,6 +149,20 @@ func (h *Handler) Sync(ctx context.Context, conn *vaultv1alpha1.VaultConnection)
 		return h.handleSyncError(ctx, conn, err)
 	}
 
+	// Naming identity (ADR 0011) goes on the client before it is shared, so
+	// a re-authenticated client never serves a policy/role sync with the
+	// wrong identity. vaultClient may be the cached client that syncs past
+	// vaultclient.Resolve already hold, so a changed identity is checked
+	// first: a refused one never reaches it (#18 review finding 9). An
+	// unchanged identity was checked when it was set; resolveIdentity below
+	// re-checks it each pass.
+	if spec := specIdentityName(conn); spec != "" && spec != vaultClient.SpecIdentity() {
+		if err := checkIdentity(ctx, spec, vaultClient); err != nil {
+			return h.handleSyncError(ctx, conn, err)
+		}
+	}
+	vaultClient.SetSpecIdentity(specIdentityName(conn))
+
 	// Store client in cache
 	h.clientCache.Set(conn.Name, vaultClient)
 	log.V(1).Info("stored client in cache", "connectionName", conn.Name)
@@ -211,21 +224,28 @@ func (h *Handler) Sync(ctx context.Context, conn *vaultv1alpha1.VaultConnection)
 	// Update health status on success
 	h.updateHealthStatus(conn, true, "")
 
-	// Ownership tracking (ADR 0008) identifies this operator by the auth
-	// mount it logged in through. A static-token connection has no mount —
-	// ownership records it writes carry no identity, so on a shared Vault
-	// another operator cannot be told apart from this one. Warn once on the
-	// transition into Active.
-	if markers.Enabled() && conn.Status.Phase != vaultv1alpha1.PhaseActive &&
-		vaultClient.AuthMount() == "" {
+	// Naming identity (ADR 0011): refuse an identity that could collide with
+	// another writer's names before the connection goes Active.
+	identityStatus, err := resolveIdentity(ctx, conn, vaultClient, vaultClient.AuthMount())
+	if err != nil {
+		return h.handleSyncError(ctx, conn, err)
+	}
+	conn.Status.Identity = &identityStatus
+
+	// Ownership checks (ADR 0008, always on since #18) identify this
+	// operator by the auth mount it logged in through. A static-token
+	// connection has no mount — ownership records it writes carry no
+	// identity, so on a shared Vault another operator cannot be told apart
+	// from this one. Warn once on the transition into Active.
+	if conn.Status.Phase != vaultv1alpha1.PhaseActive && vaultClient.AuthMount() == "" {
 		logr.FromContextOrDiscard(ctx).Info(
 			"ownership identity unavailable: static-token connections have no auth mount "+
 				"(unsupported for multi-operator shared Vaults)", "connection", conn.Name)
 		if h.recorder != nil {
 			h.recorder.Event(conn, corev1.EventTypeWarning,
 				"OwnershipIdentityUnavailable",
-				"Managed-marker tracking is on, but this connection authenticates with a "+
-					"static token and therefore has no auth-mount identity (ADR 0008). "+
+				"This connection authenticates with a static token and therefore has no "+
+					"auth-mount identity for ownership records (ADR 0008). "+
 					"Ownership records will not distinguish this operator from others "+
 					"sharing the Vault server.")
 		}
@@ -892,6 +912,10 @@ func classifyConnectionError(err error) string {
 	}
 	if infraerrors.IsConnectionError(err) {
 		return vaultv1alpha1.ReasonNetworkError
+	}
+	var idErr *identityError
+	if errors.As(err, &idErr) {
+		return idErr.reason
 	}
 	return vaultv1alpha1.ReasonFailed
 }

@@ -6,8 +6,8 @@ Roles bind a set of Kubernetes service accounts (or JWT identities) to a list of
 
 Like policy, role uses the shared `workflow.SyncWorkflow`. Unlike policy, role branches on the **auth backend** at several points. Roles carry **no mount fields**: the referenced VaultConnection is the sole source of the mount + backend family, resolved by [`VaultConnection.RoleMount()`](../../api/v1alpha1/vaultconnection_rolemount.go) ([ADR 0009](../adr/0009-connection-owned-role-mount.md)). The handler resolves this into a `roleTarget{conn, mount, backend}` via `resolveRoleTarget` **before** the sync workflow runs — a connection with no role-capable mount never enters the workflow.
 
-!!! note "Ownership tracking gated by `--managed-markers` (default OFF)"
-    The conflict check runs **only when `--managed-markers=true`**. With markers off (the default), the operator writes the role and forgets it. Roles carry **no Vault-side ownership record** (Vault auth roles have no metadata surface — ADR 0008): ownership memory is the CR's own status (a CR that has synced owns its role), and cross-cluster safety is structural — every cluster's operator authenticates through its own auth mount, so another cluster never reaches this mount's roles. Conflict = role exists in Vault AND this CR never synced it → adopt-or-fail. See [ADR 0008](../adr/0008-in-band-ownership-markers.md), [CONTEXT.md `Managed marker`](CONTEXT.md#managed-marker).
+!!! note "Ownership checks always run (#18, ADR 0011)"
+    The conflict check and the readback record check run for **every connection**; `--managed-markers` gates only the discovery and orphan controllers. Until v0.12.0, markers off meant write-and-forget. Roles carry **no Vault-side ownership record** (Vault auth roles have no metadata surface — ADR 0008): ownership memory is the CR's own status (a CR that has synced owns its role), and cross-cluster safety is structural — every cluster's operator authenticates through its own auth mount, so another cluster never reaches this mount's roles. Conflict = role exists in Vault AND this CR never synced it → adopt-or-fail. See [ADR 0008](../adr/0008-in-band-ownership-markers.md), [CONTEXT.md `Managed marker`](CONTEXT.md#managed-marker).
 
 ## Participants
 
@@ -238,7 +238,7 @@ Kind-aware lookup of each referenced policy CR's recorded `status.vaultName` (se
 ### Step 2: Verify policies exist (warning, non-blocking)
 Pending (unresolved) refs and resolved names missing from Vault (`PolicyExists`) both feed the `PoliciesResolved=False` condition ("policies not yet synced: …; policies not found in Vault: …") and a K8s Warning event, but **do not block** the sync — Vault permits binding non-existent policies. This supports workflows where you create the role CR first and the policy CRs catch up; the role converges automatically when the policies sync.
 
-The role's payload also carries its in-band ownership record in `alias_metadata` (ADR 0010): `managed-by`, `auth-mount` (login mount), `cluster`, `k8s-resource`, `k8s-kind`. Conflict detection and the stale-rename delete are gated on it, exactly like the policy comment header.
+The role's payload also carries its in-band ownership record in `alias_metadata` (ADR 0010): `managed-by`, `auth-mount` (login mount), `cluster`, `identity` (only when the connection sets `spec.identity`, ADR 0011), `k8s-resource`, `k8s-kind`. Conflict detection and the stale-rename delete are gated on it, exactly like the policy comment header. Without an identity the record and the spec hash are byte-identical to v0.12.0's (`TestGolden_V012_RoleUnchangedWithoutIdentity`).
 
 ### Step 3: Service account bindings
 `RoleAdapter.GetServiceAccountBindings()` returns `[]string` of `"namespace/name"`:
@@ -257,6 +257,15 @@ The role's payload also carries its in-band ownership record in `alias_metadata`
 
 ### Step 7 onwards
 Same as policy: drift detection, write, readback, apply bindings, status, event.
+
+Role specifics of the shared ownership rules (#18):
+
+- **Conflict:** a record-less role counts as ours via `LastAppliedHash` only when the recorded `status.vaultRoleName` equals the bound name. During a rename, a record-less role at the new name is a `ConflictError`, unless it is the pending name below.
+- **Pending name:** before writing a name that `status.vaultRoleName` does not record (a rename or the first write), `WriteToVault` persists it as `status.pendingVaultRoleName`; no write happens unless that status update succeeds. The successful commit clears it. The role write is a single attempt (`vault.Client.WriteKubernetesAuthRole` turns the Vault SDK's own retries off; the controller requeue is the retry), so its error describes the only attempt. A write Vault refuses with a 4xx did not land, so it restores the previous pending value (review round 2, finding A) and persists that in its own status update, retried on conflict (re-fetching from the API server, not the informer cache, and restoring only while pending is still the refused name; review round 4, S14), so a failed error-path update cannot leave the refused name pending (review round 3, finding A2); a 5xx, 408, 412, 429, timeout or transport error may have landed, so the pending name stays (review round 3, finding A1: with SDK retries, a retry's 429 or 412 could follow a first attempt that landed with a 500). If the commit is lost after the write (operator restart, 409), the retry's conflict check treats a record-less role at the pending name as ours, and cleanup deletes the pending name as well as the recorded one (both through the ownership gate). If the bound name moved again before the retry (the naming input flipped back), the successful sync deletes the pending name through the ownership gate in `deleteStaleName` (queued on failure) before the commit clears it (review round 2, finding B). This keeps renames restart-safe on a Vault that drops `alias_metadata` (review finding 1, #18). Policies do not need it: their header is always stored, so `SameOwner` recognises them.
+- **Readback:** role drift ignores `alias_metadata`, so unless dry-run `ReadbackVerify` checks the record in the role data it read for the content check, and fails with `ConflictError` unless the `alias_metadata` record read back is the one just written. A role read back with no record at all passes: Vault < 1.21.3 (including 1.21.0-1.21.2) accepts `alias_metadata` on write and drops it, so there is nothing to compare. When the connection's `status.vaultVersion` is 1.21.3 or later (a Vault that keeps the record), a record-less readback also emits a non-blocking `OwnershipRecordMissing` Warning on the role; it never fails the sync or changes the phase. An unknown or unparseable version emits nothing.
+- **Delete:** a failed read of the role before delete is returned (queued), never deleted on.
+- **Identity co-location (ADR 0011):** `ApplyBindings` emits a `PolicyIdentityMismatch` Warning for each resolved policy reference whose recorded Vault name carries a different identity than the role's own (`naming.IdentityOf`). The role's grants then depend on a policy owned through another connection or cluster, which can be deleted there. It is emitted on each write and never blocks.
+- **Bindings:** `status.binding` gains `identity` (the identity segment of the bound name) and `connection` (`spec.connectionRef`).
 
 ## Cleanup Target Resolution (binding-first)
 
@@ -293,6 +302,9 @@ Same as policy: drift detection, write, readback, apply bindings, status, event.
 | `DependencyError` | vaultclient.Resolve | connection not Active |
 | Vault 403 → `Reason=VaultPermissionDenied` | any Vault write/read | operator token lacks a grant on the resolved mount — permanent until the operator's Vault policy changes (still requeued at 30s) |
 | `TransientError "readback verification"` | ReadbackVerify | role content differs after write (rare) |
+| `ConflictError` (readback) | ReadbackVerify | another owner's `alias_metadata` read back right after our write |
+| `OwnershipRecordMissing` Warning (non-blocking) | ReadbackVerify | role read back with no record on Vault >= 1.21.3 (from the connection's `status.vaultVersion`) |
+| `PolicyIdentityMismatch` Warning (non-blocking) | ApplyBindings | a referenced policy is named under another identity than the role |
 | Warning `PolicyNotInVault` | verifyPoliciesExistInVault | referenced policy missing — non-fatal |
 
 ## Cross-References

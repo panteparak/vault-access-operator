@@ -39,12 +39,16 @@ import (
 	"github.com/panteparak/vault-access-operator/features/role/domain"
 	"github.com/panteparak/vault-access-operator/pkg/vault"
 	"github.com/panteparak/vault-access-operator/shared/events"
+	infraerrors "github.com/panteparak/vault-access-operator/shared/infrastructure/errors"
 	"github.com/panteparak/vault-access-operator/shared/markers"
 	"github.com/panteparak/vault-access-operator/shared/naming"
 )
 
-// enableMarkersForTest turns managed-marker tracking on for the test. Marker /
-// conflict assertions are gated on this (markers default OFF in production).
+// enableMarkersForTest turns --managed-markers on for the test. Since #18
+// (AC7) ownership checks ignore the flag, which now gates only discovery and
+// orphan detection (cmd/main.go). Only tests that run under both values, to
+// prove that, call it: the rest run at the default (off), so a check gated
+// on the flag again would fail them.
 func enableMarkersForTest(t *testing.T) {
 	t.Helper()
 	markers.SetEnabled(true)
@@ -96,6 +100,15 @@ type mockVaultState struct {
 	policies map[string]string
 	// managed maps resourcePath to managed metadata
 	managed map[string]map[string]interface{}
+	// roleWrites sets a role write's outcome by role name: "reject" answers
+	// 403 and stores nothing (the write did not land), "lost" stores the
+	// role and then answers 500 (it landed, the response did not), and
+	// "lost-then-429" / "lost-then-412" answer the first attempt like
+	// "lost" and any later attempt (an SDK retry) with that 4xx, storing
+	// nothing.
+	roleWrites map[string]string
+	// roleWriteCalls counts write attempts per role name.
+	roleWriteCalls map[string]int
 }
 
 func newMockVaultState() *mockVaultState {
@@ -125,6 +138,55 @@ type mockVaultServerConfig struct {
 	writeRoleErr bool // simulate role write failure
 	readRoleErr  bool // simulate role read failure
 	listPolicies []string
+	// dropAliasMetadata mimics Vault < 1.21.3: alias_metadata is accepted
+	// on a role write but not stored, so reads return no record.
+	dropAliasMetadata bool
+}
+
+// mockWriteRole serves a role write: writeRoleErr answers 500, the per-name
+// roleWrites outcome may reject it (403, not stored) or lose its response
+// (stored, then 500), and dropAliasMetadata drops the record as Vault
+// < 1.21.3 does. The caller holds cfg.state.mu.
+func mockWriteRole(w http.ResponseWriter, r *http.Request, cfg mockVaultServerConfig, key string) {
+	fail := func(code int, msg string) {
+		w.WriteHeader(code)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"errors": []string{msg}})
+	}
+	if cfg.writeRoleErr {
+		fail(http.StatusInternalServerError, "internal error")
+		return
+	}
+	name := key[strings.LastIndex(key, "/")+1:]
+	if cfg.state.roleWriteCalls == nil {
+		cfg.state.roleWriteCalls = map[string]int{}
+	}
+	cfg.state.roleWriteCalls[name]++
+	mode := cfg.state.roleWrites[name]
+	if mode == "lost-then-429" || mode == "lost-then-412" {
+		if cfg.state.roleWriteCalls[name] > 1 {
+			code := map[string]int{"lost-then-429": http.StatusTooManyRequests,
+				"lost-then-412": http.StatusPreconditionFailed}[mode]
+			fail(code, "retry refused")
+			return
+		}
+		mode = "lost"
+	}
+	if mode == "reject" {
+		fail(http.StatusForbidden, "permission denied")
+		return
+	}
+	var data map[string]interface{}
+	_ = json.NewDecoder(r.Body).Decode(&data)
+	mockNormalizeTTLFields(data)
+	if cfg.dropAliasMetadata {
+		delete(data, vault.RoleAliasMetadataKey)
+	}
+	cfg.state.roles[key] = data
+	if mode == "lost" {
+		fail(http.StatusInternalServerError, "response lost")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // newMockVaultServer creates an httptest.Server that handles Vault API endpoints
@@ -195,18 +257,7 @@ func newMockVaultServer(cfg mockVaultServerConfig) *httptest.Server {
 
 			switch r.Method {
 			case http.MethodPut, http.MethodPost:
-				if cfg.writeRoleErr {
-					w.WriteHeader(http.StatusInternalServerError)
-					_ = json.NewEncoder(w).Encode(map[string]interface{}{
-						"errors": []string{"internal error"},
-					})
-					return
-				}
-				var data map[string]interface{}
-				_ = json.NewDecoder(r.Body).Decode(&data)
-				mockNormalizeTTLFields(data)
-				cfg.state.roles[key] = data
-				w.WriteHeader(http.StatusNoContent)
+				mockWriteRole(w, r, cfg, key)
 
 			case http.MethodGet:
 				if cfg.readRoleErr {
@@ -411,7 +462,6 @@ func setupSyncRoleTest(
 // --- SyncRole Tests ---
 
 func TestSyncRole_Success_NewRole(t *testing.T) {
-	enableMarkersForTest(t)
 	state := newMockVaultState()
 	conn := newTestVaultConnection()
 	role := newTestVaultRole()
@@ -553,7 +603,6 @@ func TestSyncRole_Success_ClusterRole(t *testing.T) {
 }
 
 func TestSyncRole_ConflictError_Adopt(t *testing.T) {
-	enableMarkersForTest(t)
 	state := newMockVaultState()
 	// Pre-populate an existing role in Vault (unmanaged)
 	state.roles["auth/kubernetes/role/"+testNamespace+"-"+testRoleName] = map[string]interface{}{
@@ -579,7 +628,6 @@ func TestSyncRole_ConflictError_Adopt(t *testing.T) {
 }
 
 func TestSyncRole_ConflictError_Fail(t *testing.T) {
-	enableMarkersForTest(t)
 	state := newMockVaultState()
 	vaultRoleName := naming.VaultName(naming.Placeholder, testNamespace, testRoleName)
 	// Pre-populate an existing role managed by someone else
@@ -608,12 +656,11 @@ func TestSyncRole_ConflictError_Fail(t *testing.T) {
 	}
 }
 
-// TestSyncRole_MarkersDisabled_NoConflict pins the default: with managed markers
-// OFF, an existing role owned by another resource does NOT trigger a conflict —
-// the reconcile proceeds write-and-forget. Same setup as ConflictError_Fail but
-// without enabling markers.
-func TestSyncRole_MarkersDisabled_NoConflict(t *testing.T) {
-	// markers default OFF; assert explicitly rather than relying on order.
+// TestSyncRole_MarkersOff_UnrecordedRoleNeedsAdopt pins #18 AC7 (a
+// deliberate change from v0.12.0, where markers OFF overwrote any existing
+// role): checks always run, so a new CR targeting an existing record-less
+// role is a ConflictError, and succeeds with ConflictPolicy: Adopt.
+func TestSyncRole_MarkersOff_UnrecordedRoleNeedsAdopt(t *testing.T) {
 	markers.SetEnabled(false)
 
 	state := newMockVaultState()
@@ -631,15 +678,29 @@ func TestSyncRole_MarkersDisabled_NoConflict(t *testing.T) {
 	ctx := logr.NewContext(context.Background(), logr.Discard())
 	adapter := domain.NewVaultRoleAdapter(role)
 
-	if err := handler.SyncRole(ctx, adapter); err != nil {
-		t.Fatalf("markers disabled: SyncRole should not conflict, got %v", err)
+	if err := handler.SyncRole(ctx, adapter); !infraerrors.IsConflictError(err) {
+		t.Fatalf("markers off: unrecorded existing role must be a ConflictError, got %v", err)
 	}
-	// The role should have been (over)written — write-and-forget proceeds.
 	state.mu.Lock()
-	_, exists := state.roles["auth/kubernetes/role/"+vaultRoleName]
+	policies := state.roles["auth/kubernetes/role/"+vaultRoleName]["policies"]
 	state.mu.Unlock()
-	if !exists {
-		t.Error("role should have been written under write-and-forget")
+	if fmt.Sprint(policies) != "[old-policy]" {
+		t.Errorf("conflicting role was overwritten: policies = %v", policies)
+	}
+
+	// Adopt takes it over.
+	role.Spec.ConflictPolicy = vaultv1alpha1.ConflictPolicyAdopt
+	if err := handler.client.Update(ctx, role); err != nil {
+		t.Fatal(err)
+	}
+	if err := handler.SyncRole(ctx, domain.NewVaultRoleAdapter(role)); err != nil {
+		t.Fatalf("ConflictPolicy Adopt: SyncRole should succeed, got %v", err)
+	}
+	state.mu.Lock()
+	_, owned := vault.ParseAliasMetadata(state.roles["auth/kubernetes/role/"+vaultRoleName])
+	state.mu.Unlock()
+	if !owned {
+		t.Error("adopted role should carry this operator's alias_metadata record")
 	}
 }
 

@@ -25,6 +25,7 @@ import (
 	"github.com/go-logr/logr"
 
 	"github.com/panteparak/vault-access-operator/pkg/metrics"
+	"github.com/panteparak/vault-access-operator/pkg/vault"
 )
 
 // DefaultRetryInterval is the default interval between cleanup retry cycles.
@@ -33,10 +34,14 @@ const DefaultRetryInterval = 5 * time.Minute
 // DefaultMaxAttempts is the default maximum number of retry attempts.
 const DefaultMaxAttempts = 10
 
-// VaultClient defines the Vault operations needed for cleanup.
+// VaultClient defines the Vault operations needed for cleanup: the deletes,
+// plus the reads and identity the ownership gate re-checks before each one.
 type VaultClient interface {
 	DeletePolicy(ctx context.Context, name string) error
 	DeleteKubernetesAuthRole(ctx context.Context, authPath, roleName string) error
+	GetPolicyOwnership(ctx context.Context, name string) (*vault.Ownership, error)
+	ReadKubernetesAuthRole(ctx context.Context, authPath, roleName string) (map[string]interface{}, error)
+	Owner(k8sResource string) vault.Owner
 }
 
 // ClientCache defines the client cache operations needed for cleanup.
@@ -167,7 +172,9 @@ func (c *Controller) processQueue(ctx context.Context) {
 		}
 
 		// Try to process the item
-		if err := c.processItem(ctx, item); err != nil {
+		skipped, err := c.processItem(ctx, item)
+		switch {
+		case err != nil:
 			c.log.Error(err, "cleanup retry failed",
 				"resourceType", item.ResourceType,
 				"vaultName", item.VaultName,
@@ -182,7 +189,13 @@ func (c *Controller) processQueue(ctx context.Context) {
 			}
 
 			metrics.IncrementCleanupRetry(string(item.ResourceType), false)
-		} else {
+		case skipped:
+			// Not ours any more: drop the item without counting a successful
+			// cleanup (skipForeign already logged why).
+			if err := c.queue.Dequeue(ctx, item.ID); err != nil {
+				c.log.Error(err, "failed to dequeue skipped item")
+			}
+		default:
 			c.log.Info("cleanup retry succeeded",
 				"resourceType", item.ResourceType,
 				"vaultName", item.VaultName)
@@ -201,27 +214,60 @@ func (c *Controller) processQueue(ctx context.Context) {
 	metrics.SetCleanupQueueSize(newSize)
 }
 
-// processItem attempts to clean up a single item.
-func (c *Controller) processItem(ctx context.Context, item Item) error {
+// processItem attempts to clean up a single item. Every replayed delete
+// re-runs the ownership gate first: the name may have been taken by another
+// owner since the item was queued. A foreign object is skipped (skipped =
+// true, the item is done but nothing was cleaned); a read error is returned
+// so the item is retried, never deleted on.
+func (c *Controller) processItem(ctx context.Context, item Item) (skipped bool, err error) {
 	// Get Vault client from cache
 	vaultClient, err := c.clientCache.Get(item.ConnectionName)
 	if err != nil {
-		return err
+		return false, err
+	}
+	owner := vaultClient.Owner(item.k8sResource())
+	if item.Owner != nil {
+		owner = *item.Owner
 	}
 
 	// Perform the cleanup based on resource type
 	switch item.ResourceType {
 	case ResourceTypePolicy:
-		return vaultClient.DeletePolicy(ctx, item.VaultName)
+		foreign, err := vault.ForeignPolicyOwner(ctx, vaultClient, item.VaultName, owner)
+		if err != nil {
+			return false, err
+		}
+		if foreign != nil {
+			c.skipForeign(item, foreign)
+			return true, nil
+		}
+		return false, vaultClient.DeletePolicy(ctx, item.VaultName)
 	case ResourceTypeRole:
-		return vaultClient.DeleteKubernetesAuthRole(ctx, item.AuthPath, item.VaultName)
+		foreign, err := vault.ForeignRoleOwner(ctx, vaultClient, item.AuthPath, item.VaultName, owner)
+		if err != nil {
+			return false, err
+		}
+		if foreign != nil {
+			c.skipForeign(item, foreign)
+			return true, nil
+		}
+		return false, vaultClient.DeleteKubernetesAuthRole(ctx, item.AuthPath, item.VaultName)
 	default:
 		c.log.Error(nil, "unknown resource type in cleanup queue",
 			"resourceType", item.ResourceType,
 			"id", item.ID)
 		// Remove unknown items from queue
-		return nil
+		return true, nil
 	}
+}
+
+// skipForeign logs a replayed delete dropped because the object now belongs
+// to someone else.
+func (c *Controller) skipForeign(item Item, foreign *vault.Ownership) {
+	c.log.Info("skipping replayed delete — Vault object is owned by someone else",
+		"resourceType", item.ResourceType,
+		"vaultName", item.VaultName,
+		"owner", foreign.String())
 }
 
 // NeedsLeaderElection returns true as this controller should only run on the leader.

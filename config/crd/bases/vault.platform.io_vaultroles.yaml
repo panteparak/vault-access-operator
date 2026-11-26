@@ -223,6 +223,19 @@ spec:
                     description: BoundAt is when the binding was established
                     format: date-time
                     type: string
+                  connection:
+                    description: |-
+                      Connection is the VaultConnection the object was last written through.
+                      Set for policies and roles; not used by VaultKVSecret.
+                    type: string
+                  identity:
+                    description: |-
+                      Identity is the identity segment of VaultResourceName, the name the
+                      object was last written under: spec.identity.name, --cluster-name or
+                      the login mount, and "_" when none applies (ADR 0011). Set on each
+                      write, so an object synced by v0.12.0 gains it at its next write. Set
+                      for policies and roles; not used by VaultKVSecret.
+                    type: string
                   lastVerifiedAt:
                     description: LastVerifiedAt is when the binding was last verified
                     format: date-time
@@ -339,6 +352,14 @@ spec:
               nextRetryAt:
                 description: NextRetryAt is the time of the next retry attempt
                 format: date-time
+                type: string
+              pendingVaultRoleName:
+                description: |-
+                  PendingVaultRoleName is the Vault name a sync is about to write when it
+                  differs from VaultRoleName (a rename or the first write). It is
+                  persisted before the Vault write and cleared when the sync commits, so
+                  a retry after a lost commit recognises the role it already wrote even
+                  on a Vault that drops alias_metadata (< 1.21.3).
                 type: string
               phase:
                 description: Phase represents the current phase of the resource

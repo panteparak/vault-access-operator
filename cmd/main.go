@@ -127,10 +127,9 @@ func main() {
 			"auth mount. Must match "+clusterNamePattern+".")
 	var managedMarkers bool
 	flag.BoolVar(&managedMarkers, "managed-markers", os.Getenv("MANAGED_MARKERS") == "true",
-		"Enable in-band ownership tracking (ADR 0008): conflict/adoption detection, discovery, and "+
-			"orphan detection. Ownership travels ON the managed objects themselves (policy comment "+
-			"header, KV custom_metadata) keyed to the connection's auth mount — no extra Vault grant "+
-			"is required. Disabled by default (opt-in).")
+		"Enable the discovery and orphan-detection controllers, which scan Vault for objects by "+
+			"their in-band ownership records (ADR 0008). Ownership/conflict checks and adoption run "+
+			"whether or not this is set (#18). Disabled by default (opt-in).")
 	// Default is controller-runtime's production config (JSON encoder, info
 	// level) so log fields are queryable in aggregators. Local/dev runs pass
 	// --zap-devel for human-readable console output.
@@ -156,8 +155,8 @@ func main() {
 	naming.SetCluster(clusterName)
 	markers.SetEnabled(managedMarkers)
 	if !managedMarkers {
-		setupLog.Info("managed-marker tracking disabled (opt-in via --managed-markers): " +
-			"ownership/conflict detection, discovery, and orphan detection are inactive")
+		setupLog.Info("discovery and orphan detection disabled (opt-in via --managed-markers); " +
+			"ownership/conflict checks run regardless")
 	}
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled

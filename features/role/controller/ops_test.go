@@ -19,6 +19,7 @@ import (
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/features/role/domain"
@@ -132,8 +133,13 @@ func TestRoleOps_WriteToVault_WritesWhenAnnotationCleared(t *testing.T) {
 	h := newRoleOpsTestHarness(t)
 	// no annotations, no discovery-pending
 	adapter := newRoleAdapterWithAnnotations(nil)
+	// The write first persists status.pendingVaultRoleName (review finding
+	// 1, #18), so the ops need a K8s client holding the role.
+	k8s := fake.NewClientBuilder().WithScheme(newTestScheme()).
+		WithObjects(adapter.GetObject()).WithStatusSubresource(adapter.GetObject()).Build()
 	ops := &RoleOps{
 		adapter:   adapter,
+		handler:   &Handler{client: k8s},
 		vaultName: "test-vault-name",
 		authPath:  vault.DefaultKubernetesAuthPath,
 		roleData:  map[string]interface{}{"policies": []string{"p"}},

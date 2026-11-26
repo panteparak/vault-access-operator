@@ -30,31 +30,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
-	"github.com/panteparak/vault-access-operator/shared/markers"
 )
 
 // log is for logging in this package.
 var vaultpolicylog = logf.Log.WithName("vaultpolicy-webhook")
-
-// rejectAdoptIntentWithoutMarkers rejects a create/update that requests
-// adoption/ownership semantics (ConflictPolicy: Adopt or the adopt annotation)
-// while managed-marker tracking is disabled operator-wide — that intent cannot
-// be honored without markers, so surfacing it at admission is clearer than a
-// silent no-op at reconcile. No-op when markers are enabled or no adopt intent
-// is present. Plain/defaulted ConflictPolicy: Fail is intentionally allowed.
-func rejectAdoptIntentWithoutMarkers(annotations map[string]string, cp vaultv1alpha1.ConflictPolicy) error {
-	if markers.Enabled() {
-		return nil
-	}
-	if annotations[vaultv1alpha1.AnnotationAdopt] == vaultv1alpha1.AnnotationValueTrue ||
-		cp == vaultv1alpha1.ConflictPolicyAdopt {
-		return fmt.Errorf(
-			"conflictPolicy: Adopt / %s=%s requires managed-marker tracking, which is disabled; "+
-				"enable --managed-markers on the operator or remove the adoption request",
-			vaultv1alpha1.AnnotationAdopt, vaultv1alpha1.AnnotationValueTrue)
-	}
-	return nil
-}
 
 // validCapabilities defines the set of valid Vault policy capabilities
 var validCapabilities = map[vaultv1alpha1.Capability]bool{
@@ -99,10 +78,6 @@ func SetupVaultPolicyWebhookWithManager(mgr ctrl.Manager) error {
 // ValidateCreate implements admission.Validator
 func (v *VaultPolicyValidator) ValidateCreate(ctx context.Context, policy *vaultv1alpha1.VaultPolicy) (admission.Warnings, error) {
 	vaultpolicylog.Info("validating VaultPolicy create", "name", policy.Name, "namespace", policy.Namespace)
-
-	if err := rejectAdoptIntentWithoutMarkers(policy.GetAnnotations(), policy.Spec.ConflictPolicy); err != nil {
-		return nil, err
-	}
 
 	// No naming-collision checks (ADR 0010): the fixed 4-segment shape
 	// vao.{identity}.{namespace}.{name} is injective — the CR name is the
@@ -173,10 +148,6 @@ func SetupVaultClusterPolicyWebhookWithManager(mgr ctrl.Manager) error {
 // ValidateCreate implements admission.Validator
 func (v *VaultClusterPolicyValidator) ValidateCreate(ctx context.Context, policy *vaultv1alpha1.VaultClusterPolicy) (admission.Warnings, error) {
 	vaultpolicylog.Info("validating VaultClusterPolicy create", "name", policy.Name)
-
-	if err := rejectAdoptIntentWithoutMarkers(policy.GetAnnotations(), policy.Spec.ConflictPolicy); err != nil {
-		return nil, err
-	}
 
 	// No naming-collision check against VaultPolicy (ADR 0010): the "_"
 	// namespace segment of cluster-scoped names cannot equal a real

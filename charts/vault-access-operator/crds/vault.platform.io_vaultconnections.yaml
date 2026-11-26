@@ -546,6 +546,27 @@ spec:
                 description: HealthCheckInterval defines how often to check Vault
                   connectivity
                 type: string
+              identity:
+                description: |-
+                  Identity sets the naming identity segment for every Vault object written
+                  through this connection (vao.{identity}.{namespace}.{name}), overriding
+                  --cluster-name and the login auth mount (ADR 0011). Omit to keep the
+                  default (--cluster-name, else the login mount). Ownership is still
+                  keyed to the login mount: moving an identity to another login mount is
+                  delete-then-create.
+                properties:
+                  name:
+                    description: |-
+                      Name is the identity segment. Lowercase letters, digits and dashes
+                      only (no dots, so names stay parseable; no "_", which marks "no
+                      identity"). Must not equal the sanitized name of any auth mount on the
+                      Vault server, or it would collide with a mount-derived identity.
+                    maxLength: 40
+                    pattern: ^[a-z0-9-]+$
+                    type: string
+                required:
+                - name
+                type: object
               tls:
                 description: TLS configuration for the Vault connection
                 properties:
@@ -737,6 +758,25 @@ spec:
                   Health monitoring fields
                   Healthy indicates whether the Vault connection is currently healthy
                 type: boolean
+              identity:
+                description: |-
+                  Identity is the naming identity resolved at the last successful sync
+                  (ADR 0011).
+                properties:
+                  name:
+                    description: Name is the identity segment used in Vault object
+                      names ("_" for none).
+                    type: string
+                  source:
+                    description: 'Source is where Name came from: spec, cluster-name,
+                      auth-mount or none.'
+                    enum:
+                    - spec
+                    - cluster-name
+                    - auth-mount
+                    - none
+                    type: string
+                type: object
               lastHealthCheck:
                 description: LastHealthCheck is the timestamp of the last health check
                   attempt

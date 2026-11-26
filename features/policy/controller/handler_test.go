@@ -67,6 +67,7 @@ type mockVaultClient struct {
 	ownership         *vault.Ownership // in-band header of the live policy (nil = unmanaged/absent)
 	ownershipErr      error
 	authMount         string // this operator's identity (ADR 0008)
+	specIdentity      string // connection spec.identity.name (ADR 0011)
 	authenticated     bool
 	writePolicyCalls  []writePolicyCall
 	deletePolicyCalls []string
@@ -111,6 +112,12 @@ func (m *mockVaultClient) AuthMount() string { return m.authMount }
 func (m *mockVaultClient) GetPolicyOwnership(_ context.Context, _ string) (*vault.Ownership, error) {
 	return m.ownership, m.ownershipErr
 }
+
+func (m *mockVaultClient) Owner(k8sResource string) vault.Owner {
+	return vault.Owner{AuthMount: m.authMount, K8sResource: k8sResource}
+}
+
+func (m *mockVaultClient) SpecIdentity() string { return m.specIdentity }
 
 func (m *mockVaultClient) IsAuthenticated() bool {
 	return m.authenticated
@@ -587,12 +594,11 @@ func TestGeneratePolicyHCL(t *testing.T) {
 	})
 }
 
-// TestCheckConflict_MarkersDisabled pins the critical default: with managed
-// markers OFF, checkConflict short-circuits — it never reads Vault ownership
-// data and returns nil so the reconcile proceeds write-and-forget, even when
-// the policy already exists in Vault.
-func TestCheckConflict_MarkersDisabled(t *testing.T) {
-	// markers default OFF; assert it explicitly rather than relying on order.
+// TestCheckConflict_MarkersOffStillChecks pins #18 AC7 (a deliberate change
+// from v0.12.0, where markers OFF short-circuited to write-and-forget):
+// ownership checks run for every connection whatever --managed-markers
+// says, so a foreign-owned policy is a ConflictError with markers off too.
+func TestCheckConflict_MarkersOffStillChecks(t *testing.T) {
 	markers.SetEnabled(false)
 
 	mockClient := newMockVaultClient()
@@ -609,11 +615,9 @@ func TestCheckConflict_MarkersDisabled(t *testing.T) {
 
 	err := handler.checkConflict(
 		context.Background(), mockClient, adapter, domain.DeriveVaultName(adapter, naming.Placeholder))
-	if err != nil {
-		t.Fatalf("markers disabled: checkConflict should return nil, got %v", err)
+	if !infraerrors.IsConflictError(err) {
+		t.Fatalf("markers off: foreign-owned policy must be a ConflictError, got %v", err)
 	}
-	// PolicyExists is the first Vault call inside the ownership branch; it must
-	// not have been reached.
 	if len(mockClient.writePolicyCalls) != 0 {
 		t.Error("checkConflict must not write policies")
 	}
@@ -718,10 +722,29 @@ func TestCheckConflict_MarkersEnabled(t *testing.T) {
 		m.ownership = nil
 		a := newAdapter(func(p *vaultv1alpha1.VaultPolicy) {
 			p.Status.LastAppliedHash = "previously-synced"
+			p.Status.VaultName = naming.VaultName(naming.Placeholder, p.Namespace, p.Name)
 		})
 		h := &Handler{log: logr.Discard(), recorder: record.NewFakeRecorder(10)}
 		if err := h.checkConflict(context.Background(), m, a, domain.DeriveVaultName(a, naming.Placeholder)); err != nil {
 			t.Errorf("previously-synced CR should own its headerless policy, got %v", err)
+		}
+	})
+
+	// AC3 (#18): the status memory was earned at the RECORDED name. During a
+	// rename the bound name is new to this CR, so a header-less object
+	// already sitting there is someone else's.
+	t.Run("headerless at the new name during a rename: conflict", func(t *testing.T) {
+		m := newMockVaultClient()
+		m.policyExists = true
+		m.ownership = nil
+		a := newAdapter(func(p *vaultv1alpha1.VaultPolicy) {
+			p.Status.LastAppliedHash = "previously-synced"
+			p.Status.VaultName = naming.VaultName("old-identity", p.Namespace, p.Name)
+		})
+		h := &Handler{log: logr.Discard(), recorder: record.NewFakeRecorder(10)}
+		err := h.checkConflict(context.Background(), m, a, domain.DeriveVaultName(a, naming.Placeholder))
+		if !infraerrors.IsConflictError(err) {
+			t.Errorf("header-less object at the rename target must conflict, got %v", err)
 		}
 	})
 
@@ -738,7 +761,10 @@ func TestCheckConflict_MarkersEnabled(t *testing.T) {
 		}
 	})
 
-	t.Run("ownership read error, Adopt: adopted; Fail: transient", func(t *testing.T) {
+	// Changed on purpose (#18 review finding 2): a read error under Adopt
+	// used to adopt, which could take over a policy whose unread record
+	// names another owner. It is now transient under Fail and Adopt alike.
+	t.Run("ownership read error: transient under Fail and Adopt", func(t *testing.T) {
 		m := newMockVaultClient()
 		m.policyExists = true
 		m.ownershipErr = errors.New("boom")
@@ -752,8 +778,9 @@ func TestCheckConflict_MarkersEnabled(t *testing.T) {
 		a = newAdapter(func(p *vaultv1alpha1.VaultPolicy) {
 			p.Spec.ConflictPolicy = vaultv1alpha1.ConflictPolicyAdopt
 		})
-		if err := h.checkConflict(context.Background(), m, a, domain.DeriveVaultName(a, naming.Placeholder)); err != nil {
-			t.Errorf("read error with Adopt should adopt, got %v", err)
+		err = h.checkConflict(context.Background(), m, a, domain.DeriveVaultName(a, naming.Placeholder))
+		if !infraerrors.IsTransientError(err) {
+			t.Errorf("read error under Adopt should be transient (never adopt unknown ownership), got %v", err)
 		}
 	})
 }

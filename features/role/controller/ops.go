@@ -19,10 +19,14 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/util/retry"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	vaultv1alpha1 "github.com/panteparak/vault-access-operator/api/v1alpha1"
 	"github.com/panteparak/vault-access-operator/features/role/domain"
@@ -100,7 +104,7 @@ func (o *RoleOps) BindVaultName(vaultClient workflow.VaultOpsClient) string {
 		o.vaultName = o.adapter.GetVaultRoleNameStatus()
 		return o.vaultName
 	}
-	identity := naming.Identity(naming.Cluster(), vaultClient.AuthMount())
+	identity, _ := naming.Identity(vaultClient.SpecIdentity(), naming.Cluster(), vaultClient.AuthMount())
 	o.vaultName = domain.DeriveVaultName(o.adapter, identity)
 	return o.vaultName
 }
@@ -171,6 +175,7 @@ func (o *RoleOps) ownership(vaultClient workflow.VaultOpsClient) vault.Ownership
 		ManagedBy:   vault.KVManagedByValue,
 		AuthMount:   vaultClient.AuthMount(),
 		Cluster:     naming.Cluster(),
+		Identity:    vaultClient.SpecIdentity(),
 		K8sResource: o.adapter.GetK8sResourceIdentifier(),
 		K8sKind:     o.ResourceKind(),
 	}
@@ -189,9 +194,10 @@ func (o *RoleOps) authBackend() vault.AuthBackend {
 
 // DetectDrift compares expected vs actual role data in Vault.
 func (o *RoleOps) DetectDrift(ctx context.Context, vaultClient workflow.VaultOpsClient) (bool, string) {
-	return o.handler.detectRoleDrift(
+	hasDrift, summary, _ := o.handler.detectRoleDrift(
 		ctx, vaultClient, o.authBackend(), o.authPath, o.vaultName, o.roleData,
 	)
+	return hasDrift, summary
 }
 
 // WriteToVault creates/updates the Kubernetes auth role in Vault. Skipped under:
@@ -214,7 +220,79 @@ func (o *RoleOps) WriteToVault(ctx context.Context, vaultClient workflow.VaultOp
 		)
 		return nil
 	}
-	return vaultClient.WriteKubernetesAuthRole(ctx, o.authPath, o.vaultName, o.roleData)
+	prevPending := o.adapter.GetPendingVaultRoleName()
+	if err := o.persistPendingName(ctx); err != nil {
+		return err
+	}
+	err := vaultClient.WriteKubernetesAuthRole(ctx, o.authPath, o.vaultName, o.roleData)
+	if err != nil && infraerrors.IsVaultRequestRejected(err) && o.adapter.GetPendingVaultRoleName() != prevPending {
+		// Vault refused the write (4xx), so nothing landed at the name this
+		// sync made pending: forget it, or a record-less role someone else
+		// creates there would count as ours (#18 review round 2, finding A).
+		// An ambiguous failure (5xx, 408/412/429, timeout) keeps it: the
+		// write may have landed.
+		if rerr := o.restorePendingName(ctx, prevPending); rerr != nil {
+			log.Error(rerr, "failed to persist the restored pending vault role name; the error path's status update retries it",
+				"refused", o.vaultName, "restored", prevPending)
+		}
+	}
+	return err
+}
+
+// restorePendingName puts back the pending name this sync replaced, after
+// Vault refused the write to o.vaultName, and persists it in its own
+// status update. The error path's single update is not enough: if it
+// fails, pending stays at the refused name, and later refused writes set
+// nothing so restore nothing (#18 review round 3, finding A2). On a
+// conflict it re-fetches and restores only while pending is still the
+// name this sync set, so a claim recorded since is kept. The re-fetch
+// reads the API server, not the informer cache: a cache that has not seen
+// this sync's own pending persist would show "pending moved" and skip the
+// restore (#18 review round 4, S14).
+func (o *RoleOps) restorePendingName(ctx context.Context, prev string) error {
+	obj := o.adapter.GetObject()
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		if o.adapter.GetPendingVaultRoleName() != o.vaultName {
+			return nil
+		}
+		o.adapter.SetPendingVaultRoleName(prev)
+		err := o.handler.client.Status().Update(ctx, obj)
+		if apierrors.IsConflict(err) {
+			if getErr := o.handler.uncachedReader().Get(ctx, client.ObjectKeyFromObject(obj), obj); getErr != nil {
+				return getErr
+			}
+		}
+		return err
+	})
+}
+
+// persistPendingName records the name about to be written in
+// status.pendingVaultRoleName before a write to a name status does not
+// record yet (a rename or the first write). A Vault that drops
+// alias_metadata (< 1.21.3) leaves the role record-less; if the sync's
+// status commit is then lost, the retry's conflict check finds our own
+// role at a name status does not record. The pending name lets it
+// recognise the role (checkConflict) and lets cleanup delete it. No write
+// happens unless the pending name is stored.
+func (o *RoleOps) persistPendingName(ctx context.Context) error {
+	if o.vaultName == o.adapter.GetVaultRoleNameStatus() || o.vaultName == o.adapter.GetPendingVaultRoleName() {
+		return nil
+	}
+	o.adapter.SetPendingVaultRoleName(o.vaultName)
+	if err := o.handler.client.Status().Update(ctx, o.adapter.GetObject()); err != nil {
+		return fmt.Errorf("record pending vault role name %q: %w", o.vaultName, err)
+	}
+	return nil
+}
+
+// PendingVaultName returns the name a sync wrote (or was about to write)
+// without committing it, so cleanup deletes it as well as the recorded
+// name. Empty when none, or when it equals the recorded name.
+func (o *RoleOps) PendingVaultName() string {
+	if p := o.adapter.GetPendingVaultRoleName(); p != o.adapter.GetVaultRoleNameStatus() {
+		return p
+	}
+	return ""
 }
 
 // ReadbackVerify reads back the role and checks for drift.
@@ -227,14 +305,93 @@ func (o *RoleOps) ReadbackVerify(ctx context.Context, vaultClient workflow.Vault
 			"role", o.vaultName)
 		return nil
 	}
-	hasDrift, summary := o.handler.detectRoleDrift(
+	hasDrift, summary, readback := o.handler.detectRoleDrift(
 		ctx, vaultClient, o.authBackend(), o.authPath, o.vaultName, o.roleData,
 	)
 	if hasDrift {
 		return infraerrors.NewTransientError(
 			"readback verification", fmt.Errorf("role content mismatch after write: %s", summary))
 	}
+	if dryrun.IsActive(o.adapter) {
+		return nil
+	}
+	return o.verifyOwnershipReadback(ctx, vaultClient, readback)
+}
+
+// verifyOwnershipReadback fails unless the alias_metadata record read back
+// is the one just written: role drift ignores alias_metadata, so a
+// same-content write by another owner would otherwise pass readback.
+// A failed or empty read stays non-fatal, as for the content check.
+//
+// ponytail: a role read back with no record at all passes. Vault < 1.21.3
+// silently drops alias_metadata (ADR 0010), so there is nothing to compare;
+// failing would put every role on such a Vault into Conflict. On those
+// Vaults no writer leaves a record, so the readback cannot tell owners
+// apart either way.
+func (o *RoleOps) verifyOwnershipReadback(
+	ctx context.Context, vaultClient workflow.VaultOpsClient, data map[string]interface{},
+) error {
+	if data == nil {
+		return nil
+	}
+	got, ok := vault.ParseAliasMetadata(data)
+	if !ok {
+		o.handler.warnRecordMissing(ctx, o.adapter)
+		return nil
+	}
+	if want := o.ownership(vaultClient); got != want {
+		return infraerrors.NewConflictError("role", o.vaultName, fmt.Sprintf(
+			"but the ownership record read back after our write names %q, not %q",
+			got.String(), want.String()))
+	}
 	return nil
+}
+
+// eventReasonOwnershipRecordMissing is the Warning reason emitted when a
+// role reads back with no alias_metadata record on a Vault that stores it.
+const eventReasonOwnershipRecordMissing = "OwnershipRecordMissing"
+
+// warnRecordMissing emits a non-blocking Warning when a role read back with
+// no ownership record although the connection's Vault (status.vaultVersion)
+// is 1.21.3 or later, which stores alias_metadata: something stripped the
+// record, so ownership of this role can no longer be proven. An unknown or
+// unparseable version emits nothing. Never fails the sync.
+func (h *Handler) warnRecordMissing(ctx context.Context, adapter domain.RoleAdapter) {
+	if h.recorder == nil || h.client == nil {
+		return
+	}
+	var conn vaultv1alpha1.VaultConnection
+	if err := h.client.Get(ctx, client.ObjectKey{Name: adapter.GetConnectionRef()}, &conn); err != nil {
+		return
+	}
+	if !storesAliasMetadata(conn.Status.VaultVersion) {
+		return
+	}
+	h.recorder.Eventf(adapter.GetObject(), corev1.EventTypeWarning, eventReasonOwnershipRecordMissing,
+		"Role read back with no alias_metadata ownership record although Vault %s stores it; "+
+			"ownership of this role cannot be proven until the record is restored (next write)",
+		conn.Status.VaultVersion)
+}
+
+// storesAliasMetadata reports whether a Vault version string ("1.21.3",
+// "v1.22.0+ent") is 1.21.3 or later. Vault 1.21.0-1.21.2 accept role
+// alias_metadata on write and drop it; 1.21.3 is the first release that
+// stores it (review finding 4, #18, measured). A missing patch counts as
+// 0, so "1.21" = false and "1.22" = true. Unparseable = false.
+func storesAliasMetadata(version string) bool {
+	var major, minor, patch int
+	n, _ := fmt.Sscanf(strings.TrimPrefix(version, "v"), "%d.%d.%d", &major, &minor, &patch)
+	if n < 2 {
+		return false
+	}
+	switch {
+	case major != 1:
+		return major > 1
+	case minor != 21:
+		return minor > 21
+	default:
+		return patch >= 3
+	}
 }
 
 // DeleteFromVault deletes the auth role from Vault. Skipped under dry-run;
@@ -246,8 +403,8 @@ func (o *RoleOps) ReadbackVerify(ctx context.Context, vaultClient workflow.Vault
 // record-less role (hand-created, pre-ADR-0010) is deleted as instructed —
 // backstopped by the one-cluster-per-auth-mount invariant, since the mount
 // is resolved from the recorded binding (or connection), never the role CR.
-// Read failures fall through to the delete: its own error handling enqueues
-// a retry, whereas skipping here would leak the role silently.
+// A read failure is returned without deleting (fail closed): the caller
+// queues a retry, and the replay re-runs this same gate (pkg/cleanup).
 func (o *RoleOps) DeleteFromVault(ctx context.Context, vaultClient workflow.VaultOpsClient, name string) error {
 	log := logr.FromContextOrDiscard(ctx)
 	if o.authPath == "" {
@@ -262,18 +419,20 @@ func (o *RoleOps) DeleteFromVault(ctx context.Context, vaultClient workflow.Vaul
 			"role", name)
 		return nil
 	}
-	if data, err := vaultClient.ReadKubernetesAuthRole(ctx, o.authPath, name); err == nil && data != nil {
-		if own, ok := vault.ParseAliasMetadata(data); ok &&
-			!own.SameOwner(vaultClient.AuthMount(), o.adapter.GetK8sResourceIdentifier()) {
-			log.Info("skipping DeleteKubernetesAuthRole — Vault role is owned by someone else",
-				"role", name, "owner", own.String())
-			if o.handler.recorder != nil {
-				o.handler.recorder.Eventf(o.adapter.GetObject(), corev1.EventTypeWarning,
-					"ForeignRoleNotDeleted",
-					"Vault role %q was not deleted: it is owned by %s", name, own.String())
-			}
-			return nil
+	own, err := vault.ForeignRoleOwner(ctx, vaultClient, o.authPath, name,
+		vaultClient.Owner(o.adapter.GetK8sResourceIdentifier()))
+	if err != nil {
+		return err
+	}
+	if own != nil {
+		log.Info("skipping DeleteKubernetesAuthRole — Vault role is owned by someone else",
+			"role", name, "owner", own.String())
+		if o.handler.recorder != nil {
+			o.handler.recorder.Eventf(o.adapter.GetObject(), corev1.EventTypeWarning,
+				"ForeignRoleNotDeleted",
+				"Vault role %q was not deleted: it is owned by %s", name, own.String())
 		}
+		return nil
 	}
 	return vaultClient.DeleteKubernetesAuthRole(ctx, o.authPath, name)
 }
@@ -281,6 +440,7 @@ func (o *RoleOps) DeleteFromVault(ctx context.Context, vaultClient workflow.Vaul
 // ApplyActiveStatus sets role-specific status fields.
 func (o *RoleOps) ApplyActiveStatus(_ string, _ *metav1.Time) {
 	o.adapter.SetVaultRoleName(o.vaultName)
+	o.adapter.SetPendingVaultRoleName("")
 	o.adapter.SetBoundServiceAccounts(o.serviceAccountBindings)
 	o.adapter.SetResolvedPolicies(o.policyNames)
 }
@@ -296,6 +456,8 @@ func (o *RoleOps) ApplyBindings() {
 	// passing the normalized o.authPath here used to record a double-prefixed
 	// vaultPath like auth/auth/kubernetes/role/<x>.
 	roleBinding := binding.NewRoleBinding(vault.AuthMountName(o.authPath), o.vaultName)
+	roleBinding.Connection = o.adapter.GetConnectionRef()
+	roleBinding.Identity, _ = naming.IdentityOf(o.vaultName)
 	o.adapter.SetBinding(roleBinding)
 
 	previous := o.adapter.GetPolicyBindings()
@@ -303,6 +465,7 @@ func (o *RoleOps) ApplyBindings() {
 	o.adapter.SetPolicyBindings(policyBindings)
 
 	o.handler.emitPolicyResolvedEvents(o.adapter, previous, policyBindings)
+	o.handler.warnIdentityMismatch(o.adapter, roleBinding.Identity, o.resolution)
 }
 
 // PublishSyncEvent publishes a RoleCreated event.

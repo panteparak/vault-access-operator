@@ -308,10 +308,10 @@ Shared state:
 
 Because features are constructed sequentially in main:
 - Policy feature's `New` call receives a `ClientCache` that has **not yet started populating** (no connections have reconciled).
-- The first few reconciles of policy/role CRDs find `ClientCache.Get(connRef)` returns a cache miss → `vaultclient.Resolve` returns `DependencyError` → status goes `Phase=Error`, condition `ConnectionNotReady`.
+- The first few reconciles of policy/role CRDs find `ClientCache.Get(connRef)` returns a cache miss while the connection's persisted status still says Active and healthy → `vaultclient.Resolve` returns a `DependencyError` with reason `infraerrors.ReasonClientNotCached`.
+- That warm-up is **not** a failure (#18 review finding 6). `syncerror.Handle` leaves status untouched and `BaseReconciler` requeues after `RequeueOnClientWarmup` (2s) with no error and no `SyncFailed` event. An Active resource therefore stays Active, and once the client is cached its next sync takes the unchanged-resource path: no rewrite. Until #18, the miss set `Phase=Error` (`ConnectionNotReady`), so every restart flashed Active resources to Error and then rewrote them with identical content.
+- Real connection problems stay visible: connection not found, not Active, spec update pending (generation) or unhealthy still set `Phase=Error` with `ConnectionNotReady`. They come from the connection's own status, while a cache miss with the connection Active and healthy can only mean this process has not reconciled it yet. If the connection then fails to build a client, the connection controller moves it out of Active and dependents report that.
 - `ConnectionPhaseChangedPredicate` re-enqueues dependent policies/roles when the connection flips to Active — so within ~1 minute of first startup, dependents catch up.
-
-This is correct-by-eventual-consistency but surfaces as noisy logs on cold start. Not a bug; worth noting for contributors debugging "why does my policy sync 30s later".
 
 ## Files Read / Written
 

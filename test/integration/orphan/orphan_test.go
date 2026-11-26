@@ -37,7 +37,8 @@ const orpConnName = "default-connection"
 // binds: identity is the client's stamped "kubernetes" auth mount (no
 // --cluster-name in tests), namespace is always "default" here.
 func orpVaultName(name string) string {
-	return naming.VaultName(naming.Identity("", "kubernetes"), "default", name)
+	identity, _ := naming.Identity("", "", "kubernetes")
+	return naming.VaultName(identity, "default", name)
 }
 
 // setupHarness builds the policy handler + orphan controller wired to the
