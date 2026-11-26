@@ -23,7 +23,7 @@
       
       
       <link rel="icon" href="../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.2">
     
     
       
@@ -31,10 +31,10 @@
       
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../assets/stylesheets/main.57a0d79d.min.css">
       
         
-        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../assets/stylesheets/palette.fb2fffe2.min.css">
       
       
 
@@ -1000,6 +1000,17 @@
     <span class="md-ellipsis">
       
         Spec Fields
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#connectionidentity" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ConnectionIdentity
       
     </span>
   </a>
@@ -2064,6 +2075,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#connectionidentity" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ConnectionIdentity
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#authconfig" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2741,6 +2763,7 @@
 </tr>
 </tbody>
 </table>
+<p>The check runs for every connection (since #18; until v0.12.0 it ran only with <code>--managed-markers</code>). An object whose in-band ownership record names this CR is ours and never conflicts. <code>Adopt</code> takes over an object with no record; it never takes over an object whose record names another owner.</p>
 <h3 id="deletion-policies">Deletion Policies<a class="headerlink" href="#deletion-policies" title="Permanent link">&para;</a></h3>
 <p>Control what happens when a Kubernetes resource is deleted:</p>
 <table>
@@ -2876,8 +2899,36 @@
 <td><code>30s</code></td>
 <td>Health check interval</td>
 </tr>
+<tr>
+<td><code>identity</code></td>
+<td>ConnectionIdentity</td>
+<td>No</td>
+<td>-</td>
+<td>Naming identity for every Vault object written through this connection (see below)</td>
+</tr>
 </tbody>
 </table>
+<h3 id="connectionidentity">ConnectionIdentity<a class="headerlink" href="#connectionidentity" title="Permanent link">&para;</a></h3>
+<p>Sets the identity segment of Vault names (<code>vao.{identity}.{namespace}.{name}</code>) for policies and roles synced through this connection, overriding <code>--cluster-name</code> and the login mount (<a href="../adr/0011-per-connection-naming-identity/">ADR 0011</a>, <a href="../configuration/#connection-identity">Connection identity</a>).</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>name</code></td>
+<td>string</td>
+<td>Yes</td>
+<td><code>^[a-z0-9-]+$</code>, at most 40 characters. <code>_</code> and any name equal to the sanitized name of an auth mount on the Vault server are refused (Phase=Error, reason <code>IdentityCollidesWithAuthMount</code>). Checking needs <code>read</code> on <code>sys/auth</code></td>
+</tr>
+</tbody>
+</table>
+<p>Ownership is still keyed to the login mount: moving an identity to another login mount is delete-then-create.</p>
 <h3 id="authconfig">AuthConfig<a class="headerlink" href="#authconfig" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
@@ -3424,6 +3475,11 @@
 <td>int</td>
 <td>Number of consecutive failed health checks</td>
 </tr>
+<tr>
+<td><code>identity</code></td>
+<td>IdentityStatus</td>
+<td>Naming identity in use: <code>name</code> (<code>_</code> for none) and <code>source</code> (<code>spec</code>, <code>cluster-name</code>, <code>auth-mount</code> or <code>none</code>)</td>
+</tr>
 </tbody>
 </table>
 <h3 id="authstatus">AuthStatus<a class="headerlink" href="#authstatus" title="Permanent link">&para;</a></h3>
@@ -3506,9 +3562,9 @@
 <a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="nt">spec</span><span class="p">:</span>
 <a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="w">  </span><span class="nt">connectionRef</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-primary</span>
 <a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="w">  </span><span class="nt">rules</span><span class="p">:</span>
-<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;secret/data/{{namespace}}/*&quot;</span>
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="s">"secret/data/{{namespace}}/*"</span>
 <a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="w">      </span><span class="nt">capabilities</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">read</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">list</span><span class="p p-Indicator">]</span>
-<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="w">      </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Read</span><span class="nv"> </span><span class="s">application</span><span class="nv"> </span><span class="s">secrets&quot;</span>
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="w">      </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="s">"Read</span><span class="nv"> </span><span class="s">application</span><span class="nv"> </span><span class="s">secrets"</span>
 </code></pre></div>
 <h3 id="spec-fields_1">Spec Fields<a class="headerlink" href="#spec-fields_1" title="Permanent link">&para;</a></h3>
 <table>
@@ -3645,6 +3701,16 @@
 <td>Auth mount path (roles only, e.g., <code>kubernetes</code>)</td>
 </tr>
 <tr>
+<td><code>identity</code></td>
+<td>string</td>
+<td>Identity segment of <code>vaultResourceName</code>, the bound Vault name: <code>spec.identity.name</code>, <code>--cluster-name</code> or the login mount, <code>_</code> when none (ADR 0011). Set on each write, so an object synced by v0.12.0 gains it at its next write</td>
+</tr>
+<tr>
+<td><code>connection</code></td>
+<td>string</td>
+<td>The <code>VaultConnection</code> the resource was written through</td>
+</tr>
+<tr>
 <td><code>boundAt</code></td>
 <td>time</td>
 <td>When the binding was established</td>
@@ -3739,9 +3805,9 @@
 <a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="nt">spec</span><span class="p">:</span>
 <a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">  </span><span class="nt">connectionRef</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-primary</span>
 <a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">  </span><span class="nt">rules</span><span class="p">:</span>
-<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;secret/data/shared/*&quot;</span>
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="s">"secret/data/shared/*"</span>
 <a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="w">      </span><span class="nt">capabilities</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">read</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">list</span><span class="p p-Indicator">]</span>
-<a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a><span class="w">      </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Read</span><span class="nv"> </span><span class="s">shared</span><span class="nv"> </span><span class="s">configuration&quot;</span>
+<a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a><span class="w">      </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="s">"Read</span><span class="nv"> </span><span class="s">shared</span><span class="nv"> </span><span class="s">configuration"</span>
 </code></pre></div>
 <h3 id="spec-fields_2">Spec Fields<a class="headerlink" href="#spec-fields_2" title="Permanent link">&para;</a></h3>
 <table>
@@ -4027,6 +4093,11 @@
 <td>Recorded name of the role in Vault (<code>vao.{identity}.{namespace}.{name}</code>, ADR 0010) — authoritative for cleanup/rename</td>
 </tr>
 <tr>
+<td><code>pendingVaultRoleName</code></td>
+<td>string</td>
+<td>Name a sync is writing that <code>vaultRoleName</code> does not record yet (rename or first write). Set before the Vault write, cleared on commit; a retry after a lost commit treats the role there as its own, and cleanup deletes it too</td>
+</tr>
+<tr>
 <td><code>boundServiceAccounts</code></td>
 <td>[]string</td>
 <td>Resolved service account names</td>
@@ -4041,7 +4112,7 @@
 <h3 id="kubectl-output_3">kubectl Output<a class="headerlink" href="#kubectl-output_3" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>$<span class="w"> </span>kubectl<span class="w"> </span>get<span class="w"> </span>vaultrole<span class="w"> </span>-n<span class="w"> </span>my-app
 <a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>NAME<span class="w">       </span>VAULT<span class="w"> </span>ROLE<span class="w">        </span>PHASE<span class="w">    </span>POLICIES<span class="w">                               </span>AGE
-<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>app-role<span class="w">   </span>my-app-app-role<span class="w">   </span>Active<span class="w">   </span><span class="o">[</span><span class="s2">&quot;my-app-app-secrets&quot;</span>,<span class="s2">&quot;shared-reader&quot;</span><span class="o">]</span><span class="w"> </span>1h
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>app-role<span class="w">   </span>my-app-app-role<span class="w">   </span>Active<span class="w">   </span><span class="o">[</span><span class="s2">"my-app-app-secrets"</span>,<span class="s2">"shared-reader"</span><span class="o">]</span><span class="w"> </span>1h
 </code></pre></div>
 <hr />
 <h2 id="vaultclusterrole">VaultClusterRole<a class="headerlink" href="#vaultclusterrole" title="Permanent link">&para;</a></h2>
@@ -4189,7 +4260,7 @@
 <h3 id="kubectl-output_4">kubectl Output<a class="headerlink" href="#kubectl-output_4" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>$<span class="w"> </span>kubectl<span class="w"> </span>get<span class="w"> </span>vaultclusterrole
 <a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>NAME<span class="w">                </span>VAULT<span class="w"> </span>ROLE<span class="w">          </span>PHASE<span class="w">    </span>POLICIES<span class="w">                    </span>AGE
-<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>platform-services<span class="w">   </span>platform-services<span class="w">   </span>Active<span class="w">   </span><span class="o">[</span><span class="s2">&quot;shared-secrets-reader&quot;</span><span class="o">]</span><span class="w">   </span>5d
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>platform-services<span class="w">   </span>platform-services<span class="w">   </span>Active<span class="w">   </span><span class="o">[</span><span class="s2">"shared-secrets-reader"</span><span class="o">]</span><span class="w">   </span>5d
 </code></pre></div>
 <hr />
 <h2 id="vaultkvsecret">VaultKVSecret<a class="headerlink" href="#vaultkvsecret" title="Permanent link">&para;</a></h2>
@@ -4203,8 +4274,8 @@
 <p class="admonition-title">ESO <code>.property</code> references need explicit placeholder keys</p>
 <p>A literally empty <code>data: {}</code> secret unblocks ESO whole-secret references (<code>spec.dataFrom</code>), but an ESO <code>spec.data[].remoteRef.property</code> reference against a <strong>zero-key</strong> secret still reports a <em>missing property</em>. For <code>.property</code> refs, seed explicit placeholder keys with empty-string values:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="nt">data</span><span class="p">:</span>
-<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">  </span><span class="nt">username</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;&quot;</span>
-<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="w">  </span><span class="nt">password</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;&quot;</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">  </span><span class="nt">username</span><span class="p">:</span><span class="w"> </span><span class="s">""</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="w">  </span><span class="nt">password</span><span class="p">:</span><span class="w"> </span><span class="s">""</span>
 </code></pre></div>
 </div>
 <h3 id="example_5">Example<a class="headerlink" href="#example_5" title="Permanent link">&para;</a></h3>
@@ -4215,13 +4286,13 @@
 <a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-app</span>
 <a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a><span class="nt">spec</span><span class="p">:</span>
 <a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a><span class="w">  </span><span class="nt">connectionRef</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">vault-primary</span>
-<a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a><span class="w">  </span><span class="c1"># Full KV v2 data path; must contain a &quot;/data/&quot; segment and is immutable.</span>
-<a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a><span class="w">  </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;secret/data/apps/my-app/config&quot;</span>
+<a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a><span class="w">  </span><span class="c1"># Full KV v2 data path; must contain a "/data/" segment and is immutable.</span>
+<a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a><span class="w">  </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="s">"secret/data/apps/my-app/config"</span>
 <a id="__codelineno-11-10" name="__codelineno-11-10" href="#__codelineno-11-10"></a><span class="w">  </span><span class="c1"># Placeholder content, written ONLY if the path is absent — never overwrites.</span>
 <a id="__codelineno-11-11" name="__codelineno-11-11" href="#__codelineno-11-11"></a><span class="w">  </span><span class="c1"># Omit `data` entirely for a truly empty {} (fine for whole-secret reads).</span>
 <a id="__codelineno-11-12" name="__codelineno-11-12" href="#__codelineno-11-12"></a><span class="w">  </span><span class="nt">data</span><span class="p">:</span>
-<a id="__codelineno-11-13" name="__codelineno-11-13" href="#__codelineno-11-13"></a><span class="w">    </span><span class="nt">username</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;&quot;</span>
-<a id="__codelineno-11-14" name="__codelineno-11-14" href="#__codelineno-11-14"></a><span class="w">    </span><span class="nt">password</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;&quot;</span>
+<a id="__codelineno-11-13" name="__codelineno-11-13" href="#__codelineno-11-13"></a><span class="w">    </span><span class="nt">username</span><span class="p">:</span><span class="w"> </span><span class="s">""</span>
+<a id="__codelineno-11-14" name="__codelineno-11-14" href="#__codelineno-11-14"></a><span class="w">    </span><span class="nt">password</span><span class="p">:</span><span class="w"> </span><span class="s">""</span>
 <a id="__codelineno-11-15" name="__codelineno-11-15" href="#__codelineno-11-15"></a><span class="w">  </span><span class="nt">deletionPolicy</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Delete</span>
 </code></pre></div>
 <h3 id="spec-fields_5">Spec Fields<a class="headerlink" href="#spec-fields_5" title="Permanent link">&para;</a></h3>
@@ -4461,10 +4532,10 @@
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.instant", "navigation.top", "search.highlight", "content.code.copy", "content.action.edit"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.instant", "navigation.top", "search.highlight", "content.code.copy", "content.action.edit"], "search": "../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../assets/javascripts/bundle.a5f9d56c.min.js"></script>
       
     
   </body>

@@ -23,7 +23,7 @@
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.2">
     
     
       
@@ -31,10 +31,10 @@
       
     
     
-      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.57a0d79d.min.css">
       
         
-        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.fb2fffe2.min.css">
       
       
 
@@ -2211,11 +2211,11 @@
 <h3 id="pattern">Pattern<a class="headerlink" href="#pattern" title="Permanent link">&para;</a></h3>
 <p>Features publish events via <code>EventBus.Publish()</code> (synchronous) or <code>EventBus.PublishAsync()</code> (fire-and-forget goroutine). Other features subscribe with typed handlers using Go generics: <code>events.Subscribe[ConnectionReady](bus, handler)</code>.</p>
 <h2 id="managed-markers-and-orphan-detection">Managed Markers and Orphan Detection<a class="headerlink" href="#managed-markers-and-orphan-detection" title="Permanent link">&para;</a></h2>
-<p>Ownership tracking is opt-in via the <code>--managed-markers</code> flag (default off). Ownership records are <strong>in-band</strong> (<a href="../../adr/0008-in-band-ownership-markers/">ADR 0008</a>) — stored ON the managed Vault objects themselves, so no extra Vault grant is needed:</p>
+<p>Ownership checks always run (since #18, <a href="../../adr/0011-per-connection-naming-identity/">ADR 0011</a>); the <code>--managed-markers</code> flag (default off) gates only discovery and orphan detection. Ownership records are <strong>in-band</strong> (<a href="../../adr/0008-in-band-ownership-markers/">ADR 0008</a>) — stored ON the managed Vault objects themselves, so no extra Vault grant is needed:</p>
 <ul>
 <li><strong>Policies</strong> carry a structured comment header inside the policy document (<code>managed-by</code>, <code>auth-mount</code>, <code>cluster</code>, <code>k8s-resource</code>, <code>k8s-kind</code>).</li>
 <li><strong>KV secrets</strong> carry <code>custom_metadata</code> on their own metadata path.</li>
-<li><strong>Roles</strong> carry nothing (Vault auth roles have no metadata surface); ownership memory is the owning CR's status.</li>
+<li><strong>Roles</strong> carry <code>alias_metadata</code> on the role (same keys; stored by Vault &gt;= 1.21.3, <a href="../../adr/0010-structured-vault-names-and-recorded-name-authority/">ADR 0010</a>). Older Vaults, including 1.21.0-1.21.2, accept it on write and drop it; ownership memory is then the owning CR's status.</li>
 </ul>
 <p>The operator's identity is the <strong>auth mount path</strong> its connection logged in through. On a shared Vault, <strong>each cluster's operator MUST authenticate through its own auth mount</strong> (one cluster per mount) — the mount is what tells operators apart. When the flag is off, the operator skips ownership, discovery, and orphan detection entirely.</p>
 <p>These records enable:</p>
@@ -2344,18 +2344,18 @@
 <h3 id="structured-logging">Structured Logging<a class="headerlink" href="#structured-logging" title="Permanent link">&para;</a></h3>
 <p>All log entries include:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="p">{</span>
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span><span class="nt">&quot;level&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;info&quot;</span><span class="p">,</span>
-<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">  </span><span class="nt">&quot;ts&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2026-01-15T10:30:00Z&quot;</span><span class="p">,</span>
-<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">  </span><span class="nt">&quot;logger&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;vaultpolicy&quot;</span><span class="p">,</span>
-<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">  </span><span class="nt">&quot;msg&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;reconciling resource&quot;</span><span class="p">,</span>
-<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="w">  </span><span class="nt">&quot;reconcileID&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;abc123&quot;</span><span class="p">,</span>
-<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="w">  </span><span class="nt">&quot;namespace&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;production&quot;</span><span class="p">,</span>
-<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="w">  </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;my-policy&quot;</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span><span class="nt">"level"</span><span class="p">:</span><span class="w"> </span><span class="s2">"info"</span><span class="p">,</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">  </span><span class="nt">"ts"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2026-01-15T10:30:00Z"</span><span class="p">,</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">  </span><span class="nt">"logger"</span><span class="p">:</span><span class="w"> </span><span class="s2">"vaultpolicy"</span><span class="p">,</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">  </span><span class="nt">"msg"</span><span class="p">:</span><span class="w"> </span><span class="s2">"reconciling resource"</span><span class="p">,</span>
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="w">  </span><span class="nt">"reconcileID"</span><span class="p">:</span><span class="w"> </span><span class="s2">"abc123"</span><span class="p">,</span>
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="w">  </span><span class="nt">"namespace"</span><span class="p">:</span><span class="w"> </span><span class="s2">"production"</span><span class="p">,</span>
+<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="w">  </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"my-policy"</span>
 <a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="p">}</span>
 </code></pre></div>
 <p>Filter logs by reconcileID:
 <div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>kubectl<span class="w"> </span>logs<span class="w"> </span>deploy/vault-access-operator-controller-manager<span class="w"> </span><span class="p">|</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span>jq<span class="w"> </span><span class="s1">&#39;select(.reconcileID == &quot;abc123&quot;)&#39;</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span>jq<span class="w"> </span><span class="s1">'select(.reconcileID == "abc123")'</span>
 </code></pre></div></p>
 <h2 id="error-handling">Error Handling<a class="headerlink" href="#error-handling" title="Permanent link">&para;</a></h2>
 <h3 id="retry-with-backoff">Retry with Backoff<a class="headerlink" href="#retry-with-backoff" title="Permanent link">&para;</a></h3>
@@ -2475,10 +2475,10 @@
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.top", "search.highlight", "content.code.copy", "content.action.edit"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.top", "search.highlight", "content.code.copy", "content.action.edit"], "search": "../../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../../assets/javascripts/bundle.a5f9d56c.min.js"></script>
       
     
   </body>
